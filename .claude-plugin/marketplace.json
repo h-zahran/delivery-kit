@@ -2,8 +2,8 @@
   "name": "delivery-kit",
   "description": "Plugins that carry a unit of work from a heading in a plan file to a verified, shipped build.",
   "owner": {
-    "name": "hzahran78",
-    "url": "https://github.com/hzahran78"
+    "name": "h-zahran",
+    "url": "https://github.com/h-zahran"
   },
   "plugins": [
     {

@@ -44,7 +44,7 @@ So there is no ambiguity:
 ## Install
 
 ```
-/plugin marketplace add hzahran78/delivery-kit
+/plugin marketplace add h-zahran/delivery-kit
 /plugin install delivery-kit@delivery-kit
 ```
 
