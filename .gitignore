@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+*.log
+
+# Scratch directories created by tooling are NOT listed here. This file is
+# published, so a pattern naming a private tool discloses that tool — the same
+# reason the denylist below cannot name its own target. They live in
+# .git/info/exclude, which is per-clone and never leaves the machine.
+
+# Private additions to the leak denylist. Terms that must not be published are
+# exactly the terms that cannot live in tests/portability.bats, so they live
+# here instead and are never committed.
+.leakwords
