@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+defaults:
+  run:
+    shell: bash
+
+# This workflow clones and executes third-party code, and actions/checkout
+# persists credentials into .git/config by default. It only ever needs to read
+# the repository.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure jq
+        run: |
+          if jq --version; then exit 0; fi
+          case "${{ matrix.os }}" in
+            ubuntu-latest)  sudo apt-get update && sudo apt-get install -y jq ;;
+            macos-latest)   brew install jq ;;
+            windows-latest) choco install jq -y ;;
+          esac
+          jq --version
+
+      - name: Install bats
+        run: git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
+
+      # -r so a suite added under tests/ in a subdirectory later cannot be
+      # silently skipped while CI stays green. --print-output-on-failure so a
+      # failing assertion shows the command output that caused it, not just the
+      # line that tripped.
+      - name: Run the test suites
+        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests
+
+  version:
+    name: version agreement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: plugin.json, marketplace entry and changelog agree
+        run: |
+          pv=$(jq -r '.version // empty' .claude-plugin/plugin.json)
+          # Select by name, not by position: a second plugin added to this
+          # array could otherwise be compared against delivery-kit's version,
+          # and if the two happened to match it would pass while comparing the
+          # wrong things.
+          mv=$(jq -r '.plugins[] | select(.name == "delivery-kit") | .version' .claude-plugin/marketplace.json)
+          # `|| true` so a missing heading does not abort the step before the
+          # diagnostic below — Actions runs this under `bash -eo pipefail`, and
+          # a gate whose failure prints nothing is no gate. It cannot mask a
+          # real failure: an empty cv is rejected explicitly on the next line,
+          # and could never equal a real version anyway. The pattern also
+          # validates the date, since the heading format is pinned and a
+          # half-checked format is exactly the silent drift this job exists to
+          # catch.
+          cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+          echo "plugin=$pv marketplace=$mv changelog=$cv"
+          [ -n "$pv" ] || { echo ".claude-plugin/plugin.json has no version"; exit 1; }
+          [ -n "$mv" ] || { echo "no plugin named delivery-kit in .claude-plugin/marketplace.json"; exit 1; }
+          [ -n "$cv" ] || { echo "CHANGELOG.md has no '## [X.Y.Z] - YYYY-MM-DD' heading"; exit 1; }
+          [ "$pv" = "$mv" ] || { echo "plugin.json and marketplace.json disagree"; exit 1; }
+          [ "$pv" = "$cv" ] || { echo "plugin.json and CHANGELOG.md disagree"; exit 1; }
+
+      - name: tag matches the manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          ver=$(jq -r '.version' .claude-plugin/plugin.json)
+          [ "$tag" = "$ver" ] || { echo "tag v$tag does not match plugin.json $ver"; exit 1; }

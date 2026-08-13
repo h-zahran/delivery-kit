@@ -1,0 +1,18 @@
+{
+  "name": "delivery-kit",
+  "description": "Notices when a Claude Code session is running out of context and hands the work off cleanly, so the next session resumes from a single file read.",
+  "version": "1.0.1",
+  "author": {
+    "name": "hzahran78"
+  },
+  "homepage": "https://github.com/hzahran78/delivery-kit",
+  "repository": "https://github.com/hzahran78/delivery-kit",
+  "license": "MIT",
+  "keywords": [
+    "context",
+    "handoff",
+    "session-continuity",
+    "hooks",
+    "workflow"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "delivery-kit",
+  "description": "Plugins that carry a unit of work from a heading in a plan file to a verified, shipped build.",
+  "owner": {
+    "name": "hzahran78",
+    "url": "https://github.com/hzahran78"
+  },
+  "plugins": [
+    {
+      "name": "delivery-kit",
+      "description": "Context guard + handoff: notices when a session is running out of context and ends it cleanly enough that the next one resumes from one file read.",
+      "source": "./",
+      "version": "1.0.1",
+      "category": "workflow",
+      "tags": ["context", "handoff", "session-continuity"]
+    }
+  ]
+}
