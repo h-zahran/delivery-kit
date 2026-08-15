@@ -30,6 +30,21 @@ load helper
   [ -z "$output" ]
 }
 
+@test "a run of inflated entries longer than the median window does not fire the guard (2026-08-15 regression)" {
+  # The single-entry case above is the easy one. A tool that forwards the whole
+  # conversation does not inflate ONE reading: the advisor tool inflates four to
+  # six consecutive ones, because the following assistant messages read the same
+  # oversized cache. A window of five is then filled by the spike and the median
+  # IS the spike — seen 2026-08-15, the hook reported 37% where Claude Code's own
+  # status line read 19%. Nine honest entries at 24% then six inflated ones: a
+  # five-wide window sees nothing but spikes and fires at 450%.
+  t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
+                       900000 900000 900000 900000 900000 900000)"
+  run_hook "$t"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "counts cache reads and cache creation toward context" {
   # 30000 live + 60000 cached = 90000 = 45%. Counting input_tokens alone
   # would read 15% and stay silent.
@@ -44,8 +59,8 @@ load helper
   echo "$output" | jq -e '.reason | test("at 45% of")'
 }
 
-@test "takes the median of the last five, not the smallest" {
-  # Without this, a min-of-five implementation passes every other test in
+@test "takes the median of the window, not the smallest" {
+  # Without this, a min-of-window implementation passes every other test in
   # this file — and reading low is the fail-silent direction, the one the
   # guard must never drift toward. Median of the sorted five is 100000
   # (50%); the minimum is 48000 (24%, silent), and the mean is 79200
@@ -116,19 +131,32 @@ load helper
   [ -z "$output" ]
 }
 
-@test "the byte cap bounds how much of the transcript is read" {
-  # The line budget alone does not bound WORK: 5000 lines of tool results can
-  # be tens of megabytes, and the hook runs against a 10-second timeout on
-  # every tool call. The byte cap bounds it. Capping to exactly the last three
-  # entries changes the median from 30000 to 40000, so a hook that ignores the
-  # cap reports 30% here and fails.
+@test "no byte cap, at any size, changes the answer" {
+  # This test used to assert the opposite, and was right to: with a five-wide
+  # median, capping to the last three entries moved the median from 30000 to
+  # 40000, and asserting the 40000 proved the cap was applied. A fifteen-wide
+  # median removes that observation by construction. `.[-15:]` of a suffix
+  # still holding fifteen readings IS the last fifteen of the whole file, and a
+  # suffix holding fewer trips the fallback and is thrown away — so no cap size
+  # has an observable effect, and the property left to pin is the one the cap
+  # must never break.
+  #
+  # This deliberately does NOT prove the cap is applied; nothing observable can
+  # now. That is an acceptable loss and not a silent one: a cap that has been
+  # removed or ignored costs latency, and latency is bounded by the hook
+  # timeout, which test "the hook timeout leaves headroom over the measured
+  # worst case" pins separately. A cap that changed the answer would instead
+  # misreport context, which is the failure this whole file exists to prevent.
   t="$(transcript_with 10000 20000 30000 40000 50000)"
   printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
-  export DELIVERY_KIT_MAX_BYTES="$(tail -n 3 "$t" | wc -c | tr -d ' ')"
 
-  run_hook "$t" capped
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"40% of the 100000-token window"* ]]
+  # Uncapped the median of the five is 30000, so every cap must report 30%.
+  for lines in 1 3 5; do
+    export DELIVERY_KIT_MAX_BYTES="$(tail -n "$lines" "$t" | wc -c | tr -d ' ')"
+    run_hook "$t" "capped$lines"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"30% of the 100000-token window"* ]]
+  done
 }
 
 @test "a byte cap too small to hold the readings does not starve the median" {
@@ -144,6 +172,24 @@ load helper
   export DELIVERY_KIT_MAX_BYTES="$(tail -n 1 "$t" | wc -c | tr -d ' ')"
 
   run_hook "$t" starvecap
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"48% of the 100000-token window"* ]]
+  [[ "$output" != *"900%"* ]]
+}
+
+@test "a byte cap leaving fewer readings than the median window does not starve it" {
+  # Sibling of the test above, for the widened window. The floor below which the
+  # capped read is discarded has to track the window: a cap can hold eight
+  # readings — clear of any smaller floor, so no fallback runs — and if six of
+  # those eight are inflated the median IS an inflated entry. Nine honest
+  # readings then six inflated ones, capped to the last eight: uncapped the
+  # median is 48000 (48%), starved it is 900000 and the guard reports 900%.
+  t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
+                       900000 900000 900000 900000 900000 900000)"
+  printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
+  export DELIVERY_KIT_MAX_BYTES="$(tail -n 8 "$t" | wc -c | tr -d ' ')"
+
+  run_hook "$t" starvewide
   [ "$status" -eq 0 ]
   [[ "$output" == *"48% of the 100000-token window"* ]]
   [[ "$output" != *"900%"* ]]
@@ -221,18 +267,28 @@ load helper
   [ -z "$output" ]
 }
 
-@test "reads maxBytes from .delivery-kit.json" {
-  # The other two settings are readable from the config file, and a knob that
-  # is reachable only through the environment is one a user cannot commit
-  # alongside the repository it applies to.
-  t="$(transcript_with 10000 20000 30000 40000 50000)"
-  cap="$(tail -n 3 "$t" | wc -c | tr -d ' ')"
+@test "a maxBytes committed to .delivery-kit.json cannot make the guard misreport" {
+  # Companion to "no byte cap, at any size, changes the answer", for the config
+  # path rather than the environment one. Like that test it can no longer prove
+  # the key is READ — under a fifteen-wide median no maxBytes value is
+  # observable — so it pins the half that still matters: maxBytes is the one
+  # setting a user tunes for speed rather than for behaviour, and committing a
+  # too-small value to a repository must not silently turn the guard into a
+  # liar for everyone who clones it.
+  #
+  # The sibling keys in the same object still are observable, and are asserted
+  # here too, so a parse that dropped the whole contextGuard object on the
+  # unfamiliar maxBytes key could not pass.
+  t="$(transcript_with 48000 48000 48000 48000 900000)"
+  cap="$(tail -n 1 "$t" | wc -c | tr -d ' ')"
   printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1,"maxBytes":%s}}\n' "$cap" \
     > "$TEST_DIR/.delivery-kit.json"
 
   run_hook "$t" cfgcap
   [ "$status" -eq 0 ]
-  [[ "$output" == *"40% of the 100000-token window"* ]]
+  [[ "$output" == *"48% of the 100000-token window"* ]]
+  [[ "$output" == *"threshold 1%"* ]]
+  [[ "$output" != *"900%"* ]]
 }
 
 @test "an environment variable overrides the config file" {
