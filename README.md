@@ -19,7 +19,8 @@ the problem this plugin addresses. The longer version is in [docs/why.md](docs/w
 
 ## What ships in v1
 
-Two components that work together and are useful apart.
+Three components. The first two work together and are useful apart; the third
+exists to configure the first.
 
 **The context guard** — a `PostToolUse` hook. After each tool call it reads the
 session transcript, computes how much of the context window is in use, and once
@@ -29,6 +30,11 @@ off. It re-warns once per 5% thereafter.
 **The handoff skill** — makes the work durable, writes a standardised handoff
 document with a fixed set of sections, and prints the exact prompt that resumes
 the work in a fresh session.
+
+**The setup skill** — measures the context a session has actually accumulated,
+asks for your real window and where you want the guard to stop, and merges the
+answers into `~/.delivery-kit.json`, so the question is answered once per
+machine rather than once per repository.
 
 ## What does not ship in v1
 
@@ -62,7 +68,11 @@ do not merely fire early — the first warning reports a percentage well over 10
 and adds a `WINDOW MISCONFIGURED` note, because the guard is measuring against a
 window five times smaller than the real one. That is the guard telling you the
 configuration is provably wrong, and it is the most likely thing to surprise you
-on a first run. One line fixes it:
+on a first run. One line fixes it.
+
+Run `delivery-kit:setup` and it will measure the session, propose a window when
+the measurement supports one — in a fresh session it asks without one — ask where
+you want it to stop, and write the answers for you. Or set it by hand:
 
 ```json
 {

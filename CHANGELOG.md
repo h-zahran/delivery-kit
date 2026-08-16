@@ -4,6 +4,56 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-16
+
+### Added
+
+- `delivery-kit:setup` — a skill that measures the session's observed context,
+  proposes a window, asks where you want the guard to stop, and writes the
+  answers to `~/.delivery-kit.json`. A hook cannot ask a human anything; a skill
+  can, because a skill is instructions to Claude and Claude holds a
+  conversation. It merges rather than overwrites, so keys it does not know —
+  including keys a later version adds — survive.
+- `contextGuard.thresholdTokens` / `DELIVERY_KIT_THRESHOLD_TOKENS`: an absolute
+  stopping point in tokens, unset by default. When set, the guard fires when
+  either tripwire is crossed. This is a safety property: an absolute threshold
+  is decided from the transcript alone so it survives a wrong `windowTokens`,
+  and the percentage survives a `thresholdTokens` set too high. One wrong value
+  used to be enough to silence the guard; now it takes two. When the absolute
+  tripwire is the one that fires, the message changes SHAPE rather than just its
+  numbers — `session context is at N tokens, past the M-token limit (P% of the
+  W-token window)` replaces the percentage wording — so anything parsing `reason`
+  sees a string it has not seen before.
+- A user-level `~/.delivery-kit.json`, read before the repository file. The
+  context window is a fact about a machine and a model, not about a project, so
+  requiring it per repository guaranteed that most repositories ran on defaults.
+
+### Changed
+
+- When the window is provably wrong, the guard now suggests running
+  `delivery-kit:setup`, placed after the handoff instruction and phrased as
+  deferred. The note only ever rides an emission that is already telling Claude
+  to hand off, so a bare suggestion there would be a second competing
+  instruction at the worst possible moment. It rides the once-per-session
+  misconfiguration note, so the suggestion appears once in a session and not
+  again — that is the design and not a bug. The same warning is also emitted as
+  a `systemMessage`, as an unverified hedge that nothing depends on — whether
+  that field is displayed is not observable from a test.
+- The banned-path scan in `tests/portability.bats` now requires a path character
+  after `~/.claude/projects/`, so a prose reference is not treated as a leak
+  while an encoded project directory still is. Measured: 3/3 leaks caught, 0/3
+  false positives, against 3/3 and 3/3 before. A positive control pins that
+  detection is retained.
+
+### Notes
+
+- The default window remains 200,000, and window detection remains rejected.
+  Neither is reopened by this release; see issue #1.
+- Set `windowTokens` and `thresholdTokens` together. If you set
+  `thresholdTokens` alone and leave a wrong `windowTokens`, the percentage
+  tripwire can fire well before the token one you chose — the safety property
+  working, and the reason `delivery-kit:setup` asks about both in one go.
+
 ## [1.0.2] - 2026-08-15
 
 ### Fixed

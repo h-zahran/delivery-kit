@@ -25,7 +25,7 @@ if [ -f "$REPO/.leakwords" ]; then
   extra="$(grep -v '^[[:space:]]*$' "$REPO/.leakwords" | paste -sd'|' -)"
   [ -n "$extra" ] && BANNED_WORDS="$BANNED_WORDS|$extra"
 fi
-BANNED_PATHS='D:\\|/c/Users/|C:\\Users\\|~/\.claude/projects/'
+BANNED_PATHS='D:\\|/c/Users/|C:\\Users\\|~/\.claude/projects/[A-Za-z0-9-]'
 
 # The real scan and the positive control at the bottom of this file must run
 # one identical expression: a control that tests a different expression proves
@@ -170,6 +170,51 @@ SHIPPED="hooks skills README.md CONTRIBUTING.md CHANGELOG.md docs/why.md docs/in
   run grep -rniwE "$VOCAB_RE" "$TEST_DIR/vocab.txt"
   [ "$status" -eq 0 ]
   run grep -rnE "$BANNED_PATHS" "$TEST_DIR/paths.txt"
+  [ "$status" -eq 0 ]
+}
+
+@test "a bare reference to the projects directory is not a leak" {
+  # The setup skill must name this directory to do its job (design D4), and a
+  # prose reference to it carries no identity. The pattern exists to catch a
+  # PERSONAL path — the same prefix followed by an encoded project directory,
+  # which Claude Code writes one of per project with the absolute path
+  # flattened into the name. Requiring a path character after the slash
+  # separates the two. The fixture ends the reference with a backtick, which is
+  # how the reference is actually written in markdown; this is also why the
+  # character class must not be widened to `[^ ]`, which matches a backtick and
+  # re-creates the false positive.
+  printf 'Find the newest transcript under `~/.claude/projects/`.\n' > "$TEST_DIR/prose.txt"
+  run grep -rnE "$BANNED_PATHS" "$TEST_DIR/prose.txt"
+  [ "$status" -eq 1 ]
+}
+
+@test "an encoded project directory is still caught after the narrowing" {
+  # The positive control for the narrowing, and it is not optional: every other
+  # run of this scan asserts only the ABSENCE of a hit, so a pattern that had
+  # stopped matching entirely would be indistinguishable from a clean tree.
+  # Without this test, narrowing the pattern and deleting it look the same.
+  # The fixture is synthetic — a real local path has no business in a committed
+  # file, and a fabricated one demonstrates the point identically.
+  printf 'see ~/.claude/projects/D--Acme-Widget/memory/MEMORY.md\n' > "$TEST_DIR/encoded.txt"
+  run grep -rnE "$BANNED_PATHS" "$TEST_DIR/encoded.txt"
+  [ "$status" -eq 0 ]
+}
+
+@test "a POSIX-encoded project directory is caught too" {
+  # The encoding flattens every path separator to a hyphen, so a POSIX path —
+  # which starts at the root separator — encodes with a LEADING hyphen:
+  # `/Users/jane/code/widget` becomes `-Users-jane-code-widget`. That is why
+  # the character class carries a hyphen, written LAST so it is a literal and
+  # not a range. Without it the class matches only the drive-letter shape
+  # Windows produces, and every macOS and Linux leak walks straight through.
+  #
+  # This test exists because that gap cannot be seen from a green suite. The
+  # real scan asserts only the ABSENCE of a hit, so a pattern that has stopped
+  # catching a whole platform's paths reads exactly like a clean tree — the
+  # neighbouring control catches an expression that matches NOTHING, not one
+  # that has quietly lost a branch. The fixture is synthetic, like the others.
+  printf 'see ~/.claude/projects/-Users-jane-code-widget/memory/MEMORY.md\n' > "$TEST_DIR/posix.txt"
+  run grep -rnE "$BANNED_PATHS" "$TEST_DIR/posix.txt"
   [ "$status" -eq 0 ]
 }
 
