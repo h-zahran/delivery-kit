@@ -299,6 +299,107 @@ load helper
   echo "$output" | jq -e '.reason | test("200000-token")'
 }
 
+@test "reads a user-level .delivery-kit.json" {
+  # The window is a fact about a machine and a model, not about a repository.
+  # Without this layer a user answers the same question in every repo, which is
+  # how most repositories end up on defaults.
+  #
+  # $HOME here is the harness's, not the developer's: setup() isolates it for
+  # the same reason it isolates TMPDIR, so these four tests write a user-level
+  # file without touching the real one — and without the real one reaching any
+  # other test in this file.
+  printf '{"contextGuard":{"windowTokens":1000000}}\n' > "$HOME/.delivery-kit.json"
+  t="$(transcript_with 450000 450000 450000 450000 450000)"
+  run_hook "$t" userlevel
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("1000000-token")'
+  echo "$output" | jq -e '.reason | test("at 45% of")'
+}
+
+@test "the repo file overrides the user file" {
+  # D2 keeps the repo file winning so a project can override for its own
+  # reasons. A user-level value that could not be overridden would be a worse
+  # version of the default it replaces.
+  #
+  # An override test cannot prove the losing layer was read, because "the user
+  # file lost" and "the user file was never read" produce identical output —
+  # the winner's value either way. That is not fixed by choosing a distinctive
+  # window: 300000 comes from the repo file whether or not the user file was
+  # ever opened, and deleting the user-level read leaves such a test green.
+  # Verified, not assumed: that deletion is exactly how this weakness was found.
+  #
+  # So the user file carries a second, UNCONTESTED key. The repo file overrides
+  # windowTokens and says nothing about thresholdPct, so the threshold in the
+  # reason can only have come from the user file — and the window can only have
+  # come from the repo file. One test, both halves observable.
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
+  printf '{"contextGuard":{"windowTokens":300000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 150000 150000 150000 150000 150000)"
+  run_hook "$t" repowins
+  [ "$status" -eq 0 ]
+  # The repo file won the key both files set. Under the user's 1000000 this
+  # reading is 15% and the guard stays silent; under the 200000 default it is
+  # 75%. Neither can produce the line below.
+  echo "$output" | jq -e '.reason | test("300000-token")'
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  # And the user file was genuinely read while losing that key. Without the
+  # user-level read this is the 45% default.
+  echo "$output" | jq -e '.reason | test("threshold 20%")'
+}
+
+@test "the environment overrides both files" {
+  # Three distinct windows, none of them the default, so the reason names the
+  # layer that won rather than a number two layers could have produced. And, as
+  # in the test above, an uncontested thresholdPct in the user file — otherwise
+  # the environment winning is indistinguishable from the files never being
+  # read at all, and this test would survive the deletion of the very line it
+  # exists to cover.
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
+  printf '{"contextGuard":{"windowTokens":500000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  export DELIVERY_KIT_WINDOW_TOKENS=250000
+  t="$(transcript_with 125000 125000 125000 125000 125000)"
+  run_hook "$t" envwins
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("250000-token")'
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "$output" | jq -e '.reason | test("threshold 20%")'
+}
+
+@test "an invalid user-level value leaves the guard armed" {
+  # Same validation on both files, so no invalid value from either can disable
+  # the guard. A zero window would make the percentage arithmetic divide by
+  # zero, which is the shape that silences it.
+  #
+  # The user file carries a VALID sibling key alongside the invalid one, and
+  # that is what makes this test able to detect the user layer being missing at
+  # all. Asserting only that an invalid value changed nothing cannot: a layer
+  # that is never read also changes nothing, so the two outcomes are identical
+  # and the test passes either way.
+  #
+  # There is deliberately NO repo file. An earlier version of this test gave one
+  # a valid window and asserted that, which quietly destroyed it: the repo file
+  # is read AFTER the user file, so its window overwrites the invalid 0 whether
+  # that 0 was rejected or taken. The test then passed with the 0 deleted from
+  # the fixture, and passed again with the window validation removed from
+  # read_config — it had stopped testing its own name. Do not reintroduce a repo
+  # file here; the layer that wins is precisely what hides the thing under test.
+  #
+  # Asserting the 200000 DEFAULT is safe here even though it was not safe three
+  # tests above, and the reason is that it no longer stands alone. Two
+  # independent signals ride one fixture: the invalid window falls back to the
+  # default, while the VALID thresholdPct in the same file proves the file was
+  # read at all. Drop the user-level read and the threshold assertion fails;
+  # accept the zero and the window assertion fails, because 60000 of a zero
+  # window is a division by zero that leaves pct empty and the guard silent.
+  printf '{"contextGuard":{"windowTokens":0,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
+  t="$(transcript_with 60000 60000 60000 60000 60000)"
+  run_hook "$t" badusercfg
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("200000-token")'
+  echo "$output" | jq -e '.reason | test("threshold 20%")'
+  echo "$output" | jq -e '.reason | test("at 30% of")'
+}
+
 @test "a malformed config file falls back to defaults rather than disabling the guard" {
   printf 'this is not json\n' > "$TEST_DIR/.delivery-kit.json"
   t="$(transcript_with 90000 90000 90000 90000 90000)"
@@ -355,6 +456,87 @@ load helper
   echo "$output" | jq -e '.reason | test("threshold 45%")'
 }
 
+@test "fires on thresholdTokens with no valid window configured" {
+  # The point of the absolute tripwire: it is decidable from the transcript
+  # alone, so a windowTokens that is wrong — or, here, invalid and discarded —
+  # cannot silence it.
+  printf '{"contextGuard":{"windowTokens":0,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 405000 405000 405000 405000 405000)"
+  run_hook "$t" abswins
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("405000 tokens, past the 400000-token limit")'
+}
+
+@test "the absolute tripwire fires with the relative one unreachable" {
+  # Proving the OR rather than assuming it: threshold 100% is not reachable
+  # here, so only the absolute one can be responsible for the emission.
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":100,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 405000 405000 405000 405000 405000)"
+  run_hook "$t" absonly
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("past the 400000-token limit")'
+}
+
+@test "the relative tripwire fires with the absolute one unreachable" {
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":900000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 450000 450000 450000 450000 450000)"
+  run_hook "$t" relonly
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 45% of the 1000000-token window \\(threshold 45%\\)")'
+  echo "$output" | jq -e '.reason | test("limit") | not'
+}
+
+@test "when both tripwires are crossed the absolute wording is used and the percentage survives" {
+  # Without this the naming rule is unpinned: either branch would satisfy the
+  # two tests above. The absolute one is named because it is the more specific
+  # statement and the value the user set deliberately — and the percentage is
+  # carried in the same sentence, so nothing is lost by the choice.
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 500000 500000 500000 500000 500000)"
+  run_hook "$t" bothcrossed
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("500000 tokens, past the 400000-token limit")'
+  echo "$output" | jq -e '.reason | test("50% of the 1000000-token window")'
+}
+
+@test "thresholdTokens unset behaves exactly as 1.0.x" {
+  # The regression test for the guarded comparison. An unguarded
+  # [ "$ctx" -ge "" ] errors — but be precise about what that costs, because an
+  # earlier version of this comment claimed it silences the guard and that is
+  # false. Disproved by mutation, twice: the erroring test sits inside
+  # `if …; then abs_fired=1; fi`, so the `if` consumes its status 2, abs_fired
+  # stays 0, and the relative rule still emits decision:block. The real cost is
+  # one "integer expected" line on stderr per tool call — output pollution, not
+  # silence. Of the two things preventing it the `-n` test does the work, since
+  # && short-circuits before the redirect is ever reached; the 2>/dev/null is
+  # the backstop that would swallow the noise if the `-n` were dropped.
+  #
+  # Not the same hazard as the last_bucket sentinel, and this comment used to
+  # say it was. That sentinel guards an erroring comparison feeding `|| exit 0`,
+  # which genuinely does silence the guard for the session. Contained by an
+  # `if`, an error is noise; feeding an `|| exit 0` chain, it is silence.
+  #
+  # This must be explicit rather than relying on other tests happening to leave
+  # the value unset.
+  printf '{"contextGuard":{"windowTokens":200000,"thresholdPct":45}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  run_hook "$t" unsetabs
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 45% of the 200000-token window \\(threshold 45%\\)")'
+}
+
+@test "an invalid thresholdTokens leaves the guard armed on the relative rule" {
+  printf '{"contextGuard":{"windowTokens":200000,"thresholdPct":45,"thresholdTokens":"08"}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  run_hook "$t" badabs
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 45% of the 200000-token window")'
+}
+
 @test "says so when observed context exceeds the configured window" {
   t="$(transcript_with 250000 250000 250000 250000 250000)"   # 125% of 200000
   run_hook "$t" over-window
@@ -393,6 +575,97 @@ load helper
   [[ "$output" != *"WINDOW MISCONFIGURED"* ]]
 }
 
+@test "the deferred setup suggestion follows the handoff instruction in the reason" {
+  # ORDER is the assertion, not presence. The whole point of D5 is that the
+  # suggestion must not read as a competing instruction at the moment the user
+  # has least context to spare — so a test that only checked the text was
+  # present would pass with it placed first, which is the failure.
+  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 300000 300000 300000 300000 300000)"
+  run_hook "$t" deferred
+  [ "$status" -eq 0 ]
+  reason="$(echo "$output" | jq -r '.reason')"
+  handoff_at="$(awk '{print index($0, "print the resume prompt for the user, and stop.")}' <<< "$reason")"
+  setup_at="$(awk '{print index($0, "After the handoff, run delivery-kit:setup")}' <<< "$reason")"
+  [ "$handoff_at" -gt 0 ]
+  [ "$setup_at" -gt 0 ]
+  [ "$setup_at" -gt "$handoff_at" ]
+}
+
+@test "systemMessage is present in the emitted JSON when the window is provably wrong" {
+  # This pins that the hedge is EMITTED, which is all that can be tested here.
+  # Whether it is DISPLAYED is not observable from a test or from inside an
+  # agent session — it was probed live and the probe token never reached the
+  # model's context, which is consistent with the field rendering to the
+  # terminal and is not evidence either way. Nothing in this design depends on
+  # it being delivered, and no test may claim it is.
+  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 300000 300000 300000 300000 300000)"
+  run_hook "$t" hedge
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e 'has("systemMessage")'
+  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup")'
+}
+
+@test "no systemMessage when the window is not provably wrong" {
+  # The hedge rides the misconfiguration note. An ordinary firing must stay the
+  # shape 1.0.x emitted, so a consumer that only knows {decision, reason} sees
+  # nothing new on the common path.
+  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  run_hook "$t" nohedge
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e 'has("systemMessage") | not'
+  echo "$output" | jq -e 'has("decision")'
+}
+
+@test "the hedge and the deferred hint ride the once-per-session note" {
+  # Both are assigned INSIDE the wflag gate, and nothing else here can see that.
+  # Move them out and they attach to EVERY over-window firing rather than the
+  # first: systemMessage on every emission and the deferred hint repeated in
+  # every reason, with the whole suite still green. The neighbouring test "says
+  # it only once per session" does not cover it — that one watches the WINDOW
+  # MISCONFIGURED text, which stays inside the gate under exactly that mistake.
+  # A property that is load-bearing, one line away from breaking and invisible
+  # to the suite earns a test of its own even while it is correct.
+  #
+  # The second firing MUST land in a different bucket, and that is the whole
+  # reason for the second fixture. 300000 of 200000 is 150% -> bucket 30; 320000
+  # is 160% -> bucket 32. Re-running the FIRST fixture would be suppressed by
+  # the bucket gate before the wflag path was ever reached, so the test would
+  # fail spuriously with its subject never having run. The higher bucket is what
+  # lets the test EXERCISE the thing it is about. Climbing context is also the
+  # honest scenario: a session over its configured window keeps growing.
+  #
+  # It is NOT there to stop a silent pass, and an earlier version of this comment
+  # claimed it was — that the assertions below would "pass against an empty
+  # emission". False, and disproved by running it: with the same bucket the test
+  # FAILS, at status 4. The mechanism is `jq -e`, which exits 0 when the last
+  # output is neither false nor null, 1 when it is false or null, and 4 when no
+  # value is produced at all. Empty input yields no value, so every assertion
+  # below — the negatives included — already fails against silence. Stated here
+  # so the next reader does not re-derive it: a negated `jq -e` is not vacuous
+  # on empty input, because 4 is not 0.
+  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  t="$(transcript_with 300000 300000 300000 300000 300000)"   # 150% -> bucket 30
+  run_hook "$t" hedge-once
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e 'has("systemMessage")'
+  echo "$output" | jq -e '.reason | test("After the handoff, run delivery-kit:setup")'
+
+  t="$(transcript_with 320000 320000 320000 320000 320000)"   # 160% -> bucket 32
+  run_hook "$t" hedge-once
+  [ "$status" -eq 0 ]
+  # It still fires — the guard has not gone quiet, it has stopped repeating
+  # itself. That is the positive half of this test's subject, so it is asserted
+  # rather than left to be inferred from the two negatives below. It is not
+  # vacuity insurance: per the `jq -e` note above, those negatives exit 4 and
+  # fail on their own against an empty emission.
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e 'has("systemMessage") | not'
+  echo "$output" | jq -e '.reason | test("After the handoff, run delivery-kit:setup") | not'
+}
+
 @test "reports a broken or missing jq once, then stays quiet" {
   mkdir -p "$TEST_DIR/bin"
   printf '#!/usr/bin/env bash\nexit 127\n' > "$TEST_DIR/bin/jq"
@@ -415,4 +688,71 @@ load helper
   run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "the setup skill's merge expression preserves keys it does not know" {
+  # The expression is EXTRACTED FROM THE SHIPPED SKILL, never copied into this
+  # file. A copy would pin a property of jq's `*` operator — true on any machine
+  # with jq installed, with or without this repository — and would stay green
+  # with skills/setup/SKILL.md deleted outright. Extracting makes the shipped
+  # artifact the thing under test.
+  #
+  # Both halves verified by mutation rather than asserted. Delete that file and
+  # this test alone goes red, at the emptiness check below; the other 58 stay
+  # green — including `every SKILL.md has name and description frontmatter`,
+  # which skills/handoff/SKILL.md satisfies on its own, so it cannot notice this
+  # skill's absence. Change the skill's expression to the naive `.[1]`, leaving
+  # the file otherwise intact, and this test fails on the first assertion below
+  # while all thirteen portability tests stay green — that mutation is invisible
+  # to every scan in the suite, which is what makes this test the only thing
+  # standing between the shipped skill and a config-eating overwrite.
+  #
+  # ~/.delivery-kit.json may already hold handoff.docsDir, contextGuard.maxBytes
+  # or keys added by a later version this skill knows nothing about. Writing a
+  # fresh object would silently delete them — a data-loss defect in a file the
+  # user is unlikely to be watching, caused by the component whose whole
+  # purpose is to be helpful. The "unknown keys are ignored, never rejected"
+  # promise in docs/configuration.md cuts both ways: the hook must tolerate
+  # keys it does not know, and so must this.
+  #
+  # `jq -s ` is what distinguishes the merge from the skill's two measurement
+  # invocations, `jq -Rr ` and `jq -rs `, which this must not pick up.
+  # `|| true` is load-bearing, not defensive habit. bats runs tests under
+  # `set -e`, so a grep that matches nothing aborts the assignment itself and
+  # the check below never executes — verified by running it: the guard was
+  # unreachable before this was added, which made it decoration. With it, a
+  # missing file and a file carrying no merge expression both arrive at the
+  # check and fail there, naming the skill and what was expected in it.
+  found="$(grep -oE "jq -s '[^']*'" "$REPO/skills/setup/SKILL.md" || true)"
+  # An empty $merge reaching jq gives "Top-level program not given" at status 3
+  # — a compile error naming neither this repository nor the skill. Fail here
+  # instead, where the message can say which file was supposed to hold what.
+  [ -n "$found" ] || { echo "no 'jq -s' merge expression in skills/setup/SKILL.md"; false; }
+  # Exactly one. A second `jq -s` added to the skill later would otherwise leave
+  # this test pinning whichever happened to come first in the file.
+  n="$(printf '%s\n' "$found" | grep -c .)"
+  [ "$n" -eq 1 ] || { echo "expected one merge expression, found $n:"; echo "$found"; false; }
+  # The delimiters go through variables rather than being written inline with a
+  # backslash-escaped quote. `macos-latest` is in the CI matrix and runs bash
+  # 3.2, which nothing here can exercise locally, so the extraction is kept to
+  # the plainest POSIX form available — a quoted variable in the expansion,
+  # where there is no escaping left to be read differently by an older shell.
+  prefix="jq -s '"
+  suffix="'"
+  merge="${found#"$prefix"}"
+  merge="${merge%"$suffix"}"
+
+  printf '{"handoff":{"docsDir":"docs/ho"},"contextGuard":{"maxBytes":4000000},"futureKey":{"a":1}}\n' \
+    > "$TEST_DIR/existing.json"
+  printf '{"contextGuard":{"windowTokens":1000000,"thresholdTokens":400000}}\n' \
+    > "$TEST_DIR/patch.json"
+
+  run jq -s "$merge" "$TEST_DIR/existing.json" "$TEST_DIR/patch.json"
+  [ "$status" -eq 0 ]
+
+  echo "$output" | jq -e '.handoff.docsDir == "docs/ho"'
+  echo "$output" | jq -e '.contextGuard.maxBytes == 4000000'
+  echo "$output" | jq -e '.futureKey.a == 1'
+  echo "$output" | jq -e '.contextGuard.windowTokens == 1000000'
+  echo "$output" | jq -e '.contextGuard.thresholdTokens == 400000'
 }

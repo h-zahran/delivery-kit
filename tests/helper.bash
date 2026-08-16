@@ -4,14 +4,32 @@ HOOK="${BATS_TEST_DIRNAME}/../hooks/context-guard.sh"
 REPO="${BATS_TEST_DIRNAME}/.."
 
 setup() {
-  # Every test gets its own TMPDIR. The hook keeps per-session bucket state
-  # there, and a shared TMPDIR would leak state between tests — and collide
-  # with any real Claude Code session running on the same machine.
+  # Every test gets its own TMPDIR and its own HOME. The hook keeps per-session
+  # bucket state under TMPDIR and reads configuration from $HOME, so a shared
+  # value of either leaks state between tests — and collides with whatever is
+  # already on the machine running the suite: a real Claude Code session in the
+  # first case, a real user-level configuration in the second.
+  #
+  # HOME became as load-bearing as TMPDIR the moment the hook started reading
+  # ~/.delivery-kit.json. Without this, every test in the suite inherits the
+  # developer's own window and threshold, so assertions like "200000-token" pass
+  # or fail on the contents of a file the repository does not contain. The
+  # failure aims itself squarely at the people this release most needs: the
+  # setup skill shipped alongside the hook exists precisely to create that file,
+  # so the suite goes red for whoever adopts the feature and stays green in CI,
+  # which has no home configuration to read. Tests write into both directories
+  # freely; this isolation is what makes that safe.
   TEST_DIR="$(mktemp -d)"
   export TMPDIR="$TEST_DIR/tmp"
-  mkdir -p "$TMPDIR"
+  export HOME="$TEST_DIR/home"
+  mkdir -p "$TMPDIR" "$HOME"
   unset DELIVERY_KIT_WINDOW_TOKENS DELIVERY_KIT_THRESHOLD_PCT DELIVERY_KIT_HANDOFF_DIR
   unset DELIVERY_KIT_MAX_BYTES
+  # The absolute tripwire reads this one, and "unset" is the state the guard's
+  # default behaviour depends on — so a developer who has it exported would
+  # otherwise run a suite that silently disagrees with CI, starting with the
+  # test that asserts the unset case behaves as 1.0.x.
+  unset DELIVERY_KIT_THRESHOLD_TOKENS
 }
 
 teardown() {

@@ -6,9 +6,12 @@
 # to finish the current atomic step and invoke the handoff skill. Re-warns once
 # per 5% bucket thereafter.
 #
-# Configuration — defaults, then .delivery-kit.json, then the environment:
-#   contextGuard.windowTokens / DELIVERY_KIT_WINDOW_TOKENS  (default 200000)
-#   contextGuard.thresholdPct / DELIVERY_KIT_THRESHOLD_PCT  (default 45)
+# Configuration — defaults, then ~/.delivery-kit.json, then
+# <repo>/.delivery-kit.json, then the environment:
+#   contextGuard.windowTokens    / DELIVERY_KIT_WINDOW_TOKENS     (default 200000)
+#   contextGuard.thresholdPct    / DELIVERY_KIT_THRESHOLD_PCT     (default 45)
+#   contextGuard.thresholdTokens / DELIVERY_KIT_THRESHOLD_TOKENS  (unset by default)
+#   contextGuard.maxBytes        / DELIVERY_KIT_MAX_BYTES         (default 8000000)
 
 DEFAULT_WINDOW=200000
 DEFAULT_THRESHOLD=45
@@ -64,9 +67,12 @@ session=$(printf '%s' "$input" | jq -r '.session_id // "unknown"')
 
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 
-# Configuration: defaults -> .delivery-kit.json -> environment. The file is
-# what a repository commits; the environment is what overrides it for one
-# session without editing a committed file.
+# Configuration: defaults -> ~/.delivery-kit.json -> <repo>/.delivery-kit.json
+# -> environment. The context window is a fact about a machine and a model, not
+# about a repository: requiring it per repo guarantees most repositories run on
+# defaults, which is the failure this layer exists to reduce. The repo file
+# still wins, so a project can override for its own reasons, and the
+# environment still wins over both for a one-session override.
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$PWD"
 config="$cwd/.delivery-kit.json"
@@ -79,18 +85,59 @@ fi
 WINDOW=$DEFAULT_WINDOW
 THRESHOLD_PCT=$DEFAULT_THRESHOLD
 MAX_BYTES=$DEFAULT_MAX_BYTES
+# Unset by default, and "unset" is load-bearing — see the firing gate below.
+# There is deliberately no DEFAULT_THRESHOLD_TOKENS: a default here would be a
+# guess at a number only the user knows, and a wrong one is the silent failure
+# this release exists to make harder.
+THRESHOLD_TOKENS=""
 
-if [ -f "$config" ]; then
-  cfg_window=$(jq -r '.contextGuard.windowTokens // empty' "$config" 2>/dev/null)
-  cfg_threshold=$(jq -r '.contextGuard.thresholdPct // empty' "$config" 2>/dev/null)
-  cfg_max_bytes=$(jq -r '.contextGuard.maxBytes // empty' "$config" 2>/dev/null)
+# One reader for both files, so the two cannot drift into applying different
+# validation — which would let an invalid value disable the guard from
+# whichever file was checked less carefully. A missing file is not an error:
+# both are optional and zero-config is the supported case.
+#
+# If HOME is unset the path becomes "/.delivery-kit.json", which will not
+# exist, so the `-f` test skips it. Under Git Bash on Windows HOME is set to
+# the user profile, which is the intended location; that shell is where this
+# project has already been bitten once by a TEMP-versus-TMPDIR difference, so
+# it is called out rather than assumed.
+read_config() {
+  [ -f "$1" ] || return 0
+  cfg_window=$(jq -r '.contextGuard.windowTokens // empty' "$1" 2>/dev/null)
+  cfg_threshold=$(jq -r '.contextGuard.thresholdPct // empty' "$1" 2>/dev/null)
+  cfg_tokens=$(jq -r '.contextGuard.thresholdTokens // empty' "$1" 2>/dev/null)
+  cfg_max_bytes=$(jq -r '.contextGuard.maxBytes // empty' "$1" 2>/dev/null)
   is_positive_int "$cfg_window" && WINDOW=$cfg_window
   is_valid_threshold "$cfg_threshold" && THRESHOLD_PCT=$cfg_threshold
+  # No upper bound, unlike the threshold above. That cap exists because a
+  # percentage over 100 can only be reached once context has already overflowed
+  # the window, so it is unreachable by construction; a token count has no such
+  # ceiling — it is a number about the user's model, and any positive value is a
+  # setting somebody could legitimately mean. The arithmetic ceiling documented
+  # at is_positive_int still rejects an out-of-range value like any other
+  # invalid input.
+  is_positive_int "$cfg_tokens" && THRESHOLD_TOKENS=$cfg_tokens
   is_positive_int "$cfg_max_bytes" && MAX_BYTES=$cfg_max_bytes
-fi
+  # Insurance, not a live fix, and no test covers it — stated plainly so the
+  # next reader does not go looking for the bug it prevents. The last
+  # conditional fails whenever maxBytes is absent, which is the ordinary case,
+  # so without this the function would usually return 1. Nothing today notices:
+  # the hook sets neither `set -e` nor `set -u`, and both call sites below
+  # ignore the status. Removing the line leaves the suite green. It earns its
+  # place against the caller that does read $? — a `&&` chain, a `set -e` added
+  # later — where a function returning 1 on its SUCCESS path is a trap. Keep it
+  # last as keys are added above it.
+  return 0
+}
+
+# Read in precedence order. Reading the same path twice, when a repository
+# happens to sit at HOME, is idempotent and needs no guard.
+read_config "$HOME/.delivery-kit.json"
+read_config "$config"
 
 is_positive_int "$DELIVERY_KIT_WINDOW_TOKENS" && WINDOW=$DELIVERY_KIT_WINDOW_TOKENS
 is_valid_threshold "$DELIVERY_KIT_THRESHOLD_PCT" && THRESHOLD_PCT=$DELIVERY_KIT_THRESHOLD_PCT
+is_positive_int "$DELIVERY_KIT_THRESHOLD_TOKENS" && THRESHOLD_TOKENS=$DELIVERY_KIT_THRESHOLD_TOKENS
 is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 
 # Current context = input + cache_read + cache_creation per main-chain
@@ -219,7 +266,37 @@ if [ "$bucket" -le $(( last_bucket - 2 )) ]; then
   last_bucket=$bucket
 fi
 
-[ "$pct" -ge "$THRESHOLD_PCT" ] || exit 0
+# Two independent tripwires, OR semantics. The absolute one is decidable from
+# the transcript alone, so it is immune to a wrong windowTokens; the relative
+# one catches a thresholdTokens set too high. On its own either merely
+# RELOCATES the silent failure — running both means it takes two wrong values
+# to silence the guard where today it takes one. That is a safety gain, not an
+# ergonomic one.
+#
+# THRESHOLD_TOKENS is unset by default, so an unguarded [ "$ctx" -ge "" ] would
+# error. What that costs is OUTPUT POLLUTION, not a dead guard, and the
+# distinction matters because the fix differs. Verified by mutation: the
+# erroring `[` sits inside `if …; then abs_fired=1; fi`, so its status 2 is
+# consumed by the `if`, abs_fired stays 0, and the relative rule below still
+# emits decision:block correctly. What leaks is one "integer expected" line on
+# stderr per tool call.
+#
+# Of the two things preventing that, the `-n` test is what does the work: `&&`
+# short-circuits, so the erroring `[` never runs and the redirect never sees
+# anything. The 2>/dev/null is the backstop that would swallow the noise if the
+# `-n` were ever dropped — either alone suffices; only removing both pollutes.
+#
+# The last_bucket sentinel above guards a DIFFERENT and worse hazard, so do not
+# read the two as the same. There the erroring comparison feeds `|| exit 0`,
+# which really does silence the guard for the rest of the session. Contained by
+# an `if`, an error is noise; feeding an `|| exit 0` chain, it is silence.
+abs_fired=0
+if [ -n "$THRESHOLD_TOKENS" ] && [ "$ctx" -ge "$THRESHOLD_TOKENS" ] 2>/dev/null; then
+  abs_fired=1
+fi
+rel_fired=0
+[ "$pct" -ge "$THRESHOLD_PCT" ] && rel_fired=1
+[ "$abs_fired" -eq 1 ] || [ "$rel_fired" -eq 1 ] || exit 0
 [ "$bucket" -gt "$last_bucket" ] 2>/dev/null || exit 0
 echo "$bucket" > "$flag"
 
@@ -274,15 +351,57 @@ find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-
 # bucket within a call or two. Preserve that distinction if the bucket rule
 # ever changes.
 misconfig=""
+setup_hint=""
+sysmsg=""
 if [ "$ctx" -gt "$WINDOW" ]; then
   wflag="$flagdir/dk-window-warned-$session"
   if [ ! -f "$wflag" ]; then
     : 2>/dev/null > "$wflag"
     misconfig=" WINDOW MISCONFIGURED: observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens). Your real window is therefore at least ${ctx} tokens — set contextGuard.windowTokens in .delivery-kit.json to match your model (commonly 200000 or 1000000) and the percentages above become meaningful."
+    # DEFERRED, and the ordering is the whole design. This note only ever
+    # rides an emission that is already telling Claude to finish the step and
+    # hand off, so a bare "run setup" here would put two competing
+    # instructions in front of Claude exactly when the user has least context
+    # to spare. Phrasing it as what happens AFTER the handoff makes it one
+    # sequence instead. It travels in `reason` because that is the channel
+    # demonstrated to reach Claude.
+    setup_hint=" After the handoff, run delivery-kit:setup to correct this."
+    # An UNVERIFIED HEDGE, and it must never be described as mitigation.
+    # systemMessage is documented as shown to the user, so IF it is honoured it
+    # renders to the terminal rather than into model context — which is
+    # precisely why neither a test nor an in-session probe can observe it. That
+    # was probed live and is not resolvable from here. If it is honoured it is a
+    # real second channel; if it is ignored it costs one JSON field. Nothing
+    # above depends on it.
+    #
+    # Both assignments sit INSIDE the wflag gate deliberately: they ride the
+    # once-per-session note rather than every over-window firing. Keep them here
+    # as further keys are added — @test "the hedge and the deferred hint ride the
+    # once-per-session note" in tests/context-guard.bats pins the placement, and
+    # moving either out of this gate turns that test red.
+    sysmsg="delivery-kit: observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens). Run delivery-kit:setup to correct it."
   fi
 fi
 
-reason="CONTEXT GUARD: session context is at ${pct}% of the ${WINDOW}-token window (threshold ${THRESHOLD_PCT}%). Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): commit and push the work, write the handoff document, print the resume prompt for the user, and stop.${misconfig}"
+# Which is named when both are crossed: the absolute one. It is the more
+# specific statement and it is the value the user set deliberately. Nothing is
+# lost by the choice — the percentage rides in the same sentence — and a wrong
+# window still surfaces independently through the misconfiguration note, which
+# is unaffected by which tripwire fired.
+if [ "$abs_fired" -eq 1 ]; then
+  headline="session context is at ${ctx} tokens, past the ${THRESHOLD_TOKENS}-token limit (${pct}% of the ${WINDOW}-token window)"
+else
+  headline="session context is at ${pct}% of the ${WINDOW}-token window (threshold ${THRESHOLD_PCT}%)"
+fi
 
-jq -n --arg reason "$reason" '{decision:"block", reason:$reason}'
+reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): commit and push the work, write the handoff document, print the resume prompt for the user, and stop.${misconfig}${setup_hint}"
+
+# The common path emits exactly the shape 1.0.x did. A consumer that knows only
+# {decision, reason} sees nothing new unless the misconfiguration note fired.
+if [ -n "$sysmsg" ]; then
+  jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
+    '{decision:"block", reason:$reason, systemMessage:$sysmsg}'
+else
+  jq -n --arg reason "$reason" '{decision:"block", reason:$reason}'
+fi
 exit 0
