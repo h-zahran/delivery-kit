@@ -20,13 +20,32 @@ of those applies.
 ### 1. Land the current step
 
 - Finish only the atomic step in progress — a file edit, a test run, not a batch.
-- Commit everything on the working branch, and push it if the repository has a
-  remote. No uncommitted work may survive the session. If something is genuinely
-  half-done, commit it as `wip(scope): …` — or whatever this project's commit
-  convention calls work in progress — and flag it in the handoff document.
+- **Do not commit. Do not push. Do not stage anything.** Leave the working tree
+  exactly as the developer had it. Git history and shared branches are theirs,
+  and a handoff is not a licence to write to either: the commit message would be
+  yours rather than theirs, a push is outward-facing and hard to undo, and this
+  skill is normally invoked by a hook firing — so neither would have been asked
+  for. Earlier versions of this skill required both, and that was the wrong call.
+- Instead, **make the uncommitted state legible** in the document you are about
+  to write, so nothing is lost by being unrecorded rather than by being
+  uncommitted. Run `git status --porcelain` and `git diff --stat`, and record in
+  the State section every modified, added and untracked path, plus which of them
+  are the work in progress as against pre-existing noise. A path you leave out is
+  a path the next session does not know to look at.
+- Say plainly that the work is uncommitted, and that `git clean`, `git checkout`
+  or `git stash` will discard it. Then print the commands the developer can run
+  if they want it committed, and leave the choice with them:
+
+  ```bash
+  git add -- <the paths you listed>          # never -A; you do not know what else is there
+  git commit -m "wip(<scope>): <what landed>"
+  git push                                   # only if they want it on the remote
+  ```
+
 - If this run has a plan or task list, bring it up to date with what actually
   landed. The completion gate at the end of this skill fails a handoff that
-  leaves it stale, and no later step revisits it.
+  leaves it stale, and no later step revisits it. Editing that file is in scope —
+  it is part of writing the handoff, not a commit.
 
 ### 2. Write the handoff document
 
@@ -49,6 +68,11 @@ Required sections:
   finished.
 - **State** — a table of batches or tasks: done (with commit SHAs and PR
   numbers), in progress (the exact next action), remaining.
+- **Uncommitted work** — the `git status --porcelain` and `git diff --stat` output
+  from step 1, with each path marked as this run's work or as pre-existing. This
+  section is what replaces the commit an earlier version of this skill made: the
+  work is durable because it is *recorded*, not because it was written to history.
+  If the tree is clean, say so — an absent section reads as an omission.
 - **Verification state** — last full test count, static-analysis baseline, CI
   status, runtime verification done or pending.
 - **Blocked** — items that cannot proceed, each with its specific blocker
@@ -61,18 +85,23 @@ Required sections:
   uploads NOT yet applied.
 - **Resume protocol** — numbered steps the next session executes first. Step 1 is
   always: reconcile this document's claims — branch, SHA, PR and CI state —
-  against actual git state, and report any discrepancy before proceeding. One
-  discrepancy is expected and is not worth reporting: this document's own commit
-  lands after its SHA is recorded, so HEAD is one commit ahead. Then the exact
+  against actual git state, and report any discrepancy before proceeding. **HEAD
+  should match the SHA recorded here exactly**, because this skill commits
+  nothing — a HEAD ahead of it means someone else committed, which is worth
+  reporting rather than waving through. The working tree should still be dirty in
+  exactly the way the Uncommitted work section describes; if it is clean, ask
+  before assuming the work was committed rather than discarded. Then the exact
   next command or action for each remaining item.
 
-Before committing the document, verify that every file path and cross-reference
+Before you finish the document, verify that every file path and cross-reference
 in it resolves to a real file. Stale cross-document links have cost a session
 before.
 
-Then commit it, and push if there is a remote — the next session cannot read a
-document that never left this machine. That commit is docs-only, so put
-`[skip ci]` in its message rather than burning a full CI run on it.
+**Then save it and stop. Do not commit it and do not push it.** The document is
+durable because it is on disk, and the next session reads it from disk. Tell the
+developer the path, and include the document itself in the `git add` line you
+print in step 1, so a developer who does want a commit gets the work and the
+record in one.
 
 ### 3. Persist durable knowledge
 
@@ -102,8 +131,12 @@ Then STOP. Do not begin new batches, reviews, or "quick" extras.
 
 - Handoff quality is measured by what the next session does NOT have to
   rediscover.
-- Uncommitted changes, commits left unpushed where a remote exists, or an
-  out-of-date plan or task list — where this project keeps one — mean the
-  handoff is not done.
+- **This skill never writes to git.** No commit, no push, no `git add`, no stash,
+  no branch, no tag. If you are about to run a git command that changes anything,
+  you have left the skill. Reading git state is expected and required.
+- **Unrecorded** changes mean the handoff is not done — as does an out-of-date
+  plan or task list, where this project keeps one. Uncommitted changes are fine
+  and are the normal outcome; changes the document does not mention are the
+  defect, because those are the ones the next session cannot find.
 - If the context guard fired mid-batch, note in the document exactly which
   finding or task within the batch is the boundary.

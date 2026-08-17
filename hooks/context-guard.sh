@@ -394,7 +394,13 @@ else
   headline="session context is at ${pct}% of the ${WINDOW}-token window (threshold ${THRESHOLD_PCT}%)"
 fi
 
-reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): commit and push the work, write the handoff document, print the resume prompt for the user, and stop.${misconfig}${setup_hint}"
+# "record the work" rather than "commit and push the work": this instruction is
+# emitted by a hook firing, so nothing here was asked for by the developer, and an
+# instruction to write to git history or to a shared remote is not one an
+# unprompted hook gets to give. The skill now records the uncommitted state in the
+# document and prints the commands instead. Keep the word "handoff" in this string
+# — tests pin it, and it is how Claude finds the skill.
+reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): record the work, write the handoff document, print the resume prompt for the user, and stop. Do NOT commit or push — the skill leaves git alone.${misconfig}${setup_hint}"
 
 # The common path emits exactly the shape 1.0.x did. A consumer that knows only
 # {decision, reason} sees nothing new unless the misconfiguration note fired.
