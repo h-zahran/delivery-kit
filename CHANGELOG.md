@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-17
+
+### Added
+
+- A test pinning 1.2.0's promise that `delivery-kit:handoff` writes nothing to git.
+  The promise lived entirely in prose, so nothing stopped a later edit from quietly
+  restoring the instruction a user complained about. The test asserts the three
+  explicit prohibitions are present, that the exact instructions 1.2.0 removed have
+  not returned, and that the guard's emitted `reason` still says not to commit or
+  push. It is a regression guard, not a proof — a newly worded instruction to commit
+  would sail past it — and it says so, along with the stricter alternative that was
+  considered and rejected for reddening on legitimate text like "last commit SHA".
+
+### Fixed
+
+- **Three of that test's own negative assertions could never fire.** POSIX exempts
+  a `!`-negated command from `errexit`, so `! grep -q pattern file` does **not** fail
+  a bats test when the pattern *is* found. Written the obvious way, the assertions
+  were inert and the test passed on a tree that violated it — while the positive
+  `grep -qF` assertions beside them reddened correctly, which is exactly what made
+  the inert ones look like they worked. Now written as `run grep …` followed by
+  `[ "$status" -ne 0 ]`, which is a plain command and therefore does fail.
+- Found by mutating the promise away and observing which mutations reddened: two of
+  six did not. This is the third instance in this project of a guard that could not
+  fire, after an unreachable emptiness check in the setup skill's merge test and a
+  release gate whose alternation had been destroyed by argv conversion. The suite is
+  now free of the pattern — no line in `tests/` begins with `!`.
+
 ## [1.2.0] - 2026-08-17
 
 ### Changed
