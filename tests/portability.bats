@@ -257,3 +257,55 @@ SHIPPED="hooks skills README.md CONTRIBUTING.md CHANGELOG.md docs/why.md docs/in
   done
   [ -z "$broken" ] || { echo "broken links:$broken"; false; }
 }
+
+# The handoff skill promised in 1.2.0 that it writes nothing to git. That promise
+# lives entirely in prose, so nothing stopped a later edit from quietly restoring
+# the instruction a user complained about — the skill's behaviour is instructions
+# to Claude and the suite cannot execute it.
+#
+# BE HONEST ABOUT WHAT THIS CATCHES. It is a regression guard, not a proof. It
+# pins that the three explicit prohibitions are still present and that the exact
+# instructions 1.2.0 removed have not come back. It CANNOT detect a newly worded
+# instruction to commit — "save your progress to the repository" would sail past
+# it. The alternative considered and rejected was stripping fenced code blocks
+# and requiring every remaining mention of commit/push to carry a negation; that
+# fires on "last commit SHA", "with commit SHAs and PR numbers" and "someone else
+# committed", all of which are legitimate, so it would have been a test that
+# reddens on correct text.
+#
+# The `git add`/`git commit`/`git push` lines inside the skill's fenced block are
+# deliberate: they are printed FOR the developer to run, which is the whole
+# remedy. So this test must not simply grep for those strings.
+@test "the handoff skill still refuses to write to git" {
+  skill="$REPO/skills/handoff/SKILL.md"
+  [ -f "$skill" ]
+
+  # The prohibitions 1.2.0 added. Deleting any one of them reddens this test.
+  grep -qF 'Do not commit. Do not push. Do not stage anything.' "$skill"
+  grep -qF 'This skill never writes to git.' "$skill"
+  grep -qF 'Do not commit it and do not push it.' "$skill"
+
+  # The instructions 1.2.0 removed. Restoring any of them reddens this test.
+  #
+  # These are written as `run` plus a status check, NOT as `! grep …`, and that is
+  # load-bearing rather than stylistic. POSIX exempts a `!`-negated command from
+  # errexit, so `! grep -q pattern file` does NOT fail a bats test when the
+  # pattern IS found — the assertion is inert and the test passes on a tree that
+  # violates it. Written the obvious way first, three of the negative assertions
+  # below could never fire; the mutation run is what exposed it, and the
+  # positive `grep -qF` assertions above were reddening all along, which is
+  # exactly what made the inert ones look like they worked.
+  run grep -qE 'Commit everything on the working branch' "$skill"
+  [ "$status" -ne 0 ]
+  run grep -qE 'Then commit it, and push if there is a remote' "$skill"
+  [ "$status" -ne 0 ]
+  run grep -qE 'commits left unpushed where a remote exists' "$skill"
+  [ "$status" -ne 0 ]
+
+  # And the hook must not order it either. Anchored on `^reason=` so the
+  # explanatory comment above that line — which quotes the old wording in order
+  # to explain why it changed — is not what this matches. The emitted string is.
+  run grep -qE '^reason=.*commit and push the work' "$REPO/hooks/context-guard.sh"
+  [ "$status" -ne 0 ]
+  grep -qE '^reason=.*Do NOT commit or push' "$REPO/hooks/context-guard.sh"
+}
