@@ -4,6 +4,42 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-17
+
+### Changed
+
+- **`delivery-kit:handoff` no longer writes to git.** No commit, no push, no
+  `git add`, no stash. Reported by developers using it, and they were right: the
+  skill is normally invoked by a hook firing, so neither the commit nor the push
+  had been asked for — the commit message was the agent's rather than the
+  developer's, and a push is outward-facing and hard to undo. On a project whose
+  working branch must not leave the machine, the old rule could not be obeyed at
+  all.
+- **The work is now durable because it is recorded, not because it was
+  committed.** The handoff document gains a required **Uncommitted work** section
+  carrying `git status --porcelain` and `git diff --stat`, with each path marked as
+  this run's work or as pre-existing. The skill states that the work is
+  uncommitted, that `git clean` / `git checkout` / `git stash` will discard it, and
+  prints the `git add` / `git commit` / `git push` commands for the developer to
+  run if they want them. `git add -A` is explicitly not printed.
+- **The guard's own instruction changed with it**, from "commit and push the work"
+  to "record the work", plus an explicit "Do NOT commit or push — the skill leaves
+  git alone". An unprompted hook does not get to order a write to shared history.
+- **The resume protocol's expected git state is inverted.** It previously told the
+  next session to expect HEAD one commit ahead of the recorded SHA, which was true
+  only because the old skill committed the document. HEAD must now **match
+  exactly**; a HEAD ahead of it means someone else committed and is worth
+  reporting rather than waving through. A clean tree where the document describes
+  a dirty one is now a question to ask, not an assumption to make.
+
+### Notes
+
+- The trade is stated in the skill rather than hidden: committing protected work
+  from loss, and recording it does not. What recording buys is that the next
+  session can find every affected path, which a commit alone never guaranteed.
+- No behavioural change to the context guard's firing, thresholds, precedence or
+  message shape beyond the sentence above. The suite is unchanged at 59 tests.
+
 ## [1.1.0] - 2026-08-16
 
 ### Added
