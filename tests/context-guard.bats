@@ -756,3 +756,120 @@ load helper
   echo "$output" | jq -e '.contextGuard.windowTokens == 1000000'
   echo "$output" | jq -e '.contextGuard.thresholdTokens == 400000'
 }
+
+@test "the setup skill's shadow check names every environment variable that overrides it" {
+  # EXTRACTED FROM THE SHIPPED SKILL, never copied into this file — the same
+  # discipline the merge test above sets out. A copy would pin a property of
+  # `printenv`, true on any machine with a shell, and would stay green with the
+  # check deleted from skills/setup/SKILL.md outright.
+  #
+  # Issue #6. `DELIVERY_KIT_*` overrides BOTH configuration files
+  # (hooks/context-guard.sh:138-141), but the skill's shadow check read only the
+  # repository file. So setup wrote ~/.delivery-kit.json, reported success, and
+  # the exported variable went on winning — the identical "reported success,
+  # nothing changed" outcome that the repository-file branch of the very same
+  # check already exists to prevent.
+  snippet="$TEST_DIR/envcheck.sh"
+  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$REPO/skills/setup/SKILL.md" > "$snippet"
+  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in skills/setup/SKILL.md"; false; }
+  # Exactly one. A second loop added to the skill later would otherwise leave
+  # this test pinning whichever of them came first in the file.
+  n="$(grep -c '^for v in DELIVERY_KIT_' "$snippet")"
+  [ "$n" -eq 1 ] || { echo "expected one environment check, found $n"; false; }
+
+  # Every variable the hook actually honours, exported ONE AT A TIME. Exporting
+  # all four together would pass even if the loop covered only the first, which
+  # is the exact shape of partial coverage this issue was filed about.
+  for v in DELIVERY_KIT_WINDOW_TOKENS DELIVERY_KIT_THRESHOLD_PCT \
+           DELIVERY_KIT_THRESHOLD_TOKENS DELIVERY_KIT_MAX_BYTES; do
+    run env "$v=987654" bash "$snippet"
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "$v" || { echo "$v is not reported by the shadow check"; false; }
+    # The VALUE, not merely the name. "Something is set" sends the user hunting
+    # for it; the repository-file branch of this check gives the value it is
+    # imposing, and this half has no reason to give less.
+    echo "$output" | grep -q '987654' || { echo "$v reported without its value"; false; }
+  done
+}
+
+@test "the setup skill's shadow check stays quiet when no environment variable is set" {
+  # The other direction, and it is what makes the test above mean anything. A
+  # check that printed all four names unconditionally would satisfy every
+  # assertion up there while telling the user nothing true — the inert-guard
+  # shape this project has now caught in itself repeatedly.
+  snippet="$TEST_DIR/envcheck.sh"
+  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$REPO/skills/setup/SKILL.md" > "$snippet"
+  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in skills/setup/SKILL.md"; false; }
+  # helper.bash unsets all four in setup(), so this is the clean case.
+  run bash "$snippet"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "the hook and the setup skill measure context by one identical rule" {
+  # Issue #7. The measurement is written TWICE — hooks/context-guard.sh holds it
+  # as READINGS_JQ, skills/setup/SKILL.md holds it inline — and nothing coupled
+  # them. Editing either one left all 62 other tests green. That matters because
+  # the skill's whole claim is that it measures "the same way the guard does":
+  # the window it recommends is only meaningful while that stays true, and when
+  # it stops being true nothing anywhere says so.
+  #
+  # Three quantities are pinned, because all three are duplicated: the jq
+  # program, the `tail -n` line budget, and the median program. Each is verified
+  # by MUTATION, not asserted — edit any one of the six sites alone and this
+  # test alone goes red.
+  SKILL="$REPO/skills/setup/SKILL.md"
+  q="'"
+
+  # --- 1. the reading program.
+  # The sed range ends at the next line carrying a quote, which is the closing
+  # delimiter: the four interior lines of the program contain no apostrophe.
+  # Delimiters are then stripped with parameter expansion rather than another
+  # sed script, so that no quote has to be escaped through a second layer —
+  # macos-latest runs bash 3.2 and nothing here can exercise it locally.
+  hook_block="$(sed -n "/^READINGS_JQ=/,/$q/p" "$HOOK" || true)"
+  skill_block="$(sed -n "/jq -Rr ${q}fromjson?/,/$q/p" "$SKILL" || true)"
+  [ -n "$hook_block" ] || { echo "no READINGS_JQ in hooks/context-guard.sh"; false; }
+  [ -n "$skill_block" ] || { echo "no 'jq -Rr' reading program in skills/setup/SKILL.md"; false; }
+
+  hook_prog="${hook_block#*$q}";   hook_prog="${hook_prog%$q*}"
+  skill_prog="${skill_block#*$q}"; skill_prog="${skill_prog%$q*}"
+
+  # Two empty strings compare equal. Without this, a mis-aimed extraction — a
+  # renamed variable, a reflowed fence — would report agreement about nothing at
+  # all, which is the fail-silent shape this suite has now caught in itself four
+  # times. Anchor on a token that must survive any honest edit.
+  case "$hook_prog" in *isSidechain*) ;; *) echo "extraction missed the hook's program:"; echo "$hook_prog"; false ;; esac
+  case "$skill_prog" in *isSidechain*) ;; *) echo "extraction missed the skill's program:"; echo "$skill_prog"; false ;; esac
+
+  if [ "$hook_prog" != "$skill_prog" ]; then
+    echo "the reading program has drifted between the hook and the setup skill"
+    echo "--- hooks/context-guard.sh"; echo "$hook_prog"
+    echo "--- skills/setup/SKILL.md";  echo "$skill_prog"
+    false
+  fi
+
+  # --- 2. the line budget. The hook spends it at TWO sites (the common path and
+  # the starved path) and the skill at one, so this also catches the hook's own
+  # two copies drifting apart — which no test covered either.
+  # The trailing `[|"]` is load-bearing: it requires a real invocation, where
+  # the next token is either a pipe or the quoted path being read. Without it
+  # this also matched `tail -n 300` inside the hook's comment explaining the
+  # 2026-08-07 incident, and the test reported a drift between a live budget and
+  # a historical one named in prose. Caught by running it, not by reading it.
+  budgets="$(grep -ohE 'tail -n [0-9]+ [|"]' "$HOOK" "$SKILL" | awk '{print $3}' || true)"
+  count="$(printf '%s\n' "$budgets" | grep -c . || true)"
+  [ "$count" -ge 3 ] || { echo "expected at least 3 'tail -n' sites, found $count"; false; }
+  distinct="$(printf '%s\n' "$budgets" | sort -u | grep -c . || true)"
+  [ "$distinct" -eq 1 ] || {
+    echo "the line budget disagrees across $count sites:"; printf '%s\n' "$budgets" | sort -u; false; }
+
+  # --- 3. the median program. Same line in both files, and the one that decides
+  # which reading is believed; 1.0.2 already had to widen it once.
+  medians="$(grep -ohE "jq -rs ${q}[^${q}]*${q}" "$HOOK" "$SKILL" || true)"
+  count="$(printf '%s\n' "$medians" | grep -c . || true)"
+  [ "$count" -ge 2 ] || { echo "expected the median program in both files, found $count"; false; }
+  distinct="$(printf '%s\n' "$medians" | sort -u | grep -c . || true)"
+  [ "$distinct" -eq 1 ] || {
+    echo "the median program disagrees:"; printf '%s\n' "$medians" | sort -u; false; }
+}
