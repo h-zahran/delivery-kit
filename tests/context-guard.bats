@@ -607,16 +607,42 @@ load helper
   echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup")'
 }
 
-@test "no systemMessage when the window is not provably wrong" {
-  # The hedge rides the misconfiguration note. An ordinary firing must stay the
-  # shape 1.0.x emitted, so a consumer that only knows {decision, reason} sees
-  # nothing new on the common path.
+@test "systemMessage rides every firing, not only the misconfiguration note" {
+  # Issue #2, and this test REPLACES one that asserted the opposite. That is a
+  # deliberate contract change, so the reasoning is recorded rather than left in
+  # a commit message.
+  #
+  # The old contract kept the common path shaped exactly as 1.0.x emitted it —
+  # {decision, reason} and nothing more — on the grounds that `systemMessage`
+  # was an unverified hedge that might render nowhere. That reasoning was sound
+  # while it held. It no longer holds.
+  #
+  # MEASURED 2026-08-18, with the user watching their own terminal: a firing
+  # carrying both fields rendered the reason as `PostToolUse:Bash hook returned
+  # blocking error ...` AND the systemMessage as a separate `PostToolUse:Bash
+  # says: delivery-kit: ...` line. Both arrived. The documented channel works
+  # even with a decision present.
+  #
+  # That matters because the ENTIRE payload otherwise travels `decision`, which
+  # the hooks reference states PostToolUse does not have. If that path is ever
+  # withdrawn the guard would emit into a void, silently — the exact failure
+  # this project exists to prevent, sitting underneath the project itself. So
+  # the warning now also goes out on the channel that is documented AND
+  # observed, on every firing rather than only the rare misconfigured one.
   printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" nohedge
   [ "$status" -eq 0 ]
-  echo "$output" | jq -e 'has("systemMessage") | not'
   echo "$output" | jq -e 'has("decision")'
+  # PRESENT, and carrying the substance — not merely present. A field holding
+  # an empty string would satisfy `has()` while telling the user nothing, and
+  # asserting only `has()` is how a guard becomes decoration.
+  echo "$output" | jq -e 'has("systemMessage")'
+  echo "$output" | jq -e '.systemMessage | test("45%")'
+  echo "$output" | jq -e '.systemMessage | test("handoff")'
+  # The misconfiguration sentence must NOT be here: the window is fine. That
+  # half still rides the once-per-session gate.
+  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup") | not'
 }
 
 @test "the hedge and the deferred hint ride the once-per-session note" {
@@ -662,7 +688,13 @@ load helper
   # vacuity insurance: per the `jq -e` note above, those negatives exit 4 and
   # fail on their own against an empty emission.
   echo "$output" | jq -e '.decision == "block"'
-  echo "$output" | jq -e 'has("systemMessage") | not'
+  # systemMessage is now on EVERY firing (issue #2), so its mere presence no
+  # longer distinguishes the first over-window emission from the repeats. What
+  # still rides the once-per-session gate is the SETUP SENTENCE inside it — so
+  # that is what this asserts, and it is the assertion that keeps this test
+  # about its actual subject.
+  echo "$output" | jq -e 'has("systemMessage")'
+  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup") | not'
   echo "$output" | jq -e '.reason | test("After the handoff, run delivery-kit:setup") | not'
 }
 
@@ -755,6 +787,55 @@ load helper
   echo "$output" | jq -e '.futureKey.a == 1'
   echo "$output" | jq -e '.contextGuard.windowTokens == 1000000'
   echo "$output" | jq -e '.contextGuard.thresholdTokens == 400000'
+}
+
+@test "the guard stays silent inside a subagent" {
+  # Issue #5, and the mechanism is MEASURED rather than assumed. A PostToolUse
+  # hook running inside a subagent is handed the PARENT's transcript_path and
+  # the PARENT's session_id — captured live on 2026-08-18 by logging the hook's
+  # stdin and driving one throwaway subagent. Both of its tool calls arrived
+  # carrying the parent session's transcript, identical to the seven main-chain
+  # calls around them.
+  #
+  # Two consequences, and the second is the serious one:
+  #   1. The percentage reported inside a fresh subagent is the PARENT's. The
+  #      subagent's own context is near zero and is never consulted.
+  #   2. `session_id` is the parent's too, so the once-per-bucket flag is SHARED.
+  #      A subagent's firing marks the bucket and can suppress a warning the
+  #      parent was owed — a missing warning, which is this project's worst
+  #      failure mode, not a cosmetic misreport.
+  #
+  # Silence is the fix rather than "measure the subagent instead", because the
+  # payload does not carry the subagent's own transcript path — there is nothing
+  # to measure. And the advice would be wrong anyway: a subagent cannot hand off.
+  #
+  # The discriminator is `agent_id`, present in the payload only inside a
+  # subagent (also observed: `agent_type`). Keyed on its PRESENCE deliberately.
+  # If a future Claude Code renames the field this check goes inert and the guard
+  # returns to today's behaviour — noisy in subagents. The opposite polarity, a
+  # field whose absence silenced the guard, would fail toward silence in the MAIN
+  # session, and that is the one direction this project must never fail in.
+  t="$(transcript_with 90000 90000 90000 90000 90000)"   # 45% of 200000
+  payload="$(jq -nc --arg t "$t" --arg s "test-session" --arg c "$TEST_DIR" \
+    '{transcript_path:$t, session_id:$s, cwd:$c,
+      agent_id:"a7c685b676863456f", agent_type:"general-purpose"}')"
+  run bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "the identical payload without agent_id still fires" {
+  # The positive control for the test above, and it is what makes that test mean
+  # anything. Same transcript, same session, same cwd — only `agent_id` removed.
+  # Without this, a fixture broken in any way at all would produce the silence
+  # that test asserts and pass for entirely the wrong reason.
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  payload="$(jq -nc --arg t "$t" --arg s "test-session" --arg c "$TEST_DIR" \
+    '{transcript_path:$t, session_id:$s, cwd:$c}')"
+  run bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 45% of")'
 }
 
 @test "the setup skill's shadow check names every environment variable that overrides it" {

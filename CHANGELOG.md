@@ -4,6 +4,60 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-18
+
+### Fixed
+
+- **The guard no longer fires inside subagents, where it reported the parent
+  session's percentage and could swallow the parent's next warning.** The
+  mechanism was measured rather than assumed: the hook's stdin was logged and one
+  throwaway subagent was driven through it. Both of that subagent's tool calls
+  arrived carrying the **parent's** `transcript_path` and the **parent's**
+  `session_id`, indistinguishable from the main-chain calls around them except
+  for an `agent_id` field present only inside the subagent.
+- That answers the open question the issue recorded, and the answer is the worse
+  one. Because `session_id` is the parent's, the once-per-bucket flag is
+  **shared** — so a subagent's firing marked the bucket and could suppress a
+  warning the parent was owed. A missing warning is the failure this project
+  exists to prevent, so that, not the wrong percentage, is why this is a fix
+  rather than a cosmetic tidy-up.
+- Silence was chosen over "measure the subagent instead" because the payload does
+  not carry the subagent's own transcript path — there is nothing to measure. The
+  advice would be wrong regardless: a subagent cannot hand off, and telling it to
+  stop mid-task damages the parent's work for no benefit. The check keys on the
+  **presence** of `agent_id`, deliberately: if a future Claude Code renames that
+  field the check goes inert and the guard returns to today's behaviour, noisy in
+  subagents but correct in the main session. The opposite polarity would fail
+  toward silence in the main session, which is the one direction this hook must
+  never fail in. (#5)
+
+### Changed
+
+- **The warning now travels two channels on every firing, not one.** Everything
+  the guard says reached Claude through `decision`, and the hooks reference states
+  plainly that PostToolUse has no decision control. It works anyway — but a plugin
+  whose entire payload rides a path the documentation says does not exist is fine
+  until it isn't, and the failure mode if it were withdrawn is the worst available
+  here: the guard emits into a void, silently, and nobody learns it stopped.
+- `systemMessage` is documented as shown to the user, and **it was measured
+  arriving**. On 2026-08-18 a firing carrying both fields was watched from the
+  user's own terminal: the reason rendered as `PostToolUse:Bash hook returned
+  blocking error …` and the systemMessage as a separate `PostToolUse:Bash says:
+  delivery-kit: …` line. Both arrived, with a decision present in the same
+  emission. Earlier notes in this repository called that unresolvable from inside
+  an agent session and were right — it took a human watching the screen.
+- So `systemMessage` is no longer an unverified hedge riding only the rare
+  misconfiguration note; it accompanies every emission, deliberately shorter than
+  `reason` because a human reads it mid-task. `decision` and `reason` are
+  unchanged. **This replaces the previous contract** that kept the common path
+  byte-shaped as 1.0.x emitted it; that reasoning was sound while `systemMessage`
+  was unverified, and it is superseded by the measurement. (#2)
+
+### Notes
+
+- The firing arithmetic, the thresholds and the 200000 default are untouched by
+  both changes.
+
 ## [1.2.2] - 2026-08-18
 
 ### Fixed

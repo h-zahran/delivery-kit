@@ -62,6 +62,34 @@ if ! jq --version >/dev/null 2>&1; then
   exit 0
 fi
 
+# Inside a subagent this hook is handed the PARENT's transcript_path and the
+# PARENT's session_id — measured on 2026-08-18 by logging the hook's stdin and
+# driving one throwaway subagent; both of its tool calls arrived carrying the
+# parent session's transcript, indistinguishable from the main-chain calls
+# around them except for the two fields read here.
+#
+# So without this exit the guard reports the PARENT's percentage inside a
+# subagent whose own context is near zero, and — because session_id is the
+# parent's too — marks the parent's once-per-bucket flag, which can swallow a
+# warning the parent was owed. A missing warning is the failure this project
+# exists to prevent, so that second effect, not the wrong number, is why this
+# is here.
+#
+# Silence rather than "measure the subagent instead": the payload does not
+# carry the subagent's own transcript path, so there is nothing to measure. The
+# instruction would be wrong regardless — a subagent cannot hand off, and
+# telling it to stop mid-task damages the parent's work for no benefit.
+#
+# Keyed on the PRESENCE of agent_id, and the polarity is deliberate. Should a
+# future Claude Code rename the field, this check goes inert and the guard
+# returns to today's behaviour: noisy in subagents, correct in the main session.
+# A check that instead required some field to be present before arming would
+# fail toward silence in the MAIN session, which is the one direction this hook
+# must never fail in.
+if [ -n "$(printf '%s' "$input" | jq -r '.agent_id // empty')" ]; then
+  exit 0
+fi
+
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
 session=$(printf '%s' "$input" | jq -r '.session_id // "unknown"')
 
@@ -352,7 +380,10 @@ find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-
 # ever changes.
 misconfig=""
 setup_hint=""
-sysmsg=""
+# Only the SETUP SENTENCE rides the once-per-session gate now. The systemMessage
+# itself is built unconditionally below, on every firing — see issue #2 and the
+# measurement recorded there.
+sysmsg_setup=""
 if [ "$ctx" -gt "$WINDOW" ]; then
   wflag="$flagdir/dk-window-warned-$session"
   if [ ! -f "$wflag" ]; then
@@ -366,20 +397,20 @@ if [ "$ctx" -gt "$WINDOW" ]; then
     # sequence instead. It travels in `reason` because that is the channel
     # demonstrated to reach Claude.
     setup_hint=" After the handoff, run delivery-kit:setup to correct this."
-    # An UNVERIFIED HEDGE, and it must never be described as mitigation.
-    # systemMessage is documented as shown to the user, so IF it is honoured it
-    # renders to the terminal rather than into model context — which is
-    # precisely why neither a test nor an in-session probe can observe it. That
-    # was probed live and is not resolvable from here. If it is honoured it is a
-    # real second channel; if it is ignored it costs one JSON field. Nothing
-    # above depends on it.
+    # NO LONGER A HEDGE — it was measured. On 2026-08-18 a firing carrying both
+    # fields was watched from the user's own terminal: the reason arrived as
+    # `PostToolUse:Bash hook returned blocking error ...` and this string
+    # arrived as a separate `PostToolUse:Bash says: delivery-kit: ...` line.
+    # systemMessage IS honoured alongside a decision on PostToolUse. Earlier
+    # comments here called that unresolvable from inside a session, and they
+    # were right — it took a human watching the screen.
     #
     # Both assignments sit INSIDE the wflag gate deliberately: they ride the
     # once-per-session note rather than every over-window firing. Keep them here
     # as further keys are added — @test "the hedge and the deferred hint ride the
     # once-per-session note" in tests/context-guard.bats pins the placement, and
     # moving either out of this gate turns that test red.
-    sysmsg="delivery-kit: observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens). Run delivery-kit:setup to correct it."
+    sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run delivery-kit:setup to correct it."
   fi
 fi
 
@@ -402,12 +433,25 @@ fi
 # — tests pin it, and it is how Claude finds the skill.
 reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): record the work, write the handoff document, print the resume prompt for the user, and stop. Do NOT commit or push — the skill leaves git alone.${misconfig}${setup_hint}"
 
-# The common path emits exactly the shape 1.0.x did. A consumer that knows only
-# {decision, reason} sees nothing new unless the misconfiguration note fired.
-if [ -n "$sysmsg" ]; then
-  jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
-    '{decision:"block", reason:$reason, systemMessage:$sysmsg}'
-else
-  jq -n --arg reason "$reason" '{decision:"block", reason:$reason}'
-fi
+# REDUNDANCY ACROSS MECHANISMS, which is the whole point of issue #2. Everything
+# above reaches Claude through `decision`, and the hooks reference states plainly
+# that PostToolUse has no decision control — "This event has no decision control
+# fields." It works anyway, verified repeatedly. But the plugin's entire payload
+# riding a path the documentation says does not exist is fine until it isn't, and
+# the failure mode if it is ever withdrawn is the worst one available here: the
+# guard emits into a void, silently, and nobody learns that it stopped.
+#
+# `systemMessage` IS documented — "Warning message shown to the user" — and was
+# measured arriving on 2026-08-18 as its own `PostToolUse:Bash says:` line while
+# a decision was present in the same emission. So the warning now travels both:
+# the path that is observed to reach Claude, and the path that is documented to
+# reach the user. One being withdrawn no longer produces silence.
+#
+# Deliberately shorter than `reason`. This one is read by a human mid-task, not
+# parsed by a model, and the full instruction paragraph would be noise on a
+# terminal line.
+sysmsg="delivery-kit: ${headline}. Finish the current step, then run delivery-kit:handoff.${sysmsg_setup}"
+
+jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
+  '{decision:"block", reason:$reason, systemMessage:$sysmsg}'
 exit 0
