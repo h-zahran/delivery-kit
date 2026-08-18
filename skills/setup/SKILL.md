@@ -146,7 +146,13 @@ If it was not, say the merge failed and that the file is unchanged. Printing it
 anyway shows the OLD contents under a heading claiming they were just written,
 which is worse than the failure it hides.
 
-## 5. Say so if the repository is overriding what was just written
+## 5. Say so if anything is overriding what was just written
+
+Three layers can hold these keys, and the later ones win: the user-level file
+this skill just wrote, then the repository file, then the environment. Checking
+only the first two leaves the third free to make everything above a no-op.
+
+### The repository file
 
 The repository file beats the user-level one. So a project carrying a
 `.delivery-kit.json` of its own, holding any of the keys just written, is
@@ -177,5 +183,35 @@ else working on the project, which is exactly why it wins.
 
 If it lists nothing, or there is no repository file, say nothing. There is no
 conflict to report.
+
+### The environment
+
+Environment variables beat both files. `hooks/context-guard.sh` applies them
+last, after the user-level file and after the repository file, so an exported
+variable makes everything this skill just wrote a no-op:
+
+```bash
+for v in DELIVERY_KIT_WINDOW_TOKENS DELIVERY_KIT_THRESHOLD_PCT DELIVERY_KIT_THRESHOLD_TOKENS DELIVERY_KIT_MAX_BYTES; do
+  if val="$(printenv "$v")"; then printf '%s=%s\n' "$v" "$val"; fi
+done
+```
+
+For every line this prints, say that the environment variable overrides both
+`~/.delivery-kit.json` and any repository file, name the variable, and give the
+value it is imposing. This layer is the hardest of the three for a user to
+notice, because nothing on disk records it — naming it is the whole value here.
+
+Leave the choice with the user again, and be honest about its shape: the
+variable comes from a shell profile or a wrapper script that this skill cannot
+see, so there is nothing here to edit. Unsetting it in the current shell does
+not survive into the next session either. Point at the profile as the place to
+change it; **do not guess which file that is**, and do not edit it unasked.
+
+This reports what is SET, not what is valid — the same standard as the
+repository check above, which lists keys without judging their values. A
+variable holding something the hook rejects is still worth naming: it is one
+correction away from taking effect.
+
+If it prints nothing, say nothing.
 
 Then stop. This skill configures; it does not go on to do other work.

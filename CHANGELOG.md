@@ -4,6 +4,42 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-08-18
+
+### Fixed
+
+- **`delivery-kit:setup` reported success while an environment variable silently
+  overrode everything it had just written.** `DELIVERY_KIT_WINDOW_TOKENS`,
+  `DELIVERY_KIT_THRESHOLD_PCT`, `DELIVERY_KIT_THRESHOLD_TOKENS` and
+  `DELIVERY_KIT_MAX_BYTES` beat both configuration files, but the skill's shadow
+  check read only the repository file. A user with one of them exported answered two
+  questions, saw the right numbers printed back, and had nothing change — the very
+  "reported success, nothing changed" outcome that the repository-file half of that
+  same check exists to prevent, missing one of the three layers. The check now
+  covers the environment as well, naming the variable and the value it is imposing,
+  and saying plainly that it comes from a shell profile this skill can neither see
+  nor edit. It reports what is **set**, not what is valid — the same standard the
+  repository check already uses, since a rejected value is one correction away from
+  taking effect. (#6)
+
+### Added
+
+- **A test coupling the hook's measurement to the setup skill's copy of it.** The
+  reading program, the `tail -n` line budget and the median program are each written
+  twice — once in `hooks/context-guard.sh`, once in `skills/setup/SKILL.md` — with
+  nothing holding them together. Editing any one of those six sites left the entire
+  suite green while the skill went on claiming it measures "the same way the guard
+  does"; the window it recommends is only meaningful for as long as that is true.
+  All three quantities are now extracted from the shipped files and compared.
+  Verified by mutation rather than asserted: four edits, on both sides of the pair,
+  each confirmed to redden this test and nothing else. (#7)
+- That test is anchored so it cannot pass on nothing. Two failed extractions compare
+  equal, so agreement about a pair of empty strings would have looked identical to
+  agreement about the real program. Its first draft also matched a `tail -n 300`
+  inside the comment describing the 2026-08-07 incident, and reported a drift
+  between a live budget and a historical one named in prose — found by running it,
+  which is the only thing that finds that.
+
 ## [1.2.1] - 2026-08-17
 
 ### Added
