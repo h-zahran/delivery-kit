@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# context-guard.sh — delivery-kit PostToolUse hook.
+# context-guard.sh — handoff PostToolUse hook.
 #
 # Computes current context usage from the session transcript and, once it
 # crosses the configured threshold, emits a blocking instruction telling Claude
@@ -57,7 +57,7 @@ if ! jq --version >/dev/null 2>&1; then
   hint_flag="$flagdir/dk-jq-hint"
   if [ ! -f "$hint_flag" ]; then
     : 2>/dev/null > "$hint_flag"
-    printf '%s\n' '{"systemMessage":"delivery-kit: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
+    printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
   fi
   exit 0
 fi
@@ -396,11 +396,11 @@ if [ "$ctx" -gt "$WINDOW" ]; then
     # to spare. Phrasing it as what happens AFTER the handoff makes it one
     # sequence instead. It travels in `reason` because that is the channel
     # demonstrated to reach Claude.
-    setup_hint=" After the handoff, run delivery-kit:setup to correct this."
+    setup_hint=" After the handoff, run handoff:setup to correct this."
     # NO LONGER A HEDGE — it was measured. On 2026-08-18 a firing carrying both
     # fields was watched from the user's own terminal: the reason arrived as
     # `PostToolUse:Bash hook returned blocking error ...` and this string
-    # arrived as a separate `PostToolUse:Bash says: delivery-kit: ...` line.
+    # arrived as a separate `PostToolUse:Bash says: handoff: ...` line.
     # systemMessage IS honoured alongside a decision on PostToolUse. Earlier
     # comments here called that unresolvable from inside a session, and they
     # were right — it took a human watching the screen.
@@ -410,7 +410,7 @@ if [ "$ctx" -gt "$WINDOW" ]; then
     # as further keys are added — @test "the hedge and the deferred hint ride the
     # once-per-session note" in tests/context-guard.bats pins the placement, and
     # moving either out of this gate turns that test red.
-    sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run delivery-kit:setup to correct it."
+    sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run handoff:setup to correct it."
   fi
 fi
 
@@ -431,7 +431,7 @@ fi
 # unprompted hook gets to give. The skill now records the uncommitted state in the
 # document and prints the commands instead. Keep the word "handoff" in this string
 # — tests pin it, and it is how Claude finds the skill.
-reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (delivery-kit:handoff): record the work, write the handoff document, print the resume prompt for the user, and stop. Do NOT commit or push — the skill leaves git alone.${misconfig}${setup_hint}"
+reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do NOT start the next batch or task. Then invoke the handoff skill (handoff:handoff): record the work, write the handoff document, print the resume prompt for the user, and stop. Do NOT commit or push — the skill leaves git alone.${misconfig}${setup_hint}"
 
 # REDUNDANCY ACROSS MECHANISMS, which is the whole point of issue #2. Everything
 # above reaches Claude through `decision`, and the hooks reference states plainly
@@ -450,7 +450,7 @@ reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do N
 # Deliberately shorter than `reason`. This one is read by a human mid-task, not
 # parsed by a model, and the full instruction paragraph would be noise on a
 # terminal line.
-sysmsg="delivery-kit: ${headline}. Finish the current step, then run delivery-kit:handoff.${sysmsg_setup}"
+sysmsg="handoff: ${headline}. Finish the current step, then run handoff:handoff.${sysmsg_setup}"
 
 jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
   '{decision:"block", reason:$reason, systemMessage:$sysmsg}'

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Use when the context guard reports a misconfigured window, when the user says "set up delivery-kit", "configure the context guard", or asks where the guard should stop — measures the session's real context, proposes a window, and writes the answers to the user-level config.
+description: Use when the context guard reports a misconfigured window, when the user says "set up handoff", "configure the context guard", or asks where the guard should stop — measures the session's real context, proposes a window, and writes the answers to the user-level config.
 ---
 
 # Setup — tell the guard your real context window and stopping point

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load helper
+load ../../tests/helper
 
 @test "stays silent below the threshold" {
   t="$(transcript_with 10000 10000 10000 10000 10000)"   # 5% of 200000
@@ -14,7 +14,7 @@ load helper
   run_hook "$t"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
-  echo "$output" | jq -e '.reason | test("handoff")'
+  echo "$output" | jq -e '.reason | test("handoff:handoff")'
   echo "$output" | jq -e '.reason | test("at 45% of")'
   echo "$output" | jq -e '.reason | test("200000-token")'
   echo "$output" | jq -e '.reason | test("threshold 45%")'
@@ -586,7 +586,7 @@ load helper
   [ "$status" -eq 0 ]
   reason="$(echo "$output" | jq -r '.reason')"
   handoff_at="$(awk '{print index($0, "print the resume prompt for the user, and stop.")}' <<< "$reason")"
-  setup_at="$(awk '{print index($0, "After the handoff, run delivery-kit:setup")}' <<< "$reason")"
+  setup_at="$(awk '{print index($0, "After the handoff, run handoff:setup")}' <<< "$reason")"
   [ "$handoff_at" -gt 0 ]
   [ "$setup_at" -gt 0 ]
   [ "$setup_at" -gt "$handoff_at" ]
@@ -604,7 +604,7 @@ load helper
   run_hook "$t" hedge
   [ "$status" -eq 0 ]
   echo "$output" | jq -e 'has("systemMessage")'
-  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup")'
+  echo "$output" | jq -e '.systemMessage | test("handoff:setup")'
 }
 
 @test "systemMessage rides every firing, not only the misconfiguration note" {
@@ -620,7 +620,7 @@ load helper
   # MEASURED 2026-08-18, with the user watching their own terminal: a firing
   # carrying both fields rendered the reason as `PostToolUse:Bash hook returned
   # blocking error ...` AND the systemMessage as a separate `PostToolUse:Bash
-  # says: delivery-kit: ...` line. Both arrived. The documented channel works
+  # says: handoff: ...` line. Both arrived. The documented channel works
   # even with a decision present.
   #
   # That matters because the ENTIRE payload otherwise travels `decision`, which
@@ -639,10 +639,10 @@ load helper
   # asserting only `has()` is how a guard becomes decoration.
   echo "$output" | jq -e 'has("systemMessage")'
   echo "$output" | jq -e '.systemMessage | test("45%")'
-  echo "$output" | jq -e '.systemMessage | test("handoff")'
+  echo "$output" | jq -e '.systemMessage | test("handoff:handoff")'
   # The misconfiguration sentence must NOT be here: the window is fine. That
   # half still rides the once-per-session gate.
-  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup") | not'
+  echo "$output" | jq -e '.systemMessage | test("handoff:setup") | not'
 }
 
 @test "the hedge and the deferred hint ride the once-per-session note" {
@@ -677,7 +677,7 @@ load helper
   run_hook "$t" hedge-once
   [ "$status" -eq 0 ]
   echo "$output" | jq -e 'has("systemMessage")'
-  echo "$output" | jq -e '.reason | test("After the handoff, run delivery-kit:setup")'
+  echo "$output" | jq -e '.reason | test("After the handoff, run handoff:setup")'
 
   t="$(transcript_with 320000 320000 320000 320000 320000)"   # 160% -> bucket 32
   run_hook "$t" hedge-once
@@ -694,8 +694,8 @@ load helper
   # that is what this asserts, and it is the assertion that keeps this test
   # about its actual subject.
   echo "$output" | jq -e 'has("systemMessage")'
-  echo "$output" | jq -e '.systemMessage | test("delivery-kit:setup") | not'
-  echo "$output" | jq -e '.reason | test("After the handoff, run delivery-kit:setup") | not'
+  echo "$output" | jq -e '.systemMessage | test("handoff:setup") | not'
+  echo "$output" | jq -e '.reason | test("After the handoff, run handoff:setup") | not'
 }
 
 @test "reports a broken or missing jq once, then stays quiet" {
@@ -709,7 +709,7 @@ load helper
   run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
   [ "$status" -eq 0 ]
   [[ "$output" == *"jq"* ]]
-  [[ "$output" == *"delivery-kit"* ]]
+  [[ "$output" == *"handoff"* ]]
   echo "$output" | jq -e '.systemMessage | test("jq")'
   # Pin where the flag lives. Without this, a rename or a move to a different
   # directory would still pass — both calls would simply agree — and the
@@ -726,18 +726,19 @@ load helper
   # The expression is EXTRACTED FROM THE SHIPPED SKILL, never copied into this
   # file. A copy would pin a property of jq's `*` operator — true on any machine
   # with jq installed, with or without this repository — and would stay green
-  # with skills/setup/SKILL.md deleted outright. Extracting makes the shipped
-  # artifact the thing under test.
+  # with handoff/skills/setup/SKILL.md deleted outright. Extracting makes the
+  # shipped artifact the thing under test.
   #
   # Both halves verified by mutation rather than asserted. Delete that file and
-  # this test alone goes red, at the emptiness check below; the other 58 stay
-  # green — including `every SKILL.md has name and description frontmatter`,
-  # which skills/handoff/SKILL.md satisfies on its own, so it cannot notice this
-  # skill's absence. Change the skill's expression to the naive `.[1]`, leaving
-  # the file otherwise intact, and this test fails on the first assertion below
-  # while all thirteen portability tests stay green — that mutation is invisible
-  # to every scan in the suite, which is what makes this test the only thing
-  # standing between the shipped skill and a config-eating overwrite.
+  # this test alone goes red, at the emptiness check below; every other test in
+  # the suite stays green — including `every SKILL.md has name and description
+  # frontmatter`, which handoff/skills/handoff/SKILL.md satisfies on its own, so
+  # it cannot notice this skill's absence. Change the skill's expression to the
+  # naive `.[1]`, leaving the file otherwise intact, and this test fails on the
+  # first assertion below while every portability test stays green — that
+  # mutation is invisible to every scan in the suite, which is what makes this
+  # test the only thing standing between the shipped skill and a config-eating
+  # overwrite.
   #
   # ~/.delivery-kit.json may already hold handoff.docsDir, contextGuard.maxBytes
   # or keys added by a later version this skill knows nothing about. Writing a
@@ -755,11 +756,11 @@ load helper
   # unreachable before this was added, which made it decoration. With it, a
   # missing file and a file carrying no merge expression both arrive at the
   # check and fail there, naming the skill and what was expected in it.
-  found="$(grep -oE "jq -s '[^']*'" "$REPO/skills/setup/SKILL.md" || true)"
+  found="$(grep -oE "jq -s '[^']*'" "$HANDOFF/skills/setup/SKILL.md" || true)"
   # An empty $merge reaching jq gives "Top-level program not given" at status 3
   # — a compile error naming neither this repository nor the skill. Fail here
   # instead, where the message can say which file was supposed to hold what.
-  [ -n "$found" ] || { echo "no 'jq -s' merge expression in skills/setup/SKILL.md"; false; }
+  [ -n "$found" ] || { echo "no 'jq -s' merge expression in handoff/skills/setup/SKILL.md"; false; }
   # Exactly one. A second `jq -s` added to the skill later would otherwise leave
   # this test pinning whichever happened to come first in the file.
   n="$(printf '%s\n' "$found" | grep -c .)"
@@ -842,17 +843,18 @@ load helper
   # EXTRACTED FROM THE SHIPPED SKILL, never copied into this file — the same
   # discipline the merge test above sets out. A copy would pin a property of
   # `printenv`, true on any machine with a shell, and would stay green with the
-  # check deleted from skills/setup/SKILL.md outright.
+  # check deleted from handoff/skills/setup/SKILL.md outright.
   #
-  # Issue #6. `DELIVERY_KIT_*` overrides BOTH configuration files
-  # (hooks/context-guard.sh:138-141), but the skill's shadow check read only the
-  # repository file. So setup wrote ~/.delivery-kit.json, reported success, and
-  # the exported variable went on winning — the identical "reported success,
-  # nothing changed" outcome that the repository-file branch of the very same
-  # check already exists to prevent.
+  # Issue #6. `DELIVERY_KIT_*` overrides BOTH configuration files — the four
+  # `DELIVERY_KIT_*` assignments in handoff/hooks/context-guard.sh run after
+  # both `read_config` calls, so they win over whichever file set the value —
+  # but the skill's shadow check read only the repository file. So setup wrote
+  # ~/.delivery-kit.json, reported success, and the exported variable went on
+  # winning — the identical "reported success, nothing changed" outcome that the
+  # repository-file branch of the very same check already exists to prevent.
   snippet="$TEST_DIR/envcheck.sh"
-  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$REPO/skills/setup/SKILL.md" > "$snippet"
-  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in skills/setup/SKILL.md"; false; }
+  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$HANDOFF/skills/setup/SKILL.md" > "$snippet"
+  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in handoff/skills/setup/SKILL.md"; false; }
   # Exactly one. A second loop added to the skill later would otherwise leave
   # this test pinning whichever of them came first in the file.
   n="$(grep -c '^for v in DELIVERY_KIT_' "$snippet")"
@@ -879,8 +881,8 @@ load helper
   # assertion up there while telling the user nothing true — the inert-guard
   # shape this project has now caught in itself repeatedly.
   snippet="$TEST_DIR/envcheck.sh"
-  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$REPO/skills/setup/SKILL.md" > "$snippet"
-  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in skills/setup/SKILL.md"; false; }
+  sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$HANDOFF/skills/setup/SKILL.md" > "$snippet"
+  [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in handoff/skills/setup/SKILL.md"; false; }
   # helper.bash unsets all four in setup(), so this is the clean case.
   run bash "$snippet"
   [ "$status" -eq 0 ]
@@ -888,18 +890,18 @@ load helper
 }
 
 @test "the hook and the setup skill measure context by one identical rule" {
-  # Issue #7. The measurement is written TWICE — hooks/context-guard.sh holds it
-  # as READINGS_JQ, skills/setup/SKILL.md holds it inline — and nothing coupled
-  # them. Editing either one left all 62 other tests green. That matters because
-  # the skill's whole claim is that it measures "the same way the guard does":
-  # the window it recommends is only meaningful while that stays true, and when
-  # it stops being true nothing anywhere says so.
+  # Issue #7. The measurement is written TWICE — handoff/hooks/context-guard.sh
+  # holds it as READINGS_JQ, handoff/skills/setup/SKILL.md holds it inline — and
+  # nothing coupled them. Editing either one left every other test in the suite
+  # green. That matters because the skill's whole claim is that it measures "the
+  # same way the guard does": the window it recommends is only meaningful while
+  # that stays true, and when it stops being true nothing anywhere says so.
   #
   # Three quantities are pinned, because all three are duplicated: the jq
   # program, the `tail -n` line budget, and the median program. Each is verified
   # by MUTATION, not asserted — edit any one of the six sites alone and this
   # test alone goes red.
-  SKILL="$REPO/skills/setup/SKILL.md"
+  SKILL="$HANDOFF/skills/setup/SKILL.md"
   q="'"
 
   # --- 1. the reading program.
@@ -910,8 +912,8 @@ load helper
   # macos-latest runs bash 3.2 and nothing here can exercise it locally.
   hook_block="$(sed -n "/^READINGS_JQ=/,/$q/p" "$HOOK" || true)"
   skill_block="$(sed -n "/jq -Rr ${q}fromjson?/,/$q/p" "$SKILL" || true)"
-  [ -n "$hook_block" ] || { echo "no READINGS_JQ in hooks/context-guard.sh"; false; }
-  [ -n "$skill_block" ] || { echo "no 'jq -Rr' reading program in skills/setup/SKILL.md"; false; }
+  [ -n "$hook_block" ] || { echo "no READINGS_JQ in handoff/hooks/context-guard.sh"; false; }
+  [ -n "$skill_block" ] || { echo "no 'jq -Rr' reading program in handoff/skills/setup/SKILL.md"; false; }
 
   hook_prog="${hook_block#*$q}";   hook_prog="${hook_prog%$q*}"
   skill_prog="${skill_block#*$q}"; skill_prog="${skill_prog%$q*}"
@@ -925,8 +927,8 @@ load helper
 
   if [ "$hook_prog" != "$skill_prog" ]; then
     echo "the reading program has drifted between the hook and the setup skill"
-    echo "--- hooks/context-guard.sh"; echo "$hook_prog"
-    echo "--- skills/setup/SKILL.md";  echo "$skill_prog"
+    echo "--- handoff/hooks/context-guard.sh"; echo "$hook_prog"
+    echo "--- handoff/skills/setup/SKILL.md";  echo "$skill_prog"
     false
   fi
 

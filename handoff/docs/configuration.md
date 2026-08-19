@@ -5,7 +5,7 @@ root, and one at `~/.delivery-kit.json` for facts about your machine rather
 than about a project. **Both are optional** — with neither present the defaults
 apply and the guard works.
 
-Run `delivery-kit:setup` and it will measure your session, propose a window when
+Run `handoff:setup` and it will measure your session, propose a window when
 the measurement supports one — in a fresh session there is little to propose, so
 it asks instead — and write the user-level file for you. The rest of this page is
 for setting it by hand.
@@ -138,7 +138,7 @@ can leave the first absolute warning as the only one you get. Measured against a
 are under 5% of that window — the next warning waits until 5,000,000. At a
 window that matches the model, the same setting re-warns normally.
 
-`delivery-kit:setup` asks about both together for these reasons.
+`handoff:setup` asks about both together for these reasons.
 
 ## Read size
 

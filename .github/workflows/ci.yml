@@ -3,7 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # Every tag, and `**` rather than `*` because `*` does not match `/` in a
+    # filter pattern. The tag step below is what rejects a tag that is not
+    # <plugin>-v<version>; see the reasoning there for why that check is not
+    # written as a trigger filter.
+    tags: ['**']
   pull_request:
 
 defaults:
@@ -40,12 +44,15 @@ jobs:
       - name: Install bats
         run: git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
 
-      # -r so a suite added under tests/ in a subdirectory later cannot be
-      # silently skipped while CI stays green. --print-output-on-failure so a
-      # failing assertion shows the command output that caused it, not just the
-      # line that tripped.
+      # -r so a suite added in a subdirectory of one of these cannot be
+      # silently skipped while CI stays green. The paths are named explicitly
+      # rather than discovered, because a glob that matches nothing expands to
+      # itself and bats would report "no such file" — loudly, but for the wrong
+      # reason. A test in tests/portability.bats pins that every directory
+      # holding a .bats file appears on this line, so a new plugin's suite
+      # cannot be added without this line growing to match.
       - name: Run the test suites
-        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests
+        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests
 
   version:
     name: version agreement
@@ -53,33 +60,64 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: plugin.json, marketplace entry and changelog agree
+      - name: every plugin's manifest, marketplace entry and changelog agree
         run: |
-          pv=$(jq -r '.version // empty' .claude-plugin/plugin.json)
-          # Select by name, not by position: a second plugin added to this
-          # array could otherwise be compared against delivery-kit's version,
-          # and if the two happened to match it would pass while comparing the
-          # wrong things.
-          mv=$(jq -r '.plugins[] | select(.name == "delivery-kit") | .version' .claude-plugin/marketplace.json)
-          # `|| true` so a missing heading does not abort the step before the
-          # diagnostic below — Actions runs this under `bash -eo pipefail`, and
-          # a gate whose failure prints nothing is no gate. It cannot mask a
-          # real failure: an empty cv is rejected explicitly on the next line,
-          # and could never equal a real version anyway. The pattern also
-          # validates the date, since the heading format is pinned and a
-          # half-checked format is exactly the silent drift this job exists to
-          # catch.
-          cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
-          echo "plugin=$pv marketplace=$mv changelog=$cv"
-          [ -n "$pv" ] || { echo ".claude-plugin/plugin.json has no version"; exit 1; }
-          [ -n "$mv" ] || { echo "no plugin named delivery-kit in .claude-plugin/marketplace.json"; exit 1; }
-          [ -n "$cv" ] || { echo "CHANGELOG.md has no '## [X.Y.Z] - YYYY-MM-DD' heading"; exit 1; }
-          [ "$pv" = "$mv" ] || { echo "plugin.json and marketplace.json disagree"; exit 1; }
-          [ "$pv" = "$cv" ] || { echo "plugin.json and CHANGELOG.md disagree"; exit 1; }
+          checked=0
+          for dir in */; do
+            p="${dir%/}"
+            [ -f "$p/.claude-plugin/plugin.json" ] || continue
+            checked=$((checked + 1))
+            pn=$(jq -r '.name // empty' "$p/.claude-plugin/plugin.json")
+            pv=$(jq -r '.version // empty' "$p/.claude-plugin/plugin.json")
+            # Select by name, not by position: a second plugin in this array
+            # could otherwise be compared against the wrong entry, and if the
+            # two happened to match it would pass while comparing the wrong
+            # things.
+            mv=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version' .claude-plugin/marketplace.json)
+            # `|| true` so a missing heading does not abort the step before the
+            # diagnostic below — Actions runs this under `bash -eo pipefail`,
+            # and a gate whose failure prints nothing is no gate. It cannot
+            # mask a real failure: an empty cv is rejected explicitly, and
+            # could never equal a real version anyway.
+            cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}' "$p/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+            echo "$p: plugin=$pv marketplace=$mv changelog=$cv"
+            [ -n "$pn" ] || { echo "$p: plugin.json has no name"; exit 1; }
+            [ -n "$pv" ] || { echo "$p: plugin.json has no version"; exit 1; }
+            [ -n "$mv" ] || { echo "$p: no marketplace entry named $pn"; exit 1; }
+            [ -n "$cv" ] || { echo "$p: $p/CHANGELOG.md has no '## [X.Y.Z] - YYYY-MM-DD' heading"; exit 1; }
+            [ "$pv" = "$mv" ] || { echo "$p: plugin.json and marketplace.json disagree"; exit 1; }
+            [ "$pv" = "$cv" ] || { echo "$p: plugin.json and CHANGELOG.md disagree"; exit 1; }
+          done
+          # A loop over zero plugins would pass having checked nothing.
+          [ "$checked" -ge 1 ] || { echo "no plugin directories found"; exit 1; }
 
       - name: tag matches the manifest version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          tag="${GITHUB_REF#refs/tags/v}"
-          ver=$(jq -r '.version' .claude-plugin/plugin.json)
-          [ "$tag" = "$ver" ] || { echo "tag v$tag does not match plugin.json $ver"; exit 1; }
+          # Tags are <plugin>-v<version> now. A marketplace can carry more than
+          # one plugin entry, so a bare version tag names no manifest to check
+          # against. The old `v*` filter would have matched a bare tag anyway,
+          # and the step behind it read one fixed path — the root
+          # `.claude-plugin/plugin.json` — which no longer exists now that each
+          # plugin's manifest lives in its own directory. So it would not have
+          # compared the wrong version: it would have died on a missing file
+          # for any tag that reached it, reporting nothing about the tag.
+          #
+          # The push trigger above is deliberately `tags: ['**']` and not
+          # `['*-v*']`. A filter that admits only well-formed tags does not
+          # REJECT the malformed ones: it stops the workflow from running at
+          # all, and this step with it, so a bare `v2.0.0` — which is exactly
+          # what someone types out of habit after a run of `v1.x` releases —
+          # would be skipped rather than failed. A release gate that
+          # disappears when the tag is wrong is the shape this repository
+          # exists to prevent, and the wrong tag is the case it most needs to
+          # catch. The check belongs here, where a bad tag produces a named
+          # failure, not in the trigger, where it produces silence. Fail
+          # safe, never fail silent.
+          ref="${GITHUB_REF#refs/tags/}"
+          plugin="${ref%-v*}"
+          tag="${ref##*-v}"
+          [ "$plugin" != "$ref" ] || { echo "tag $ref is not <plugin>-v<version>"; exit 1; }
+          [ -f "$plugin/.claude-plugin/plugin.json" ] || { echo "tag $ref names no plugin directory"; exit 1; }
+          ver=$(jq -r '.version' "$plugin/.claude-plugin/plugin.json")
+          [ "$tag" = "$ver" ] || { echo "tag $ref does not match $plugin $ver"; exit 1; }

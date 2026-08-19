@@ -7,10 +7,10 @@
   },
   "plugins": [
     {
-      "name": "delivery-kit",
+      "name": "handoff",
       "description": "Context guard + handoff: notices when a session is running out of context and ends it cleanly enough that the next one resumes from one file read.",
-      "source": "./",
-      "version": "1.3.0",
+      "source": "./handoff",
+      "version": "2.0.0",
       "category": "workflow",
       "tags": ["context", "handoff", "session-continuity"]
     }
