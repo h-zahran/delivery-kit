@@ -6,16 +6,18 @@ table below is everything it ships today.
 | Plugin | What it does |
 |---|---|
 | [handoff](handoff/README.md) | Notices when a session is running out of context and ends it cleanly enough that the next one resumes from a single file read. |
+| [pipeline](pipeline/README.md) | Drives a unit of work from a heading in a plan file to a verified build — spec, plan, tasks, implementation, review and release — with a human gate at every step that leaves the machine. |
 
 ## Install
 
 ```
 /plugin marketplace add h-zahran/delivery-kit
 /plugin install handoff@delivery-kit
+/plugin install pipeline@delivery-kit
 ```
 
-If the second command does not see the plugin, run `/reload-plugins` between
-them.
+If an install command does not see its plugin, run `/reload-plugins`
+after the marketplace add.
 
 **Coming from 1.x?** This plugin was called `delivery-kit` until 2.0.0, and you
 must run `/plugin uninstall delivery-kit@delivery-kit` first — two installed

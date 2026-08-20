@@ -1,54 +1,46 @@
 # Shared fixtures for the delivery-kit suites.
 
-# The repository root is found by walking up from the suite's own directory
-# until the marketplace manifest appears, rather than by counting ".."
-# segments. Two suites live at different depths — tests/ at the root and
-# handoff/tests/ one level down — so any fixed count is correct for one and
-# silently wrong for the other.
+# The repository root is the root of the git checkout containing the suite,
+# and it must hold the marketplace manifest. The old implementation walked
+# parent directories until a manifest appeared, and that walk had no boundary
+# within THIS checkout: worktrees live inside the main working tree at
+# .claude/worktrees/<name>/, so from a tree that lacked the manifest the walk
+# escaped into the parent checkout and every suite examined another
+# repository's files while reporting on this one's branch. `git rev-parse
+# --show-toplevel` is bounded to the checkout containing $1 by construction —
+# for a worktree it names the worktree's own root, never the main checkout's.
 #
-# A wrong root is caught downstream in FEWER places than it used to be, and
-# that is a consequence of Task 2 worth stating rather than discovering. Most
-# readers in portability.bats still shout: the SHIPPED scans grep paths that
-# would be absent and exit 2, and the version gate cds into "$ROOT" and finds
-# no directory holding a .claude-plugin/plugin.json, so its `checked` guard
-# fires and names the root it was handed. The SKILL.md search no longer does.
-# It now walks "$ROOT" itself rather than "$ROOT/skills", so ANY ancestor of
-# the true root still finds the same SKILL.md files somewhere beneath it and
-# the non-empty pin passes without noticing — widening that search to cover a
-# second plugin also retired it as a check on this function, which is a guard
-# removed, not a guard relocated.
+# The manifest check stays, because a right boundary can still be a wrong
+# tree: a checkout of a ref that predates the manifest is not one these
+# suites can describe, and refusing beats measuring whatever is there. A
+# wrong root is nearly silent downstream — the SHIPPED scans and the version
+# gate shout, but the optional git-ignored .leakwords is folded into
+# BANNED_WORDS only when present at $ROOT, so a wrong root narrows the leak
+# vocabulary without a single test going red. That is why this function is
+# tested directly in tests/layout.bats rather than trusted.
 #
-# What is left genuinely silent is the optional git-ignored .leakwords, folded
-# into BANNED_WORDS only `if [ -f "$ROOT/.leakwords" ]`: a wrong root drops
-# every private term and leaves the leak scan green on a narrower list than
-# the one whoever wrote that file configured. It is now very nearly the only
-# silent path, which is why this function is tested directly in
-# tests/layout.bats rather than trusted to be caught by a reader downstream.
+# The rev-parse output is normalised through cd/pwd: under Git Bash it prints
+# the mixed form (D:/...), and every consumer of ROOT was written against the
+# POSIX form pwd prints (/d/...). Measured on this machine rather than
+# assumed; see the layout suite.
 find_root() {
-  local d parent
-  d="$(cd "$1" 2>/dev/null && pwd)" || return 1
-  while [ ! -f "$d/.claude-plugin/marketplace.json" ]; do
-    # Two steps rather than `cd "$d/.."`: under MSYS/Git Bash that literal
-    # path becomes "//.." at the root, and "/" and "//" then alternate
-    # forever, so the fixed point the guard below waits for never arrives.
-    # Entering the directory first and then `cd ..` gives the POSIX
-    # behaviour -- dot-dot at the root is the root -- on every platform.
-    parent="$(cd "$d" && cd .. && pwd)"
-    # At the filesystem root, `cd ..` is a fixed point. Without this the loop
-    # never ends and bats reports a timeout, which looks like a slow test.
-    [ "$parent" != "$d" ] || return 1
-    d="$parent"
-  done
-  printf '%s' "$d"
+  local top
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  top="$(cd "$top" 2>/dev/null && pwd)" || return 1
+  [ -f "$top/.claude-plugin/marketplace.json" ] || return 1
+  printf '%s' "$top"
 }
 
 ROOT="$(find_root "$BATS_TEST_DIRNAME")" || {
-  printf 'no .claude-plugin/marketplace.json above %s\n' "$BATS_TEST_DIRNAME" >&2
+  printf 'the checkout containing %s has no .claude-plugin/marketplace.json at its root\n' "$BATS_TEST_DIRNAME" >&2
   exit 1
 }
 
-# The plugin root, one level below the repository root. Named rather than
-# spelled out at each use so R2 can add PIPELINE beside it without a sweep.
+# The plugin root, one level below the repository root. Named for the suites
+# that drive the hook; portability.bats spells its paths out on purpose — its
+# lists are registrations, and a variable there would hide what is registered.
+# R2 adds PIPELINE beside this for its own suites; the registration lists
+# still grow by hand.
 HANDOFF="$ROOT/handoff"
 HOOK="$HANDOFF/hooks/context-guard.sh"
 

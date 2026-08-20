@@ -6,3 +6,4 @@ file with interleaved headings would make "the current version" a question
 about release order.
 
 - [handoff](handoff/CHANGELOG.md)
+- [pipeline](pipeline/CHANGELOG.md)

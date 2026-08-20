@@ -45,14 +45,17 @@ jobs:
         run: git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
 
       # -r so a suite added in a subdirectory of one of these cannot be
-      # silently skipped while CI stays green. The paths are named explicitly
-      # rather than discovered, because a glob that matches nothing expands to
-      # itself and bats would report "no such file" — loudly, but for the wrong
-      # reason. A test in tests/portability.bats pins that every directory
-      # holding a .bats file appears on this line, so a new plugin's suite
-      # cannot be added without this line growing to match.
+      # silently skipped while CI stays green, and --print-output-on-failure
+      # so a red test's output lands in the job log — the only diagnostic
+      # channel a matrix runner has. The paths are named explicitly rather
+      # than discovered, because a glob that matches nothing expands to
+      # itself and bats would report "no such file" — loudly, but for the
+      # wrong reason. A test in tests/portability.bats pins that every suite
+      # directory is covered by this line — directly or via an ancestor,
+      # since -r recurses — and polices the contributing guide's copy of the
+      # same command.
       - name: Run the test suites
-        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests
+        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 
   version:
     name: version agreement
@@ -62,6 +65,10 @@ jobs:
 
       - name: every plugin's manifest, marketplace entry and changelog agree
         run: |
+          # A hand-maintained twin of the bats gate in tests/portability.bats.
+          # The two are kept in step BY HAND and have drifted once already —
+          # an unanchored regex here read a heading the bats copy rejected.
+          # Every check below exists there; edit the pair together.
           checked=0
           for dir in */; do
             p="${dir%/}"
@@ -69,27 +76,47 @@ jobs:
             checked=$((checked + 1))
             pn=$(jq -r '.name // empty' "$p/.claude-plugin/plugin.json")
             pv=$(jq -r '.version // empty' "$p/.claude-plugin/plugin.json")
-            # Select by name, not by position: a second plugin in this array
-            # could otherwise be compared against the wrong entry, and if the
-            # two happened to match it would pass while comparing the wrong
-            # things.
-            mv=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version' .claude-plugin/marketplace.json)
-            # `|| true` so a missing heading does not abort the step before the
-            # diagnostic below — Actions runs this under `bash -eo pipefail`,
-            # and a gate whose failure prints nothing is no gate. It cannot
-            # mask a real failure: an empty cv is rejected explicitly, and
-            # could never equal a real version anyway.
-            cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}' "$p/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
-            echo "$p: plugin=$pv marketplace=$mv changelog=$cv"
             [ -n "$pn" ] || { echo "$p: plugin.json has no name"; exit 1; }
             [ -n "$pv" ] || { echo "$p: plugin.json has no version"; exit 1; }
-            [ -n "$mv" ] || { echo "$p: no marketplace entry named $pn"; exit 1; }
+            # The tag gate below resolves a plugin from the DIRECTORY name;
+            # this loop resolves entries from the manifest name. Pin the two
+            # identities together or the gates key on different things.
+            [ "$pn" = "$p" ] || { echo "$p: plugin.json name '$pn' does not match its directory"; exit 1; }
+            jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
+              || { echo "$p: no marketplace entry named $pn"; exit 1; }
+            mv=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)
+            [ -n "$mv" ] || { echo "$p: marketplace entry $pn has no version"; exit 1; }
+            ms=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)
+            src="${ms#./}"; src="${src%/}"
+            [ "$src" = "$p" ] || { echo "$p: marketplace entry $pn has source '$ms', which does not resolve to $p"; exit 1; }
+            # `|| true` so a missing heading reaches the diagnostic below —
+            # Actions runs this under `bash -eo pipefail`. Anchored with a
+            # trailing $ exactly as the bats copy is: an unanchored match
+            # accepted '## [X.Y.Z] - DATE (hotfix)' here while bats refused it.
+            cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' "$p/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+            echo "$p: plugin=$pv marketplace=$mv changelog=$cv"
             [ -n "$cv" ] || { echo "$p: $p/CHANGELOG.md has no '## [X.Y.Z] - YYYY-MM-DD' heading"; exit 1; }
             [ "$pv" = "$mv" ] || { echo "$p: plugin.json and marketplace.json disagree"; exit 1; }
             [ "$pv" = "$cv" ] || { echo "$p: plugin.json and CHANGELOG.md disagree"; exit 1; }
           done
-          # A loop over zero plugins would pass having checked nothing.
           [ "$checked" -ge 1 ] || { echo "no plugin directories found"; exit 1; }
+          # The other direction: every marketplace entry names a directory
+          # that exists, and the two walks cover the same set.
+          entries=0
+          while IFS= read -r en; do
+            # jq on windows-latest is a native binary with text-mode stdout:
+            # each line it prints ends `\r\n`, and `read` keeps that CR while
+            # command substitution strips it — measured in the bats twin. A
+            # name carrying a stray CR matches no marketplace entry, so this
+            # walk would false-red a clean tree wherever jq emits CRLF.
+            en="${en%$'\r'}"
+            entries=$((entries + 1))
+            es=$(jq -r --arg n "$en" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)
+            ed="${es#./}"; ed="${ed%/}"
+            [ -n "$ed" ] && [ -f "$ed/.claude-plugin/plugin.json" ] \
+              || { echo "marketplace entry '$en': source '$es' names no plugin directory"; exit 1; }
+          done < <(jq -r '.plugins[].name' .claude-plugin/marketplace.json)
+          [ "$entries" -eq "$checked" ] || { echo "marketplace lists $entries plugins, the tree holds $checked"; exit 1; }
 
       - name: tag matches the manifest version
         if: startsWith(github.ref, 'refs/tags/')

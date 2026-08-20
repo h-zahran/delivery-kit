@@ -23,7 +23,8 @@ load ../../tests/helper
 @test "one inflated entry among five does not fire the guard (2026-08-07 regression)" {
   # Four honest entries at 24% and one most-recent request that re-sent the
   # full raw history. Reading the last entry fires the guard at 450%; the
-  # median of the last five must leave it silent.
+  # median — a 15-reading window since 1.0.2, here all five entries — must
+  # leave it silent.
   t="$(transcript_with 48000 48000 48000 48000 900000)"
   run_hook "$t"
   [ "$status" -eq 0 ]
@@ -108,7 +109,8 @@ load ../../tests/helper
 }
 
 @test "sidechain volume does not starve the median" {
-  # The tail is a budget in lines; the median needs five readings. Sidechain
+  # The tail is a budget in lines; the median needs its readings window — 15
+  # wide since 1.0.2. Sidechain
   # lines from subagents consume the budget without yielding one, so a large
   # enough fan-out can clip every honest reading and leave the median resting
   # on whichever single entry survives. That is the 2026-08-07 last-entry
@@ -144,9 +146,10 @@ load ../../tests/helper
   # This deliberately does NOT prove the cap is applied; nothing observable can
   # now. That is an acceptable loss and not a silent one: a cap that has been
   # removed or ignored costs latency, and latency is bounded by the hook
-  # timeout, which test "the hook timeout leaves headroom over the measured
-  # worst case" pins separately. A cap that changed the answer would instead
-  # misreport context, which is the failure this whole file exists to prevent.
+  # timeout, which test "every shipped hook timeout leaves headroom over the
+  # measured worst case" pins separately. A cap that changed the answer would
+  # instead misreport context, which is the failure this whole file exists to
+  # prevent.
   t="$(transcript_with 10000 20000 30000 40000 50000)"
   printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
 
@@ -638,6 +641,11 @@ load ../../tests/helper
   # an empty string would satisfy `has()` while telling the user nothing, and
   # asserting only `has()` is how a guard becomes decoration.
   echo "$output" | jq -e 'has("systemMessage")'
+  # The label is the speaker. 1.3.0 shipped a message that introduced itself
+  # as the old plugin, and nothing pinned the prefix then or after the rename —
+  # the suite pinned the advice but not the voice. A second plugin printing
+  # its own skill names reopens exactly this class.
+  echo "$output" | jq -e '.systemMessage | test("^handoff: ")'
   echo "$output" | jq -e '.systemMessage | test("45%")'
   echo "$output" | jq -e '.systemMessage | test("handoff:handoff")'
   # The misconfiguration sentence must NOT be here: the window is fine. That
@@ -708,8 +716,11 @@ load ../../tests/helper
 
   run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"jq"* ]]
-  [[ "$output" == *"handoff"* ]]
+  # Field-level, not substring-over-$output: `run` folds stderr into $output
+  # and the hook's own path contains "handoff/", so the old substring checks
+  # could be satisfied by noise plus exit 0. Parsing the emission means stray
+  # stderr breaks the parse and reddens here — the tightening is the point.
+  echo "$output" | jq -e '.systemMessage | test("^handoff: ")'
   echo "$output" | jq -e '.systemMessage | test("jq")'
   # Pin where the flag lives. Without this, a rename or a move to a different
   # directory would still pass — both calls would simply agree — and the
@@ -745,7 +756,7 @@ load ../../tests/helper
   # fresh object would silently delete them — a data-loss defect in a file the
   # user is unlikely to be watching, caused by the component whose whole
   # purpose is to be helpful. The "unknown keys are ignored, never rejected"
-  # promise in docs/configuration.md cuts both ways: the hook must tolerate
+  # promise in handoff/docs/configuration.md cuts both ways: the hook must tolerate
   # keys it does not know, and so must this.
   #
   # `jq -s ` is what distinguishes the merge from the skill's two measurement

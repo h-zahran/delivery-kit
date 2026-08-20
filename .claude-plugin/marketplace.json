@@ -10,9 +10,17 @@
       "name": "handoff",
       "description": "Context guard + handoff: notices when a session is running out of context and ends it cleanly enough that the next one resumes from one file read.",
       "source": "./handoff",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "category": "workflow",
       "tags": ["context", "handoff", "session-continuity"]
+    },
+    {
+      "name": "pipeline",
+      "description": "Drives a unit of work from a heading in a plan file to a verified build: spec, plan, tasks, implementation, review and release, with a human gate at every irreversible step.",
+      "source": "./pipeline",
+      "version": "1.0.0",
+      "category": "workflow",
+      "tags": ["pipeline", "spec-driven", "orchestration"]
     }
   ]
 }
