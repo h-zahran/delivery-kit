@@ -1,0 +1,12 @@
+{
+  "name": "pipeline",
+  "description": "Drives a unit of work from a heading in a plan file to a verified build: spec, plan, tasks, implementation, review and release, with a human gate at every irreversible step.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Haytham Zahran"
+  },
+  "homepage": "https://github.com/h-zahran/delivery-kit",
+  "repository": "https://github.com/h-zahran/delivery-kit",
+  "license": "MIT",
+  "keywords": ["pipeline", "orchestration", "spec-driven", "workflow"]
+}

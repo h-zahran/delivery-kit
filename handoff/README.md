@@ -17,7 +17,7 @@ actually going:
 121 prompts — 8.5% of everything typed — were a human saying *continue*. That is
 the problem this plugin addresses. The longer version is in [docs/why.md](docs/why.md).
 
-## What ships in v1
+## What ships
 
 Three components. The first two work together and are useful apart; the third
 exists to configure the first.
@@ -36,16 +36,18 @@ asks for your real window and where you want the guard to stop, and merges the
 answers into `~/.delivery-kit.json`, so the question is answered once per
 machine rather than once per repository.
 
-## What does not ship in v1
+## What this plugin does not own
 
-So there is no ambiguity:
+So there is no ambiguity — the marketplace splits the work across its
+plugins, and this one deliberately owns the smaller share:
 
-- No pipeline orchestrator.
-- No `ship` or `fix-findings` commands.
-- No device or browser verification.
-- No support for harnesses other than Claude Code. The guard reads a Claude Code
-  transcript through a Claude Code hook; the handoff skill is portable markdown
-  and could be adapted later.
+- The pipeline orchestrator, runtime verification and finding
+  remediation live in the [pipeline](../pipeline/README.md) plugin,
+  installed separately as `pipeline@delivery-kit`. Someone who wants
+  only a context guard never acquires a spec-tool dependency.
+- No support for harnesses other than Claude Code. The guard reads a
+  Claude Code transcript through a Claude Code hook; the handoff skill
+  is portable markdown and could be adapted later.
 
 ## Install
 

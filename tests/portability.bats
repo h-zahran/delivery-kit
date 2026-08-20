@@ -34,25 +34,39 @@ BANNED_PATHS='D:\\|/c/Users/|C:\\Users\\|~/\.claude/projects/[A-Za-z0-9-]'
 # take it from this variable.
 VOCAB_RE="($BANNED_WORDS)"
 
-# Everything a stranger installs or reads, named file by file rather than by
-# directory. Naming files costs something — a document added later and never
-# registered here goes unscanned — and buys something better: a directory
-# pattern silently widens to cover whatever is dropped into it, including
-# working notes that were never meant to ship, and a scan that quietly grows
-# new subjects is one nobody can reason about. The scans assert `-eq 1`, so a
-# rename of something listed fails loudly rather than switching the scan off.
+# R2's per-surface vocabulary (design section 20, decision A; amended by
+# the R2 plan to include the suite): the pipeline directories that execute
+# — skills and scripts — plus the suite that asserts their output, are
+# scanned with the strict list minus the five terms a phase instruction, a
+# detector, or a test asserting either cannot function without writing.
+# The three published terms banned everywhere stay banned here, and
+# .leakwords folds in exactly as above: the relaxed list is named
+# exceptions, not a weaker principle.
+RELAXED_WORDS='supabase|graphify|superpowers'
+if [ -n "${extra:-}" ]; then RELAXED_WORDS="$RELAXED_WORDS|$extra"; fi
+RELAXED_RE="($RELAXED_WORDS)"
+
+# Everything a stranger installs or reads, registered entry by entry — a
+# file, or a directory whose whole tree ships. Registration costs something —
+# a document added later and never registered here goes unscanned — and buys
+# something better: no NEW tree joins or leaves the scan without a line here
+# changing, so the scanned surface cannot drift silently. (A registered
+# directory does grow with its own contents; that is what registering a
+# directory means.) The scans assert `-eq 1`, so a rename of something listed
+# fails loudly rather than switching the scan off.
 #
-# Two lists rather than one, because the surface now spans two trees. R2 adds
-# a third list with a shorter vocabulary for pipeline/skills and
-# pipeline/scripts; see the design document, section 20. That list must arrive
-# WITH the directories it describes and never ahead of them, because an empty
-# one does not fail: `grep -r` given no path operand does not error, it
-# defaults to the working directory. So an empty third list would not exit 2
-# and redden — it would silently rescan the whole repository under the relaxed
-# vocabulary that list exists to carry, and whatever it reported would say
-# nothing about the surface it was meant to cover. Only a path that is named
-# and MISSING exits 2, which is the case the `-eq 1` assertions below are
-# written to catch.
+# Three lists rather than one, because the surface now spans three trees.
+# The RELAXED vocabulary for the pipeline directories that execute is a
+# different mechanism — its own test, its own explicit path operands —
+# arriving WITH the directories it describes and never ahead of them,
+# because an empty one does not fail: `grep -r` given no path operand does
+# not error, it defaults to the working directory. An early relaxed scan
+# would not exit 2 and redden — it would silently rescan the whole
+# repository under the relaxed vocabulary, and whatever it reported would
+# say nothing about the surface it was meant to cover. Exit 2 needs a named
+# path that is missing — or unreadable, or a regex this platform's grep
+# rejects, exactly as the comment above the scans spells out — and those
+# are the cases the `-eq 1` assertions below are written to catch.
 #
 # Registration follows the file, not the filename. The root `CHANGELOG.md` and
 # `handoff/CHANGELOG.md` are two different documents on two different lists —
@@ -63,37 +77,41 @@ VOCAB_RE="($BANNED_WORDS)"
 # prose these scans cover — would have left the scanned surface without a single
 # test going red.
 SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE .claude-plugin .gitignore .gitattributes .github"
-SHIPPED_HANDOFF="handoff/hooks handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/.claude-plugin"
-SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
+SHIPPED_HANDOFF="handoff/hooks handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/tests handoff/.claude-plugin"
+SHIPPED_PIPELINE="pipeline/README.md pipeline/CHANGELOG.md pipeline/.claude-plugin pipeline/commands pipeline/docs"
+SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 
-# Neither tests directory is registered above, and they are left out for
-# different reasons — worth spelling out separately, because a single reason
-# covering both is true of one of them and false of the other.
+# Root tests/ cannot be registered, by construction: it holds the denylist
+# and the fixtures the scanners are fired at, so a scan covering it would
+# fail on its own contents.
 #
-# This file cannot be registered, by construction. It holds the denylist and
-# the fixtures the scanners are fired at, so every banned term appears here by
-# design and a scan covering it would fail on its own contents.
+# pipeline/skills, pipeline/scripts and pipeline/tests are absent from
+# these lists for a third reason: they are scanned by the RELAXED test
+# below with its own explicit operands. Not exempt — scanned under the
+# vocabulary that lets a detector name the files it detects and a suite
+# assert the defaults it must prove.
 #
-# handoff/tests is not that case. It scans clean today, and registering it
-# would pass. It is left out by policy rather than by necessity: it is
-# published, but it is a suite, not a surface a reader is directed to, and
-# these scans exist to protect what a stranger installs and reads. Do not
-# "fix" either omission by registering it.
+# handoff/tests IS registered, and that reverses a 2.0.0 comment which called
+# it "a suite, not a surface a reader is directed to". The install contradicts
+# that premise: the marketplace entry's source is ./handoff, the installer
+# copies that whole tree, and the plugin's suite lands on every user's
+# machine. What ships is scanned — a banned term pasted into a test fixture
+# would otherwise reach every install with the build green. Fixtures that
+# NEED banned terms belong in root tests/, beside the denylist.
 #
-# Be exact about what these two lists therefore cover, because "everything
-# that ships" is not it. They cover the surface a stranger INSTALLS OR READS:
-# the plugin tree, and the root documents and metadata. Other tracked files
-# sit outside them on purpose. `docs/specs` and `docs/handoffs` are the
+# Be exact about what these lists cover, because "everything tracked" is not
+# it. They cover what a stranger installs or reads: the plugin trees, and the
+# root documents and metadata. `docs/specs` and `docs/handoffs` are the
 # working record of how this was built — nearly every file under them matches
-# the vocabulary above, by design, because a design document has to name the
-# stack it was extracted from to say anything — and the release curation is
-# what keeps them off the published branch, not these lists. Registering them
-# would redden the scan on contents that are correct, and the only way back to
-# green would be to weaken the vocabulary — which is the wrong trade in the
-# wrong direction. So the property to hold is narrower and checkable: no file in
-# the installed-and-read surface is missing from these two lists —
-# `.gitignore` sat outside them through two reviews while naming a denylisted
-# tool.
+# the vocabulary above, by design — and the release curation keeps them off
+# the published branch, not these lists. Registering them would redden the
+# scan on contents that are correct, and the only way back to green would be
+# weakening the vocabulary: the wrong trade in the wrong direction. The
+# property to hold is narrower: every plugin directory owns a non-empty
+# SHIPPED_* list — that half is pinned by a test below. The other half stays
+# a review property no test here checks: no file in the installed-and-read
+# surface sits outside one — `.gitignore` sat outside them through two
+# reviews while naming a denylisted tool.
 
 # Exit status is the whole assertion here, so read it exactly: grep returns 0
 # for a match, 1 for no match, and 2 for an error — an absent or renamed path,
@@ -121,14 +139,91 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
   [ "$status" -eq 1 ]
 }
 
+# The relaxed operands are EXPLICIT and this assertion is `-eq 1` for the
+# same reason as above: a missing operand is exit 2 and a red, never a
+# silent rescan of the working directory. These three paths exist from the
+# commit that adds this test — the list arrived WITH the directories it
+# describes.
+@test "no banned-everywhere vocabulary in the relaxed pipeline surfaces" {
+  cd "$ROOT"
+  run grep -rniwE "$RELAXED_RE" pipeline/skills pipeline/scripts pipeline/tests
+  [ "$status" -eq 1 ]
+}
+
+@test "no absolute local paths in the relaxed pipeline surfaces" {
+  cd "$ROOT"
+  run grep -rnE "$BANNED_PATHS" pipeline/skills pipeline/scripts pipeline/tests
+  [ "$status" -eq 1 ]
+}
+
+# A non-ASCII byte in a bats @test NAME makes bats on this platform skip
+# the test SILENTLY -- no TAP line, nonzero exit -- so the suite lies by
+# omission. Proven reachable: an em dash in a test name cost a dead
+# detector test during R2. Names stay ASCII; bodies and comments may say
+# what they like.
+@test "every bats test name is pure ASCII" {
+  cd "$ROOT"
+  bad=0
+  while IFS= read -r f; do
+    if LC_ALL=C grep -n '^@test' "$f" | LC_ALL=C grep -q '[^ -~]'; then
+      echo "non-ASCII @test name in $f:"
+      LC_ALL=C grep -n '^@test' "$f" | LC_ALL=C grep '[^ -~]'
+      bad=1
+    fi
+  done < <(git ls-files '*.bats')
+  [ "$bad" -eq 0 ]
+}
+
+@test "every plugin directory owns a non-empty shipped-surface list" {
+  cd "$ROOT"
+  # SHIPPED_* lists are hand-maintained registrations, and an unregistered
+  # file is an unscanned one — that has happened twice to single files. A
+  # whole plugin tree can go the same way: the version gates pick a new
+  # directory up automatically, so every OTHER gate turning green lends
+  # credibility to a surface the leak scans never read. A plugin directory
+  # must bring its list with it: SHIPPED_<DIRNAME>, hyphens as underscores.
+  checked=0
+  for dir in */; do
+    p="${dir%/}"
+    [ -f "$p/.claude-plugin/plugin.json" ] || continue
+    checked=$((checked + 1))
+    varname="SHIPPED_$(printf '%s' "$p" | tr '[:lower:]-' '[:upper:]_')"
+    list="${!varname:-}"
+    [ -n "$list" ] || { echo "$p ships, but $varname is empty or missing from this file"; false; }
+    # And the union must carry it verbatim, or the registration exists
+    # without being scanned. This works because SHIPPED is built by
+    # concatenating the per-tree lists; keep building it that way.
+    case " $SHIPPED " in *" $list "*) ;; *) echo "$varname is not part of SHIPPED, so nothing scans it"; false ;; esac
+    # Direction (scaffold item 11): a list naming another plugin's paths
+    # passes both checks above while scanning nothing of THIS plugin. Every
+    # entry must point into the directory that registered it.
+    for tok in $list; do
+      case "$tok" in "$p"/*) ;; *) echo "$varname entry '$tok' does not point into $p/"; false ;; esac
+    done
+  done
+  [ "$checked" -ge 1 ] || { echo "no plugin directories found under $ROOT"; false; }
+}
+
 @test "every SKILL.md has name and description frontmatter" {
-  # An empty `find` leaves the loop body unexecuted and the test passing
-  # without having read anything, so pin that there is something to check.
-  # The search is repository-wide rather than one plugin's directory, so a
-  # second plugin's skills are covered the day it lands rather than the day
-  # someone remembers to add it here.
-  skills="$(find "$ROOT" -path "$ROOT/.git" -prune -o -name SKILL.md -print)"
-  [ -n "$skills" ]
+  cd "$ROOT"
+  # Discovery is over TRACKED files, for the same reason the suite-coverage
+  # gate at the bottom of this file switched to `git ls-files`: a filesystem
+  # walk sees sibling worktrees under .claude/worktrees/ and whatever scratch
+  # a dev workflow drops, so a half-written SKILL.md that was never in the
+  # release reddened the release-tree run while `git status` sat clean.
+  # `git ls-files` answers identically from the root and from a worktree, and
+  # it lists the index, so untracked scratch never appears. Outside a checkout
+  # it FAILS — and the `|| true` below is load bearing for exactly that case:
+  # under errexit a failing command substitution kills the test AT THE
+  # ASSIGNMENT, so without it that failure carries git's stderr instead of the
+  # named diagnostic on the next line. Measured, not assumed. The search is
+  # repository-wide rather than one plugin's directory, so a second plugin's
+  # skills are covered the day they are committed.
+  # Repository-wide, so this sweep also polices fixture SKILL.md files
+  # under pipeline/tests/fixtures. Deliberate coupling: a future fixture
+  # that needs MALFORMED frontmatter must use a different filename.
+  skills="$(git ls-files ':(glob)**/SKILL.md' || true)"
+  [ -n "$skills" ] || { echo "no tracked SKILL.md found; this gate examined nothing"; false; }
   while IFS= read -r skill; do
     [ "$(head -1 "$skill")" = "---" ]
     fm="$(awk 'NR>1 && /^---$/{exit} NR>1{print}' "$skill")"
@@ -138,29 +233,75 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
 }
 
 @test "the manifests parse" {
-  jq -e . "$ROOT/handoff/.claude-plugin/plugin.json" > /dev/null
-  jq -e . "$ROOT/.claude-plugin/marketplace.json" > /dev/null
-  jq -e . "$ROOT/handoff/hooks/hooks.json" > /dev/null
+  cd "$ROOT"
+  jq -e . .claude-plugin/marketplace.json > /dev/null
+  checked=0
+  for dir in */; do
+    p="${dir%/}"
+    [ -f "$p/.claude-plugin/plugin.json" ] || continue
+    checked=$((checked + 1))
+    jq -e . "$p/.claude-plugin/plugin.json" > /dev/null
+    # Hooks are optional per plugin; a plugin that ships them ships them
+    # parseable.
+    [ ! -f "$p/hooks/hooks.json" ] || jq -e . "$p/hooks/hooks.json" > /dev/null
+  done
+  [ "$checked" -ge 1 ] || { echo "no plugin directories found under $ROOT"; false; }
 }
 
-@test "the hook is registered with a plugin-root-relative path" {
-  cmd="$(jq -r '.hooks.PostToolUse[0].hooks[0].command' "$ROOT/handoff/hooks/hooks.json")"
-  [[ "$cmd" == *'${CLAUDE_PLUGIN_ROOT}'* ]]
-  [[ "$cmd" == *'context-guard.sh'* ]]
+@test "every shipped hook is registered with a plugin-root-relative path" {
+  cd "$ROOT"
+  hooked=0
+  for dir in */; do
+    p="${dir%/}"
+    [ -f "$p/hooks/hooks.json" ] || continue
+    hooked=$((hooked + 1))
+    while IFS= read -r cmd; do
+      # Same text-mode jq as the timeout loop below: `read` keeps the CR.
+      # The substring match survives it — measured, the gate still fired on
+      # an absolute path — but the diagnostic did not: the embedded CR sent
+      # the cursor back to column 0 mid-message (od-verified), overwriting
+      # the start of the very line that names the offending command.
+      cmd="${cmd%$'\r'}"
+      [[ "$cmd" == *'${CLAUDE_PLUGIN_ROOT}'* ]] || { echo "$p: hook command '$cmd' is not plugin-root-relative"; false; }
+    done < <(jq -r '.. | objects | select(has("command")) | .command' "$p/hooks/hooks.json")
+  done
+  # handoff ships a hook today, so a loop that found none has lost its
+  # subject; a plugin without hooks/ is skipped, not failed.
+  [ "$hooked" -ge 1 ] || { echo "no hooks.json found in any plugin directory"; false; }
+  # And the one hook this repository ships is still the context guard.
+  cmd0="$(jq -r '.hooks.PostToolUse[0].hooks[0].command' handoff/hooks/hooks.json)"
+  [[ "$cmd0" == *'context-guard.sh'* ]]
 }
 
-@test "the hook timeout leaves headroom over the measured worst case" {
+@test "every shipped hook timeout leaves headroom over the measured worst case" {
+  cd "$ROOT"
   # A hook killed by its own timeout emits nothing, and a guard that emits
-  # nothing is a guard that is silently off — the exact failure this project
-  # exists to prevent. So the declared timeout must clear the slowest path the
-  # design admits, not the typical one.
-  #
-  # Measured on a 48MB transcript whose readings fall inside the 5000-line
-  # window but outside the 8MB byte cap, so the starvation fallback fires and
-  # the file is read twice: 8.2s. The common capped path is 2.0s and the old
-  # uncapped code was 7.2s. 30 leaves ~3.6x over the worst case; 10 left 1.2x.
-  timeout="$(jq -r '.hooks.PostToolUse[0].hooks[0].timeout' "$ROOT/handoff/hooks/hooks.json")"
-  [ "$timeout" -ge 30 ]
+  # nothing is silently off — the exact failure this project exists to
+  # prevent. Measured on a 48MB transcript whose readings fall inside the
+  # 5000-line window but outside the 8MB byte cap, so the starvation fallback
+  # fires and the file is read twice: 8.2s. The common capped path is 2.0s.
+  # 30 leaves ~3.6x over the worst case; 10 left 1.2x.
+  hooked=0
+  for dir in */; do
+    p="${dir%/}"
+    [ -f "$p/hooks/hooks.json" ] || continue
+    hooked=$((hooked + 1))
+    while IFS= read -r timeout; do
+      # jq here is a native Windows binary whose stdout is text mode: every
+      # line it prints ends `\r\n`, and `read` keeps that CR. The present-key
+      # path survives it — measured, `[ "30"$'\r' -ge 30 ]` is 0 on bash
+      # 5.3.9 — so a clean tree stays green either way. The ABSENT-key path
+      # does not: `.timeout // ""` prints an empty line, `read` yields a lone
+      # CR, `[ -n ]` calls that non-empty, and the missing-timeout gate below
+      # is skipped in favour of `-ge` failing with "integer expected".
+      # Measured: without this strip, deleting the timeout key sent the test
+      # red at the floor message instead of the one naming the real fault.
+      timeout="${timeout%$'\r'}"
+      [ -n "$timeout" ] || { echo "$p: a hook declares no timeout"; false; }
+      [ "$timeout" -ge 30 ] || { echo "$p: hook timeout $timeout is under the 30-second floor"; false; }
+    done < <(jq -r '.. | objects | select(has("command")) | .timeout // ""' "$p/hooks/hooks.json")
+  done
+  [ "$hooked" -ge 1 ] || { echo "no hooks.json found in any plugin directory"; false; }
 }
 
 @test "every plugin's manifest, marketplace entry and changelog agree" {
@@ -179,11 +320,26 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
     [ -n "$pn" ] || { echo "$p: plugin.json has no name"; false; }
     [ -n "$pv" ] || { echo "$p: plugin.json has no version"; false; }
 
+    # The tag gate resolves a plugin FROM THE DIRECTORY NAME — ci.yml strips
+    # `-v<version>` from the tag and reads <plugin>/.claude-plugin/plugin.json
+    # — while this loop resolves the marketplace entry from the manifest's
+    # .name. Nothing else holds those two identities together: a manifest
+    # renamed without its directory left every gate green while release tags
+    # silently stopped naming the plugin.
+    [ "$pn" = "$p" ] || { echo "$p: plugin.json name '$pn' does not match its directory"; false; }
+
     # Select by name, never by position. A second plugin prepended to the array
     # would otherwise be compared against the wrong entry — and could agree
     # with it by accident.
-    mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version' .claude-plugin/marketplace.json)"
-    [ -n "$mv" ] || { echo "$p: no marketplace entry named $pn"; false; }
+    # Existence and the version key are two different absences with two
+    # different fixes, so they get two different messages. Without `// empty`,
+    # jq prints the literal string "null" for a present entry missing the
+    # key, which passes [ -n ] and sends the maintainer diffing two version
+    # numbers when one of them does not exist.
+    jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
+      || { echo "$p: no marketplace entry named $pn"; false; }
+    mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)"
+    [ -n "$mv" ] || { echo "$p: marketplace entry $pn has no version"; false; }
 
     # And the entry must point AT the directory this iteration just read.
     # Nothing else in the repository reads `source` — no other test, no
@@ -231,6 +387,28 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
     [ "$pv" = "$mv" ] || { echo "$p: plugin=$pv marketplace=$mv"; false; }
     [ "$pv" = "$cv" ] || { echo "$p: plugin=$pv changelog=$cv"; false; }
   done
+
+  # The loop above walks directory -> entry, so an entry whose directory is
+  # missing is never visited: a retired plugin's leftover entry, or an entry
+  # added ahead of its directory (the exact ordering hazard of landing a
+  # second plugin), advertises a broken install while every gate calls it
+  # agreement. Walk the other direction too, and pin the two counts to each
+  # other so the walks cannot quietly cover different sets.
+  entries=0
+  while IFS= read -r en; do
+    # jq here is a native Windows binary whose stdout is text mode: every line
+    # it prints ends `\r\n`. Command substitution strips that trailing CR, but
+    # `read` does not, and a name carrying a stray CR matches no marketplace
+    # entry. Measured: without this strip, the lookup below returned empty for
+    # every entry on this platform, failing a clean tree. A no-op elsewhere.
+    en="${en%$'\r'}"
+    entries=$((entries + 1))
+    es="$(jq -r --arg n "$en" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
+    ed="${es#./}"; ed="${ed%/}"
+    [ -n "$ed" ] && [ -f "$ed/.claude-plugin/plugin.json" ] \
+      || { echo "marketplace entry '$en': source '$es' names no plugin directory"; false; }
+  done < <(jq -r '.plugins[].name' .claude-plugin/marketplace.json)
+  [ "$entries" -eq "$checked" ] || { echo "marketplace lists $entries plugins, the tree holds $checked"; false; }
 
   # A loop over zero plugins passes vacuously, having verified nothing. That is
   # the defect this repository keeps rediscovering: the SKILL.md search above
@@ -347,11 +525,11 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
 @test "every relative link in the shipped documentation resolves" {
   cd "$ROOT"
   broken=""
-  # Count the links actually resolved, and refuse to pass on zero. Every file
-  # here is guarded by `[ -f "$f" ] || continue` and one of the entries is a
-  # glob, so a list that has gone stale — a file moved, a directory renamed
-  # out from under the glob — leaves the loop body unexecuted, `broken` empty,
-  # and this test green having examined nothing at all.
+  # Count the links actually resolved, and refuse to pass on zero. Staleness
+  # in the list itself — a file moved, a directory renamed out from under a
+  # glob — now fails at the entry, in the loop below. The aggregate `checked`
+  # pin is what remains for a case those per-entry guards cannot see: every
+  # entry resolves, and not one relative link was examined.
   #
   # That is not hypothetical. Midway through the move that created handoff/,
   # this list still named the pre-move paths; every one of them was skipped,
@@ -368,8 +546,12 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
   # nothing, which is exactly why the omission survived the split that made it
   # an index.
   checked=0
-  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/docs/*.md; do
-    [ -f "$f" ] || continue
+  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md pipeline/commands/pipeline.md pipeline/docs/*.md handoff/docs/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
+    # Per entry, not `continue`: one entry going stale — a glob emptying, a
+    # file moving — used to be absorbed by the aggregate counter while the
+    # other files kept it positive. An unexpanded glob arrives here as its
+    # own literal text and fails the same way.
+    [ -f "$f" ] || { echo "link-test entry '$f' does not resolve; the list has gone stale"; false; }
     while IFS= read -r link; do
       case "$link" in http*|https*|mailto:*|'#'*) continue ;; esac
       target="${link%%#*}"
@@ -380,8 +562,34 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
       [ -e "$(dirname "$f")/$target" ] || broken="$broken $f->$link"
     done < <(grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\(//; s/\)$//')
   done
-  [ "$checked" -gt 0 ] || { echo "no relative links were examined; the file list above has gone stale"; false; }
+  [ "$checked" -gt 0 ] || { echo "every listed file resolved, but not one relative link was examined"; false; }
   [ -z "$broken" ] || { echo "broken links:$broken"; false; }
+}
+
+@test "every plugin is indexed and installable from the root documents" {
+  cd "$ROOT"
+  # The version gates check each plugin's changelog, and nothing checked that
+  # the root index NAMES it — a plugin added later would get a changelog both
+  # gates read and an index entry nobody demanded. Same for the README: the
+  # front door must link the plugin and show the exact install string, and
+  # the manifest name is what that string must carry.
+  checked=0
+  for dir in */; do
+    p="${dir%/}"
+    [ -f "$p/.claude-plugin/plugin.json" ] || continue
+    checked=$((checked + 1))
+    pn="$(jq -r '.name // empty' "$p/.claude-plugin/plugin.json")"
+    grep -qF "($p/CHANGELOG.md)" CHANGELOG.md || { echo "root CHANGELOG.md does not index $p/CHANGELOG.md"; false; }
+    grep -qF "($p/README.md)" README.md || { echo "root README.md does not link $p/README.md"; false; }
+    grep -qF "/plugin install $pn@delivery-kit" README.md || { echo "root README.md does not show '/plugin install $pn@delivery-kit'"; false; }
+  done
+  # The root README deep-links to this heading's anchor, and the link test
+  # strips '#...' fragments, so a rename breaks that link silently (global
+  # constraint; scaffold item 9). Pinned in this gate because this is the
+  # test that owns the root documents' promises.
+  grep -qF '### Upgrading from `delivery-kit@delivery-kit`' handoff/README.md \
+    || { echo "handoff/README.md renamed the upgrade heading the root README deep-links to"; false; }
+  [ "$checked" -ge 1 ] || { echo "no plugin directories found under $ROOT"; false; }
 }
 
 # The handoff skill promised in 1.2.0 that it writes nothing to git. That promise
@@ -436,58 +644,82 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF"
   grep -qE '^reason=.*Do NOT commit or push' "$ROOT/handoff/hooks/context-guard.sh"
 }
 
-@test "CI runs every suite in the repository" {
+# 2.0.0 shipped a skill that read only the repository's .delivery-kit.json,
+# while the configuration page shipped beside it documented handoff.docsDir in
+# the full precedence chain — a user-level value was silently ignored. The
+# skill is prose, so the fix is pinned the way this file pins prose: the
+# instruction must keep naming all three sources. This cannot prove Claude
+# resolves them in order; it proves the order is still on the page.
+@test "the handoff skill names every documented source of docsDir" {
+  skill="$ROOT/handoff/skills/handoff/SKILL.md"
+  grep -qF '~/.delivery-kit.json' "$skill"
+  grep -qF '`.delivery-kit.json` at the repository root' "$skill"
+  grep -qF 'DELIVERY_KIT_HANDOFF_DIR' "$skill"
+}
+
+@test "CI and the contributing guide run every suite in the repository" {
   cd "$ROOT"
-  # `-r` recurses beneath the paths it is given, so it covers a subdirectory
-  # of tests/ but not a sibling suite in another plugin. Before this test,
-  # adding pipeline/tests/ later without touching ci.yml would have shipped a
-  # suite nobody runs while CI stayed green — the failure mode this repository
-  # keeps finding, in a new place. This test is what converts that silence into
-  # a red build: ci.yml still would not RUN the new suite, but the omission is
-  # named here and the build fails until the line grows to match.
-
-  # The `|| true` is load bearing, for the reason given above the changelog
-  # reader in this file: under errexit a failing command substitution aborts
-  # the test AT THIS LINE, so the diagnostic below never runs. What is specific
-  # here is what the grep looks for — the ci.yml bats line itself — so the
-  # only way it finds nothing is that someone rewrote or deleted the invocation
-  # this test exists to police, which is exactly the case the message below is
-  # written for. Measured in both directions: without it that case fails at the
-  # assignment printing nothing, and reads as a broken pattern rather than as a
-  # workflow that no longer runs bats. It cannot mask a real failure: an empty
-  # line is rejected on the next line, and would match no directory below anyway.
-  line="$(grep -m1 -E 'bats" -r --print-output-on-failure' .github/workflows/ci.yml || true)"
-  [ -n "$line" ] || { echo "no bats invocation found in ci.yml"; false; }
-
-  # Discovery is over TRACKED files, not over the filesystem, and that is the
-  # definition this invariant needs: a suite is a suite because the repository
-  # carries it, and ci.yml can only be asked to name what a CI checkout will
-  # actually contain. It also repairs a real failure. The scan here used to walk
-  # everything beneath $ROOT except .git — and this project keeps its worktrees
-  # in .claude/worktrees/, so from the repository root it discovered three
-  # sibling checkouts' suites and demanded ci.yml name them, while from inside a
-  # worktree it saw the two real ones and passed. Every run during development
-  # happened inside a worktree; the first run from the root, on the release tree,
-  # went red. `git ls-files` answers the same from both, honours .gitignore by
-  # construction so no scratch directory added later can redden this, and outside
-  # a checkout emits nothing — which the pin below turns into a named failure
-  # rather than a silent pass.
+  # `-r` recurses beneath the paths it is given, so a suite is covered when
+  # the invocation names it OR any ancestor of it — demanding the literal
+  # token forced the line to grow for tests/unit/, which bats would then run
+  # TWICE, since overlapping path arguments are not deduplicated. Two copies
+  # of the command are policed: ci.yml's, and the contributing guide's — the
+  # guide's paragraph warns that running a subset "is the failure this
+  # project exists to prevent, arriving by way of its own contributing
+  # guide", and until this test read the guide, nothing held that copy to it.
   #
-  # The `[ -n "$line" ]` above pins the grep half; this pins the discovery half,
-  # for the same reason. If the listing emits nothing the loop body never runs,
-  # `missing` stays empty, and the assertion below reports PASS having examined
-  # zero directories — a suite-coverage gate that has stopped seeing any suites,
-  # in the file whose own comments name this defect class. So count what was
-  # examined, exactly as the version gate and the link test above do. Measured,
-  # not assumed: with the pathspec pointed at something the index cannot match,
-  # this body reports PASS without the pin and names the vacuum with it.
-  missing=""
-  checked=0
-  while IFS= read -r d; do
-    checked=$((checked + 1))
-    case " $line " in *" $d "*) ;; *) missing="$missing $d" ;; esac
-  done < <(git ls-files '*.bats' | xargs -n1 dirname | sort -u)
+  # The `|| true` on each grep is load bearing: under errexit a failing
+  # command substitution aborts the test AT THAT LINE, so the named
+  # diagnostic below it never runs. It cannot mask a real failure — an empty
+  # line is rejected on the next line either way.
+  ciline="$(grep -m1 -E '^ *run: *bash .*bats.* -r ' .github/workflows/ci.yml || true)"
+  [ -n "$ciline" ] || { echo "no 'run: bash ... bats ... -r' line found in ci.yml"; false; }
+  docline="$(grep -m1 -E '^bash .*bats.* -r ' CONTRIBUTING.md || true)"
+  [ -n "$docline" ] || { echo "no 'bash ... bats ... -r' command found in CONTRIBUTING.md"; false; }
 
-  [ "$checked" -ge 1 ] || { echo "no tracked .bats file was found under $ROOT; this gate examined nothing"; false; }
-  [ -z "$missing" ] || { echo "suites absent from the ci.yml bats line:$missing"; false; }
+  # A token inside a trailing comment must not count — not a path token as
+  # coverage, and not the flag as the flag ("# --print-output-on-failure was
+  # too noisy" must red the guard below, not satisfy it). Strip comments
+  # BEFORE the flag guards below inspect the line. The locator greps above
+  # match the raw line, so ` -r ` in a trailing comment could satisfy the
+  # anchor alone — which is why the guards below also demand ` -r ` in the
+  # STRIPPED line: the residual Plan 1 accepted is closed here.
+  ciline="${ciline%%#*}"
+  docline="${docline%%#*}"
+
+  # Both copies carry the flag that makes a red run legible in a log.
+  case "$ciline" in *--print-output-on-failure*) ;; *) echo "ci.yml bats line lost --print-output-on-failure"; false ;; esac
+  case "$docline" in *--print-output-on-failure*) ;; *) echo "CONTRIBUTING.md bats command lost --print-output-on-failure"; false ;; esac
+  case " $ciline " in *" -r "*) ;; *) echo "ci.yml bats line lost -r after comment-stripping"; false ;; esac
+  case " $docline " in *" -r "*) ;; *) echo "CONTRIBUTING.md bats command lost -r after comment-stripping"; false ;; esac
+
+  # Discovery is over TRACKED files — see the SKILL.md test above for why.
+  # Dirnames are computed in the shell so a path with a space cannot be split
+  # into two bogus names (xargs -n1 dirname word-splits; measured). Residual,
+  # accepted: matching tokens against a command line textually means a suite
+  # directory literally named `bash` or `-r` would be miscounted as covered —
+  # this repository names its suite directories, and names none of them that.
+  checked=0
+  for line in "$ciline" "$docline"; do
+    missing=""
+    suites=""
+    while IFS= read -r f; do
+      d="${f%/*}"; [ "$d" = "$f" ] && d="."
+      case " $suites " in *" $d "*) continue ;; esac
+      suites="$suites $d"
+      checked=$((checked + 1))
+      a="$d"; covered=0
+      while :; do
+        case " $line " in *" $a "*) covered=1; break ;; esac
+        case "$a" in */*) a="${a%/*}" ;; *) break ;; esac
+      done
+      [ "$covered" -eq 1 ] || missing="$missing $d"
+    done < <(git ls-files '*.bats')
+    [ -z "$missing" ] || { echo "suites not covered by: ${line# *}->$missing"; false; }
+  done
+  # 2 = two policed lines x at least one suite dir each ($checked counts
+  # suite-dirs PER LINE, not suites): this pins discovery non-empty for both
+  # copies, not a minimum suite count. Change the set of policed copies and
+  # this number changes with it.
+  [ "$checked" -ge 2 ] || { echo "no tracked .bats file was found under $ROOT; this gate examined nothing"; false; }
 }

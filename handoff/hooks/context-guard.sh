@@ -408,7 +408,7 @@ if [ "$ctx" -gt "$WINDOW" ]; then
     # Both assignments sit INSIDE the wflag gate deliberately: they ride the
     # once-per-session note rather than every over-window firing. Keep them here
     # as further keys are added — @test "the hedge and the deferred hint ride the
-    # once-per-session note" in tests/context-guard.bats pins the placement, and
+    # once-per-session note" in handoff/tests/context-guard.bats pins the placement, and
     # moving either out of this gate turns that test red.
     sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run handoff:setup to correct it."
   fi

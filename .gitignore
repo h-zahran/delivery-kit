@@ -11,3 +11,10 @@ node_modules/
 # exactly the terms that cannot live in tests/portability.bats, so they live
 # here instead and are never committed.
 .leakwords
+
+# Fixture trees under pipeline/tests mirror real project layouts, including
+# dot-directories that per-clone exclude files commonly ignore. Re-include
+# them explicitly: a fixture git cannot see is a detector test that
+# silently stopped testing. (.gitignore outranks .git/info/exclude, so this
+# holds on any clone.)
+!pipeline/tests/fixtures/**

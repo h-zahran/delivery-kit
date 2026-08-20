@@ -214,4 +214,31 @@ correction away from taking effect.
 
 If it prints nothing, say nothing.
 
+## 6. Offer the pipeline block — only where there are specs
+
+If the repository has no `.specify/` directory, skip this section
+entirely and say nothing about it.
+
+If it does, offer the `pipeline` block after the guard questions: the
+pipeline plugin reads it from the same two files, repository over user
+level. Every key is optional, and every unanswered key is worked out —
+and printed — by the pipeline itself at run time, so this offer collects
+overrides, not guesses. Ask, at most, for: the plan file seeds are read
+from (`planFile`, default `main-plan.md`); the full test command
+(`testCommand`); the static-analysis command (`analyzeCommand`); the
+release command the release gate runs (`releaseCommand`). Accept "skip"
+for any of them, and for the whole section.
+
+Write what was answered into the REPOSITORY's `.delivery-kit.json` —
+these are per-repository facts, and writing them user-level would impose
+one repository's answers on every other. Merge exactly as section 3
+merges — read, apply section 3's own jq merge expression, write back
+atomically, carry the exit code; never overwrite, and never write a
+key the user skipped. This offer is the asking that section 5's "do
+not edit the repository file unasked" rule requires — write only what
+was just answered, nothing else.
+
+Print the resulting `pipeline` block the same way section 4 prints the
+guard keys, under the same rule: only claim a write that happened.
+
 Then stop. This skill configures; it does not go on to do other work.

@@ -9,11 +9,11 @@ lopsided in a way that was not obvious from inside any single session:
 | Pattern | Count | What it became |
 |---|---:|---|
 | Continuation nudges (`continue`, `keep going`, `/resume`) | 121 | The context guard + handoff |
-| Device test → screenshot → paste → describe | 107 | Runtime verification (not in v1) |
-| Commit → push → PR → CI choreography | 85 | Shipping automation (not in v1) |
-| "Fix all findings, carefully and completely" | 62 | Finding remediation (not in v1) |
+| Device test → screenshot → paste → describe | 107 | Runtime verification (now in the `pipeline` plugin) |
+| Commit → push → PR → CI choreography | 85 | Shipping automation (now in the `pipeline` plugin) |
+| "Fix all findings, carefully and completely" | 62 | Finding remediation (now in the `pipeline` plugin) |
 | "How do I hand off / make you remember?" | 30 | The handoff skill |
-| "You said done but it isn't on the device" | 13 + 4 interrupts | The verification gate (not in v1) |
+| "You said done but it isn't on the device" | 13 + 4 interrupts | The verification gate (now in the `pipeline` plugin) |
 
 121 continuation nudges is 8.5% of everything typed. That is not a preference
 about workflow; it is a measurable tax.
@@ -34,7 +34,7 @@ purpose.
 
 The guard computes context as `input_tokens + cache_read_input_tokens +
 cache_creation_input_tokens` over main-chain assistant messages, and takes the
-**median of the last five** such readings rather than the most recent one.
+**median of the last fifteen** such readings rather than the most recent one.
 
 This is not caution for its own sake. A single request that re-sends the full
 raw history — a review or advisory tool that forwards the transcript — inflates
@@ -42,6 +42,12 @@ one reading far above the live context. On 2026-08-07 a last-reading
 implementation fired the guard at "45%" while the session was genuinely at 24%,
 and ended a session that had more than half its context left. The median makes
 one anomalous reading harmless. It is the highest-value test in the repository.
+
+Fifteen rather than five since 1.0.2, because the inflation is rarely alone: a
+tool that forwards the whole conversation inflates four to six consecutive
+readings, and a five-wide window can be filled entirely by the spike — the
+median then IS the spike. Widening the window restored the property the median
+was chosen for.
 
 ## Why the window default is 200,000 and not larger
 

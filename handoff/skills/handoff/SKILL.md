@@ -10,10 +10,13 @@ Never start new work after this skill is invoked.
 
 ## Where the document goes
 
-Read `.delivery-kit.json` from the repository root if it exists. `handoff.docsDir`
-sets the directory; the default is `docs/handoffs`. The environment variable
-`DELIVERY_KIT_HANDOFF_DIR` overrides both. Below, `<docsDir>` means whichever
-of those applies.
+Resolve `handoff.docsDir` with the same precedence every other setting in this
+plugin uses (documented in the plugin's `docs/configuration.md`): start from
+the default `docs/handoffs`; if `~/.delivery-kit.json` exists and sets it,
+take that; if `.delivery-kit.json` at the repository root sets it, take that
+instead; and the environment variable `DELIVERY_KIT_HANDOFF_DIR` beats both
+files. A missing or malformed file just leaves the previous value standing.
+Below, `<docsDir>` means the resolved value.
 
 ## Checklist (create a todo per item)
 
@@ -83,6 +86,13 @@ Required sections:
   already tried, decisions taken and why.
 - **Deployments pending** — migrations, function deploys, store or registry
   uploads NOT yet applied.
+- **Pipeline state** — only when a pipeline run is live in this
+  repository: a state file under `.delivery-kit/runs/` whose recorded
+  phase is not `DONE`. Record the feature, the current phase, the state
+  file path, the gate awaiting an answer if any, and the exact resume
+  invocation (`/pipeline --resume`). When no run is live, omit the
+  section — unlike Uncommitted work, absence here means exactly what it
+  says.
 - **Resume protocol** — numbered steps the next session executes first. Step 1 is
   always: reconcile this document's claims — branch, SHA, PR and CI state —
   against actual git state, and report any discrepancy before proceeding. **HEAD
@@ -121,9 +131,18 @@ Resume with:
 Read <path-to-handoff-document> and continue from it. Follow the Resume protocol.
 ```
 
-The wording never varies; only the path does. A block still containing the
-placeholder has not been substituted and is useless to the person receiving it —
-read it back before you send it.
+When a pipeline run is live in this repository — the same test the
+Pipeline state section uses — add one more line inside the block, after
+the Read line:
+
+```
+/pipeline --resume
+```
+
+The wording never varies; only the path does, and the pipeline line
+appears exactly when a live run exists. A block still containing the
+placeholder has not been substituted and is useless to the person
+receiving it — read it back before you send it.
 
 Then STOP. Do not begin new batches, reviews, or "quick" extras.
 

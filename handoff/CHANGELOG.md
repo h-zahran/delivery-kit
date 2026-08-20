@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-08-20
+
+### Added
+
+- The handoff document gains a **Pipeline state** section, written only
+  when a pipeline run is live in the repository, and the printed resume
+  block gains a `/pipeline --resume` line under the same condition — so
+  a session interrupted at a pipeline gate resumes the run, not just the
+  conversation.
+- `handoff:setup` offers the `pipeline` configuration block when the
+  repository contains `.specify/`, writing answered keys to the
+  repository's `.delivery-kit.json`. One setup in front of the user
+  instead of two; repositories without specs are never asked.
+
+### Fixed
+
+- The handoff skill now resolves `handoff.docsDir` with the documented
+  precedence. 2.0.0 read only the repository's `.delivery-kit.json`, so a
+  value set in `~/.delivery-kit.json` — the file `docs/configuration.md`
+  recommends for machine-wide answers — was silently ignored.
+- `docs/why.md` said the guard takes the median of the last **five** readings;
+  the hook has taken the median of the last **fifteen** since 1.0.2. The page
+  now matches the shipped arithmetic.
+
 ## [2.0.0] - 2026-08-19
 
 ### Changed
@@ -49,6 +73,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version by taking the first pinned heading, so a single interleaved file
   would make "the current version" a question about release order rather than
   about agreement.
+- **Released and verified on 2026-08-19.** `main` `5ba7678`, tag
+  `handoff-v2.0.0`. CI ran for the first time on all three runners and passed on
+  each — ubuntu, macos and windows — and the tag-gated `tag matches the manifest
+  version` step passed on the tag run. The suite was green from the repository
+  root before the push: 69 of 69, TAP plan `1..69`, exit 0.
+- **The install was verified by hand, and the two checks that could have lied
+  were made to discriminate.** The old plugin's absence was read off the enabled
+  plugin list rather than inferred from a warning count, because one warning
+  proves nothing when the two copies race for a shared flag.
+  `.delivery-kit.json` was proven readable by running the guard twice against
+  two different `windowTokens` values and confirming the reported window
+  followed the file — 1000000 and then 200000 — rather than by observing a
+  single run that any always-passing check would also produce. The message it
+  emitted named `handoff:handoff`, which is the string 1.3.0 would have got
+  wrong.
 
 ## [1.3.0] - 2026-08-18
 

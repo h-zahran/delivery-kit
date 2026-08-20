@@ -6,13 +6,13 @@ The suites are [bats](https://github.com/bats-core/bats-core) and need `jq`.
 
 ```bash
 git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
-bash "$HOME/bats/bin/bats" -r tests handoff/tests
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 ```
 
-Name both paths. The suites sit in two directories now, and passing only
-`tests` runs the repository's own suite, silently skips the plugin's, and
-reports green — which is the failure this project exists to prevent, arriving
-by way of its own contributing guide.
+Name every suite path. The suites sit in more than one directory, and
+passing only `tests` runs the repository's own suite, silently skips the
+plugins', and reports green — which is the failure this project exists to
+prevent, arriving by way of its own contributing guide.
 
 Expect all tests to pass on Linux, macOS, and Windows under Git Bash. CI runs
 all three; a change that passes on only one is not finished.
@@ -31,24 +31,42 @@ load bearing beyond their size:
 
 `tests/portability.bats` fails the build if project-specific vocabulary, an
 absolute local path, or the name of a tool this project does not depend on
-appears anywhere a user reads or installs. That surface spans two trees, and
-which tree a file belongs in is the first thing to get right when you add one:
+appears anywhere a user reads or installs. That surface spans a tree per
+plugin plus the repository root, and which tree a file belongs in is the
+first thing to get right when you add one:
 
-- The plugin's surface lives under `handoff/` — `handoff/hooks/`,
+- The `handoff` plugin's surface lives under `handoff/` — `handoff/hooks/`,
   `handoff/skills/`, `handoff/README.md`, `handoff/CHANGELOG.md`,
-  `handoff/docs/` and `handoff/.claude-plugin/`. This is what a user installs.
+  `handoff/docs/`, `handoff/tests/` and `handoff/.claude-plugin/`. This is
+  what a user installs.
+- The `pipeline` plugin's read-or-install surface lives under `pipeline/` —
+  `pipeline/README.md`, `pipeline/CHANGELOG.md`, `pipeline/commands/`,
+  `pipeline/docs/` and `pipeline/.claude-plugin/`. Its executable tree —
+  `pipeline/skills/`, `pipeline/scripts/` and `pipeline/tests/` — is
+  scanned too, under the relaxed vocabulary `tests/portability.bats`
+  describes: a detector, and a suite that asserts a detector's output, must
+  be allowed to write the strings they detect.
 - The repository's own surface stays at the root — `README.md`, this file,
   `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `LICENSE`, `.claude-plugin/`,
   `.gitignore`, `.gitattributes` and `.github/`. This is what a user reads
   before deciding to install anything. The root `CHANGELOG.md` is an index
   pointing at each plugin's changelog, not a release history of its own.
 
-Three variables in that file hold the exact lists: `SHIPPED_HANDOFF` for the
-first, `SHIPPED_ROOT` for the second, and `SHIPPED` as their union, which is
-what the scans walk. Register a new document in whichever of the first two
-owns the tree it lives in — not in `SHIPPED`, which is only the union and gets
-rewritten whenever a tree is added, so an entry parked there is one refactor
-from being dropped. An unregistered file is an unscanned one.
+One variable per plugin tree in that file holds the exact list —
+`SHIPPED_HANDOFF`, `SHIPPED_PIPELINE` — with `SHIPPED_ROOT` for the
+repository's own surface and `SHIPPED` as their union, which is what the
+strict scans walk. Register a new document in whichever list owns the tree it
+lives in — not in `SHIPPED`, which is only the union and gets rewritten
+whenever a tree is added, so an entry parked there is one refactor from being
+dropped. An unregistered file is an unscanned one.
+
+Fixture trees under a plugin's `tests/fixtures/` are re-included through
+the tracked `.gitignore` and scanned by the relaxed test like the rest
+of the suite — and that re-inclusion is total, so a fixture must never
+grow a dependency tree or anything else an ignore rule would normally
+catch. When a prose file ships outside a skills directory, it joins the
+link test's list in the same commit; skills need no list edit — their
+`SKILL.md` files are discovered by glob.
 
 This plugin was extracted from a specific codebase, and re-importing that
 codebase's vocabulary one pull request at a time is the most likely way it
@@ -79,6 +97,8 @@ becomes unusable for everyone else.
 
 ## Scope
 
-v1 is the context guard and the handoff skill, for Claude Code. Proposals that
-add a pipeline orchestrator, shipping automation, or another harness are not
-rejected on merit — they are sequenced later. Open an issue before building one.
+The marketplace ships the context guard and handoff workflow, and the
+pipeline that drives one unit of work from specification through release,
+for Claude Code. Proposals that add another harness, or automation beyond
+what the pipeline's phases already run, are not rejected on merit — they
+are sequenced later. Open an issue before building one.
