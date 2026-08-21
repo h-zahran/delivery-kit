@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 *.log
+.delivery-kit/
 
 # Scratch directories created by tooling are NOT listed here. This file is
 # published, so a pattern naming a private tool discloses that tool — the same
