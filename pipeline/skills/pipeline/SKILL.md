@@ -28,7 +28,8 @@ are your hands, and the state file is your memory.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
-  fresh write are the only two shapes.
+  fresh write are the only two shapes (phase G names the one cleanup
+  exception).
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
   entry is its own board item. The board is surfaced in replies — a
@@ -40,6 +41,14 @@ are your hands, and the state file is your memory.
   answers, findings fixed per severity, loop iterations, agents
   dispatched. Update it at each phase boundary with `jq`. This plugin
   exists because prompts were measured; it measures itself.
+- **A missing tool is its own question.** When the run needs a tool the machine lacks, stop: name the tool, show the exact install command, and record the answer in the state file. Never install anything silently.
+  This rule is for a tool the run cannot continue without; an optional
+  capability that merely degrades a named phase follows that phase's
+  own skip-and-say-so rule. The recording, like every state write,
+  binds from the moment the state file exists — at pre-flight on a
+  fresh run, the stop and the printed install command stand on their
+  own. The install itself is the human's to run, as with the spec-tool
+  commands at pre-flight.
 
 ## Configuration
 
@@ -252,6 +261,13 @@ list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no
 branch operations, no pull request) plus whatever `releaseCommand` and
 `verifyCommand` name, plus any deploy or migration verb found in the
 tasks file. `--auto` never collapses this gate: it spends money.
+If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.
+The package is written into the run directory under
+`.delivery-kit/runs/<feature>/`; removing one the gate's changed answer
+has superseded is the one artefact removal a run performs, and the
+idempotency rule's two shapes govern artefact writes, not that cleanup.
+Prefer the VOID stamp — it is a plain write and keeps the audit trail;
+delete only on the owner's explicit instruction.
 
 **H — implement.** Invoke `/speckit-implement`. Fan independent tasks of
 the same phase out across agents, capped by `maxParallelAgents`; two
@@ -314,11 +330,16 @@ resolves for a web project, say so and fall through to the
 `verifyCommand` strategy rather than guessing — an invented command that
 appears to hang is worse than an honest skip. If no strategy applies
 and `verifyCommand` is unset, print what could not be verified and why,
-then continue. It never reports verification it did not do.
+then continue.
+Verification beyond the configured strategy is welcome when it is real — run it, then report it as exactly what it is: extra evidence, not the configured check.
+It never reports verification it did not do.
+Extra verification is never an invented command — the honest-skip rule
+above still binds.
 
 **O — release. STOPS AND ASKS.** Show the exact `releaseCommand` and
 where it publishes. Runs only on an explicit yes, or under
 `--auto-release` — never under `--auto` alone.
+With `releaseCommand` unset there is nothing to publish: record that in the state file and move on — the gate guards a command, it does not invent one.
 
 **DONE.** `phase-start <feature> DONE`, release the lock
 (`progress.sh lock-release <feature>`), close the board, and summarise:
@@ -326,7 +347,10 @@ what shipped, what was skipped and why, where the artefacts are.
 
 ## Gates
 
-Five stops on a fresh run. A gate is a safe handoff point by
+Up to five stops on a fresh run — a gate with nothing to ask (no
+clarify questions at C; `releaseCommand` unset at O) records that and
+moves on. Only C and O can have nothing to ask; G, K and L always have
+content and always stop. A gate is a safe handoff point by
 construction: if the context guard fires while a gate waits, the run
 hands off from there, and the state file already records which gate.
 
@@ -338,8 +362,8 @@ hands off from there, and the state file already records which gate.
 | Push and pull request | L | Branch name, title, full body |
 | Release | O | The exact command, and where it publishes |
 
-Conditional stops: the resume prompt, a cap breach in C, F or M, any
-hard failure, and a failed runtime check. Record every gate's answer in
+Conditional stops: the resume prompt, a cap breach in C, F or M, a
+missing required tool, any hard failure, and a failed runtime check. Record every gate's answer in
 the state file's `gates` key.
 
 ## Parallel agents

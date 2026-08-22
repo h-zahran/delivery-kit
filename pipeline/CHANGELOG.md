@@ -2,6 +2,24 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.0.1] - 2026-08-22
+
+### Fixed
+
+- Phase O now says what the release gate does when `releaseCommand` is
+  unset: record that there is nothing to publish, and move on.
+- The N.5 runtime check now covers verification done beyond the
+  configured strategy, and how to report it.
+- The G implementer gate now covers the handoff package left behind
+  when the gate's answer changes.
+- The ground rules gain a bullet on tools the machine lacks.
+- The README's example invocations use the canonical
+  `/pipeline:pipeline` spelling; the short form `/pipeline` resolves to
+  the same command.
+- Gate descriptions now say "up to five stops": a gate with nothing to
+  ask records that and moves on, and the missing-tool rule names which
+  tools stop the run and which merely degrade a phase.
+
 ## [1.0.0] - 2026-08-20
 
 ### Added

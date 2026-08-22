@@ -1,7 +1,7 @@
 {
   "name": "pipeline",
   "description": "Drives a unit of work from a heading in a plan file to a verified build: spec, plan, tasks, implementation, review and release, with a human gate at every irreversible step.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Haytham Zahran"
   },
