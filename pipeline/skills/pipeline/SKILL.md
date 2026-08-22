@@ -115,6 +115,7 @@ parse its stdout as JSON, and render the probe block:
 ```
 Project type : <projectType>  (<projectTypeSource>)
 spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <speckit.script> scripts — <in range?>
+Constitution : <set / not set — plan gates run against an empty document>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
@@ -172,6 +173,12 @@ The script only reports; the decisions are yours, in this order:
 8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the
    resume prompt — the recorded phase, `--from <phase>` (validated by
    `from-validate`), or abandon.
+9. **Constitution not set** (`speckit.constitutionSet` false): OFFER
+   running `/speckit-constitution` once — the principles are the
+   owner's to write, declining is fine, and the offer is not repeated
+   within a run. Record the answer in the state file's `gates` key —
+   immediately on a resume; on a fresh run, hold it aside and write it
+   as soon as B's `init` creates the state file.
 
 **Base branch:** the resolution order is `origin/HEAD`, then the
 configured `baseBranch`, then the current branch when there is no

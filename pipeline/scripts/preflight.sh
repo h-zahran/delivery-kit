@@ -80,6 +80,22 @@ if [ -d .specify/templates ] && [ -d .specify/scripts ]; then
   fi
 fi
 
+# --- constitution ------------------------------------------------------------
+# The observable is the 1.1.0 contract: absent, or still the placeholder
+# template a fresh init writes, or empty of real content -> false;
+# written principles -> true. The placeholder grep IS the mechanism — a
+# human constitution carrying a literal [ALL_CAPS] token is the accepted
+# false negative, recorded in the feature's research file. Computed and
+# emitted unconditionally: the value derives from the constitution file
+# alone, so it is defined whether or not the spec tool is installed.
+sk_const=false
+const_file=".specify/memory/constitution.md"
+if [ -f "$const_file" ] \
+   && ! grep -qE '\[[A-Z][A-Z0-9_]*\]' "$const_file" \
+   && grep -qvE '^[[:space:]]*(<!--.*-->)?[[:space:]]*$' "$const_file"; then
+  sk_const=true
+fi
+
 # --- git facts ---------------------------------------------------------------
 base=""; base_source=""
 if b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
@@ -127,6 +143,7 @@ jq -n \
   --argjson sk_present "$sk_present" --arg sk_version "$sk_version" \
   --argjson sk_in_range "$sk_in_range" --arg sk_script "$sk_script" \
   --arg  sk_scripts_dir "$sk_scripts_dir" --arg sk_form "$sk_form" \
+  --argjson sk_const "$sk_const" \
   --arg  base "$base" --arg base_source "$base_source" \
   --arg  remote "$remote" --argjson gh "$gh_present" --argjson adb "$adb_present" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
@@ -134,7 +151,8 @@ jq -n \
   projectType: $ptype, projectTypeSource: $ptype_source,
   speckit: {
     present: $sk_present, version: $sk_version, versionInRange: $sk_in_range,
-    script: $sk_script, scriptsDir: $sk_scripts_dir, invocationForm: $sk_form
+    script: $sk_script, scriptsDir: $sk_scripts_dir, invocationForm: $sk_form,
+    constitutionSet: $sk_const
   },
   baseBranch: $base, baseBranchSource: $base_source,
   remote: { kind: $remote, ghPresent: $gh },
