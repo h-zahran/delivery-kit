@@ -48,6 +48,7 @@ setup() {
   run --separate-stderr bash "$PF" --dir "$FIX/no-speckit" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.speckit.present' <<<"$output")" = "false" ]
+  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ]
 }
 
 @test "the web fixture reads version and sh flavour, resolving the bash scripts dir" {
@@ -158,4 +159,16 @@ setup() {
   run --separate-stderr bash "$PF" --dir "$T" --base-branch main
   [ "$(jq -r '.tree.dirty' <<<"$output")" = "true" ]
   [ "$(jq -r '.tree.runsLive' <<<"$output")" = "true" ]
+}
+
+@test "constitutionSet is false on a fresh-init-shaped constitution" {
+  run --separate-stderr bash "$PF" --dir "$FIX/constitution-unset" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ]
+}
+
+@test "constitutionSet is true once the constitution carries real principles" {
+  run --separate-stderr bash "$PF" --dir "$FIX/constitution-set" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "true" ]
 }

@@ -2,6 +2,17 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- Pre-flight now probes the project constitution: the probe script
+  emits a new boolean for it, the probe block prints a Constitution
+  line (`set`, or `not set — plan gates run against an empty
+  document`), and when it is not set the run offers the spec-kit
+  constitution command once — the principles are the owner's to write,
+  declining is fine, and the offer is not repeated within a run.
+
 ## [1.0.1] - 2026-08-22
 
 ### Fixed
