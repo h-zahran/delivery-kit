@@ -7,22 +7,23 @@ editing a file.
 
 ## How it runs
 
-Type the command; it never starts on its own:
+Type the command; it never starts on its own — the short form
+`/pipeline` resolves to the same command:
 
 ```
-/pipeline Phase 9: Claim Pack
-/pipeline #123
-/pipeline add a CSV export to the report page
+/pipeline:pipeline Phase 9: Claim Pack
+/pipeline:pipeline #123
+/pipeline:pipeline add a CSV export to the report page
 ```
 
 The seed is read three ways: a `Phase <N>: <title>` heading is read out
 of your plan file; `#` plus digits fetches that GitHub issue; anything
 else is the feature description, verbatim.
 
-Twenty phases run from specification to release. Five of them stop and
-ask — clarification, implementer choice, commit, push and pull request,
-release — and everything that leaves the machine sits behind one of
-those gates. `--auto` collapses the commit and push gates; the release
+Twenty phases run from specification to release. Up to five of them
+stop and ask — clarification, implementer choice, commit, push and
+pull request, release — and everything that leaves the machine sits
+behind one of those gates. `--auto` collapses the commit and push gates; the release
 gate needs `--auto-release`, typed on purpose. A run can stop cleanly at
 any phase (`--until <phase>`) and resume later (`--resume`).
 
