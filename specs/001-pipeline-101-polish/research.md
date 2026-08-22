@@ -26,6 +26,13 @@
   the file exists, not that the spelling resolves); skipping the measurement
   and hedging in the README (rejected: the requirement demands a measured
   sentence or none).
+- **Outcome (recorded 2026-08-21, quoted from the run state file so a
+  clone carries the record)**: "resolves — measured 2026-08-21 in this
+  live session: bare /pipeline delivered the pipeline:pipeline command
+  invocation (empty seed) in Claude Code with the plugin installed."
+  The measurement covers the BARE form only; the README sentence is
+  scoped to "typed bare" accordingly. Whether arguments forward through
+  the short form was not measured, and no shipped sentence claims it.
 
 ## R2 — Insertion points for the four orchestrator sentences (FR-001..FR-004)
 
@@ -51,13 +58,15 @@
 
 ## R3 — Changelog and stamp mechanics (FR-006)
 
-- **Decision**: Insert `## [1.0.1] - 2026-08-21` (or the merge day if it
-  slips) directly above `## [1.0.0] …` in `pipeline/CHANGELOG.md`, entries
+- **Decision**: Insert `## [1.0.1] - <ship day>` (shipped 2026-08-22
+  after the calendar rolled at the commit gate) directly above
+  `## [1.0.0] …` in `pipeline/CHANGELOG.md`, entries
   under a `### Fixed`/`### Changed` shape matching the file's existing style,
   count-free. Stamp `pipeline/.claude-plugin/plugin.json` and the pipeline
   entry of `.claude-plugin/marketplace.json` with jq-verified edits.
-- **Rationale**: Two suite gates parse the heading shape `## [X.Y.Z] - 
-  YYYY-MM-DD`; the acceptance jq line is pinned in the seed.
+- **Rationale**: two suite gates parse the heading shape
+  `## [X.Y.Z] - YYYY-MM-DD` (exactly one space each side of the
+  hyphen); the acceptance jq line is pinned in the seed.
 - **Alternatives considered**: An `## [Unreleased]` intermediate (rejected:
   the plan of record gives 1.0.1 its own immediate stamp in this phase;
   `[Unreleased]` first appears in Phase 2).

@@ -17,8 +17,9 @@ All notable changes to the `pipeline` plugin.
   `/pipeline:pipeline` spelling; the short form `/pipeline` resolves to
   the same command.
 - Gate descriptions now say "up to five stops": a gate with nothing to
-  ask records that and moves on, and the missing-tool rule names which
-  tools stop the run and which merely degrade a phase.
+  ask records that and moves on, and the missing-tool rule separates
+  tools that stop the run from capabilities that merely degrade a
+  phase.
 
 ## [1.0.0] - 2026-08-20
 

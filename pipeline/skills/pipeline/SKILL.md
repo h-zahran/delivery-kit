@@ -21,10 +21,12 @@ are your hands, and the state file is your memory.
   carry CRLF line endings — parse it with `jq`, or capture through
   command substitution. NEVER pipe it into a `while read` loop; `read`
   keeps the trailing CR and every string comparison silently fails.
-- **State writes** go through `progress.sh` subcommands only
+- **State writes**: the phase alphabet goes through `progress.sh`
   (`phase-start` at the START of every phase, `phase-done` on
-  completion). Never edit the state file by hand — `validate` exists to
-  catch corruption, not to excuse it.
+  completion); keys no subcommand covers (`config`, `artifacts`,
+  `gates`, `measurements`) are written whole-file with `jq`, then
+  checked with `validate` straight after. Never edit the state file by
+  hand — `validate` exists to catch corruption, not to excuse it.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
@@ -48,7 +50,8 @@ are your hands, and the state file is your memory.
   binds from the moment the state file exists — at pre-flight on a
   fresh run, the stop and the printed install command stand on their
   own. The install itself is the human's to run, as with the spec-tool
-  commands at pre-flight.
+  commands at pre-flight. The phase-tracking preamble below is the
+  normative statement of that timing.
 
 ## Configuration
 
@@ -333,8 +336,9 @@ and `verifyCommand` is unset, print what could not be verified and why,
 then continue.
 Verification beyond the configured strategy is welcome when it is real — run it, then report it as exactly what it is: extra evidence, not the configured check.
 It never reports verification it did not do.
-Extra verification is never an invented command — the honest-skip rule
-above still binds.
+Extra verification is never an invented command — the warning above
+against inventing a command that appears to hang binds for every
+project type, not only web.
 
 **O — release. STOPS AND ASKS.** Show the exact `releaseCommand` and
 where it publishes. Runs only on an explicit yes, or under
@@ -349,8 +353,10 @@ what shipped, what was skipped and why, where the artefacts are.
 
 Up to five stops on a fresh run — a gate with nothing to ask (no
 clarify questions at C; `releaseCommand` unset at O) records that and
-moves on. Only C and O can have nothing to ask; G, K and L always have
-content and always stop. A gate is a safe handoff point by
+moves on. Only C and O can have nothing to ask. G always stops; K and
+L always have content, and stop unless `--auto` collapsed them or a
+degradation named at pre-flight (no remote, no `gh`) already reduced
+them. A gate is a safe handoff point by
 construction: if the context guard fires while a gate waits, the run
 hands off from there, and the state file already records which gate.
 

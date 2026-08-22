@@ -7,8 +7,8 @@ editing a file.
 
 ## How it runs
 
-Type the command; it never starts on its own — the short form
-`/pipeline` resolves to the same command:
+Type the command; it never starts on its own — typed bare, the short
+form `/pipeline` resolves to the same command:
 
 ```
 /pipeline:pipeline Phase 9: Claim Pack

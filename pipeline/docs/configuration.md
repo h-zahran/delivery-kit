@@ -58,7 +58,7 @@ before it spends it.
 | `maxParallelAgents` | Fan-out cap for dispatched agents, every phase. |
 | `agentModel` | The model dispatched agents run on. |
 | `verifyCommand` | The runtime check's fallback strategy; it must produce an artefact. |
-| `releaseCommand` | What the release gate runs, shown exactly before it runs. |
+| `releaseCommand` | What the release gate runs, shown exactly before it runs. Unset means there is nothing to publish — the release gate records that and moves on; no command is ever detected or invented for this key. |
 | `devCommand` | The web runtime check's server command; without it the project manifest's script table is tried: `dev`, then `start`, then `serve`. |
 
 ## Base branch
