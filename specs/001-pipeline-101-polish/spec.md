@@ -69,7 +69,7 @@ A user installing or updating the plugin sees one version, everywhere it is decl
 
 1. **Given** the stamped tree, **When** one runs `jq -r '.plugins[] | "\(.name) \(.version)"' .claude-plugin/marketplace.json`, **Then** it prints `handoff 2.1.0` and `pipeline 1.0.1`.
 2. **Given** the stamped tree, **When** one reads `pipeline/.claude-plugin/plugin.json`, **Then** its version is `1.0.1`.
-3. **Given** the stamped changelog, **When** one reads `pipeline/CHANGELOG.md`, **Then** a heading `## [1.0.1] - 2026-08-21` sits above `## [1.0.0] …`, its entries describe the five fixes, and no entry states a count that a later change falsifies.
+3. **Given** the stamped changelog, **When** one reads `pipeline/CHANGELOG.md`, **Then** a heading `## [1.0.1] - <ship day>` sits above `## [1.0.0] …` (shipped: `## [1.0.1] - 2026-08-22`), its entries describe the fixes, and no entry states a count that a later change falsifies.
 
 ### Edge Cases
 
@@ -87,7 +87,7 @@ A user installing or updating the plugin sees one version, everywhere it is decl
 - **FR-003**: The G — implementer gate paragraph MUST gain: "If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find."
 - **FR-004**: The Ground rules list MUST gain one bullet: "**A missing tool is its own question.** When the run needs a tool the machine lacks, stop: name the tool, show the exact install command, and record the answer in the state file. Never install anything silently."
 - **FR-005**: `pipeline/README.md` "How it runs" MUST be updated only after a live-session measurement of whether `/pipeline` resolves: the three example invocations use `/pipeline:pipeline …`, and a short-form sentence exists only if the measurement proved it resolves — whichever sentence is true, and no claim at all if the result cannot be determined.
-- **FR-006**: The 1.0.1 stamp MUST land in three places and agree: `pipeline/.claude-plugin/plugin.json` version `1.0.1`; the pipeline entry in `.claude-plugin/marketplace.json` version `1.0.1`; `pipeline/CHANGELOG.md` gains `## [1.0.1] - 2026-08-21` above `## [1.0.0] …`, listing the fixes count-free.
+- **FR-006**: The 1.0.1 stamp MUST land in three places and agree: `pipeline/.claude-plugin/plugin.json` version `1.0.1`; the pipeline entry in `.claude-plugin/marketplace.json` version `1.0.1`; `pipeline/CHANGELOG.md` gains `## [1.0.1] - <ship day>` (shipped: 2026-08-22) above `## [1.0.0] …`, listing the fixes count-free.
 
 ## Success Criteria *(mandatory)*
 
@@ -104,6 +104,6 @@ A user installing or updating the plugin sees one version, everywhere it is decl
 - All six requirements ship in one run and one pull request; the owner merges and tags `pipeline-v1.0.1` afterward.
 - The suite count stays 116: this phase adds no tests and removes none.
 - The exact sentences in FR-001 through FR-004 are contract text, quoted verbatim from the plan of record (`main-plan.md`, Phase 1 section); they are to be inserted character-for-character.
-- The stamp date is 2026-08-21 (today) unless the merge slips past it, in which case the changelog date is re-stamped to the merge day before the commit gate.
+- The stamp date is the ship day — the day the commit gate runs (shipped 2026-08-22; the merge day cannot be known at that gate). If the merge slips materially, re-dating is the owner's call at merge time, not a gate's.
 - Global Constraints of the plan of record apply throughout (pinned strings, STRICT/RELAXED vocabulary, count-free prose, changelog heading shape).
 - Mid-run owner ruling (recorded in the run state file, `gates["H.7"]` and phase I): beyond the FR list, the owner ordered review findings fixed in this run, in unpinned text only — a scoping paragraph under the FR-004 bullet (required-vs-optional tools, the state-write carve-out, the human runs the install), a package-location and VOID-preference note in the G paragraph plus a cross-reference on the idempotency rule, the "Up to five stops" requalification in the Gates section and README (with the closed C/O list), the "missing required tool" conditional stop, the N.5 no-invented-command tie-back, and a matching changelog bullet. The scoping paragraph narrows the face value of FR-004's sentence for the pre-flight moment when no state file exists; the contract sentences themselves are untouched (verified byte-identical).

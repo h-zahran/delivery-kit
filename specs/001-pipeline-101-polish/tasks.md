@@ -41,7 +41,7 @@ None — no task blocks any story beyond T001's anchor proof.
 **Independent Test**: three greps (quickstart.md §1, lines 2–4) each print 1; the pinned `It never reports verification it did not do` is byte-identical; prose.bats 1..8 ok.
 
 - [X] T003 [US2] Insert contract C2 sentence into `pipeline/skills/pipeline/SKILL.md`, immediately after the N.5 sentence ending "then continue.", leaving the following pinned sentence untouched.
-- [X] T004 [US2] Insert contract C3 sentence into `pipeline/skills/pipeline/SKILL.md`, at the end of the G — implementer gate paragraph, after "…it spends money." — that G sentence is guarded by the contract document, not by a prose.bats pin (the pinned `--auto` never collapses O` string lives in the Flags section); it stays byte-identical either way.
+- [X] T004 [US2] Insert contract C3 sentence into `pipeline/skills/pipeline/SKILL.md`, at the end of the G — implementer gate paragraph, after "…it spends money." — that G sentence is guarded by the contract document, not by a prose.bats pin (the pinned string `` `--auto` never collapses O `` lives in the Flags section); it stays byte-identical either way.
 - [X] T005 [US2] Append contract C4 bullet to the Ground rules list in `pipeline/skills/pipeline/SKILL.md`, matching the list's bullet style, after the current last bullet.
 
 **Checkpoint**: all four sentences grep-findable; prose.bats 1..8 ok.
@@ -98,3 +98,9 @@ None — no task blocks any story beyond T001's anchor proof.
 ## Implementation Strategy
 
 Single-PR increment: US1 alone is a shippable MVP (the release-day truth fix), but the plan of record ships all four stories plus the stamp in one run and one pull request. Execute sequentially T001→T012; fan out only the stamp trio.
+
+## Completion notes (evidence)
+
+- T001: anchors found pre-edit in `pipeline/skills/pipeline/SKILL.md` at lines 42 (Ground rules, last bullet), 254 (G, "it spends money."), 317 ("then continue." sharing a line with the pinned N.5 sentence), 321 (O, "never under `--auto` alone."); prose.bats `1..8` ok pre-change.
+- T011: the four contract greps returned 1/1/1/1; prose.bats `1..8` ok; jq printed `handoff 2.1.0` and `pipeline 1.0.1`; plugin.json read `1.0.1`; the `[1.0.1]` heading sat above `[1.0.0]`.
+- T012: full house suite from the repo root — `1..116`, 116 ok, 0 not ok, 0 non-TAP, exit 0 (equal to the F.5 baseline).

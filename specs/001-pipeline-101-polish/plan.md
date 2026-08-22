@@ -6,7 +6,7 @@
 
 ## Summary
 
-Five additive prose fixes to the pipeline plugin's shipped text (four in the orchestrator skill, one measured fix in the README), plus the 1.0.1 version stamp across its three sites. No behavior changes. Every new sentence is contract text quoted verbatim from the plan of record; every existing pinned string survives byte-for-byte.
+Five additive prose fixes to the pipeline plugin's shipped text (four in the orchestrator skill, one measured fix in the README), plus the 1.0.1 version stamp across its three sites. No script changes; the orchestrator's instruction text also gained owner-sanctioned scoping additions mid-run — including a new conditional stop (a missing required tool) and one sanctioned artefact removal (a superseded G package) — recorded in spec.md's Assumptions and the run state file. Every new contract sentence is quoted verbatim from the plan of record; every existing pinned string survives byte-for-byte.
 
 ## Technical Context
 

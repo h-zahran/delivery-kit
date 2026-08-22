@@ -3,6 +3,11 @@
 Prerequisites: repo root `D:\Github\delivery-kit`, branch
 `001-pipeline-101-polish`, bats 1.11.0 at the house path.
 
+Note: these are Git Bash commands for the author's machine — substitute
+your own bats path elsewhere. Run the greps from bash, not PowerShell
+(PowerShell eats the backtick escapes). CI runs portable equivalents on
+ubuntu, macos and windows.
+
 ## 1. The four new orchestrator sentences exist (FR-001..FR-004)
 
 ```bash
