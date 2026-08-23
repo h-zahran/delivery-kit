@@ -3,7 +3,8 @@
 ## R1 — What "character-identical across the two files" binds
 
 - **Decision**: the key NAME (`implementer`), the legal value set
-  (`claude`, `handoff`), and the default (unset — rendered `unset` in
+  (`claude`, `handoff` — widened to include `ask` at phase M round 4,
+  owner-ordered), and the default (unset — rendered `unset` in
   the orchestrator's Meaning-table column and `null` in the JSON block,
   the two files' existing convention) are identical; the surrounding
   description prose follows each table's own style. The exact strings
@@ -79,6 +80,52 @@
   floor paragraph, the `gates`-authoritative sentence, the docs and
   changelog floor sentences) join the same queue, unpinned. Still
   RECORDED, NOT SPENT: the counts stay frozen this phase.
+- **EXTENDED at phase M rounds 1-2 (2026-08-23)**: the list above was written
+  at phase I and so cannot name what the two review rounds then added. Also
+  unpinned: the reworded `--auto` flags row, G's reworded lead, pre-flight
+  item 9's reworded clause, the probe block's reworded render instruction,
+  the resolution-time enum check, the `gates.G`
+  authority-and-re-entry paragraph, the rewritten Gates section, and the
+  configuration page's range paragraph, disclosure paragraph and
+  constitution-consequence paragraph. A round-2 reviewer measured the cost
+  with live mutants on scratch copies, positive control fired first:
+  inverting the G pre-answer sentence to "G STILL STOPS AND ASKS" and
+  restoring the refuted "anything but" trigger BOTH leave the suite at
+  `1..30` green. The technique for spending this debt at ZERO count
+  movement is known and precedented twice in PR #16 — one fixed-string
+  check appended inside prose test 9, against the whitespace-flattened G
+  slice.
+- **SPENT at phase M round 4, owner-ordered (2026-08-23)**: the owner
+  overrode the review cap with "fix everything, no deferred", so this
+  debt is no longer recorded — it is paid. The spend was made TWICE: the
+  first shape put six consent sentences inside test 9 to keep the count
+  frozen, and a round-4 reviewer showed that hid the consent contract in
+  a test named for the handoff package — paying for a frozen count in
+  name accuracy. As shipped there are TWO new tests: `the G pre-answer
+  contract is pinned sentence by sentence` and `the implementer key's
+  consent surface is pinned outside the G slice`; the `--auto` row and
+  the `--auto-release` assurance stayed in test 6, where they belong.
+  Prose `1..9` -> `1..11`, house `1..119` -> `1..121`; SC-002 and SC-003
+  both carry the override, as do `plan.md`, `main-plan.md`, the contract
+  and `quickstart.md`. Mutation-verified on a scratch copy with a positive control
+  fired first: both mutants this record had measured as LIVE GREEN now
+  go RED, plus two new ones, and the restored baseline is green. The
+  hazard this list named — "a future edit can delete the entire consent
+  contract from the G section and the suite will still report 1..9" — is
+  closed by measurement, not by assertion.
+- **SCOPE OF THAT CLAIM, stated honestly (phase M round 4)**: a reviewer
+  ran 33 mutations and split the claim in two. "The named DELETION
+  hazard is closed by measurement" — TRUE, verified at three
+  granularities. "The consent surface is guarded by measurement" — was
+  OVERSTATED: the first spend was deletion-shaped, and sixteen INVERSIONS
+  survived it, including a document asserting that the key collapses the
+  release gate and that illegal values are silently coerced. Fourteen of
+  those were pin-cuts and are now fixed and re-verified RED, along with a
+  relocation attack the sliced pins now catch. What remains uncatchable
+  by grep pinning is prose ADDED beside a pin that contradicts it; a
+  denylist naming that target would defeat itself, so the limit is
+  recorded here instead. `prose.bats`'s own header says it: regression
+  guards, not proofs.
 
 ## R4 — The field test (SC-004) is the run, not a file
 

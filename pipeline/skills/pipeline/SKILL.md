@@ -67,6 +67,23 @@ There are NO environment-variable overrides for pipeline keys. Record
 the merged result in the state file's `config` key so resume does not
 re-resolve differently.
 
+A later layer's `null` is silence, not an override: it leaves the earlier
+layer's value standing, exactly as an absent key would. To take an
+inherited `implementer` back to a stopping gate, set the later layer to
+`ask` — that is what the value is for, and it is the only spelling that
+overrides toward the stop. Note the consequence for the keys that have no
+such value: `verifyCommand`, `releaseCommand` and `devCommand` can be
+REPLACED by a later layer but never returned to unset, because `null`
+there is silence too. Say so when it bites; never pretend a `null`
+cleared one.
+
+Resolution validates as it goes. An `implementer` that resolves to a
+value which is none of `claude`, `handoff` or `ask` — unset is not a
+value and never stops anything — stops the run HERE,
+before pre-flight's decision walk begins, and so before either of its
+offered writes can leave dirt no artefact claims. Pre-flight decision
+item 10 anchors that rule; this is where it fires.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `planFile` | `main-plan.md` | Where `Phase <N>: <title>` seeds are read from |
@@ -84,9 +101,10 @@ re-resolve differently.
 | `verifyCommand` | unset | N.5's fallback strategy |
 | `releaseCommand` | unset | Phase O's exact command |
 | `devCommand` | unset | N.5 web strategy's server |
-| `implementer` | unset | Pre-answers the G gate: `claude` or `handoff` |
+| `implementer` | unset | Pre-answers the G gate: `claude` or `handoff`; `ask` restores the stop |
 
-`null` means *work it out*: `projectType` from detection, commands and
+`null` means *work it out* — of the MERGED result, not of a layer, where
+`null` is silence as above: `projectType` from detection, commands and
 `codeRoots` from the detected type, `baseBranch` per the pre-flight
 order below. Anything detected is printed, so a wrong guess is visible
 rather than silent.
@@ -97,12 +115,12 @@ rather than silent.
 |---|---|
 | `--config <path>` | Merge a JSON file over the resolved configuration. Beats both config files. |
 | `--dry-run` | Run the spec phases A–F.5 normally, then print what H–O would do and stop. Releases the lock on the way out. |
-| `--auto` | Collapse the K and L gates to automatic. C, G and O still stop. |
+| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops unless `implementer` pre-answered it. |
 | `--auto-release` | Collapse O as well. Typed on purpose, never implied by `--auto`. |
 | `--until <phase>` | Stop cleanly after the named phase: state file intact, lock released, resumable. |
 | `--from <phase>` | Offered by the resume prompt; validated by `progress.sh from-validate` against which artefacts exist. |
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
-| `--implementer <claude|handoff>` | Pre-answers the G gate; beats the config key. |
+| `--implementer <claude\|handoff\|ask>` | Pre-answers the G gate, or restores it with `ask`; beats the config key. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -112,14 +130,15 @@ this tool does, and one flag must not mean both "commit for me" and
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
 `--project-type`/`--base-branch` only when configuration set them),
-parse its stdout as JSON, and render the probe block:
+parse its stdout as JSON, and render the probe block — the Implementer
+line only when the key resolves to a value, per **Implementer:** below:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
 spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <speckit.script> scripts — <in range?>
 Constitution : <set / not set — plan gates run against an empty document>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
-Implementer  : <claude|handoff>  (from <source>)   — the line is omitted when the key is unset
+Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
 Missing      : <the rest>
@@ -192,7 +211,8 @@ The script only reports; the decisions are yours, in this order:
    already carries a D entry in `timestamps` does not offer at all: D
    consumed whatever constitution existed, so print the line and move
    on. The offer is a conditional stop that `--auto` does not
-   collapse — like C and G it needs an answer only the owner can give,
+   collapse — like C, and like G whenever `implementer` is unset or `ask`,
+   it needs an answer only the owner can give,
    and no answer is ever invented for it. An accepted write is staged
    by K as its own separate commit, named like every other path — a
    governance file never rides silently inside the feature's commit.
@@ -200,9 +220,10 @@ The script only reports; the decisions are yours, in this order:
    pre-flight) leaves dirt no artefact claims; the next run's item 5
    rightly stops there, and clearing it is the owner's call — the
    offer buys no exception to the dirty-tree gate.
-10. **Illegal `implementer` value** (config or flag resolving to
-    anything but `claude` or `handoff`): stop and name the value —
-    never coerced, never treated as unset. The enum is checked when
+10. **Illegal `implementer` value** (config or flag resolving to a value
+    that is none of `claude`, `handoff` or `ask` — unset is not a value
+    and never stops anything): stop and name the value — never coerced,
+    never treated as unset. The enum is checked when
     configuration resolves, before this decision walk begins, so the
     stop precedes items 6 and 9's offered writes; this item anchors the
     rule, it is not where the check first runs. Name the value quoted
@@ -217,11 +238,23 @@ configuration by design.
 
 **Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this
 line is rendered from the RESOLVED configuration, not from the script's
-report; `<source>` names which layer won, exactly as `baseBranchSource`
-does. Print it whenever the key resolves to a value. A key that
+report. Print it whenever the key resolves to a value; omit the line
+entirely when the key is unset. `<implementerSource>` must name the
+LAYER that won, from the resolution order above — print one of
+`~/.delivery-kit.json`, the repository's `.delivery-kit.json`,
+`--config`, or `--implementer`. Record that winning layer beside the
+merged value in the state file's `config` key, the same way the merged
+result itself is recorded: a resume has no command line left to read,
+and re-resolving without one would silently drop a flag-supplied value.
+On a resume, print the recorded layer — unless that command line supplies
+a new `--implementer`, which wins as a flag always does and is what the
+line then names. Never guess a layer. Do NOT borrow `baseBranchSource`'s
+vocabulary here: that key collapses every configuration layer into the
+single word `configured` and has no value for a flag at all, which is
+precisely the distinction this line exists to draw. A key that
 pre-answers a gate changes the run's consent profile, and a tracked
-configuration file must never do that without a line in the operator's
-output.
+configuration file must never do that without the operator seeing which
+file it came from.
 
 **Seed forms.** The seed is interpreted three ways, in order:
 
@@ -304,24 +337,40 @@ iterations. A cap breach is a conditional stop. Log each iteration in
 in `test_baseline` — the failures that exist BEFORE this feature are not
 this feature's failures, and J classifies against this record.
 
-**G — implementer gate.** STOP AND ASK: implement with Claude here, or
-produce a handoff package for a cheaper model. The package's forbidden
-list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no
-branch operations, no pull request) plus whatever `releaseCommand` and
-`verifyCommand` name, plus any deploy or migration verb found in the
-tasks file. `--auto` never collapses this gate: it spends money.
+**G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+it: implement with Claude here, or produce a handoff package for a
+cheaper model. The package's forbidden list is DERIVED, not hardcoded:
+the fixed rules (no commit, no push, no branch operations, no pull
+request) plus whatever `releaseCommand` and `verifyCommand` name, plus
+any deploy or migration verb found in the tasks file. `--auto` never
+collapses this gate: it spends money.
 
-When `implementer` is set (config or flag), G records the configured
-answer in `gates` and does not stop — the choice was typed on purpose.
-Everything else about G is unchanged, and a set `implementer` silences
-nothing else: cap breaches, hard failures and every other gate still
-stop exactly as before. An illegal `implementer` value (anything but
-`claude` or `handoff`) stops pre-flight by name — never coerced, never
-treated as unset.
+When `implementer` resolves to `claude` or `handoff` (config or flag), G
+records that answer in `gates` and does not stop — the choice was typed
+on purpose. `ask` pre-answers nothing: G stops, asks, and records the
+owner's answer in `gates` like any asked gate. It is how a command line
+takes back a stop a configuration file gave away. Everything else about G
+is unchanged, and a pre-answered `implementer` silences nothing else: cap
+breaches, hard failures and every other gate still stop exactly as
+before. An illegal `implementer` value — one that is none of `claude`,
+`handoff` or `ask`, unset being no value at all — stops pre-flight by
+name, never coerced and never treated as unset.
 
-The `gates` entry is the answer's only authoritative record: the state
-file's top-level `implementer` field is written beside it and read by
-nothing, and the re-ask suppression every gate relies on reads `gates`.
+Record the answer under `gates.G`, and treat that entry as its only
+authoritative record — the re-ask suppression every gate relies on reads
+`gates`. The state file also carries a top-level `implementer` field,
+created empty by `init` and read by nothing: write nothing there.
+
+A re-entry that finds an answer already under `gates.G` — a `--resume`,
+or `--from G` — takes the recorded answer over the CONFIGURATION KEY: an
+inherited file never quietly flips an answer the run already holds. A
+`--implementer` typed on that command line is different, and it WINS:
+typing it is a present-tense act by the person at the keyboard, and it
+is the only way `ask` can do the job it exists for. A flag that
+disagrees with the record is never applied silently — say which answer
+now stands and which it replaced. Where the replaced answer was
+"handoff", the package written for it is superseded: stamp it VOID per
+the G rule below before going on.
 
 The package carries seven parts, each present by name — the handoff
 plugin's field-tested shape, adapted into a brief for another model:
@@ -380,7 +429,8 @@ command is not invoked. The owner hands the package to the
 implementer and, when its report is back, resumes with `--resume`,
 pointing the session at the report file. A re-entered gate whose
 answer is already recorded in `gates` never re-asks — the answer
-stands, on this path and every other. H's re-entry on this path
+stands, on this path and every other, against the configuration; only a
+flag typed on the re-entry command line replaces it, and never quietly. H's re-entry on this path
 consumes the report BEFORE anything is dispatched: read it against
 the tasks file (the Report-back contract is its shape), verify each
 claimed `[X]` against the uncommitted diff, run the full verification
@@ -478,28 +528,31 @@ what shipped, what was skipped and why, where the artefacts are.
 
 ## Gates
 
-Up to five stops on a fresh run — a gate with nothing to ask (no
-clarify questions at C; a set `implementer` at G; `releaseCommand`
-unset at O) records that and moves on. C, G and O can each have
-nothing to ask; K and L always have content, and stop unless `--auto`
-collapsed them or a degradation named at pre-flight (no remote, no
-`gh`) already reduced them. G's pre-answer is the typed answer
-recorded rather than asked — and with `handoff` the run still parks at
-H per the G text.
+Up to five stops on a fresh run — a gate with nothing to ask (no clarify
+questions at C; a pre-answered `implementer` at G; `releaseCommand`
+unset at O) records that and moves on. C, G and O can each have nothing
+to ask; K and L always have content, and stop unless `--auto` collapsed
+them or a degradation named at pre-flight (no remote, no `gh`) already
+reduced them. G's pre-answer is the configured answer recorded rather
+than asked — and with `handoff` the run still parks at H per the G text.
 
 State the floor honestly, because it is lower than it reads: with
-`implementer` set, `--auto`, no clarify questions and `releaseCommand`
-unset, a run CAN reach DONE without a single gate stopping it. Nothing
-outside the gate table is silenced — the pre-flight constitution offer,
-every cap breach, a missing required tool, any hard failure and a
-failed runtime check all still stop — but no gate does. That
-combination is chosen, never defaulted: it takes a key or a flag typed
-on purpose alongside `--auto` typed on purpose, and `--auto-release` is
-still required before anything publishes.
+`implementer` set to `claude`, `--auto`, no clarify questions and
+`releaseCommand` unset, a run CAN reach DONE without a single gate
+stopping it. Nothing outside the gate table is silenced — the pre-flight
+constitution offer, every cap breach, a missing required tool, any hard
+failure and a failed runtime check all still stop — but no gate does.
 
-A gate is a safe handoff point by
-construction: if the context guard fires while a gate waits, the run
-hands off from there, and the state file already records which gate.
+That combination is never a default, and it is not necessarily this
+operator's choice either. `--auto` is typed here and now; the key can
+arrive from a tracked `.delivery-kit.json` somebody else wrote, in a
+repository just cloned. That gap is exactly why pre-flight prints the
+Implementer line and names the layer it came from. `--auto-release` is
+still required before anything publishes unasked.
+
+A gate is a safe handoff point by construction: if the context guard
+fires while a gate waits, the run hands off from there, and the state
+file already records which gate.
 
 | Gate | Phase | Shown before you answer |
 |---|---|---|
