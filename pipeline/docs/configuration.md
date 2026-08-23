@@ -32,7 +32,8 @@ a question, and the pipeline can always ask.
     "agentModel": null,
     "verifyCommand": null,
     "releaseCommand": null,
-    "devCommand": null
+    "devCommand": null,
+    "implementer": null
   }
 }
 ```
@@ -60,6 +61,7 @@ before it spends it.
 | `verifyCommand` | The runtime check's fallback strategy; it must produce an artefact. |
 | `releaseCommand` | What the release gate runs, shown exactly before it runs. Unset means there is nothing to publish — the release gate records that and moves on; no command is ever detected or invented for this key. |
 | `devCommand` | The web runtime check's server command; without it the project manifest's script table is tried: `dev`, then `start`, then `serve`. |
+| `implementer` | Pre-answers the implementer gate: `claude` or `handoff`; unset means ask. |
 
 ## Base branch
 
@@ -69,6 +71,23 @@ pre-flight report names which source won. Note the consequence plainly:
 **in a repository whose remote publishes a default branch, that default
 wins over this key.** Set the key for repositories without a remote
 default; everywhere else it is documentation of intent, not an override.
+
+## The implementer key
+
+`implementer` pre-answers the implementer gate — the choice between
+implementing here and writing a handoff package for a cheaper model.
+Unset means the gate asks. With `claude`, the gate records the typed
+answer and does not stop — an `--auto` run then touches the human at
+clarify only. With `handoff`, the gate stops asking and the run parks
+at the implement phase with the package written, waiting for the
+external implementer's report. An illegal value stops pre-flight by
+name: never coerced, never treated as unset.
+
+Read "at clarify only" as a ceiling, not a promise. Where the clarify
+step raises no questions and `releaseCommand` is unset, such a run
+reaches the end with no gate stopping it at all. Cap breaches, hard
+failures and a failed runtime check still stop it, and publishing still
+needs its own flag — but the gates do not. Set this key knowing that.
 
 ## The state directory
 
