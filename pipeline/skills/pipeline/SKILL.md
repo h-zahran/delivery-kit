@@ -291,6 +291,44 @@ list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no
 branch operations, no pull request) plus whatever `releaseCommand` and
 `verifyCommand` name, plus any deploy or migration verb found in the
 tasks file. `--auto` never collapses this gate: it spends money.
+
+The package carries seven parts, each present by name — the handoff
+plugin's field-tested shape, adapted into a brief for another model:
+
+- **Files to provide** — a table of the spec artefacts (spec, plan,
+  tasks, research, contracts, quickstart, data-model where present)
+  with absolute paths, each verified to exist before the package is
+  written; the verification is stated in the package.
+- **Repository state** — the branch (checked out), the tree state, and
+  the verbatim baselines recorded at F.5 (test counts), plus the
+  analyzer baseline where one exists — so any new failure is provably
+  the implementer's.
+- **Instructions** — task order and phase groupings from the tasks
+  file; `[P]`-marked tasks in the same phase may run concurrently,
+  capped by `maxParallelAgents`, never two on one file (the package
+  carries the cap's value — its reader cannot see this document); mark
+  each completed task `[X]`; never restructure spec.md, plan.md or
+  tasks.md; the per-phase verification command.
+- **Forbidden list** — derived, as specified above.
+- **What will bite this feature** — the run's accumulated non-obvious
+  knowledge, derived from the clarify answers recorded at C, the
+  decisions in the feature's research file, and anything discovered
+  mid-run and recorded in the run's artefacts — each item names its
+  source. Empty is allowed but must be stated as empty.
+- **Validation before "done"** — a checklist with the exact commands
+  and the baseline numbers.
+- **Report-back contract** — the implementer keeps a visible todo board
+  while working, leaves work uncommitted, and reports: status, files
+  touched, test output verbatim, and anything it could not do.
+
+Redaction binds every part: where a source holds a credential, an
+endpoint or a token, the package carries the fact and its location,
+never the value. And the derivation carries the never-bend table's
+destructive-git rule — no `git reset --hard`, no `git clean`, no
+`git checkout --` on tracked files, no `git stash` — the package's
+reader inherits it without ever seeing that table, and an uncommitted
+tree is the one place with no recovery point.
+
 If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.
 The package is written into the run directory under
 `.delivery-kit/runs/<feature>/`; removing one the gate's changed answer
