@@ -23,9 +23,12 @@ else is the feature description, verbatim.
 Twenty phases run from specification to release. Up to five of them
 stop and ask — clarification, implementer choice, commit, push and
 pull request, release — and everything that leaves the machine sits
-behind one of those gates. `--auto` collapses the commit and push gates; the release
-gate needs `--auto-release`, typed on purpose. A run can stop cleanly at
-any phase (`--until <phase>`) and resume later (`--resume`).
+behind one of those gates. `--auto` collapses the commit and push
+gates; the release gate needs `--auto-release`, typed on purpose; and
+the `implementer` key, or `--implementer`, pre-answers the implementer
+choice so that gate does not stop either — `ask` puts the stop back. A
+run can stop cleanly at any phase (`--until <phase>`) and resume later
+(`--resume`).
 
 `pipeline:status` reads a run's state file and reports the phase board,
 the gate the run is waiting on, and the exact next action.

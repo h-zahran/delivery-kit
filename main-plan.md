@@ -63,6 +63,17 @@ copy in `~/.claude/projects/D--Github-delivery-kit/memory/r2-release-pr12-pendin
   Baseline today: `1..116`, 116 ok, 0 not ok, 0 non-TAP. P2 grows it by
   +2, P3 by +1; every other phase leaves the count unchanged. Any other
   movement is a finding.
+
+  **AMENDED 2026-08-23 — P4 grows it by +2, to `1..121`.** The owner
+  overrode P4's review cap with "fix everything, no deferred", which
+  spent the prose-pin test debt P2, P3 and P4 had each recorded and
+  re-queued. A round-4 reviewer then showed the first shape of that spend
+  hid the consent contract inside a test named for something else, so two
+  new tests carry the consent contract and the sites outside it. Prose
+  goes `1..9` -> `1..11`. **P5 and P6: this debt is PAID — do not
+  re-queue or re-spend it.** The spend is
+  mutation-verified; see `specs/004-implementer-key/research.md` R3 and
+  the phase M round 4 note in that feature's tasks file.
 - **Pinned strings — add near, never reword.** These exact strings in
   `pipeline/skills/pipeline/SKILL.md` are grep-pinned by
   `pipeline/tests/prose.bats` and MUST survive byte-for-byte: the five
@@ -74,6 +85,13 @@ copy in `~/.claude/projects/D--Github-delivery-kit/memory/r2-release-pr12-pendin
   `It never reports verification it did not do`, and the namespace names
   `pipeline:status`, `pipeline:spec-review`, `pipeline:device-verify`.
   `pipeline/commands/pipeline.md` keeps `disable-model-invocation: true`.
+
+  **AMENDED 2026-08-23**: read this enumeration as HISTORICAL, complete
+  through P3. P4 added roughly thirty more pins and this list was not
+  grown, because a second copy of a registry is a second thing to go
+  stale. The LIVING registry is `pipeline/tests/prose.bats` itself, plus
+  each feature's `contracts/*.md`. Before rewording anything in the
+  orchestrator, grep the suite — do not trust this list to be complete.
 - **Vocabulary:** STRICT surfaces (`pipeline/README.md`, `pipeline/CHANGELOG.md`,
   `pipeline/docs/`, `pipeline/commands/`, `.claude-plugin/`) ban the whole
   words `flutter|dart|pubspec|supabase|gradle|graphify|speckit|superpowers`
@@ -326,12 +344,24 @@ carry on through review and the commit gate.
 **Requirements:**
 
 1. New configuration key `implementer` — default unset; legal values
-   `claude` and `handoff`. New flag `--implementer <claude|handoff>`,
+   `claude` and `handoff` *(a third, `ask`, was added at phase M round 4
+   on the owner's "fix everything, no deferred" — it restores the stop,
+   and it is the only spelling that overrides an inherited pre-answer,
+   since a later layer's `null` is silence)*. New flag
+   `--implementer <claude|handoff|ask>`,
    which beats the config key (standard precedence). Added to BOTH
    tables: the orchestrator's Configuration table and Flags table, and
    `pipeline/docs/configuration.md`'s JSON block and key table — names
    and defaults character-identical across the two files.
-2. Orchestrator **G** paragraph gains: "When `implementer` is set
+2. Orchestrator **G** paragraph gains the quoted sentences below. *(As
+   seeded, and as shipped through phase M round 3. REWORDED at round 4:
+   adding `ask` made "When `implementer` is set … does not stop" FALSE,
+   because `ask` is set and G does stop on it — freezing the pin would
+   have shipped the defect class four rounds were spent hunting. The
+   shipped text is four sentences and lives in
+   `specs/004-implementer-key/contracts/key-contract.md`; what follows is
+   the seed's wording, kept as the record of what was asked for.)*
+   "When `implementer` is set
    (config or flag), G records the configured answer in `gates` and does
    not stop — the choice was typed on purpose. Everything else about G
    is unchanged, and a set `implementer` silences nothing else: cap
@@ -345,8 +375,9 @@ carry on through review and the commit gate.
 **Acceptance criteria:**
 
 - Key/flag rows present and identical across both files (compare
-  character-for-character); pinned strings intact (prose.bats 1..9 ok);
-  full suite `1..119`, 0 non-TAP.
+  character-for-character); pinned strings intact (prose.bats `1..11` ok —
+  `1..9` as first written, +2 by the owner-ordered test-debt spend above);
+  full suite `1..121`, 0 non-TAP.
 - The G gate row `| Implementer | G |` unchanged.
 
 **Constraints:** Global Constraints apply. `handoff/**` untouched
@@ -373,7 +404,7 @@ and M.
 2. Changelog Added entry under `## [Unreleased]`.
 
 **Acceptance criteria:** rows identical across both files; pinned strings
-intact; full suite `1..119`, 0 non-TAP.
+intact; full suite `1..121`, 0 non-TAP (P4 spent the prose-pin debt: +2).
 
 **Constraints:** Global Constraints apply.
 
@@ -390,7 +421,7 @@ intact; full suite `1..119`, 0 non-TAP.
    remove nothing).
 2. Version agreement proven with the jq line from P1's acceptance.
 3. Full house suite from the repo root before the commit gate:
-   `1..119`, 0 non-TAP.
+   `1..121`, 0 non-TAP (P4 spent the prose-pin debt: +2).
 
 **Acceptance criteria:** three stamp sites agree on `1.1.0`; changelog
 heading shape parses; suite green.

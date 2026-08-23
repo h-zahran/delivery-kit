@@ -22,15 +22,25 @@ All notable changes to the `pipeline` plugin.
   lock released, and a later resume consumes the implementer's report
   before dispatching anything the report already claims.
 
-- The `implementer` key and its `--implementer <claude|handoff>` flag:
-  one of them set pre-answers the implementer gate, which records the
-  configured answer and does not stop to ask. With `claude` an `--auto`
-  run then touches the human at clarify only — and where clarify raises
-  no questions and `releaseCommand` is unset, that means no gate stops
-  the run at all. With `handoff` the run parks for the external report,
-  package written and lock released. Unset means the gate asks, as
-  before; an illegal value stops pre-flight by name — never coerced,
-  never treated as unset.
+- The `implementer` key and its `--implementer <claude|handoff|ask>`
+  flag: set to `claude` or `handoff`, either one pre-answers the
+  implementer gate, which records the configured answer and does not stop
+  to ask. Set to `ask` the gate asks, as it does when the key is unset —
+  the value exists so a later layer, a command line included, can take
+  back a stop an earlier layer gave away; writing `null` in a later layer
+  overrides nothing, since layers merge by silence rather than erasure —
+  which holds for every key, so the command keys, having no `ask` of their
+  own, can be replaced by a later layer but never returned to unset.
+  With `claude` an `--auto` run then touches the human at clarify only —
+  where `releaseCommand` is unset and the constitution is already set,
+  since the release gate and the pre-flight constitution offer each still
+  stop a run of their own accord; where clarify also raises no questions,
+  no gate stops the run at all. With `handoff` the run parks for the
+  external report, package written and lock released. Unset means the
+  gate asks, as before; an illegal value stops pre-flight by name — never
+  coerced, never treated as unset. Pre-flight prints an `Implementer`
+  line naming the resolved value and the layer it came from, and omits
+  the line when unset.
 
 ## [1.0.1] - 2026-08-22
 
