@@ -67,6 +67,12 @@ RULES
 
 @test "the handoff package names its seven parts" {
   g="$(awk '/^\*\*G — implementer gate\.\*\*/,/^\*\*H — implement\.\*\*/' "$ORCH")"
+  head -n 1 <<<"$g" | grep -qF '**G — implementer gate.**' \
+    || { echo "G slice did not open on the G heading"; false; }
+  tail -n 1 <<<"$g" | grep -qF '**H — implement.**' \
+    || { echo "G slice unterminated: H heading missing or reworded"; false; }
+  extra="$(grep -E '^\*\*|^#{1,6} ' <<<"$g" | grep -vF -e '**G — implementer gate.**' -e '**H — implement.**' || true)"
+  [ -z "$extra" ] || { echo "unexpected heading-shaped lines inside the G slice:"; echo "$extra"; false; }
   while IFS= read -r part; do
     [ -n "$part" ] || continue
     grep -qF -- "- **$part**" <<<"$g" || { echo "package part missing: $part"; false; }
@@ -79,7 +85,13 @@ What will bite this feature
 Validation before "done"
 Report-back contract
 PARTS
-  grep -qF 'list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no' <<<"$g"
-  grep -qF '`--auto` never collapses this gate: it spends money' <<<"$g"
-  grep -qF 'stamp it VOID at the top' <<<"$g"
+  flat="$(tr '\n' ' ' <<<"$g" | tr -s ' ')"
+  grep -qF 'forbidden list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no branch operations, no pull request) plus whatever `releaseCommand` and `verifyCommand` name, plus any deploy or migration verb found in the tasks file.' <<<"$flat" \
+    || { echo "derived-forbidden-list sentence altered"; false; }
+  grep -qF '`--auto` never collapses this gate: it spends money.' <<<"$flat" \
+    || { echo "the G auto sentence altered"; false; }
+  grep -qF 'answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.' <<<"$flat" \
+    || { echo "the VOID sentence altered"; false; }
+  grep -qF 'A "handoff" answer parks the run at H:' <<<"$flat" \
+    || { echo "the park sentence missing"; false; }
 }
