@@ -6,25 +6,50 @@
   `.specify/memory/constitution.md` alone, unconditionally (the key is
   always emitted, spec-kit present or not):
   - file absent → `false`;
-  - file present but carrying template placeholder tokens (regex
-    `\[[A-Z][A-Z0-9_]*\]`, the `[PROJECT_NAME]` / `[PRINCIPLE_1_NAME]`
-    shape a fresh `specify init` writes) → `false`;
-  - file present with no non-blank, non-comment content → `false`;
+  - any NUL byte in the file's first 4KB (a UTF-16/32 save, BOM or
+    not) → `false`, with a named warning — unparseable bytes fail
+    toward offering, never toward `set`;
+  - otherwise HTML comments — single-line and multi-line — and a
+    leading UTF-8 BOM are stripped first; an UNCLOSED comment is kept
+    as literal text (swallowing to end-of-file read a mostly-unfilled
+    template as set, the one forbidden direction — measured both
+    ways), then:
+  - stripped body carrying one of the shipped template's OWN tokens
+    (`[PROJECT_NAME]`, `[PRINCIPLE_n_NAME]`/`_DESCRIPTION`,
+    `[SECTION_n_NAME]`/`_CONTENT`, `[GOVERNANCE_RULES]`,
+    `[GUIDANCE_FILE]`, `[CONSTITUTION_VERSION]`, `[RATIFICATION_DATE]`,
+    `[LAST_AMENDED_DATE]` — measured from the 0.16.5 template) →
+    `false`;
+  - stripped body with no non-blank content → `false`;
   - otherwise → `true`.
+
+  Comment stripping is load-bearing, not polish: the constitution
+  command itself prepends a Sync Impact Report comment full of
+  bracketed tokens, so an unstripped placeholder grep would read the
+  command's own output as "not set" and re-offer forever (found by the
+  P2 PR review; the set fixture now carries both comment shapes so the
+  `true` test guards the stripping).
 - **Rationale**: measured against this repo's own fresh 0.16.5 init: the
   file is exactly the placeholder template. The placeholder grep needs no
   extra dependency and no state. The alternative marker —
   `.specify/memory/.constitution-template.json` records the template's
   sha256 — was rejected as the primary mechanism: the hash file is
   version-dependent (absent on older inits) and any whitespace edit
-  defeats it while leaving the document just as unfilled. A human
-  constitution containing any bracketed token that starts with a
-  capital letter — `[LIKE_THIS]`, but also `[RFC2119]` or a checked
-  `[X]` Markdown checkbox — is the known false-negative; accepted and
-  recorded. The comment check is line-scoped: a file whose only content
-  is a multi-line `<!-- … -->` block reads as `true` — the accepted
-  false positive (the real 0.16.5 template's comments are all
-  single-line).
+  defeats it while leaving the document just as unfilled. The P2 PR
+  review (round 3) narrowed the placeholder check to the template's
+  own token list: arbitrary bracketed prose (`[RFC2119]`, a checked
+  `[X]` box) now reads `true`, and a justified retained slot that is
+  NOT a template token (`[OPTIONAL_REVIEW_CADENCE]`) reads `true` —
+  both measured. Named residual edges, all failing toward the SAFE
+  direction (a re-offer the owner can decline, never a silent `set`):
+  a written constitution keeping one of the template's own tokens
+  outside comments reads `false`; an ASCII `-->` inside a comment
+  closes it early (HTML semantics — `--` is not legal inside real
+  HTML comments either), so a Sync Impact Report line naming a
+  template token can leak and read `false` — measured. A line holding
+  only exotic Unicode whitespace (U+00A0, U+200B) counts as content
+  and can read a content-free file `true` — accepted, no test can
+  cover it while the suite pin holds.
 - **Alternatives considered**: sha256 comparison against
   `.constitution-template.json` (rejected as primary — brittle, version
   dependent; the placeholder grep subsumes it); byte-size heuristics

@@ -172,13 +172,31 @@ The script only reports; the decisions are yours, in this order:
    reported, never assumed.
 8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the
    resume prompt — the recorded phase, `--from <phase>` (validated by
-   `from-validate`), or abandon.
+   `from-validate`), or abandon. Abandon ends this walk: no later item
+   fires.
 9. **Constitution not set** (`speckit.constitutionSet` false): OFFER
    running `/speckit-constitution` once — the principles are the
    owner's to write, declining is fine, and the offer is not repeated
-   within a run. Record the answer in the state file's `gates` key —
-   immediately on a resume; on a fresh run, hold it aside and write it
-   as soon as B's `init` creates the state file.
+   within a run. Derive the dot form when the recorded form is
+   `dot-commands`, as everywhere. On a fresh run there is no state
+   file yet to consult: make the offer, hold the answer aside as A
+   holds the seed, and write it under `gates.constitution` as `init`'s
+   next act in B — the write, not memory, is what once-per-run rests
+   on, so a session that dies before it may ask once more. On a
+   resume, read `gates.constitution` first — a recorded answer means
+   the offer already fired this run, so do not repeat it — and record
+   any new answer immediately. A resume into a run whose state file
+   already carries a D entry in `timestamps` does not offer at all: D
+   consumed whatever constitution existed, so print the line and move
+   on. The offer is a conditional stop that `--auto` does not
+   collapse — like C and G it needs an answer only the owner can give,
+   and no answer is ever invented for it. An accepted write is staged
+   by K as its own separate commit, named like every other path — a
+   governance file never rides silently inside the feature's commit.
+   An accepted write orphaned before B exists (the session dies at
+   pre-flight) leaves dirt no artefact claims; the next run's item 5
+   rightly stops there, and clearing it is the owner's call — the
+   offer buys no exception to the dirty-tree gate.
 
 **Base branch:** the resolution order is `origin/HEAD`, then the
 configured `baseBranch`, then the current branch when there is no
@@ -227,7 +245,9 @@ branch argument is the `NNN-slug` branch name about to be created —
 `init` is idempotent, so a resume re-running it finds the run rather
 than clobbering it), take the lock (`progress.sh lock-take <feature>
 <session>`), move A's seed into the run directory, and start phase
-tracking with `phase-start <feature> B`. THEN create the feature branch
+tracking with `phase-start <feature> B`. A constitution answer held
+aside at pre-flight is written into `gates.constitution` here, in the
+same breath as the seed. THEN create the feature branch
 off the detected base branch, named with the tool's `NNN-slug` feature
 identity: the spec files are still uncommitted, and uncommitted work
 travels with `git checkout -b`. Record `artifacts.spec`.
@@ -305,7 +325,10 @@ against baseline or a hard failure stops the run.
 
 **K — commit. STOPS AND ASKS.** Show the exact file list (every path by
 name — no `git add -A`, no wildcards) and the exact commit message in
-`commitStyle`. Commit only what was shown, only after the answer.
+`commitStyle`. Commit only what was shown, only after the answer. A
+constitution written by an accepted pre-flight offer is its own
+separate commit here, shown the same way — a governance file never
+rides inside the feature's commit.
 
 **L — push and open a pull request. STOPS AND ASKS.** Show the branch
 name, the PR title and the full body before anything leaves the machine.
@@ -376,7 +399,9 @@ hands off from there, and the state file already records which gate.
 | Release | O | The exact command, and where it publishes |
 
 Conditional stops: the resume prompt, a cap breach in C, F or M, a
-missing required tool, any hard failure, and a failed runtime check. Record every gate's answer in
+missing required tool, any hard failure, and a failed runtime check.
+The pre-flight constitution offer (decision item 9) is one of them,
+and `--auto` does not collapse it. Record every gate's answer in
 the state file's `gates` key.
 
 ## Parallel agents
