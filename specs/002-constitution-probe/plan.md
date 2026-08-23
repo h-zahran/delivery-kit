@@ -22,11 +22,11 @@ One new boolean in the pre-flight probe (`speckit.constitutionSet`), two test-fi
 
 **Project Type**: plugin script + tests + docs (pipeline plugin only)
 
-**Performance Goals**: N/A (one file stat + one grep per probe)
+**Performance Goals**: N/A (one file stat, a BOM sniff, one awk pass and two greps per probe)
 
 **Constraints**: stdout stays pure JSON; same flags, same keys plus exactly one new boolean; RELAXED vocabulary on script/tests, STRICT on CHANGELOG; probe-line wordings are quoted contract; fixtures are plain file trees (re-included wholesale by the tracked `.gitignore`), no dependencies
 
-**Scale/Scope**: four files — `pipeline/scripts/preflight.sh`, `pipeline/tests/preflight.bats`, `pipeline/skills/pipeline/SKILL.md`, `pipeline/CHANGELOG.md` — plus two small fixture trees
+**Scale/Scope**: five files — `pipeline/scripts/preflight.sh`, `pipeline/tests/preflight.bats`, `pipeline/skills/pipeline/SKILL.md`, `pipeline/CHANGELOG.md`, `pipeline/docs/configuration.md` (offer disclosure, added by the P2 PR review) — plus two small fixture trees
 
 ## Constitution Check
 

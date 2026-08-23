@@ -87,6 +87,15 @@ does not replace it, and it stops with setup instructions when
 `.specify/` is absent. Tested against 0.15.x through 0.16.x; other
 versions warn and continue, because untested is not known-broken.
 
+Pre-flight also probes the project constitution. When the file is
+absent or still the unfilled template, the probe block says so and the
+run offers — once — to run the spec-kit constitution command. That is
+the second and larger of pre-flight's two offered writes: accepting
+writes the constitution file — rewriting it where it exists, creating
+it as an untracked file where it does not. The principles are the owner's
+to write; declining is fine, and the offer is not repeated within the
+run.
+
 When scripting an initialisation, pin the version —
 `uv tool install "specify-cli==<version>"` — and note that
 `--non-interactive` exists only from 0.16.x: a 0.15.x scripted init

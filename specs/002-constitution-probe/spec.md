@@ -72,8 +72,7 @@ A test author finds two new bats tests appended to `pipeline/tests/preflight.bat
 
 - **FR-001**: `pipeline/scripts/preflight.sh` MUST emit one new boolean, `speckit.constitutionSet`: `false` for a constitution file as `specify init` leaves it (unfilled template, or absent); `true` for a constitution a human has actually written. The detection mechanism is the implementer's; the observable is pinned. The external contract is otherwise unchanged — same flags, same keys, stdout still pure JSON.
 - **FR-002**: Two new bats tests MUST be appended to `pipeline/tests/preflight.bats` (no new test file): one proving `false` on a fresh-init-shaped fixture, one proving `true` once the file carries real principles. Both MUST be seen red before the script change lands, and the red observation recorded.
-- **FR-003**: `pipeline/skills/pipeline/SKILL.md` MUST gain, in the pre-flight probe block, a `Constitution` line (`set` / `not set — plan gates run against an empty document`), and in the pre-flight decision list: when `constitutionSet` is false, OFFER running `/speckit-constitution` once — the principles are the owner's to write, declining is fine, and the offer is not repeated within a run.
-- **FR-004**: `pipeline/CHANGELOG.md` MUST gain `## [Unreleased]` (created by this phase, above `## [1.0.1] …`) with an Added entry for the probe and the offer.
+- **FR-003**: `pipeline/skills/pipeline/SKILL.md` MUST gain, in the pre-flight probe block, a `Constitution` line (`set` / `not set — plan gates run against an empty document`), and in the pre-flight decision list: when `constitutionSet` is false, OFFER running `/speckit-constitution` once — the principles are the owner's to write, declining is fine, and the offer is not repeated within a run.- **FR-004**: `pipeline/CHANGELOG.md` MUST gain `## [Unreleased]` (created by this phase, above `## [1.0.1] …`) with an Added entry for the probe and the offer.
 
 ## Success Criteria *(mandatory)*
 

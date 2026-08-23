@@ -11,6 +11,13 @@ set -euo pipefail
 # A set CDPATH makes cd print the resolved path to STDOUT — poison for a
 # pure-JSON contract. Unset it rather than trusting every future cd.
 unset CDPATH
+# A set GREP_OPTIONS silently rewrites every grep below on legacy greps
+# (honored through 3.5) — same env-poisoning class, same cure.
+unset GREP_OPTIONS
+# Byte semantics for every [A-Z] and [[:space:]] below: under a UTF-8
+# locale those classes drift (U+00A0 starts matching), and the
+# constitution probe's documented edges depend on C-locale reads.
+export LC_ALL=C
 
 warn() { printf 'preflight: %s\n' "$*" >&2; }
 die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
@@ -83,17 +90,63 @@ fi
 # --- constitution ------------------------------------------------------------
 # The observable is the 1.1.0 contract: absent, or still the placeholder
 # template a fresh init writes, or empty of real content -> false;
-# written principles -> true. The placeholder grep IS the mechanism — a
-# human constitution carrying a literal [ALL_CAPS] token is the accepted
-# false negative, recorded in the feature's research file. Computed and
-# emitted unconditionally: the value derives from the constitution file
-# alone, so it is defined whether or not the spec tool is installed.
+# written principles -> true. "Placeholder template" means the shipped
+# template's OWN tokens surviving outside comments — an arbitrary
+# bracketed token ([RFC2119], a checked [X] box) is a written
+# constitution's prose, not template residue. HTML comments are
+# stripped (multi-line included; an unclosed comment is kept as text)
+# because the constitution command's own Sync Impact Report is a
+# comment carrying bracketed tokens. A file with NUL bytes in its head
+# (any UTF-16/32 save) reads false WITH a warning — unparseable bytes
+# fail toward offering, never toward "set". The named residual edges
+# live in the feature's research file. Computed and emitted
+# unconditionally: the value derives from the constitution file alone,
+# so it is defined whether or not the spec tool is installed.
 sk_const=false
 const_file=".specify/memory/constitution.md"
-if [ -f "$const_file" ] \
-   && ! grep -qE '\[[A-Z][A-Z0-9_]*\]' "$const_file" \
-   && grep -qvE '^[[:space:]]*(<!--.*-->)?[[:space:]]*$' "$const_file"; then
-  sk_const=true
+const_tokens='\[(PROJECT_NAME|PRINCIPLE_[0-9]+_(NAME|DESCRIPTION)|SECTION_[0-9]+_(NAME|CONTENT)|GOVERNANCE_RULES|GUIDANCE_FILE|CONSTITUTION_VERSION|RATIFICATION_DATE|LAST_AMENDED_DATE)\]'
+if [ -f "$const_file" ]; then
+  if head -c 4096 "$const_file" 2>/dev/null | od -An -tx1 | grep -q ' 00'; then
+    warn "constitution carries NUL bytes (a UTF-16/32 save?) — read as not set"
+  else
+    if ! const_body="$(awk '
+      NR == 1 && substr($0, 1, 3) == "\357\273\277" { $0 = substr($0, 4) }
+      {
+        raw[NR] = $0
+        out = ""; rest = $0
+        while (length(rest) > 0) {
+          if (inc) {
+            p = index(rest, "-->")
+            if (p == 0) { rest = "" } else { rest = substr(rest, p + 3); inc = 0 }
+          } else {
+            p = index(rest, "<!--")
+            if (p == 0) { out = out rest; rest = "" }
+            else {
+              out = out substr(rest, 1, p - 1)
+              open_nr = NR; open_keep = out; open_rest = substr(rest, p)
+              rest = substr(rest, p + 4); inc = 1
+            }
+          }
+        }
+        line[NR] = out
+      }
+      END {
+        if (inc) {
+          for (i = 1; i < open_nr; i++) print line[i]
+          print open_keep open_rest
+          for (i = open_nr + 1; i <= NR; i++) print raw[i]
+        } else {
+          for (i = 1; i <= NR; i++) print line[i]
+        }
+      }' "$const_file" 2>/dev/null)"; then
+      const_body=""
+      warn "constitution unreadable — read as not set"
+    fi
+    if grep -q '[^[:space:]]' <<<"$const_body" \
+       && ! grep -qE "$const_tokens" <<<"$const_body"; then
+      sk_const=true
+    fi
+  fi
 fi
 
 # --- git facts ---------------------------------------------------------------
