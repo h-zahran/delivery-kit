@@ -64,3 +64,22 @@ RULES
     grep -qF "$n" "$ORCH" || { echo "namespaced helper missing: $n"; false; }
   done
 }
+
+@test "the handoff package names its seven parts" {
+  g="$(awk '/^\*\*G — implementer gate\.\*\*/,/^\*\*H — implement\.\*\*/' "$ORCH")"
+  while IFS= read -r part; do
+    [ -n "$part" ] || continue
+    grep -qF -- "- **$part**" <<<"$g" || { echo "package part missing: $part"; false; }
+  done <<'PARTS'
+Files to provide
+Repository state
+Instructions
+Forbidden list
+What will bite this feature
+Validation before "done"
+Report-back contract
+PARTS
+  grep -qF 'list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no' <<<"$g"
+  grep -qF '`--auto` never collapses this gate: it spends money' <<<"$g"
+  grep -qF 'stamp it VOID at the top' <<<"$g"
+}

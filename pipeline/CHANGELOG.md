@@ -13,6 +13,12 @@ All notable changes to the `pipeline` plugin.
   constitution command once — the principles are the owner's to write,
   declining is fine, and the offer is not repeated within a run.
 
+- The implementer gate's handoff package is now a seven-part contract —
+  files to provide, repository state, instructions, the derived
+  forbidden list, what will bite this feature, validation before done,
+  and the report-back contract — so a cheaper model receives everything
+  a good handoff carries, and a new prose test pins the seven names.
+
 ## [1.0.1] - 2026-08-22
 
 ### Fixed
