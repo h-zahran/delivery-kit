@@ -18,6 +18,9 @@ All notable changes to the `pipeline` plugin.
   forbidden list, what will bite this feature, validation before done,
   and the report-back contract — so a cheaper model receives everything
   a good handoff carries, and a new prose test pins the seven names.
+  A "handoff" answer now parks the run at the implement phase with the
+  lock released, and a later resume consumes the implementer's report
+  before dispatching anything the report already claims.
 
 ## [1.0.1] - 2026-08-22
 

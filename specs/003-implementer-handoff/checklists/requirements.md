@@ -31,4 +31,4 @@
 
 ## Notes
 
-- The seed (main-plan.md Phase 3) is itself a full requirements section; the spec binds its content into testable FR/SC form with zero open questions. "Prose or compact list" is a recorded implementer freedom, not an ambiguity — the test pins names, not shape.
+- The seed (main-plan.md Phase 3) is itself a full requirements section; the spec binds its content into testable FR/SC form with zero open questions. "Prose or compact list" was a recorded implementer freedom, exercised and then consumed: the shipped shape is the compact bolded list and the test pins that bullet form inside the G section (see spec Edge Cases and FR-001).

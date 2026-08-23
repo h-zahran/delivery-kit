@@ -20,7 +20,7 @@ An operator reaches the implementer gate and answers "handoff": the run must wri
 
 **Acceptance Scenarios**:
 
-1. **Given** the orchestrator's G section, **When** it is read after this change, **Then** it names all seven parts and specifies each part's content: Files to provide (a table of the spec artefacts — spec, plan, tasks, research, contracts, quickstart, data-model where present — with absolute paths, each verified to exist before the package is written, the verification stated in the package); Repository state (branch checked out, tree state, the verbatim F.5 test baselines plus the analyzer baseline where one exists); Instructions (task order and phase groupings from the tasks file, `[P]`-marked tasks in the same phase may run concurrently, mark each completed task `[X]`, never restructure spec.md/plan.md/tasks.md, the per-phase verification command); Forbidden list (derived, as already specified); What will bite this feature (the run's accumulated non-obvious knowledge from clarify answers, research-file decisions, and mid-run discoveries, each item naming its source; empty is allowed but must be stated as empty); Validation before "done" (a checklist with the exact commands and the baseline numbers); Report-back contract (visible todo board while working, work left uncommitted, report status, files touched, verbatim test output, and anything it could not do).
+1. **Given** the orchestrator's G section, **When** it is read after this change, **Then** it names all seven parts and specifies each part's content: Files to provide (a table of the spec artefacts — spec, plan, tasks, research, contracts, quickstart, data-model where present — with absolute paths, each verified to exist before the package is written, the verification stated in the package); Repository state (branch checked out, tree state, the verbatim F.5 test baselines plus the analyzer baseline where one exists, and the instruction to reconcile these claims against actual git state before touching anything, stopping on mismatch); Instructions (task order and phase groupings from the tasks file, `[P]`-marked tasks in the same phase may run concurrently capped by `maxParallelAgents` with never two tasks on one file, mark each completed task `[X]`, never restructure spec.md/plan.md/tasks.md, the per-phase verification command drawn from `testCommand` and the tasks file's checkpoints with the required-vs-forbidden collision reported never silently resolved, and the stop rule — a red the packaged baseline does not carry is a full stop, an inherited red is reported never owned); Forbidden list (derived, as already specified, plus the destructive-git rule including `git stash`); What will bite this feature (the run's accumulated non-obvious knowledge from clarify answers, research-file decisions, and mid-run discoveries, each item naming its source; empty is allowed but must be stated as empty); Validation before "done" (a checklist with the exact commands and the baseline numbers); Report-back contract (visible todo board while working, work left uncommitted, report status, files touched, verbatim test output, and anything it could not do). Redaction binds every part: a credential, endpoint or token travels as fact-and-location, never value.
 2. **Given** the pre-existing G sentences, **When** the section is diffed against its previous text, **Then** the derived-forbidden-list sentence, the VOID sentence, and the `--auto` sentence are byte-identical — the seven-part specification is added near, nothing reworded.
 
 ---
@@ -40,6 +40,21 @@ A test author finds one new test appended to `pipeline/tests/prose.bats` (no new
 
 ---
 
+### User Story 4 - The "handoff" answer parks the run and the resume consumes the report (Priority: P2)
+
+An operator answers "handoff" at the G gate. The run writes the package and PARKS: the answer and the package path are recorded in the state file, G is closed and H opened (`phase-done`/`phase-start`), the lock is released, and the run stops without invoking the implement command. Later the operator resumes with `--resume`, pointing the session at the implementer's report; a re-entered gate whose answer is recorded never re-asks; H consumes the report before dispatching anything.
+
+**Why this priority**: Without the park, the Report-back contract has no receiver — the run would implement with Claude anyway, spending exactly what the gate exists to save. P4 field-tests this flow live.
+
+**Independent Test**: The G section states the park recipe (records, phase transitions, lock release, stop) and the consumption procedure (verify claimed `[X]` against the uncommitted diff, one full verification over claimed-complete work, take over the could-not-do list, dispatch only unclaimed tasks); the prose test pins the park sentence.
+
+**Acceptance Scenarios**:
+
+1. **Given** a "handoff" answer at G, **When** the park executes, **Then** the recipe names: the `gates` record, the `artifacts` package path, `phase-done <feature> G`, `phase-start <feature> H`, lock release under the `--until` rule, and a stop with the package's location stated — and the implement command is not invoked.
+2. **Given** a parked run and a returned report, **When** the owner resumes, **Then** the recorded gate answer is not re-asked, and H's re-entry consumes the report before any dispatch: claimed `[X]` verified against the uncommitted diff, one full verification run over the claimed-complete work, the could-not-do list taken over, and only unclaimed tasks dispatched.
+
+---
+
 ### User Story 3 - The changelog records the change (Priority: P3)
 
 A reader of `pipeline/CHANGELOG.md` finds an Added entry under `## [Unreleased]` describing the upgraded package contract. No version is stamped.
@@ -56,7 +71,7 @@ A reader of `pipeline/CHANGELOG.md` finds an Added entry under `## [Unreleased]`
 
 ### Edge Cases
 
-- The seven-part specification may be prose or a compact list — the implementer's choice of shape — but all seven parts are present BY NAME (the test pins the names, not the shape).
+- The seven-part specification may be prose or a compact list — the implementer's choice of shape — but all seven parts are present BY NAME. (Freedom exercised and then consumed: the implementer chose the compact bolded list, and the deep review bound the test to that bullet form — the shipped pin now enforces `- **<name>**` inside the G section, so a later shape change means changing the test with it.)
 - "Add near, never reword": every pre-existing pinned string in SKILL.md stays byte-identical; the existing prose tests (the eight current pins) must stay green.
 - `pipeline/CHANGELOG.md` is a STRICT vocabulary surface: the entry must not use banned spellings (the P2 precedent: describe, do not name, banned words).
 - The suite grows exactly +1 (`1..118` → `1..119`); any other movement is a finding.
@@ -65,9 +80,10 @@ A reader of `pipeline/CHANGELOG.md` finds an Added entry under `## [Unreleased]`
 
 ### Functional Requirements
 
-- **FR-001**: The **G — implementer gate** section of `pipeline/skills/pipeline/SKILL.md` MUST specify the handoff package's seven parts, all present by name — **Files to provide**, **Repository state**, **Instructions**, **Forbidden list**, **What will bite this feature**, **Validation before "done"**, **Report-back contract** — each with its content as given in US1/AC1. Shape (prose or compact list) is the implementer's choice. The existing G sentences — the derived-forbidden-list sentence, the P1 VOID sentence, and "`--auto` never collapses this gate: it spends money" — stay byte-identical.
+- **FR-001**: The **G — implementer gate** section of `pipeline/skills/pipeline/SKILL.md` MUST specify the handoff package's seven parts, all present by name — **Files to provide**, **Repository state**, **Instructions**, **Forbidden list**, **What will bite this feature**, **Validation before "done"**, **Report-back contract** — each with its content as given in US1/AC1. Shape (prose or compact list) was the implementer's choice — exercised and consumed: the shipped shape is the compact bolded list and the test pins that form (see Edge Cases). The existing G sentences — the derived-forbidden-list sentence, the P1 VOID sentence, and "`--auto` never collapses this gate: it spends money" — stay byte-identical.
 - **FR-002**: One new test MUST be appended to `pipeline/tests/prose.bats` (no new test file) pinning the seven part names in the G section, and MUST be mutation-verified: deleting any one name from SKILL.md turns it red (observed and recorded, then reverted).
-- **FR-003**: `pipeline/CHANGELOG.md` MUST gain an Added entry under the existing `## [Unreleased]` heading describing the upgraded package contract. No version stamp.
+- **FR-003**: `pipeline/CHANGELOG.md` MUST gain an Added entry under the existing `## [Unreleased]` heading describing the upgraded package contract AND the park-and-resume behavior of a "handoff" answer. No version stamp.
+- **FR-004** (added by the PR review, owner-ruled into this phase): the G section MUST specify the park — a "handoff" answer records the gate answer and package path in the state file, closes G and opens H by the state script's own spellings, releases the lock, and stops without invoking the implement command — and the resume — a recorded gate answer is never re-asked, and H's re-entry consumes the report (per the Report-back contract) before dispatching only unclaimed tasks. The prose test MUST pin the park sentence.
 
 ### Key Entities
 
@@ -81,6 +97,7 @@ A reader of `pipeline/CHANGELOG.md` finds an Added entry under `## [Unreleased]`
 - **SC-002**: The full house suite reports `1..119`, 119 ok, 0 non-TAP lines — growth exactly +1.
 - **SC-003**: All previously pinned strings survive: the eight pre-existing prose tests and every portability gate stay green.
 - **SC-004**: The mutation check for the new test (one part name deleted → red) is observed and recorded in the run's artifacts before completion.
+- **SC-005** (added by the PR review): the park sentence is pinned by the prose test at zero test-count movement, and its deletion mutant is observed red on a scratch copy.
 
 ## Assumptions
 

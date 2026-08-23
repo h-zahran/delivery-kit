@@ -1,6 +1,6 @@
 # Research: the implementer handoff package, upgraded
 
-## R1 — Shape of the seven-part specification (the spec leaves it to the implementer)
+## R1 — Shape of the seven-part specification (a freedom exercised, then consumed — the test now pins the chosen bullet form)
 
 - **Decision**: a compact Markdown list inside the G section, one item
   per part, each item opening with the part's bolded name followed by a
@@ -38,7 +38,11 @@
 
 - **Decision**: append the new prose test FIRST (one `@test` with seven
   `grep -qF` assertions against `pipeline/skills/pipeline/SKILL.md`,
-  matching the file's existing style). With the G section unmodified,
+  matching the file's existing style). (Amended by the deep review and
+  the PR review: the shipped test slices the G section, asserts the
+  slice's two anchor headings, and greps bolded bullet forms plus four
+  byte-identity fragments — see contracts/package-contract.md's
+  Mechanics section for the current shape and the reasons.) With the G section unmodified,
   the test fails — that run is the recorded red. Then edit SKILL.md;
   the test passes. Then the mutation check: remove ONE part name via a
   targeted edit, run the focused test, observe red, restore the exact

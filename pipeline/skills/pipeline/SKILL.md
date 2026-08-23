@@ -302,14 +302,23 @@ plugin's field-tested shape, adapted into a brief for another model:
 - **Repository state** — the branch (checked out), the tree state, and
   the verbatim baselines recorded at F.5 (test counts), plus the
   analyzer baseline where one exists — so any new failure is provably
-  the implementer's.
+  the implementer's. The package instructs its reader to reconcile
+  these claims against the actual git state before touching anything,
+  and to stop on a mismatch.
 - **Instructions** — task order and phase groupings from the tasks
   file; `[P]`-marked tasks in the same phase may run concurrently,
   capped by `maxParallelAgents`, never two on one file (the package
   carries the cap's value — its reader cannot see this document); mark
   each completed task `[X]`; never restructure spec.md, plan.md or
-  tasks.md; the per-phase verification command.
-- **Forbidden list** — derived, as specified above.
+  tasks.md; the per-phase verification command, drawn from
+  `testCommand` and the tasks file's own checkpoints (`verifyCommand`,
+  where set, belongs to the forbidden list — a collision between a
+  required command and a forbidden string is reported in the package,
+  never resolved silently); and the stop rule: a red the packaged F.5
+  baseline does not carry is a full stop — report it, never mark `[X]`
+  past it — while an inherited red is reported, never owned.
+- **Forbidden list** — derived, as specified above, plus the
+  destructive-git rule below.
 - **What will bite this feature** — the run's accumulated non-obvious
   knowledge, derived from the clarify answers recorded at C, the
   decisions in the feature's research file, and anything discovered
@@ -325,9 +334,28 @@ Redaction binds every part: where a source holds a credential, an
 endpoint or a token, the package carries the fact and its location,
 never the value. And the derivation carries the never-bend table's
 destructive-git rule — no `git reset --hard`, no `git clean`, no
-`git checkout --` on tracked files, no `git stash` — the package's
-reader inherits it without ever seeing that table, and an uncommitted
-tree is the one place with no recovery point.
+`git checkout --` on tracked files — and adds a fourth imperative of
+its own: no `git stash`. Stash hides work as surely as the others
+discard it; the prohibition binds the package's reader and this
+orchestrator alike, resumed trees included, and an uncommitted tree
+is the one place with no recovery point.
+
+A "handoff" answer parks the run at H: record the answer in the state
+file's `gates` key and the package path in `artifacts`, run
+`phase-done <feature> G` then `phase-start <feature> H`, release the
+lock (the `--until` rule binds — state file intact, lock released,
+resumable), say where the package lives, and stop; the implement
+command is not invoked. The owner hands the package to the
+implementer and, when its report is back, resumes with `--resume`,
+pointing the session at the report file. A re-entered gate whose
+answer is already recorded in `gates` never re-asks — the answer
+stands, on this path and every other. H's re-entry on this path
+consumes the report BEFORE anything is dispatched: read it against
+the tasks file (the Report-back contract is its shape), verify each
+claimed `[X]` against the uncommitted diff, run the full verification
+once over the claimed-complete work, take over anything on the
+could-not-do list, and only then dispatch the remaining unclaimed
+tasks — never the claimed ones.
 
 If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.
 The package is written into the run directory under
