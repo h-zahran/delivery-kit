@@ -18,7 +18,7 @@
       "name": "pipeline",
       "description": "Drives a unit of work from a heading in a plan file to a verified build: spec, plan, tasks, implementation, review and release, with a human gate at every irreversible step.",
       "source": "./pipeline",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "category": "workflow",
       "tags": ["pipeline", "spec-driven", "orchestration"]
     }
