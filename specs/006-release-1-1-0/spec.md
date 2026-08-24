@@ -85,8 +85,8 @@ Whoever reviews this release needs to see at a glance that it is a version stamp
 - **FR-006a**: The new heading's SHAPE MUST parse against the pattern the file already uses — `## [<major>.<minor>.<patch>] - <YYYY-MM-DD>` — and not merely equal the expected string. The seed's acceptance criteria name this separately from site agreement, and it catches a different defect: a heading that says the right version in the wrong form still breaks every tool that reads the file by pattern.
 - **FR-007**: The full test suite MUST run from the repository root before the commit gate, and its result MUST be compared against the baseline recorded before any edit. Growth or shrinkage of the count is a finding.
 - **FR-008**: No file outside the three named above is changed on the shipped surface. Specification artefacts under `specs/` are not a shipped surface and are exempt. In particular the orchestrator's grep-pinned prose is not touched at all by this phase, so the plan's "add near, never reword" constraint is satisfied by having nothing to reword — a fact to VERIFY in the diff, not to assume.
-- **FR-010**: This phase MUST NOT add, re-queue or re-spend the prose-pin test debt. The plan's Global Constraints name P6 directly: that debt was PAID by P4 and is not to be re-opened. A new test here would also move the suite count, which FR-007 forbids.
 - **FR-009**: This run MUST NOT create or push a git tag. Tagging follows the merge and is the owner's act.
+- **FR-010**: This phase MUST NOT add, re-queue or re-spend the prose-pin test debt. The plan's Global Constraints name P6 directly: that debt was PAID by P4 and is not to be re-opened. A new test here would also move the suite count, which FR-007 forbids.
 
 ### Key Entities
 
