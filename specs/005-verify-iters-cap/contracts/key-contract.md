@@ -100,6 +100,22 @@ false. The shipped text is:
 > pull-request body leave the machine, and under `--auto` no gate stands between
 > them and whoever can read the repository.
 
+**EXTENDED at M round 1, then CORRECTED at M round 2 (2026-08-24)**: round 1
+added a degraded-path carve-out to the END of this paragraph, because the duty
+stated the carry into a pull-request body UNCONDITIONALLY while L names three
+degradations where no pull request exists — no remote (L stops after K), a
+non-GitHub remote, or no `gh` (L pushes and prints a comparison URL). A literal
+executor would block looking for a body that will never exist, or invent one.
+Round 2 found the carve-out FILED UNDER THE WRONG TOPIC SENTENCE: the
+unconditional instruction lives in the DUTY paragraph, while this paragraph's
+opener scopes it to credential handling, so an executor reading the duty never
+reaches the exception. The two sentences were therefore MOVED into the duty
+paragraph, and this paragraph is restored to its phase-I form — the quote above
+is once again the T010 text exactly. Round 2 also caught an overstatement in the
+moved wording: on the no-remote path the commit never leaves the machine at all,
+so "the sole OUTBOUND carrier" was false; it now reads "the commit message
+carries it alone". Moved and corrected on the record, never silently.
+
 It extends an existing, already-stated discipline by name rather than inventing
 a second one. Three constraints were checked before it was written and measured
 after: it contains no occurrence of `maxVerifyIters` (quickstart §2 pins that
@@ -109,3 +125,65 @@ that would move any `prose.bats` slice. Prose + portability measured `1..32`,
 32 ok, 0 not ok, exit 0 after the addition.
 
 Recorded here rather than made quietly, exactly as H.5's insertion was.
+
+
+## AMENDED at M round 2 (2026-08-24): the record's address, and the carve-out's home
+
+Two ADDITIONS to the duty paragraph. Neither reworded a pinned sentence: the
+duty's own first two sentences and the J cap sentence are byte-identical, and
+FR-005 is not engaged because no existing sentence was made false.
+
+The shipped duty paragraph, in full and current:
+
+> A breach the owner waves through carries a duty the other caps do not:
+> record the surviving failures in the state file, and carry them into the
+> commit message and the pull-request body. J is the last full-suite check
+> before code leaves the machine, and a red that reaches a reviewer as green
+> is the one outcome this gate exists to prevent. The record lands under
+> `gates.J`, beside the answer that waved it through — the same key every
+> answered stop already writes. That answer covers the failures it names and
+> no others: a later breach on a DIFFERENT set of failures is a new stop,
+> asked afresh. The never-re-ask rule suppresses a repeat of the same
+> question, never a first sight of a new one, and a run that inherits an
+> answer for failures no human has seen has waved through exactly what this
+> duty exists to surface. Where a degradation named at L leaves no pull
+> request to carry — no remote, a non-GitHub remote, no `gh` — the commit
+> message carries it alone and the duty is discharged there. The duty names
+> three destinations because three usually exist; it never waits on one that
+> cannot.
+
+**Why `gates.J` was adopted, stated precisely so the record is not misread.**
+This does NOT overturn the contract lens's phase-I ruling. That ruling stands:
+FR-003a asks for a STORE and the shipped sentence gives it one, and the
+orchestrator names a store without a field in three other places. What changed is
+that phase M round 1 SHIPPED A READER. T014 added a sentence to phase N ordering
+it to treat a failure the owner accepted at J's cap breach as inherited rather
+than re-owned — and nothing findable told N which failures those are. A reader
+pointed at an address that does not exist is a NEW defect introduced by that fix,
+not the old deferral resurfacing, and it is fixed here rather than deferred
+again. `gates` needs no other change: it is already in the ground rules' list of
+hand-written state keys, and `gates.constitution` is direct precedent for a
+CONDITIONAL STOP — not a table gate — recording its answer there. A recorded gate
+answer is also what suppresses a re-ask, so the same sentence closes the
+resume-into-J question that round 1 raised separately.
+
+Constraints checked before writing and MEASURED after: no occurrence of the
+key's name anywhere in either addition (quickstart section 2's count stays `2` —
+measured `2`), neither section 3 grep string reproduced, and no `^**` heading
+line added. Quickstart section 3 gained a grep for the new sentence, because a
+shipped sentence with no check is the relocation hole phase I already found once.
+This makes NINE unpinned sites, not eight; research R3 and every copy of the
+count were updated in the same breath.
+
+
+**EXTENDED again at M round 3 (2026-08-24)**: round 3 found that `gates.J`
+combined with the ground rule "a re-entered gate whose answer is already
+recorded in `gates` never re-asks" would AUTO-WAVE a different failure set. The
+recorded answer was about one specific set of surviving failures, but the
+suppression is keyed to the gate, not to the set the answer covered — so a run
+resumed into J after new commits, breaching on reds no human had seen, would find
+`gates.J` populated and treat the stop as answered. That is a safety regression
+introduced by round 2's own fix, and it is fixed here rather than queued. Three
+sentences were added scoping the answer to the failures it names. The quote above
+is the CURRENT shipped paragraph, re-extracted from `SKILL.md` and byte-compared
+after the edit, not retyped.

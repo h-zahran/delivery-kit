@@ -477,7 +477,18 @@ A breach the owner waves through carries a duty the other caps do not:
 record the surviving failures in the state file, and carry them into the
 commit message and the pull-request body. J is the last full-suite check
 before code leaves the machine, and a red that reaches a reviewer as green
-is the one outcome this gate exists to prevent.
+is the one outcome this gate exists to prevent. The record lands under
+`gates.J`, beside the answer that waved it through — the same key every
+answered stop already writes. That answer covers the failures it names and
+no others: a later breach on a DIFFERENT set of failures is a new stop,
+asked afresh. The never-re-ask rule suppresses a repeat of the same
+question, never a first sight of a new one, and a run that inherits an
+answer for failures no human has seen has waved through exactly what this
+duty exists to surface. Where a degradation named at L leaves no pull
+request to carry — no remote, a non-GitHub remote, no `gh` — the commit
+message carries it alone and the duty is discharged there. The duty names
+three destinations because three usually exist; it never waits on one that
+cannot.
 
 Redaction binds that carry exactly as it binds the handoff package: where
 a surviving failure's output holds a credential, an endpoint or a token,
@@ -509,6 +520,13 @@ the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it
 still runs both commands, still classifies, still commits — it just has
 nothing to push a review fix to. The last thing this pipeline does with
 code must never be "change it and not check it".
+
+One classification is inherited rather than made afresh: a failure the owner
+accepted at J's cap breach is still new against the baseline, and N must not
+re-own it. Report it as accepted, carry it exactly as J's duty carries it, and
+never re-enter a fix loop the owner already ended — an answer given at a stop
+binds the phases downstream of it, and re-fixing what was accepted overrides
+the human as surely as marking it resolved would.
 
 **N.5 — runtime check.** Three strategies by project type:
 

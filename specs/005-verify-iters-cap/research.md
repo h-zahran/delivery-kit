@@ -52,28 +52,44 @@ Four decisions. Each records what was chosen, why, and what was rejected.
 - **Decision**: NO new test and NO assertion additions. The suite stays
   `1..121` and prose stays `1..11`, per the seed's own acceptance criteria and
   `main-plan.md`'s Global Constraints.
-- **What guards the change**: NOTHING automated does. The unpinned surface is
-  EIGHT things: the three site strings (orchestrator table row, JSON entry,
-  configuration key row), the reworded J sentence, and the sentence carrying
-  the owner's record-the-red duty. The changelog entry makes a sixth if you
-  count it, and it should be counted. **Phase I's mutation testing added two
-  more, and the count above was SIX until it did.** Site seven is the
-  conditional-stops enumeration `SKILL.md` carries as "a cap breach in C, F, J
-  or M" — T007 wrote J into it, and reverting that revert passes the whole
-  `1..121` suite and every quickstart check. Site eight is the redaction
-  paragraph phase I added to the J slice, recorded as an amendment in
-  `contracts/key-contract.md`. Both are now covered MANUALLY by quickstart §6
-  and §3 respectively, which is cover, not a pin. One correction to the review
-  that found them: it reported the changelog entry as absent from this
-  enumeration too, and it was not — the entry is site six above and always
-  was. What was true of the changelog is the separate, real point that NO
-  command anywhere read it, which quickstart §6 now does. The existing
-  prose suite pins the gate rows, the never-bend table, the G slice and the
-  `implementer` consent surface — none of which this change touches.
+- **What guards the change**: NOTHING automated does. **RE-ENUMERATED FROM
+  SCRATCH at M round 3** — not incremented, because this count had already
+  drifted twice and arithmetic is how it drifted. The basis is unchanged: one
+  site per distinct shipped prose unit that could be deleted or inverted on its
+  own. Read off the run's full diff against `main`, the surface is **TWELVE**:
+
+  1. the orchestrator configuration-table row;
+  2. the `configuration.md` JSON entry;
+  3. the `configuration.md` key-table row;
+  4. the `CHANGELOG.md` Added entry;
+  5. J's reworded cap sentence;
+  6. the conditional-stops enumeration, `C, F, J or M` (T007);
+  7. the duty sentence pair — the record, and why J alone carries it;
+  8. the redaction paragraph (T010, phase I);
+  9. the `gates.J` address sentence (T019, M round 2);
+  10. the answer-scoping sentences, which stop a recorded answer covering a
+      later breach on different failures (M round 3);
+  11. the degraded-path carve-out and the three-destinations sentence
+      (T015, relocated into the duty paragraph by T020);
+  12. phase N's inherited-classification paragraph (T014, M round 1).
+
+  The count read six at phase D, eight at phase I, and nine at M round 2. Each
+  of those was correct for the prose that existed when it was written; none was
+  wrong arithmetic. What was wrong was reaching for arithmetic at all while the
+  prose was still moving — the same class of slip this project has now met four
+  times. Twelve is an enumeration, and the list above is the thing to re-read
+  rather than the number.
+
+  **All twelve now carry MANUAL cover** in `quickstart.md`: section 1 for sites
+  1-3, section 3 for 5 and 7-11 (sliced to the J region, so a relocation cannot
+  pass), section 6 for 4 and 6, and section 7 for 12 (sliced to N). Manual cover
+  is cover, NOT a pin: nothing runs it but a human. The existing prose suite pins
+  the gate rows, the never-bend table, the G slice and the `implementer` consent
+  surface — none of which this change touches.
 - **The debt this creates is NEW, and is NOT the debt P4 paid.** `main-plan.md`
   tells P5 and P6 that the prose-pin debt is PAID and must not be re-queued:
   that instruction is about P3's and P4's quoted sentences, and it is correct.
-  This phase adds its own unpinned surface — eight sites, enumerated above — and
+  This phase adds its own unpinned surface — twelve sites, enumerated above — and
   that is a fresh
   item, recorded here so it cannot be waved away by pointing at the paid one.
 - **The technique is known and costs nothing in count.** P4 proved it twice:
@@ -91,7 +107,7 @@ Four decisions. Each records what was chosen, why, and what was rejected.
   did last phase, and it is surfaced rather than assumed).
 - **OWNER RULING (2026-08-24)**: surfaced at the end of phase D and ruled —
   RECORD, do not spend. The seed's acceptance criteria freeze the count and
-  the owner chose to respect them. The eight unpinned sites are named above so
+  the owner chose to respect them. The twelve unpinned sites are named above so
   a later phase can spend this without rediscovering them, and the option of
   hiding them inside the existing consent test was refused outright rather
   than weighed — that trade was already made once and corrected.
@@ -104,10 +120,24 @@ Four decisions. Each records what was chosen, why, and what was rejected.
   carried into the configuration page and the changelog entry.
 - **Rationale**: the seed asked for "the same shape as F and M". The owner's
   answer deliberately makes J's cap differ in exactly one respect, and the
-  reason is structural rather than stylistic: C, F and M all breach BEFORE the
-  commit gate has anything to commit, whereas J is the last full-suite check
-  before code leaves the machine. A waved-through red at J is the only cap
-  breach that can reach a reviewer's screen as green.
+  reason is structural rather than stylistic: J is the last FULL-SUITE check
+  before code leaves the machine, and a waved-through red there is a red the
+  reviewer reads as a green suite.
+- **CORRECTED at M round 1 (2026-08-24)**: this rationale previously read
+  "C, F and M all breach BEFORE the commit gate has anything to commit". That
+  is FALSE and the first round of pull-request review caught it. The phase order
+  is K (commit), L (push and open the pull request), then M (pull-request
+  review) — so M breaches AFTER the commit exists and after the branch and the
+  pull request are already public. Only C and F breach before a commit exists.
+  The correction does not weaken the owner's ruling; it narrows the ground it
+  stands on. J's claim is not "the only breach after which code is public" — it
+  is "the last FULL-SUITE check", and a surviving red there is a red a reviewer
+  reads as a green suite. M's exposure is real and different: a waved-through M
+  breach leaves unfixed REVIEW FINDINGS on a published pull request, and M
+  carries no record-the-red duty of its own. That is a NEW owner-queue item
+  raised by this review, recorded rather than fixed — extending the duty to M
+  is a change to phase M, outside this run's one-key scope. Corrected on the
+  record, never silently, per the standard this file already sets.
 - **Alternatives considered**: recording only in the state file (rejected: a
   reviewer reads the pull request, not `.delivery-kit/`); refusing to let a J
   breach be waved through at all (rejected by the owner, and rightly — it
