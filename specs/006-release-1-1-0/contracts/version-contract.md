@@ -48,8 +48,11 @@ is a finding.
 ## [Unreleased]      ->      ## [1.1.0] - 2026-08-24
 ```
 
-Read back with `grep -m1 -oP '(?<=^## \[)[^\]]+' pipeline/CHANGELOG.md` — prints
-`1.1.0`.
+Read back with `grep -m1 -oE '^## \[[^]]+\]' pipeline/CHANGELOG.md | tr -d '#[] '` —
+prints `1.1.0`. That is the quickstart's §1 form verbatim, and it is portable. An
+earlier draft of this contract prescribed `grep -oP`, which BSD/macOS grep does not
+implement at all; `macos-latest` is in CI's matrix, so this contract's own normative
+read-back would have errored and reported an empty capture on a perfectly correct tree.
 
 ## Identity and shape
 
@@ -109,11 +112,29 @@ Add nothing, remove nothing, reorder nothing, reword nothing.
 ## Expected diff
 
 ```
- pipeline/.claude-plugin/plugin.json | 2 +-
  .claude-plugin/marketplace.json     | 2 +-
+ pipeline/.claude-plugin/plugin.json | 2 +-
  pipeline/CHANGELOG.md               | 2 +-
  3 files changed, 3 insertions(+), 3 deletions(-)
 ```
+
+**The file order is git's own, MEASURED** by running this exact command on this commit —
+it is not chosen for readability:
+
+```
+git diff --stat origin/main...HEAD -- . ':(exclude)specs/'
+```
+
+The base is written out in full on purpose. An earlier draft wrote `"$base"`, which is a
+variable local to the QUICKSTART with no definition in this file. Pasted into a shell it
+expands empty, git reads `HEAD...HEAD`, and the command exits **rc=0 with no output at
+all** — silent emptiness rather than an error, so the one claim this paragraph exists to
+let a reader re-verify was the one they could not. Measured both ways.
+
+That same earlier draft listed `plugin.json` first, an order git never produces. A reader
+comparing this block against the quickstart's printed `--stat` saw a mismatch with nothing
+to tell them whether the tree or the contract was wrong, and the quickstart asserts only
+the summary line — so the contradiction would have stayed silent forever.
 
 Three files, three lines replaced. A fourth changed line anywhere on the shipped
 surface is a finding, and the check reads the changed LINES rather than trusting the
