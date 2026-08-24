@@ -803,3 +803,67 @@ section here, and again by phase N's full re-run, which is what N is for.
   pinned string, which is an owner call, and the round-1 deferral already queued
   the same row for a different defect (it names two carriers where the other two
   files name three). Both defects now sit on the queue against the same row.
+
+## Phase 10: N.5 — runtime check (2026-08-24)
+
+**DEGRADED, and here is exactly what that means rather than a one-word skip.**
+
+`projectType` resolves to `other`, so the configured strategy is "run
+`verifyCommand`, demand an artefact, read it". **`verifyCommand` is UNSET.** No
+command was invented to fill the gap — the orchestrator's own warning is that an
+invented command which appears to hang is worse than an honest skip, and that
+warning binds every project type, not only web. So the configured check did not
+run, and this section says so instead of claiming it did.
+
+### What could NOT be verified, named specifically
+
+This change is PROSE that a model executes. Its behaviour is only observable by
+running a pipeline that actually reaches the condition, and this run never did:
+
+1. **That a J cap breach really stops and asks.** The J loop terminated CLEAN in
+   one iteration, so `maxVerifyIters` was never approached. The cap has never
+   fired, here or anywhere.
+2. **That a waved-through breach really writes `gates.J`,** and that K and L
+   really carry the surviving failures into the commit message and the
+   pull-request body. No breach occurred, so no record was written and no carry
+   happened.
+3. **That the answer-scoping rule really prevents an inherited wave-through** on a
+   re-entry that breaches on different failures. This is the safety fix round 3
+   added, and it is the one most worth exercising; verifying it needs a run that
+   breaches J twice on different failure sets.
+4. **That phase N really declines to re-own an accepted failure.** Same reason: it
+   needs an accepted failure to exist.
+5. **That redaction really strips a credential** out of surviving failure output
+   before it reaches a pull-request body.
+
+Every one of these is a claim about behaviour under a condition this run did not
+produce. They are verified by READING, and by the mutation testing at phase I
+which proves the sentences are present and that their absence would be caught —
+not by execution.
+
+### What WAS exercised, reported as exactly what it is
+
+Extra evidence, not the configured check. Stated separately for that reason.
+
+- **This run exercised the pipeline machinery end to end on itself**: a resume
+  into a live run, a stale-lock takeover by the script's own printed command,
+  state-file validation at every phase boundary, the `--auto` collapse of K and
+  L, three capped review rounds at M, and a degraded N.5 — this section.
+- **The full house suite ran four times** across H.7, I, J, M and N, and the final
+  run over the shipped tree is `1..121`, 121 ok, 0 not ok, 0 non-TAP, exit 0.
+- **The quickstart was EXTRACTED AND EXECUTED verbatim**, not read: every `bash`
+  block pulled out of the document and run as one script, exit 0, with all eight
+  slice greps at `1` and both negative checks at `0`. That is how a broken `tr`
+  command in the new section 7 was caught — it had been written with a real
+  newline instead of the two characters, and reading it would never have shown
+  that. Running a document is different from reviewing it.
+- **Thirteen real mutations** ran at phase I on an isolated copy, proving which
+  assertions bite and which three shipped sites had no cover at all.
+
+### Verdict
+
+The configured runtime check did not run and could not. What the change claims is
+guarded by prose pins, manual quickstart cover and mutation evidence; what it
+would DO at a cap breach is unexercised and is recorded here as unexercised. The
+first real J breach in the wild is the first execution of this feature, and
+whoever sees it should know that.
