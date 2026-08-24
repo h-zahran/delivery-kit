@@ -1393,7 +1393,29 @@ executed from the repository root: `diff base: origin/main` · `AT REPO ROOT OK`
 
 ## Phase M closes here
 
-Six rounds, cap 3, rounds 4–6 each authorised at a stop. **44 findings fixed, 2 deferred
-with reasons (T028 and F3). Not one finding, in any round, touched the shipped release.**
+Six rounds, cap 3, rounds 4–6 each authorised at a stop. The numbers, stated exactly
+rather than as one aggregate, because this run has now watched an aggregate drift twice:
+
+| Scope | Fixed |
+|---|---|
+| PR review rounds 1–6 | 34 |
+| Faults caught in this session's own fixes, before a reviewer reported them | 2 |
+| **Phase M total** | **36** |
+| Phase I deep review | 3 |
+| **All review work** | **39** |
+| Spec gate (3), plan (1), analyze (1) | 5 |
+| **All phases** | **44** |
+
+Deferred with reasons: 2 — T028 and F3.
+
+**A correction, recorded rather than hidden.** The commit message for this work prints
+"44 fixed" directly beneath a table of REVIEW rounds only. 44 is the all-phases figure;
+the review-only figure is 39, and phase M's own is 36. The commit is already pushed and
+this project does not rewrite pushed history, so the number stands there and is corrected
+here and in the pull-request body. It is exactly the failure this run spent six rounds
+learning to name: **an aggregate written beside a narrower table reads as that table's
+total.** The table above has no aggregate that is not derived from the rows beside it.
+
+Not one finding, in any round, touched the shipped release.
 The three pins are byte-identical to phase K: `09bf16d6f4a4b59d`, `88cd958dd7a14ba5`,
 `df3123792d299c9a`.
