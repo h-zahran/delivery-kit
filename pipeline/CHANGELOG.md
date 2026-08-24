@@ -48,9 +48,11 @@ All notable changes to the `pipeline` plugin.
   Verification was the last unbounded loop in the product; it now has the
   shape clarification, analysis and review already had. One difference is
   deliberate: a breach waved through records the surviving failures in the
-  state file and carries them into the commit message and the pull request,
-  because verification is the last full-suite check before code leaves the
-  machine. A hard failure still stops the run outright.
+  state file and carries them outward into the commit message and the pull
+  request — into the commit message alone where no pull request exists,
+  because a degraded remote can leave the run without one. The state-file
+  record is kept either way. Verification is the last full-suite check before
+  code leaves the machine. A hard failure still stops the run outright.
 
 ## [1.0.1] - 2026-08-22
 
