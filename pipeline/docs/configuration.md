@@ -33,7 +33,8 @@ a question, and the pipeline can always ask.
     "verifyCommand": null,
     "releaseCommand": null,
     "devCommand": null,
-    "implementer": null
+    "implementer": null,
+    "maxVerifyIters": 5
   }
 }
 ```
@@ -62,6 +63,7 @@ before it spends it.
 | `releaseCommand` | What the release gate runs, shown exactly before it runs. Unset means there is nothing to publish — the release gate records that and moves on; no command is ever detected or invented for this key. |
 | `devCommand` | The web runtime check's server command; without it the project manifest's script table is tried: `dev`, then `start`, then `serve`. |
 | `implementer` | Pre-answers the implementer gate: `claude` or `handoff`; `ask` restores the stop; unset means ask. |
+| `maxVerifyIters` | Verification fix-loop cap; a breach stops and asks, and a breach waved through is recorded in the commit message and the pull request. |
 
 ## Base branch
 

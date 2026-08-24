@@ -42,6 +42,16 @@ All notable changes to the `pipeline` plugin.
   line naming the resolved value and the layer it came from, and omits
   the line when unset.
 
+- The `maxVerifyIters` key, default 5: the verification phase's fix loop
+  runs at most that many iterations, and a breach is a conditional stop —
+  the remaining failures are shown and the run asks whether to continue.
+  Verification was the last unbounded loop in the product; it now has the
+  shape clarification, analysis and review already had. One difference is
+  deliberate: a breach waved through records the surviving failures in the
+  state file and carries them into the commit message and the pull request,
+  because verification is the last full-suite check before code leaves the
+  machine. A hard failure still stops the run outright.
+
 ## [1.0.1] - 2026-08-22
 
 ### Fixed

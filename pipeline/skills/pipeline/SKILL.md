@@ -102,6 +102,7 @@ item 10 anchors that rule; this is where it fires.
 | `releaseCommand` | unset | Phase O's exact command |
 | `devCommand` | unset | N.5 web strategy's server |
 | `implementer` | unset | Pre-answers the G gate: `claude` or `handoff`; `ask` restores the stop |
+| `maxVerifyIters` | 5 | Phase J cap |
 
 `null` means *work it out* — of the MERGED result, not of a layer, where
 `null` is silence as above: `projectType` from detection, commands and
@@ -468,7 +469,21 @@ security, tests — per that skill's contract. Fixes fan out.
 `testCommand`. Classify every failure against `test_baseline`:
 pre-existing failures are reported, not owned; new failures are this
 run's to fix. Fixes for independent failures fan out. Loop until clean
-against baseline or a hard failure stops the run.
+against baseline, at most `maxVerifyIters` iterations; a cap breach is a
+conditional stop — show the failures that survived and ask whether to
+continue; a hard failure still stops the run outright.
+
+A breach the owner waves through carries a duty the other caps do not:
+record the surviving failures in the state file, and carry them into the
+commit message and the pull-request body. J is the last full-suite check
+before code leaves the machine, and a red that reaches a reviewer as green
+is the one outcome this gate exists to prevent.
+
+Redaction binds that carry exactly as it binds the handoff package: where
+a surviving failure's output holds a credential, an endpoint or a token,
+record the fact and its location, never the value. A commit message and a
+pull-request body leave the machine, and under `--auto` no gate stands
+between them and whoever can read the repository.
 
 **K — commit. STOPS AND ASKS.** Show the exact file list (every path by
 name — no `git add -A`, no wildcards) and the exact commit message in
@@ -562,7 +577,7 @@ file already records which gate.
 | Push and pull request | L | Branch name, title, full body |
 | Release | O | The exact command, and where it publishes |
 
-Conditional stops: the resume prompt, a cap breach in C, F or M, a
+Conditional stops: the resume prompt, a cap breach in C, F, J or M, a
 missing required tool, any hard failure, and a failed runtime check.
 The pre-flight constitution offer (decision item 9) is one of them,
 and `--auto` does not collapse it. Record every gate's answer in
