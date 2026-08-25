@@ -232,37 +232,51 @@ hv=$(jq -r '.plugins[]|select(.name=="handoff").version' .claude-plugin/marketpl
 bats_bin="${BATS:-$(command -v bats || echo /c/Users/h_zah/bats/bin/bats)}"
 # -f as well as -x: a DIRECTORY satisfies [ -x ] on its own, so BATS=/some/dir would
 # have printed BATS RESOLVED and then failed to run the suite. Measured, not assumed.
-[ -f "$bats_bin" ] && [ -x "$bats_bin" ] && echo "BATS RESOLVED $bats_bin" \
-  || { echo "BATS NOT RUNNABLE: $bats_bin — re-run with BATS=/path/to/bats"; fail=1; }
-# expect: BATS RESOLVED <a path that exists on this machine>
-# The TAP output goes to a private mktemp file, never a fixed shared path. This is a
-# measured hazard, not a hypothetical: two agents running this document's own review
-# rounds concurrently corrupted /tmp/bats.out — 84 lines under a 1..121 plan, with a NUL
-# byte that made grep answer "Binary file matches", so the counts came back ok=80
-# nonTAP=2680 and this document printed QUICKSTART FAIL on a GREEN suite. Re-run to a
-# private file the same suite was exit=0 plan=1..121 ok=121 notok=0 nonTAP=0. A FALSE RED
-# on a correct release is the one outcome this document exists to prevent.
-bo=$(mktemp)
-"$bats_bin" --tap -r --print-output-on-failure tests handoff/tests pipeline/tests > "$bo" 2>&1
-e=$?; plan=$(head -1 "$bo"); okc=$(grep -c '^ok ' "$bo")
-nok=$(grep -c '^not ok' "$bo" || true)
-non=$(grep -cv -E '^(ok [0-9]+|1\.\.[0-9]+)' "$bo" || true)
-echo "suite: exit=$e plan=$plan ok=$okc notok=$nok nonTAP=$non"
-# An if/else, NOT an && || chain. With `rm -f "$bo"` inside the && group, the group's
-# exit status was rm's, so a failing rm — directory permissions, a locked temp file on
-# Windows — made the script print BOTH "SUITE OK" and "SUITE OFF BASELINE" and set fail=1
-# on a suite that passed. Reproduced directly. That is this document's own named
-# anti-pattern, re-committed by its own cleanup one round after it was written. In an
-# if/else no command's status can select a branch, so cleanup cannot change the verdict.
-if [ "$e" -eq 0 ] && [ "$plan" = "1..121" ] && [ "$okc" -eq 121 ] && [ "$nok" -eq 0 ] && [ "$non" -eq 0 ]; then
-  echo "SUITE OK"
-  rm -f "$bo"
+# An if/else, NOT a red followed by a straight-line suite run. F3: the earlier form
+# printed the red and then invoked "$bats_bin" ANYWAY, so BATS=/c/Users printed
+# "BATS NOT RUNNABLE", then "bash: /c/Users: Is a directory", then a SECOND red, and
+# left a stray mktemp file behind. The verdict was correct in every case — already red,
+# still red — but a reader debugging one cause read two unrelated failures and a shell
+# error. A check that has already refused a binary must not then run it.
+if [ -f "$bats_bin" ] && [ -x "$bats_bin" ]; then
+  echo "BATS RESOLVED $bats_bin"
+  # expect: BATS RESOLVED <a path that exists on this machine>
+  # The TAP output goes to a private mktemp file, never a fixed shared path. This is a
+  # measured hazard, not a hypothetical: two agents running this document's own review
+  # rounds concurrently corrupted /tmp/bats.out — 84 lines under a 1..121 plan, with a NUL
+  # byte that made grep answer "Binary file matches", so the counts came back ok=80
+  # nonTAP=2680 and this document printed QUICKSTART FAIL on a GREEN suite. Re-run to a
+  # private file the same suite was exit=0 plan=1..121 ok=121 notok=0 nonTAP=0. A FALSE RED
+  # on a correct release is the one outcome this document exists to prevent. The mktemp is
+  # now INSIDE the runnable branch, so the unrunnable path creates no file to leak.
+  bo=$(mktemp)
+  "$bats_bin" --tap -r --print-output-on-failure tests handoff/tests pipeline/tests > "$bo" 2>&1
+  e=$?; plan=$(head -1 "$bo"); okc=$(grep -c '^ok ' "$bo")
+  nok=$(grep -c '^not ok' "$bo" || true)
+  non=$(grep -cv -E '^(ok [0-9]+|1\.\.[0-9]+)' "$bo" || true)
+  echo "suite: exit=$e plan=$plan ok=$okc notok=$nok nonTAP=$non"
+  # The inner if/else carries the SAME rule for the same reason. With `rm -f "$bo"` inside
+  # an && group, the group's exit status was rm's, so a failing rm — directory permissions,
+  # a locked temp file on Windows — made the script print BOTH "SUITE OK" and "SUITE OFF
+  # BASELINE" and set fail=1 on a suite that passed. Reproduced directly. That is this
+  # document's own named anti-pattern, re-committed by its own cleanup one round after it
+  # was written. In an if/else no command's status can select a branch, so cleanup cannot
+  # change the verdict.
+  if [ "$e" -eq 0 ] && [ "$plan" = "1..121" ] && [ "$okc" -eq 121 ] && [ "$nok" -eq 0 ] && [ "$non" -eq 0 ]; then
+    echo "SUITE OK"
+    rm -f "$bo"
+  else
+    echo "SUITE OFF BASELINE — full output kept at $bo"
+    fail=1
+  fi
+  # expect: suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0
+  # expect: SUITE OK
 else
-  echo "SUITE OFF BASELINE — full output kept at $bo"
+  echo "BATS NOT RUNNABLE: $bats_bin — re-run with BATS=/path/to/bats"
   fail=1
 fi
-# expect: suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0
-# expect: SUITE OK
+# expect with an unrunnable bats: exactly ONE red, then nothing — no suite line, no
+# shell error, no temp file. Measured with BATS=/c/Users, both before and after.
 ```
 
 The suite exceeds two minutes; slow is not hung.
