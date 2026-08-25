@@ -1419,3 +1419,80 @@ total.** The table above has no aggregate that is not derived from the rows besi
 Not one finding, in any round, touched the shipped release.
 The three pins are byte-identical to phase K: `09bf16d6f4a4b59d`, `88cd958dd7a14ba5`,
 `df3123792d299c9a`.
+
+## Phase M's two deferrals, closed by the owner (2026-08-25)
+
+Both items above stayed DEFERRED when this run closed, and both blocks stand exactly as
+written — they were true then, and the reasons in them were the right reasons at the time.
+This section records what happened AFTER, on the owner's instruction to fix both, in
+branch `fix/deferred-t028-f3`. **The line "Deferred with reasons: 2 — T028 and F3" above
+is a statement about this RUN, not about the repository today.** Today the count is zero.
+
+### T028 — CLOSED. The claim is scoped to gates, and now pinned.
+
+`pipeline/CHANGELOG.md` said an `--auto` run with `implementer: claude` "touches the human
+at clarify only". It now says it "stops at no gate but clarify", and carries the caveat
+verbatim from `pipeline/docs/configuration.md`, which held the correct range all along:
+*Cap breaches, a missing required tool, hard failures and a failed runtime check still stop
+it, but the gates do not.* The entry then names `maxVerifyIters` as the fourth cap this
+release adds — round 3's point about why the staleness became material — and points at the
+page that states the whole range.
+
+The entry's FINAL clause was never wrong and is untouched. Only the opening claim was
+unscoped.
+
+Three greps were added inside the EXISTING implementer prose test, so the `1..121` baseline
+does not move. The claim and the caveat are pinned **together**, because either alone leaves
+a mutant free to restore the unscoped wording beside a caveat that is true on its own. The
+docs sentence is pinned too: it was the one unpinned copy of the correct range, and it is
+now the source the changelog is measured against.
+
+| Mutant, each shown to land before its verdict was read | Result |
+|---|---|
+| restore "touches the human at clarify only", keep the caveat | **red** |
+| keep the scoped claim, delete the caveat sentence | **red** |
+| alter the docs caveat | **red** |
+| all three restored | green |
+
+No version moves. `1.1.0` stays `1.1.0` in the manifest, the marketplace entry and the
+changelog heading, so the agreement gate and the tag-matches-manifest gate are untouched. A
+1.1.1 for one sentence would be a release with no behaviour change.
+
+The historical copies of the old wording are **not** swept: `main-plan.md`, run 004's
+`seed.md` and the run records keep it. They are specs and dated logs.
+
+### F3 — CLOSED. A refused binary is no longer run anyway.
+
+`quickstart.md` §5 printed its red and then invoked `"$bats_bin"` on the next line
+regardless. The resolve check and the suite run are now one if/else, and the `mktemp` moved
+inside the runnable branch so the unrunnable path creates no file to leak.
+
+Measured with `BATS=/c/Users`, the same control against both documents:
+
+| | reds | shell errors | suite lines | stray temp files |
+|---|---|---|---|---|
+| before | 2 | 1 | 1 | 1 |
+| after | **1** | **0** | **0** | **0** |
+
+Both set `fail=1` throughout, which is why this was a diagnostic defect and never a wrong
+verdict. Good path from the repository root: `BATS RESOLVED` ·
+`suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0` · `SUITE OK` · `fail=0` · no temp
+growth. Whole document: 20 fences balanced, 222 lines extracted, `bash -n` clean.
+
+The deferral's stated reason — that the fix restructures the block where T048 and T055
+lived, with no review round left to catch a mistake — is answered rather than ignored. Both
+of those lessons are carried through deliberately: the private `mktemp`, and the rule that
+no command's exit status may select a branch. The inner if/else enforcing the second is
+untouched; the new outer if/else is the same rule applied one level up.
+
+### What this deliberately does NOT do
+
+- **The pins in §3 and in `contracts/version-contract.md` are NOT updated.** Editing the
+  changelog changes its bytes and its content digest, so `BYTES OK 3104` and
+  `CONTENT OK 09bf16d6f4a4b59d` no longer describe the file. Those values record what
+  shipped at `a62d2d0` and are left standing as the dated record they are.
+- **The whole quickstart is NOT re-run as a PASS, and cannot be.** On merged `main` it
+  already had two by-design reds — §6 finds the `pipeline-v1.1.0` tag it asserts is absent,
+  and §7's `main...HEAD` range is empty. §3 is now a third. The document verifies a
+  *pending* release; it was never meant to pass after the merge. §5 was therefore verified
+  as a block, which is the unit the fix touches.
