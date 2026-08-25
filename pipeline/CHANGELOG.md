@@ -2,6 +2,17 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Changed
+
+- `README.md` rewritten for a first-time reader: the twenty phases drawn as
+  one map with the five gates marked, the gate table naming what each one
+  shows and what collapses it, and the automation warning stated where a
+  reader meets it. No phase, flag, default, or gate changed.
+- The plugin manifest's description now says what the plugin does in one
+  plain sentence, matching the marketplace entry.
+
 ## [1.1.0] - 2026-08-24
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "pipeline",
-  "description": "Drives a unit of work from a heading in a plan file to a verified build: spec, plan, tasks, implementation, review and release, with a human gate at every irreversible step.",
+  "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine.",
   "version": "1.1.0",
   "author": {
     "name": "Haytham Zahran"

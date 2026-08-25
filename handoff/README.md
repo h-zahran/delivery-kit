@@ -3,51 +3,64 @@
 A Claude Code plugin that notices when a session is running out of context and
 ends it cleanly enough that the next session resumes from a single file read.
 
-## Why this exists
+## What happens
 
-This tooling was not designed up front. It was derived from measuring 1,410
-prompts across 67 sessions of real work, which showed where the human effort was
-actually going:
+You are deep in a long session. After every tool call, a hook quietly works out
+how full the context window is. Once you cross a line, it stops you:
 
-| Pattern | Count |
-|---|---:|
-| Continuation nudges (`continue`, `keep going`, `/resume`) | 121 |
-| "How do I hand off / make you remember?" | 30 |
+```
+CONTEXT GUARD: session context is at 45% of the 200000-token window (threshold 45%).
+Finish ONLY the current atomic step — do NOT start the next batch or task.
+Then invoke the handoff skill (handoff:handoff) ...
+```
 
-121 prompts — 8.5% of everything typed — were a human saying *continue*. That is
-the problem this plugin addresses. The longer version is in [docs/why.md](docs/why.md).
+You finish the step you are on. You run `handoff:handoff`. It writes one
+document and prints this:
+
+```
+Resume with:
+Read docs/handoffs/2026-08-25-csv-export-SESSION-HANDOFF.md and continue from it.
+Follow the Resume protocol.
+```
+
+Paste that into a fresh session and the work carries on. Nothing has to be
+rediscovered.
+
+If you keep working past the warning, the guard nudges you again every 5% —
+not on every tool call.
+
+## What is in the document
+
+A fixed set of sections, so the next session always knows where to look:
+
+| Section | What it holds |
+|---|---|
+| Branch & SHA | Branch, last commit, PR number, CI status |
+| Goal & done-condition | What the run is for, and how you know it is finished |
+| State | Done, in progress (the exact next action), remaining |
+| Uncommitted work | Every changed path, marked as this run's work or pre-existing |
+| Verification state | Last test count, analysis baseline, CI, runtime checks |
+| Blocked | Each blocked item with its specific blocker |
+| Gotchas | What is not recoverable from the code or git history |
+| Deployments pending | Migrations and uploads not yet applied |
+| Pipeline state | Only when a pipeline run is live: the phase, and how to resume it |
+| Resume protocol | Numbered steps, starting with "check these claims against real git state" |
+
+**It never writes to git.** No commit, no push, no `git add`, no stash. The hook
+fired on its own, so nothing here was asked for — a commit message would be the
+machine's, not yours. Instead it records the uncommitted work in full and prints
+the commands, and the choice stays with you.
 
 ## What ships
 
-Three components. The first two work together and are useful apart; the third
-exists to configure the first.
+Three pieces. The first two work together and are useful apart; the third exists
+to configure the first.
 
-**The context guard** — a `PostToolUse` hook. After each tool call it reads the
-session transcript, computes how much of the context window is in use, and once
-past a threshold tells Claude to finish only the current atomic step and hand
-off. It re-warns once per 5% thereafter.
-
-**The handoff skill** — makes the work durable, writes a standardised handoff
-document with a fixed set of sections, and prints the exact prompt that resumes
-the work in a fresh session.
-
-**The setup skill** — measures the context a session has actually accumulated,
-asks for your real window and where you want the guard to stop, and merges the
-answers into `~/.delivery-kit.json`, so the question is answered once per
-machine rather than once per repository.
-
-## What this plugin does not own
-
-So there is no ambiguity — the marketplace splits the work across its
-plugins, and this one deliberately owns the smaller share:
-
-- The pipeline orchestrator, runtime verification and finding
-  remediation live in the [pipeline](../pipeline/README.md) plugin,
-  installed separately as `pipeline@delivery-kit`. Someone who wants
-  only a context guard never acquires a spec-tool dependency.
-- No support for harnesses other than Claude Code. The guard reads a
-  Claude Code transcript through a Claude Code hook; the handoff skill
-  is portable markdown and could be adapted later.
+| Piece | Kind | Does |
+|---|---|---|
+| The context guard | a `PostToolUse` hook | Measures context after each tool call, warns past a threshold, re-warns once per 5%. |
+| `handoff:handoff` | a skill | Writes the document above, prints the resume prompt, stops. |
+| `handoff:setup` | a skill | Measures your session, asks for your real window and stopping point, writes the answers once per machine. |
 
 ## Install
 
@@ -57,8 +70,9 @@ plugins, and this one deliberately owns the smaller share:
 ```
 
 If the second command does not see the plugin, run `/reload-plugins` between
-them. Requires `jq` on PATH. Full steps, including Windows, are in
-[docs/install.md](docs/install.md).
+them. Requires `jq` on PATH — the hook parses a JSONL transcript, and without
+`jq` it says so once rather than failing silently. Full steps, including
+Windows, are in [docs/install.md](docs/install.md).
 
 ### Upgrading from `delivery-kit@delivery-kit`
 
@@ -97,16 +111,22 @@ namespace is its plugin's name.
 Nothing is required. The defaults assume a 200,000-token context window and
 warn at 45%.
 
-**If your model has a larger window, say so.** On a 1M-token model the defaults
-do not merely fire early — the first warning reports a percentage well over 100
-and adds a `WINDOW MISCONFIGURED` note, because the guard is measuring against a
-window five times smaller than the real one. That is the guard telling you the
-configuration is provably wrong, and it is the most likely thing to surprise you
-on a first run. One line fixes it.
+**If your model has a larger window, say so.** This is the one setting worth
+getting right, and the two ways of being wrong are not the same:
 
-Run `handoff:setup` and it will measure the session, propose a window when
-the measurement supports one — in a fresh session it asks without one — ask where
-you want it to stop, and write the answers for you. Or set it by hand:
+- **Set too small** — the guard fires early. Annoying, and instantly visible:
+  the warning names the window it used, and once observed context passes that
+  window the guard reports it outright with a `WINDOW MISCONFIGURED` note.
+- **Set too large** — the guard never fires at all. Silent, total, and
+  discovered when a session dies mid-task. Nothing can detect it.
+
+That is why the default is conservative. On a 1M-token model the defaults do not
+merely fire early: the first warning reports a percentage well over 100. One
+line fixes it.
+
+The easy way is `handoff:setup`. It measures the session, proposes a window when
+the measurement supports one, asks where you want it to stop, and writes the
+answers for you. Or set it by hand:
 
 ```json
 {
@@ -115,8 +135,38 @@ you want it to stop, and write the answers for you. Or set it by hand:
 }
 ```
 
-Save that as `.delivery-kit.json` in your repository root. Every setting is
-documented in [docs/configuration.md](docs/configuration.md).
+Save that as `.delivery-kit.json` in your repository root, or at
+`~/.delivery-kit.json` for facts about your machine rather than a project — the
+repository file wins. Every setting is documented in
+[docs/configuration.md](docs/configuration.md).
+
+## Why this exists
+
+This tooling was not designed up front. It was derived from measuring 1,410
+prompts across 67 sessions of real work, which showed where the human effort was
+actually going:
+
+| Pattern | Count |
+|---|---:|
+| Continuation nudges (`continue`, `keep going`, `/resume`) | 121 |
+| "How do I hand off / make you remember?" | 30 |
+
+121 prompts — 8.5% of everything typed — were a human saying *continue*. That is
+the problem this plugin addresses. The longer version, including why the guard
+takes a median rather than the latest reading, is in [docs/why.md](docs/why.md).
+
+## What this plugin does not own
+
+So there is no ambiguity — the marketplace splits the work across its
+plugins, and this one deliberately owns the smaller share:
+
+- The pipeline orchestrator, runtime verification and finding
+  remediation live in the [pipeline](../pipeline/README.md) plugin,
+  installed separately as `pipeline@delivery-kit`. Someone who wants
+  only a context guard never acquires a spec-tool dependency.
+- No support for harnesses other than Claude Code. The guard reads a
+  Claude Code transcript through a Claude Code hook; the handoff skill
+  is portable markdown and could be adapted later.
 
 ## Licence
 
