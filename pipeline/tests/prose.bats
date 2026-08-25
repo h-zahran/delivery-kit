@@ -179,6 +179,22 @@ PARTS
   grep -qF 'Pre-flight prints an `Implementer` line naming the resolved value and the layer it came from' <<<"$cflat" \
     || { echo 'the changelog disclosure clause altered'; false; }
 
+  # T028, corrected 2026-08-25: the shipped 1.1.0 notes said an `--auto` run
+  # "touches the human at clarify only", which a cap breach falsifies — and
+  # this release publishes a fourth cap, `maxVerifyIters`, which is what made
+  # it material. The claim is now scoped to GATES and carries the caveat.
+  # Both are pinned, and pinned TOGETHER: either alone leaves a mutant free to
+  # restore the unscoped wording beside a caveat that is true on its own.
+  grep -qF 'an `--auto` run then stops at no gate but clarify' <<<"$cflat" \
+    || { echo 'the changelog --auto claim altered — it must stay scoped to GATES'; false; }
+  grep -qF 'Cap breaches, a missing required tool, hard failures and a failed runtime check still stop it, but the gates do not' <<<"$cflat" \
+    || { echo 'the changelog cap-breach caveat altered'; false; }
+  # The docs page carried the correct range all along and was the ONE unpinned
+  # copy of it; the changelog was corrected against this sentence, so the two
+  # shipped surfaces agree verbatim rather than approximately.
+  grep -qF 'Cap breaches, a missing required tool, hard failures and a failed runtime check still stop it, but the gates do not.' <<<"$dflat" \
+    || { echo 'the docs cap-breach caveat altered'; false; }
+
   # The FIRST json block only. Reading every fence let a later illustrative
   # block mask a canonical one that had lost the key entirely.
   awk '/^```json$/{if(!seen){f=1;seen=1;next}} /^```$/{f=0} f' "$docs" \
