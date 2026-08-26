@@ -11,7 +11,7 @@ goes red BY NAME when none of the three is runnable. Override with
 This caveat used to live HERE, as prose outside every fence, added in the same round
 that made execution mandatory — and the extractor keeps only the fenced bash blocks, so
 it could never reach the script it was warning about. Anyone on another machine ran
-`bash /c/Users/h_zah/...`, got exit 127, and read `QUICKSTART FAIL` on a correct
+`bash /c/Users/<user>/...`, got exit 127, and read `QUICKSTART FAIL` on a correct
 release. A mitigation must travel inside the code it mitigates.
 
 **Execute this document; do not read it.** Extract the bash blocks and run them as one
@@ -229,7 +229,7 @@ hv=$(jq -r '.plugins[]|select(.name=="handoff").version' .claude-plugin/marketpl
 # above a fence never reaches the script that actually runs. Order: $BATS, then PATH,
 # then the author's path. A binary that cannot be run goes RED by name — a document
 # that certifies a release must never report green on a suite it never executed.
-bats_bin="${BATS:-$(command -v bats || echo /c/Users/h_zah/bats/bin/bats)}"
+bats_bin="${BATS:-$(command -v bats || echo $HOME/bats/bin/bats)}"
 # -f as well as -x: a DIRECTORY satisfies [ -x ] on its own, so BATS=/some/dir would
 # have printed BATS RESOLVED and then failed to run the suite. Measured, not assumed.
 # An if/else, NOT a red followed by a straight-line suite run. F3: the earlier form

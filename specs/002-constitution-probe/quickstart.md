@@ -14,8 +14,8 @@ bash pipeline/scripts/preflight.sh | jq .          # this repo: parses; constitu
 ## 2. The two tests, and the count (FR-002 / SC-001)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats pipeline/tests/preflight.bats     # all ok, count grew by 2
-bash /c/Users/h_zah/bats/bin/bats -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" pipeline/tests/preflight.bats     # all ok, count grew by 2
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 # expect: 1..118, 118 ok, 0 not ok, 0 non-TAP
 ```
 
@@ -27,7 +27,7 @@ the script change (SC-004).
 ```bash
 grep -n "not set — plan gates run against an empty document" pipeline/skills/pipeline/SKILL.md   # 1 hit
 grep -n "speckit-constitution" pipeline/skills/pipeline/SKILL.md                                  # the one-time offer
-bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats                                       # 1..8 ok
+bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats                                       # 1..8 ok
 ```
 
 ## 4. The changelog (FR-004)

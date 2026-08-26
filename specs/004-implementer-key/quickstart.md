@@ -40,8 +40,8 @@ grep -cF 'a pre-answered `implementer` silences nothing else: cap breaches, hard
 ## 4. Nothing moved (SC-002 / SC-003)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats   # 1..11, 11 ok  (was 1..9 before round 4 spent the prose-pin debt)
-bash /c/Users/h_zah/bats/bin/bats --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" --tap pipeline/tests/prose.bats   # 1..11, 11 ok  (was 1..9 before round 4 spent the prose-pin debt)
+bash "$HOME/bats/bin/bats" --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
 # expect: 1..121, 121 ok, 0 not ok, 0 non-TAP  (was 1..119; +2 by the
 #         owner-ordered test-debt spend at phase M round 4)
 grep -cF '| Implementer | G |' pipeline/skills/pipeline/SKILL.md   # 1, byte-identical

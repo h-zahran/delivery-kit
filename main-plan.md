@@ -24,7 +24,7 @@ GitHub Actions matrix unchanged; `gh` (PowerShell-only on this machine).
 
 **Spec:** the agreed enhancement list — recorded in the session review of
 the 2026-08-21 playground run and the six-point owner discussion; durable
-copy in `~/.claude/projects/D--Github-delivery-kit/memory/r2-release-pr12-pending-merge.md`.
+copy in the agent memory file `r2-release-pr12-pending-merge.md`.
 
 ## Decisions (rulings — each one edit to undo)
 
@@ -52,12 +52,31 @@ copy in `~/.claude/projects/D--Github-delivery-kit/memory/r2-release-pr12-pendin
 8. `worktree-two-plugins` is historical. Main-based flow supersedes it.
    Its SDD workspace is deleted only after verification checks 5–6 close.
 
+   **AMENDED 2026-08-26 — both worktree registrations are removed; both
+   branches are KEPT.** `git worktree remove` was run against
+   `.claude/worktrees/two-plugins` and `.claude/worktrees/v1-context-guard`,
+   reclaiming 3.2 MB of stale checkout inside the main tree. Verification
+   checks 5–6 are closed by that removal: the SDD workspace is gone, the
+   lineage is not.
+
+   ⚠️ **The branches must never be pushed, and must never be deleted.**
+   `git worktree remove` deletes the checkout, never the branch — that was
+   verified before AND after, because these two branches are the ONLY carriers
+   of the 221-commit pre-rewrite history. That history has no merge base with
+   `main` (the release curation used an orphan root), it is not reachable from
+   anything published, and it includes the private handoff commits. Pushing
+   either branch would disclose the originating project in one step.
+   Measured at removal: `worktree-two-plugins` at `6c823e7` with 221 commits,
+   `worktree-v1-context-guard` at `3eeb00d` with 117 and a strict ancestor of
+   the first. `archive/local-main-2026-08-16` at `e26723d` is a diverged
+   sibling of the same lineage, kept on the same terms.
+
 ## Global Constraints (every seed implicitly includes these)
 
 - House test suite (full, from repo root; exceeds 120s — extend timeouts):
 
   ```
-  bash /c/Users/h_zah/bats/bin/bats -r --print-output-on-failure tests handoff/tests pipeline/tests
+  bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
   ```
 
   Baseline today: `1..116`, 116 ok, 0 not ok, 0 non-TAP. P2 grows it by
@@ -120,7 +139,7 @@ copy in `~/.claude/projects/D--Github-delivery-kit/memory/r2-release-pr12-pendin
 - [ ] **Step 1: clean start on main**
 
 ```
-cd /d/Github/delivery-kit
+cd "$(git rev-parse --show-toplevel)"
 git checkout main && git pull
 git status --porcelain        # expect empty
 git checkout -b setup-pipeline-dogfood main
@@ -221,7 +240,7 @@ stamp, in one run. All edits are additive prose; no behavior changes.
 
 - Each new sentence findable by exact grep in its named file; every
   pinned string still present byte-for-byte (run
-  `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` — 1..8 ok).
+  `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` — 1..8 ok).
 - Full house suite `1..116`, 0 non-TAP.
 - `jq -r '.plugins[] | "\(.name) \(.version)"' .claude-plugin/marketplace.json`
   prints `handoff 2.1.0` and `pipeline 1.0.1`; plugin.json agrees.
@@ -663,7 +682,7 @@ Run this before P7. It touches no tracked file, so it produces no PR.
 - [ ] **Step 1: prove what the branches carry, before touching anything**
 
 ```
-cd /d/Github/delivery-kit
+cd "$(git rev-parse --show-toplevel)"
 git worktree list
 git branch --list 'worktree-*' 'archive/*'
 git rev-list --count worktree-two-plugins
@@ -734,7 +753,7 @@ UNCOMMITTED. P7's pre-flight aborts on a dirty tree, so the plan has to
 be on `main` before the first run.
 
 ```
-cd /d/Github/delivery-kit
+cd "$(git rev-parse --show-toplevel)"
 git checkout main && git pull
 git checkout -b plan-campaign-2 main
 git add -- main-plan.md

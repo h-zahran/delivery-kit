@@ -84,8 +84,8 @@ grep -ciE 'until (the )?(suite|tests?) ?(is |are )?(clean|green)' <<<"$flat"   #
 ## 4. Nothing moved (SC-002, SC-003)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats   # 1..11, 11 ok
-bash /c/Users/h_zah/bats/bin/bats --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" --tap pipeline/tests/prose.bats   # 1..11, 11 ok
+bash "$HOME/bats/bin/bats" --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
 # expect: 1..121, 121 ok, 0 not ok, 0 non-TAP — growth exactly zero
 git status --porcelain -- handoff/   # empty
 ```

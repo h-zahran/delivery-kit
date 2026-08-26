@@ -26,7 +26,7 @@ consumes the external implementer's report.
 
 **Storage**: N/A
 
-**Testing**: focused — `bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats` (shipped `1..11`, planned `1..9`); full house suite from repo root (shipped `1..121`, planned `1..119`); row identity by extract-and-diff (quickstart §2)
+**Testing**: focused — `bash "$HOME/bats/bin/bats" --tap pipeline/tests/prose.bats` (shipped `1..11`, planned `1..9`); full house suite from repo root (shipped `1..121`, planned `1..119`); row identity by extract-and-diff (quickstart §2)
 
 **Target Platform**: the CI matrix ubuntu/macos/windows
 

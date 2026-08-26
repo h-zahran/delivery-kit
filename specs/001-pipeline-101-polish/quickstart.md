@@ -1,6 +1,6 @@
 # Quickstart validation — pipeline 1.0.1
 
-Prerequisites: repo root `D:\Github\delivery-kit`, branch
+Prerequisites: repo root `<repo root>`, branch
 `001-pipeline-101-polish`, bats 1.11.0 at the house path.
 
 Note: these are Git Bash commands for the author's machine — substitute
@@ -20,7 +20,7 @@ grep -c "A missing tool is its own question" pipeline/skills/pipeline/SKILL.md  
 ## 2. Pinned strings survived (SC-002)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats
+bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats
 # expect: 1..8, all ok
 ```
 
@@ -43,7 +43,7 @@ head -40 pipeline/CHANGELOG.md   # ## [1.0.1] - <date> sits above ## [1.0.0]
 ## 5. Full house suite (SC-003)
 
 ```bash
-cd /d/Github/delivery-kit
-bash /c/Users/h_zah/bats/bin/bats -r --print-output-on-failure tests handoff/tests pipeline/tests
+cd "$(git rev-parse --show-toplevel)"
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 # expect: 1..116, 116 ok, 0 not ok, 0 non-TAP lines
 ```

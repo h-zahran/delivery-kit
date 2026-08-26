@@ -12,7 +12,7 @@
 
 **Purpose**: Prove every insertion anchor and pin exists BEFORE any edit — "add near, never reword" needs a verified "near".
 
-- [X] T001 Verify anchors and baseline: grep `pipeline/skills/pipeline/SKILL.md` for the four anchors (O paragraph's final sentence "never under `--auto` alone.", N.5 "then continue.", G paragraph's "it spends money.", the Ground rules list's last bullet) and the pinned sentence `It never reports verification it did not do`; run `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` and confirm 1..8 ok pre-change. Record anchor line numbers in this file's margin notes on completion.
+- [X] T001 Verify anchors and baseline: grep `pipeline/skills/pipeline/SKILL.md` for the four anchors (O paragraph's final sentence "never under `--auto` alone.", N.5 "then continue.", G paragraph's "it spends money.", the Ground rules list's last bullet) and the pinned sentence `It never reports verification it did not do`; run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` and confirm 1..8 ok pre-change. Record anchor line numbers in this file's margin notes on completion.
 
 ---
 

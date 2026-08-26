@@ -29,7 +29,7 @@ grep -cF 'A "handoff" answer parks the run at H:' <<<"$flat"   # 1
 ## 3. The test, red-first then mutation (FR-002 / SC-004)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats   # 1..9, 9 ok
+bash "$HOME/bats/bin/bats" --tap pipeline/tests/prose.bats   # 1..9, 9 ok
 # red-first: the appended test failed BEFORE the SKILL.md edit (recorded)
 # mutation: one name removed -> the new test red; restored -> green (recorded)
 ```
@@ -37,7 +37,7 @@ bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats   # 1..9, 9 ok
 ## 4. The counts (SC-001 / SC-002)
 
 ```bash
-bash /c/Users/h_zah/bats/bin/bats --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" --tap -r --print-output-on-failure tests handoff/tests pipeline/tests
 # expect: 1..119, 119 ok, 0 not ok, 0 non-TAP
 # (--tap matters: the interactive pretty formatter prints no plan line,
 # and hand-counting its output corrupts the numbers)

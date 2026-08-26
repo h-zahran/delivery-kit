@@ -25,7 +25,68 @@ if [ -f "$ROOT/.leakwords" ]; then
   extra="$(grep -v '^[[:space:]]*$' "$ROOT/.leakwords" | paste -sd'|' -)"
   [ -n "$extra" ] && BANNED_WORDS="$BANNED_WORDS|$extra"
 fi
+# Absolute machine paths, for the SHIPPED surfaces. Its sibling is TREE_PATHS
+# below, which covers the whole tracked tree. The two are SEPARATE ON PURPOSE
+# and nothing keeps them in step: they scan different surfaces and need
+# different tightness, and narrowing this one to match that one would change
+# what the shipped scans catch. Changing either is a prompt to look at the
+# other — that prompt is this comment, not a mechanism.
 BANNED_PATHS='D:\\|/c/Users/|C:\\Users\\|~/\.claude/projects/[A-Za-z0-9-]'
+
+# The same four shapes, for the WHOLE TRACKED TREE rather than the shipped
+# surfaces — sibling of BANNED_PATHS above, and separate from it for the
+# reasons stated there. Nothing keeps the two in step: they cover different
+# surfaces and need different tightness, so a change to either is a prompt to
+# open the other and decide, deliberately, whether it wants the same change.
+# That prompt is this sentence and the one above BANNED_PATHS. It is a prompt,
+# not a mechanism, and no test enforces it.
+#
+# Why this exists: the shipped lists cover what a stranger installs, and the
+# working records under `specs/` and the plan file are not on them. A machine
+# username reached the public branch through exactly that hole and multiplied
+# to 35 lines across 17 files, because every pipeline run copies its seed into
+# `specs/`. BANNED_PATHS was already the right pattern; nothing was pointing it
+# at the right surface.
+#
+# One difference, and it is deliberate: the Git-Bash branch here requires a
+# NAME CHARACTER after the prefix. Prose that names the shape with the
+# identifying part elided is documentation, not a leak — one such line is the
+# recorded deferral of this very sweep — and those references live inside this
+# scan's surface, so an unnarrowed branch would delete the paper trail it is
+# meant to protect. The narrowing is proven in both directions by the control
+# test at the bottom of this file.
+#
+# Written joined here, and ONLY here. Every other tracked file is inside this
+# scan's surface, so a joined literal anywhere else — a spec, a plan, this
+# repository's own documentation — becomes a hit on the scan that wrote it.
+# Root tests/ is outside the surface by construction, which is what makes this
+# line safe to write at all.
+# The four branches are named individually so a failure can say WHICH shape
+# fired without printing the matched text, and so the control can prove each
+# one alive on its own. The alternation is still assembled exactly once, here,
+# and both the scan and its control read that one variable.
+TP_DRIVE_ROOT='D:\\'
+TP_WINDOWS_USERS='C:\\Users\\'
+TP_GITBASH_HOME='/c/Users/[A-Za-z0-9_]'
+TP_AGENT_PROJECTS='~/\.claude/projects/[A-Za-z0-9-]'
+TREE_PATHS="$TP_DRIVE_ROOT|$TP_WINDOWS_USERS|$TP_GITBASH_HOME|$TP_AGENT_PROJECTS"
+
+# What this does NOT cover, recorded because a guard's blind spots belong
+# beside it and not in a review nobody re-reads:
+#
+#   the forward-slash drive form, the msys /d/... form, lowercase drive
+#   letters, drive letters other than C: and D:, UNC shares, and POSIX
+#   /home/... or /Users/... homes.
+#
+# Widening to reach them was measured on 2026-08-26 and NOT done. A branch of
+# the shape `[A-Za-z]:[\\/]` matches `https://` — the colon-slash in every URL
+# in the repository — and an msys branch broad enough to catch `/d/Github`
+# also catches `/c/Users/...`, the elided form the narrowing above exists to
+# protect. The candidate produced 42 hits over a tree with 0 real ones. A
+# pattern that cries wolf gets switched off, so this stays narrow and honest
+# rather than wide and disabled. Widening it properly needs its own design
+# pass and its own per-branch controls; it is not a thing to bolt onto a
+# scrub.
 
 # The real scan and the positive control at the bottom of this file must run
 # one identical expression: a control that tests a different expression proves
@@ -101,17 +162,45 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 #
 # Be exact about what these lists cover, because "everything tracked" is not
 # it. They cover what a stranger installs or reads: the plugin trees, and the
-# root documents and metadata. `docs/specs` and `docs/handoffs` are the
-# working record of how this was built — nearly every file under them matches
-# the vocabulary above, by design — and the release curation keeps them off
-# the published branch, not these lists. Registering them would redden the
-# scan on contents that are correct, and the only way back to green would be
-# weakening the vocabulary: the wrong trade in the wrong direction. The
-# property to hold is narrower: every plugin directory owns a non-empty
-# SHIPPED_* list — that half is pinned by a test below. The other half stays
-# a review property no test here checks: no file in the installed-and-read
-# surface sits outside one — `.gitignore` sat outside them through two
-# reviews while naming a denylisted tool.
+# root documents and metadata.
+#
+# The working record of how this was built is deliberately outside them, and
+# stays outside them. Nearly every file under it matches the vocabulary above,
+# BY DESIGN — a plan that specifies a detector has to name what the detector
+# detects. Registering it would redden the scan on contents that are correct,
+# and the only way back to green would be weakening the vocabulary: the wrong
+# trade in the wrong direction.
+#
+# CORRECTED 2026-08-26, because two of this paragraph's facts had gone stale
+# and a stale comment about a scan is worse than no comment: a reader trusts it
+# and stops checking.
+#
+#   `docs/specs` no longer exists. The specifications moved to root `specs/`,
+#   which IS tracked and IS published — the README advertises those directories
+#   as in-repo examples. The old sentence said the release curation keeps them
+#   off the published branch. That has not been true since they moved.
+#
+#   `docs/handoffs` does still exist, and is still untracked — ignored via
+#   `.git/info/exclude`, which is per-clone and never leaves the machine.
+#
+# The consequence was a real leak, not a tidiness problem. Because `specs/` is
+# published but on no SHIPPED_* list, BANNED_PATHS never read it, and a machine
+# username reached the public branch and multiplied to 35 lines across 17 files
+# — every pipeline run copies its seed into `specs/`.
+#
+# What now covers that surface: TREE_PATHS and the tree-wide scan below, which
+# enumerate every tracked file except root tests/. Note precisely what changed
+# and what did not. PATHS are now covered everywhere. VOCABULARY is still
+# scanned only on the SHIPPED_* surfaces, and that asymmetry is deliberate for
+# the reason in the paragraph above: a machine path is never legitimate
+# anywhere, while the banned vocabulary is legitimate — necessary, even — in a
+# document that specifies a detector.
+#
+# The property to hold here is still narrower: every plugin directory owns a
+# non-empty SHIPPED_* list — that half is pinned by a test below. The other
+# half stays a review property no test here checks: no file in the
+# installed-and-read surface sits outside one — `.gitignore` sat outside them
+# through two reviews while naming a denylisted tool.
 
 # Exit status is the whole assertion here, so read it exactly: grep returns 0
 # for a match, 1 for no match, and 2 for an error — an absent or renamed path,
@@ -154,6 +243,92 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   cd "$ROOT"
   run grep -rnE "$BANNED_PATHS" pipeline/skills pipeline/scripts pipeline/tests
   [ "$status" -eq 1 ]
+}
+
+# The scans above cover what a stranger INSTALLS. This one covers what the
+# repository PUBLISHES, which is a wider and differently-shaped surface: every
+# tracked file, minus root tests/.
+#
+# It ENUMERATES rather than registers, and that is the opposite of the choice
+# the SHIPPED_* lists make twenty lines up. Both are right for their surface. A
+# registration buys "no new tree joins the scan silently", which is what you
+# want when the scanned set is a curated subset. Here the scanned set is
+# "everything", so a registration would buy nothing and cost the very thing
+# that failed before: a file nobody remembered to add.
+#
+# Three deliberate choices, each of which has a failure mode behind it:
+#
+#   git ls-files + grep, never `git grep`. Measured: `git grep` exits 1 for a
+#   path that does not exist, the same status it uses for "found nothing". It
+#   cannot tell a clean repository from one it failed to read, and this whole
+#   file rests on that distinction. grep over explicit operands keeps the 2.
+#
+#   The non-empty guard is not defensive padding. `grep -E pattern` with no
+#   file operands reads STDIN — under bats that is a silent pass on nothing at
+#   all. It is the same hazard the comment above the SHIPPED lists records for
+#   `grep -r` with no path operand, arriving by a different route.
+#
+#   `-eq 1`, never `-ne 0`, for the reason spelled out above the shipped scans:
+#   exit 2 is an errored scan, and accepting it turns a rename into a green.
+@test "no machine paths anywhere in the tracked tree" {
+  cd "$ROOT"
+  files="$(git ls-files -- . ':(exclude)tests/')"
+  [ -n "$files" ] || { echo "the tracked-file enumeration returned NOTHING; the scan below would have read stdin and passed on an empty surface"; false; }
+  n="$(printf '%s\n' "$files" | wc -l | tr -d '[:space:]')"
+
+  # Membership, not a threshold. A floor is a magic number that a narrowed
+  # enumeration can walk under: pointing this at `specs/` alone yields 42
+  # files, clears any sane floor, and leaves 90 files — every root document,
+  # both plugin trees, the workflow — silently unscanned. Measured; it passed.
+  # One anchor per top-level tree kills that, maintains itself as the tree
+  # grows, and names what went missing instead of printing a number nobody
+  # checks. The count is still echoed, for the failure output.
+  for anchor in main-plan.md README.md CONTRIBUTING.md pipeline/README.md handoff/README.md .github/workflows/ci.yml; do
+    printf '%s\n' "$files" | grep -qxF "$anchor" || { echo "the enumeration no longer contains $anchor - the scanned surface has narrowed, and everything below it would pass on a smaller tree"; false; }
+  done
+  echo "scanning $n tracked files outside root tests/"
+
+  # NO `run` here, and that is the whole point of this block.
+  #
+  # `run` stores the command's full output in $output, and bats prints $output
+  # verbatim under `--print-output-on-failure` — the flag CI mandates
+  # (.github/workflows/ci.yml) and which a test below ASSERTS is present. So a
+  # `run grep` here would print every matched line, in full, onto a public
+  # build page, at exactly the moment a real machine path exists. The guard
+  # would become the loudest publisher of the thing it exists to remove.
+  #
+  # Measured 2026-08-26 against a planted decoy under the real CI invocation:
+  # the redacted site list printed, and then bats printed `Last output:`
+  # followed by the complete matching line. Redaction that is reasoned about
+  # rather than fired at a decoy is not redaction.
+  #
+  # So: grep writes to a file, its exit status is read directly, and only
+  # file:line ever reaches stdout.
+  # The `if` is not stylistic. bats runs each test under `set -e`, so a bare
+  # `grep` that exits 1 — the CLEAN case, the case that must pass — aborts the
+  # test at that line before its status can be read. That is the service `run`
+  # normally provides, and it is the only reason to reach for `run` here. An
+  # `if` condition suspends errexit and keeps the status, without ever putting
+  # the match into $output. Measured both ways: without the `if`, a clean tree
+  # fails at this line.
+  if grep -nE "$TREE_PATHS" -- $files /dev/null > "$TEST_DIR/hits.txt"; then st=0; else st=$?; fi
+
+  if [ "$st" -eq 0 ]; then
+    echo "machine paths found in the tracked tree."
+    echo "The matched text is deliberately NOT printed - it IS the leak, and"
+    echo "this output reaches a public build log. Shape and site only:"
+    # Name the SHAPE as well as the site. The four shapes have four different
+    # fixes, and a bare file:line leaves the reader to guess which. A shape's
+    # NAME republishes nothing.
+    for shape in DRIVE_ROOT WINDOWS_USERS GITBASH_HOME AGENT_PROJECTS; do
+      eval "pat=\$TP_$shape"
+      hits="$(cut -d: -f1,2,3- "$TEST_DIR/hits.txt" | grep -E "$pat" | cut -d: -f1,2 | sort -u)"
+      [ -n "$hits" ] || continue
+      echo "  shape $shape:"
+      printf '    %s\n' $hits
+    done
+  fi
+  [ "$st" -eq 1 ]
 }
 
 # A non-ASCII byte in a bats @test NAME makes bats on this platform skip
@@ -450,6 +625,72 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   [ "$status" -eq 0 ]
   run grep -rnE "$BANNED_PATHS" "$TEST_DIR/paths.txt"
   [ "$status" -eq 0 ]
+}
+
+# The control for TREE_PATHS, and it runs THAT VARIABLE — not a copy of it and
+# not a re-spelling. A control that exercises a different expression proves
+# nothing about the scan, which is the same reason VOCAB_RE exists above.
+#
+# What this proves: the scan is CAPABLE of failing. What it does NOT prove:
+# that the scan fails only when it should. Those are different claims and only
+# the first is tested here. Read it as the first and nothing more.
+#
+# It counts FOUR matches rather than asserting "matched something", and the
+# fixture carries one line per branch. A single-line fixture would pass while
+# three of the four branches were dead, and a dead branch is invisible from a
+# green suite: the real scan asserts only the ABSENCE of a hit, so an
+# expression that has quietly stopped matching reads exactly like a clean tree.
+# That is not hypothetical here. On 2026-08-26, while this feature was being
+# written, the same four branches were measured DEAD (0/0/0/0) because the
+# authoring route ate one level of backslash escaping; the file itself was
+# correct all along. The measurement lied, not the pattern. Counting per branch
+# is what turns that class of mistake into a red instead of a false green.
+#
+# The fixtures are synthetic. A real machine path has no business in a
+# committed file, and a fabricated one demonstrates the point identically.
+@test "the tree-wide machine-path scan fires on every one of its four shapes" {
+  {
+    printf 'drive root      D:\\Github\\thing\n'
+    printf 'windows users   C:\\Users\\someone\\thing\n'
+    printf 'git-bash home   /c/Users/someone/bats/bin/bats\n'
+    printf 'agent projects  ~/.claude/projects/D--Acme-Widget/memory/MEMORY.md\n'
+  } > "$TEST_DIR/tree_paths.txt"
+  # `run` is safe HERE and nowhere else in this pair. The scan above must not
+  # use it, because $output would carry a real machine path onto a public
+  # build log; these fixtures are synthetic, so there is nothing to leak.
+  run grep -cE "$TREE_PATHS" "$TEST_DIR/tree_paths.txt"
+  [ "$status" -eq 0 ]
+  [ "$output" = "4" ]
+
+  # And per branch, by name. The count above proves four lines matched
+  # SOMETHING; this proves each branch is the one that matched its own line.
+  # Without it, two branches could cover one fixture line while a third was
+  # dead and the total still read 4.
+  for shape in DRIVE_ROOT WINDOWS_USERS GITBASH_HOME AGENT_PROJECTS; do
+    eval "pat=\$TP_$shape"
+    run grep -cE "$pat" "$TEST_DIR/tree_paths.txt"
+    [ "$status" -eq 0 ] || { echo "branch $shape matched nothing - it is dead, and the scan would report a clean tree it never really searched"; false; }
+    [ "$output" = "1" ] || { echo "branch $shape matched $output fixture lines, expected exactly 1"; false; }
+  done
+
+  # The narrowing, in the other direction. An elided reference names the shape
+  # without naming a person; three such lines are live documentation inside the
+  # scanned surface, and one of them is the recorded deferral of this very
+  # sweep. Without this assertion, narrowing the pattern and deleting the
+  # narrowing look identical. This is an assertion inside the control rather
+  # than a test of its own on purpose: it is the same claim about the same
+  # expression, and splitting it would add a test without adding a property.
+  # One elided line per NARROWED branch. Branch 3 was covered from the start;
+  # branch 4 was not, and its narrowing survived a mutation as a result —
+  # removing the trailing character class left this control green and was
+  # caught only by prose elsewhere in the tree that a reword could delete.
+  # A narrowing with no control is a narrowing that can be removed silently.
+  {
+    printf 'the prefix /c/Users/... names the shape, not a person\n'
+    printf 'transcripts live under `~/.claude/projects/`, one per project\n'
+  } > "$TEST_DIR/elided.txt"
+  run grep -nE "$TREE_PATHS" "$TEST_DIR/elided.txt"
+  [ "$status" -eq 1 ]
 }
 
 @test "a bare reference to the projects directory is not a leak" {

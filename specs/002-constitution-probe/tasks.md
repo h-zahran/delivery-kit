@@ -28,7 +28,7 @@ None — the fixtures are the only prerequisite.
 **Independent Test**: quickstart.md §1 and §2.
 
 - [X] T003 [US2] Append two tests to `pipeline/tests/preflight.bats` (no new file), mirroring the file's existing `--dir` fixture pattern: one asserting `.speckit.constitutionSet == false` against `fixtures/constitution-unset`, one asserting `true` against `fixtures/constitution-set`.
-- [X] T004 [US2] RED GATE: run `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/preflight.bats` with the UNMODIFIED script; both new tests MUST fail; record the failing output verbatim in this file's Completion notes. A pass here is a hard stop (the tests test nothing).
+- [X] T004 [US2] RED GATE: run `bash "$HOME/bats/bin/bats" pipeline/tests/preflight.bats` with the UNMODIFIED script; both new tests MUST fail; record the failing output verbatim in this file's Completion notes. A pass here is a hard stop (the tests test nothing).
 - [X] T005 [US2] Implement in `pipeline/scripts/preflight.sh` per research R1: compute `constitutionSet` (absent → false; placeholder-token grep → false; no non-blank non-comment content → false; else true) and emit it inside the `speckit` object. Same flags, same keys plus this one, stdout pure JSON.
 - [X] T006 [US2] GREEN GATE: re-run the focused suite; both new tests pass, all previous preflight tests still pass; run quickstart §1's three commands and record outputs.
 
@@ -93,7 +93,7 @@ Test-first is the spine: the red observation (T004) is a gate, not a formality. 
   118:Constitution : <set / not set — plan gates run against an empty document>
   $ grep -n "speckit-constitution" pipeline/skills/pipeline/SKILL.md
   177:   running `/speckit-constitution` once — the principles are the
-  $ bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats
+  $ bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats
   1..8   (all 8 ok)
   ```
 
