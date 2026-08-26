@@ -16,7 +16,7 @@ One new boolean in the pre-flight probe (`speckit.constitutionSet`), two test-fi
 
 **Storage**: N/A
 
-**Testing**: focused — `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/preflight.bats`; full house suite from repo root (grows `1..116` → `1..118`)
+**Testing**: focused — `bash "$HOME/bats/bin/bats" pipeline/tests/preflight.bats`; full house suite from repo root (grows `1..116` → `1..118`)
 
 **Target Platform**: the CI matrix ubuntu/macos/windows (bash everywhere)
 

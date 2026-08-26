@@ -23,7 +23,7 @@ the one place a cap deliberately differs from its siblings.
 executes. There is no compiler and no runtime; a defect here is a false or
 unfollowable sentence.
 **Primary Dependencies**: none new.
-**Testing**: `bash /c/Users/h_zah/bats/bin/bats --tap pipeline/tests/prose.bats`
+**Testing**: `bash "$HOME/bats/bin/bats" --tap pipeline/tests/prose.bats`
 (stays `1..11`); full house suite from the repository root (stays `1..121`);
 row identity by extract-and-diff (quickstart §2).
 **Target Platform**: the Claude Code plugin cache.

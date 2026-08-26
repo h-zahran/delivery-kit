@@ -586,7 +586,7 @@ measurement, and says plainly which three do not and what they have instead
 
 ### T018 FIXED — the bats-path caveat was dropped exactly where it mattered
 
-`bash /c/Users/h_zah/bats/bin/bats …` is one machine's path. Every previous
+`bash /c/Users/<user>/bats/bin/bats …` is one machine's path. Every previous
 quickstart (002, 003, 004) opened with "substitute your own bats path elsewhere;
 CI runs portable equivalents on three platforms". This one dropped that line
 while SIMULTANEOUSLY upgrading the document from "read me" to **"Execute this
@@ -812,7 +812,7 @@ quickstart's portable form — `grep -m1 -oE '^## \[[^]]+\]' … | tr -d '#[] '`
 extractor that keeps only ```bash fences — so T018's caveat at line 8
 ("Substitute your own bats path in §5") **never reaches the extracted script**.
 Any reviewer on another machine, or CI, runs the documented commands verbatim:
-`bash /c/Users/h_zah/bats/bin/bats` exits 127, `plan` and `okc` come back empty,
+`bash /c/Users/<user>/bats/bin/bats` exits 127, `plan` and `okc` come back empty,
 `SUITE OFF BASELINE` sets `fail=1`, and §8 prints `QUICKSTART FAIL` on a correct
 release.
 
@@ -872,11 +872,11 @@ Replaced with the quickstart §1 form verbatim:
 The caveat was prose at `quickstart.md:8`, outside every fence, while §0 mandates
 execution and the extractor keeps only the fenced bash blocks — so the mitigation could
 never reach the script it warned about. Resolution now happens in the fence:
-`bats_bin="${BATS:-$(command -v bats || echo /c/Users/h_zah/bats/bin/bats)}"`, followed by
+`bats_bin="${BATS:-$(command -v bats || echo $HOME/bats/bin/bats)}"`, followed by
 an `[ -x ]` guard that sets `fail=1` and names the path. §0's paragraph was rewritten to
 describe the override rather than to instruct a hand-edit.
 
-- **Executed**: `BATS RESOLVED /c/Users/h_zah/bats/bin/bats` — measured, `bats` is NOT on
+- **Executed**: `BATS RESOLVED /c/Users/<user>/bats/bin/bats` — measured, `bats` is NOT on
   this machine's PATH, so the third fallback is load-bearing here and was exercised.
 - **Positive control**, three ways: no `BATS` and no PATH hit falls through to the
   author's path (`fail=0`); `BATS` set to a real binary wins (`fail=0`); `BATS` set to
@@ -915,7 +915,7 @@ Extracted (127 lines), `bash -n` clean, executed end to end from the repository 
 
 `AGREE 1.1.0` · `SHAPE OK` · `CONTROL OK` · `DATE OK` · `CONTENT OK 09bf16d6f4a4b59d` ·
 `BYTES OK 3104` · `NO UNRELEASED OK` · `ONE 1.1.0 HEADING OK` · `ORDER OK` ·
-`HANDOFF FIXTURE OK 2.1.0` · `BATS RESOLVED /c/Users/h_zah/bats/bin/bats` ·
+`HANDOFF FIXTURE OK 2.1.0` · `BATS RESOLVED /c/Users/<user>/bats/bin/bats` ·
 `suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0` · `SUITE OK` · `NO TAG OK` ·
 `TAG CONTROL OK` · `FILE LIST OK` · `EACH FILE 1+1 OK` · `SIX CHANGED LINES OK` ·
 `LINES MATCH PIN OK` · `UNTOUCHED OK pipeline/skills/` · `UNTOUCHED OK handoff/` ·
@@ -1100,7 +1100,7 @@ Fences balanced (20). Extracted 153 lines, `bash -n` clean, executed from the re
 root: `AT REPO ROOT OK` · `AGREE 1.1.0` · `SHAPE OK` · `CONTROL OK` · `DATE OK` ·
 `CONTENT OK 09bf16d6f4a4b59d` · `BYTES OK 3104` · `NO UNRELEASED OK` ·
 `ONE 1.1.0 HEADING OK` · `ORDER OK` · `HANDOFF FIXTURE OK 2.1.0` ·
-`BATS RESOLVED /c/Users/h_zah/bats/bin/bats` ·
+`BATS RESOLVED /c/Users/<user>/bats/bin/bats` ·
 `suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0` · `SUITE OK` · `NO TAG OK` ·
 `TAG CONTROL OK` · `FILE LIST OK` · **`THREE CHANGED FILES OK`** · `EACH FILE 1+1 OK` ·
 `SIX CHANGED LINES OK` · `LINES MATCH PIN OK` · `UNTOUCHED OK pipeline/skills/` ·
@@ -1129,7 +1129,7 @@ now demonstrated five times running, and it is recorded here without softening.
 `pwd -P` is **not canonical across Git Bash mount aliases**, so the two sides of the
 comparison are built by different routes and disagree for the same directory. Measured by
 the reviewer in a clone under the user's Temp directory: `pwd -P` returns
-`/c/Users/h_zah/AppData/Local/Temp/.../clone` while `$(cd "$root" && pwd -P)` returns
+`/c/Users/<user>/AppData/Local/Temp/.../clone` while `$(cd "$root" && pwd -P)` returns
 `/tmp/claude/.../clone`. The guard printed `NOT AT REPO ROOT` **at the actual repository
 root** and the script exited 1 on a perfectly correct release.
 
@@ -1217,7 +1217,7 @@ own answer, empty at the root and the sub-path anywhere below it.
 **The false red was REPRODUCED here before the fix was accepted**, which the previous
 session's control had failed to do. In a repository created under the Temp mount and entered
 by its `/c/Users/...` spelling: `pwd -P` returns
-`/c/Users/h_zah/AppData/Local/Temp/.../rootprobe` while `$(cd "$root" && pwd -P)` returns
+`/c/Users/<user>/AppData/Local/Temp/.../rootprobe` while `$(cd "$root" && pwd -P)` returns
 `/tmp/claude/.../rootprobe` — **the same directory, two spellings**. The old guard printed
 `NOT AT REPO ROOT` at the actual root; the new guard printed `AT REPO ROOT OK`. Entered by
 the `C:/Users/...` spelling instead, bash normalises both routes and the old guard passes —
@@ -1285,7 +1285,7 @@ Fences balanced (quickstart 20, contract 12). Extracted 176 lines, `bash -n` cle
 executed from the repository root: `AT REPO ROOT OK` · `AGREE 1.1.0` · `SHAPE OK` ·
 `CONTROL OK` · `DATE OK` · `CONTENT OK 09bf16d6f4a4b59d` · `BYTES OK 3104` ·
 `NO UNRELEASED OK` · `ONE 1.1.0 HEADING OK` · `ORDER OK` · `HANDOFF FIXTURE OK 2.1.0` ·
-`BATS RESOLVED /c/Users/h_zah/bats/bin/bats` ·
+`BATS RESOLVED /c/Users/<user>/bats/bin/bats` ·
 `suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0` · `SUITE OK` · `NO TAG OK` ·
 `TAG CONTROL OK` · `FILE LIST OK` · `THREE CHANGED FILES OK` · `EACH FILE 1+1 OK` ·
 `SIX CHANGED LINES OK` · `LINES MATCH PIN OK` · `UNTOUCHED OK pipeline/skills/` ·
@@ -1385,7 +1385,7 @@ Fences balanced (quickstart 20, contract 12). Extracted 208 lines, `bash -n` cle
 executed from the repository root: `diff base: origin/main` · `AT REPO ROOT OK` ·
 `AGREE 1.1.0` · `SHAPE OK` · `CONTROL OK` · `DATE OK` · `CONTENT OK 09bf16d6f4a4b59d` ·
 `BYTES OK 3104` · `NO UNRELEASED OK` · `ONE 1.1.0 HEADING OK` · `ORDER OK` ·
-`HANDOFF FIXTURE OK 2.1.0` · `BATS RESOLVED /c/Users/h_zah/bats/bin/bats` ·
+`HANDOFF FIXTURE OK 2.1.0` · `BATS RESOLVED /c/Users/<user>/bats/bin/bats` ·
 `suite: exit=0 plan=1..121 ok=121 notok=0 nonTAP=0` · `SUITE OK` · `NO TAG OK` ·
 `TAG CONTROL OK` · `FILE LIST OK` · `THREE CHANGED FILES OK` · `EACH FILE 1+1 OK` ·
 `SIX CHANGED LINES OK` · `LINES MATCH PIN OK` · `UNTOUCHED OK pipeline/skills/` ·

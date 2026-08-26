@@ -27,7 +27,7 @@ None.
 **Independent Test**: quickstart.md §3.
 
 - [X] T001 [US2] Append ONE new `@test` to `pipeline/tests/prose.bats` (no new file), matching the file's existing `grep -qF` style: seven fixed-string assertions against `pipeline/skills/pipeline/SKILL.md`, one per canonical name in `contracts/package-contract.md` (straight quotes in `Validation before "done"`).
-- [X] T002 [US2] RED GATE: run `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` with the UNMODIFIED SKILL.md; the new test MUST fail; record the failing output verbatim in this file's Completion notes. A pass here is a hard stop (the test tests nothing).
+- [X] T002 [US2] RED GATE: run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` with the UNMODIFIED SKILL.md; the new test MUST fail; record the failing output verbatim in this file's Completion notes. A pass here is a hard stop (the test tests nothing).
 
 **Checkpoint**: red recorded; `1..9` with exactly one failure.
 

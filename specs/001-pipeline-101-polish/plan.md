@@ -16,7 +16,7 @@ Five additive prose fixes to the pipeline plugin's shipped text (four in the orc
 
 **Storage**: N/A
 
-**Testing**: `bash /c/Users/h_zah/bats/bin/bats -r --print-output-on-failure tests handoff/tests pipeline/tests` (full), `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` (focused)
+**Testing**: `bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests` (full), `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` (focused)
 
 **Target Platform**: Claude Code plugin, CI matrix ubuntu/macos/windows
 

@@ -94,7 +94,7 @@ A user installing or updating the plugin sees one version, everywhere it is decl
 ### Measurable Outcomes
 
 - **SC-001**: Each new sentence from FR-001 through FR-004 is findable by exact grep in its named file.
-- **SC-002**: The prose pin suite passes: `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` reports 1..8, all ok.
+- **SC-002**: The prose pin suite passes: `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` reports 1..8, all ok.
 - **SC-003**: The full house suite passes from the repository root: `1..116`, 116 ok, 0 non-TAP lines.
 - **SC-004**: `jq -r '.plugins[] | "\(.name) \(.version)"' .claude-plugin/marketplace.json` prints `handoff 2.1.0` and `pipeline 1.0.1`, and `pipeline/.claude-plugin/plugin.json` agrees.
 - **SC-005**: The README's three example invocations read `/pipeline:pipeline …`, and any short-form claim is traceable to a recorded measurement.

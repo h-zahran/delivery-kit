@@ -21,7 +21,7 @@ Added entry. No version stamp.
 
 **Storage**: N/A
 
-**Testing**: focused — `bash /c/Users/h_zah/bats/bin/bats pipeline/tests/prose.bats` (grows `1..8` → `1..9`); full house suite from repo root (grows `1..118` → `1..119`)
+**Testing**: focused — `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats` (grows `1..8` → `1..9`); full house suite from repo root (grows `1..118` → `1..119`)
 
 **Target Platform**: the CI matrix ubuntu/macos/windows (bash everywhere)
 
