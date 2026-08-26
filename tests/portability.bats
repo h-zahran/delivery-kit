@@ -44,7 +44,7 @@ BANNED_PATHS='D:\\|/c/Users/|C:\\Users\\|~/\.claude/projects/[A-Za-z0-9-]'
 # Why this exists: the shipped lists cover what a stranger installs, and the
 # working records under `specs/` and the plan file are not on them. A machine
 # username reached the public branch through exactly that hole and multiplied
-# to 35 lines across 17 files, because every pipeline run copies its seed into
+# to 37 lines across 17 files, because every pipeline run copies its seed into
 # `specs/`. BANNED_PATHS was already the right pattern; nothing was pointing it
 # at the right surface.
 #
@@ -185,7 +185,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 #
 # The consequence was a real leak, not a tidiness problem. Because `specs/` is
 # published but on no SHIPPED_* list, BANNED_PATHS never read it, and a machine
-# username reached the public branch and multiplied to 35 lines across 17 files
+# username reached the public branch and multiplied to 37 lines across 17 files
 # — every pipeline run copies its seed into `specs/`.
 #
 # What now covers that surface: TREE_PATHS and the tree-wide scan below, which
@@ -276,15 +276,29 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   [ -n "$files" ] || { echo "the tracked-file enumeration returned NOTHING; the scan below would have read stdin and passed on an empty surface"; false; }
   n="$(printf '%s\n' "$files" | wc -l | tr -d '[:space:]')"
 
-  # Membership, not a threshold. A floor is a magic number that a narrowed
-  # enumeration can walk under: pointing this at `specs/` alone yields 42
-  # files, clears any sane floor, and leaves 90 files — every root document,
-  # both plugin trees, the workflow — silently unscanned. Measured; it passed.
-  # One anchor per top-level tree kills that, maintains itself as the tree
-  # grows, and names what went missing instead of printing a number nobody
-  # checks. The count is still echoed, for the failure output.
-  for anchor in main-plan.md README.md CONTRIBUTING.md pipeline/README.md handoff/README.md .github/workflows/ci.yml; do
-    printf '%s\n' "$files" | grep -qxF "$anchor" || { echo "the enumeration no longer contains $anchor - the scanned surface has narrowed, and everything below it would pass on a smaller tree"; false; }
+  # Coverage, DERIVED — not a threshold, and not a hand-written list.
+  #
+  # A numeric floor is a magic number a narrowed enumeration walks under:
+  # pointing this at `specs/` alone clears any sane floor while leaving most
+  # of the tree unscanned. Measured; it passed.
+  #
+  # A hand-written list of anchor files is barely better, and the first
+  # attempt here proved it. Six anchors were chosen — root documents, both
+  # plugin trees, the workflow — and `specs/` was not among them. `specs/` is
+  # the tree whose absence from the SHIPPED_* lists caused the leak this file
+  # exists to stop, and it is on no other list, so it had no protection at
+  # all. An enumeration silently narrowed to drop `specs/` passed all six
+  # anchors. The list went stale the moment it was written, in exactly the
+  # direction that hurts.
+  #
+  # So the requirement is derived from the tree instead: every top-level
+  # tracked entry, except root tests/, must be represented in what we are
+  # about to scan. A new top-level directory is covered the day it is added,
+  # by nobody remembering anything.
+  scanned_top="$(printf '%s\n' "$files" | awk -F/ '{print ($0 ~ /\//) ? $1"/" : $0}' | sort -u)"
+  for top in $(git ls-files | awk -F/ '{print ($0 ~ /\//) ? $1"/" : $0}' | sort -u); do
+    [ "$top" = "tests/" ] && continue
+    printf '%s\n' "$scanned_top" | grep -qxF "$top" || { echo "the enumeration does not reach $top - the scanned surface has narrowed, and every assertion below it would pass on a smaller tree"; false; }
   done
   echo "scanning $n tracked files outside root tests/"
 
@@ -322,7 +336,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
     # NAME republishes nothing.
     for shape in DRIVE_ROOT WINDOWS_USERS GITBASH_HOME AGENT_PROJECTS; do
       eval "pat=\$TP_$shape"
-      hits="$(cut -d: -f1,2,3- "$TEST_DIR/hits.txt" | grep -E "$pat" | cut -d: -f1,2 | sort -u)"
+      hits="$(grep -E "$pat" "$TEST_DIR/hits.txt" | cut -d: -f1,2 | sort -u)"
       [ -n "$hits" ] || continue
       echo "  shape $shape:"
       printf '    %s\n' $hits
@@ -674,7 +688,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   done
 
   # The narrowing, in the other direction. An elided reference names the shape
-  # without naming a person; three such lines are live documentation inside the
+  # without naming a person, and such lines are live documentation inside the
   # scanned surface, and one of them is the recorded deferral of this very
   # sweep. Without this assertion, narrowing the pattern and deleting the
   # narrowing look identical. This is an assertion inside the control rather

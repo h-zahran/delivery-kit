@@ -229,7 +229,7 @@ hv=$(jq -r '.plugins[]|select(.name=="handoff").version' .claude-plugin/marketpl
 # above a fence never reaches the script that actually runs. Order: $BATS, then PATH,
 # then the author's path. A binary that cannot be run goes RED by name — a document
 # that certifies a release must never report green on a suite it never executed.
-bats_bin="${BATS:-$(command -v bats || echo $HOME/bats/bin/bats)}"
+bats_bin="${BATS:-$(command -v bats || echo "$HOME/bats/bin/bats")}"
 # -f as well as -x: a DIRECTORY satisfies [ -x ] on its own, so BATS=/some/dir would
 # have printed BATS RESOLVED and then failed to run the suite. Measured, not assumed.
 # An if/else, NOT a red followed by a straight-line suite run. F3: the earlier form
