@@ -872,7 +872,7 @@ Replaced with the quickstart §1 form verbatim:
 The caveat was prose at `quickstart.md:8`, outside every fence, while §0 mandates
 execution and the extractor keeps only the fenced bash blocks — so the mitigation could
 never reach the script it warned about. Resolution now happens in the fence:
-`bats_bin="${BATS:-$(command -v bats || echo $HOME/bats/bin/bats)}"`, followed by
+`bats_bin="${BATS:-$(command -v bats || echo "$HOME/bats/bin/bats")}"`, followed by
 an `[ -x ]` guard that sets `fail=1` and names the path. §0's paragraph was rewritten to
 describe the override rather than to instruct a hand-edit.
 
@@ -961,7 +961,7 @@ smaller version of the fault it closes, and the only defence is to attack your o
   the CURRENT directory, and the root requirement lived only in §0 prose — outside every
   fence, which is precisely T030's defect wearing a different hat. A root assertion now
   runs inside the setup fence. **Normalisation is load-bearing**: Git Bash prints
-  `D:/Github/delivery-kit` from `git rev-parse --show-toplevel` and `/d/Github/delivery-kit`
+  `<repo root, drive form>` from `git rev-parse --show-toplevel` and `<repo root, msys form>`
   from `pwd -P`, so a raw string compare would have reddened a correct tree on this very
   machine. Controlled from `specs/` (red) and from the root (green).
 
@@ -1139,7 +1139,7 @@ introduced by the fix written in the same round.** Worse, line 100 prints raw `$
 diagnostic HIDES the cause and reads as though normalisation was never applied.
 
 **Why this session's own control missed it**: the control was run on the machine where the
-two routes happen to agree (`/d/Github/delivery-kit` both ways, re-measured). A positive
+two routes happen to agree (`<repo root, msys form>` both ways, re-measured). A positive
 control proves a check can go red; it cannot prove the check goes red only when it should.
 `[ -z "$(git rev-parse --show-prefix)" ]` asks git instead of comparing path strings and
 gives the right verdict in exactly the failing case — verified here: empty at the root,

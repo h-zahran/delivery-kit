@@ -45,9 +45,10 @@ is outside the scan by construction.
 
 The repository is public. Anyone who reads it — a prospective contributor, a
 recruiter, an attacker doing reconnaissance — can currently read the
-maintainer's operating-system account name 35 times, the absolute drive-rooted
-path of their working directory once, and one per-machine agent-projects path
-once: **37 lines across 17 files**. None of it is needed by anyone. It is there
+maintainer's operating-system account name 35 times, absolute drive-rooted
+paths of their working directory six times, and one per-machine agent-projects
+path: **43 lines across 17 files**. Six of those were found only during review,
+in spellings the four banned shapes never covered. None of it is needed by anyone. It is there
 because a working note was written on one machine and committed without anyone
 noticing what the note contained.
 
@@ -299,10 +300,16 @@ date, and what was deliberately kept.
 - **SC-001**: A search of the tracked tree for any of the four banned shapes
   returns zero results, on the default branch, from a fresh clone. Before this
   feature the same four searches returned 35, 1, 0 and 1 results.
-- **SC-002**: Thirty-seven lines across seventeen files change. Thirty-six of
+- **SC-002**: Forty-three lines across seventeen files change. Forty-two of
   them differ from their previous version by a path token and nothing else;
-  the thirty-seventh is FR-006's pointer, which is reworded under the
-  exception FR-007 names.
+  the forty-third is FR-006's pointer, which is reworded under the exception
+  FR-007 names. Proven mechanically by canonicalising every accepted spelling
+  on BOTH sides of the diff and comparing: exactly one line survives as a
+  non-substitution, and it is that one.
+
+  An earlier draft said thirty-seven. That was true when it was written and
+  went stale within this same feature, when review found six more sites in
+  spellings the four shapes never covered. Corrected here rather than quietly.
 - **SC-003**: The three elided prose references are byte-identical before and
   after.
 - **SC-004**: Planting a banned path in any tracked file outside root `tests/`
@@ -356,10 +363,11 @@ date, and what was deliberately kept.
 The account name is **removed and guarded**: zero occurrences anywhere in the
 tracked tree, and any reappearance fails the suite.
 
-Absolute working-directory paths are **removed but only partly guarded**. Six
+Absolute working-directory paths are **removed but not guarded**. All six
 sites in forward-slash and msys spellings — which the four banned shapes never
-covered — were found during review and scrubbed. The pattern was NOT widened to
-catch that class, and a fresh one could land without a test going red.
+covered — were found during review and scrubbed; the tracked tree now holds
+none. But the pattern was NOT widened to catch that class, so a fresh one
+could land tomorrow without a test going red.
 
 That was a decision, not an oversight, and it was measured. A branch of the
 shape `[A-Za-z]:[\\/]` matches the colon-slash in every `https://` URL in the
