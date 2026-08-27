@@ -9,6 +9,44 @@
 **Input**: Campaign 2, Phase 8 of `main-plan.md` — "progress.sh coverage and a
 timeout for every suite". Quoted verbatim into the run directory as `seed.md`.
 
+## Clarifications
+
+### Session 2026-08-27
+
+**Q1: Where should the real folding live, so that a test can drive it?**
+
+FR-013 requires the private-vocabulary test to exercise the real folding rather
+than a copy of it. The folding currently runs once at suite load time, against a
+fixed path at the repository root, as a few inline lines. A test cannot call it,
+because it is not a callable thing.
+
+**Answer: a named function inside the same suite file** that holds the vocabulary
+list. The load-time site calls it with the repository's own path; the test calls
+it with a fixture path. Recorded as FR-017, FR-018 and FR-019.
+
+**Why, in the owner's words and the measurements behind them:**
+
+- It is the smallest change that satisfies FR-013. The logic ends up in exactly
+  one place, immediately beside the list it extends, with both callers visible
+  in the same file.
+- The rejected alternative of moving it to the shared fixture file was declined
+  because only one of the six suites folds a private vocabulary — the other five
+  would gain a function they never call — and because that shared file is
+  already being edited by this same feature for the per-test limit. Two
+  unrelated concerns arriving in one file in one commit is a coupling worth
+  avoiding, and FR-019 now forbids it explicitly so a later reader does not
+  "tidy" the function into the shared file.
+- The rejected alternative of running the suite in a child process against a
+  planted private file was declined because it would require writing that file
+  into a live checkout — which the Edge Cases forbid — or copying the whole tree,
+  which tests a copy and is slow enough to invite flakiness.
+
+**Consequence for scope**: every file this feature edits is under a test tree.
+FR-021 and SC-009 were tightened accordingly — no shipped script needs an
+exception, and a diff confined to the test trees is the proof.
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A hung test is named, not left to burn the job (Priority: P1)
@@ -152,8 +190,9 @@ reworked test reddens; the old test would not have.
 
 ### Edge Cases
 
-- **The limit and the slowest real test.** The slowest test measured on the
-  slowest environment available takes just under eight seconds. The one suite
+- **The limit and the slowest real test.** Across five full runs on the slowest
+  environment available, the slowest single test ranged from about 8.0 to about
+  14.9 seconds — the spread is real and lives in one process-heavy suite. The one suite
   that already sets a limit sets it at ten seconds. Applying ten seconds to all
   six suites would leave under two seconds of margin on the slowest test, on the
   slowest machine measured — a machine that is *slower than* the slowest
@@ -340,9 +379,11 @@ reworked test reddens; the old test would not have.
   224.6 seconds locally across 123 tests, against 155 seconds on the slowest
   hosted runner and 17 seconds on the fastest. A limit chosen against the local
   measurement is therefore conservative for every hosted runner.
-- **The slowest single test measured 7916 milliseconds**, locally. Any limit
-  chosen must exceed this with stated margin. The existing ten-second value does
-  not provide meaningful margin and is not carried forward by default.
+- **The slowest single test ranged 8.0-14.9 seconds** across five full local
+  runs. Any limit chosen must exceed the WORST reading with stated margin, not
+  the best. The existing ten-second value does not merely lack margin at the
+  slower readings — it sits below them, and would kill honest tests. It is not
+  carried forward.
 - **Removing the existing per-suite assignment is the correct resolution of the
   seed's open choice**, because that assignment is evaluated before the shared
   file loads and the shared file would override it. This is a measurement, not a
@@ -358,44 +399,14 @@ reworked test reddens; the old test would not have.
   today** and were confirmed present before this specification was written.
 - **`.leakwords` is absent from this repository**, as it is untracked by design,
   so the folding is currently unexercised in every public run.
-- **Test files under both test trees are relaxed surfaces** for the vocabulary
-  scans, so the new tests may name terms the shipped surfaces ban.
+- **Only one of the two test trees is a relaxed surface.** Measured after
+  review, because an earlier draft said "both": `pipeline/tests` is scanned
+  under the relaxed vocabulary; the root `tests/` tree is deliberately
+  unregistered and unscanned, because it holds the denylist and the fixtures the
+  scanners are fired at; and `handoff/tests` is registered as shipped and gets
+  the FULL vocabulary scan. The consequence for this feature is unchanged - both
+  files it edits may hold what they hold - but the reason differs per tree.
 - **No machine-specific absolute path may enter any file this feature writes.**
   The tracked-tree scan added by the previous phase covers this feature's own
   documents.
 
-## Clarifications
-
-### Session 2026-08-27
-
-**Q1: Where should the real folding live, so that a test can drive it?**
-
-FR-013 requires the private-vocabulary test to exercise the real folding rather
-than a copy of it. The folding currently runs once at suite load time, against a
-fixed path at the repository root, as a few inline lines. A test cannot call it,
-because it is not a callable thing.
-
-**Answer: a named function inside the same suite file** that holds the vocabulary
-list. The load-time site calls it with the repository's own path; the test calls
-it with a fixture path. Recorded as FR-017, FR-018 and FR-019.
-
-**Why, in the owner's words and the measurements behind them:**
-
-- It is the smallest change that satisfies FR-013. The logic ends up in exactly
-  one place, immediately beside the list it extends, with both callers visible
-  in the same file.
-- The rejected alternative of moving it to the shared fixture file was declined
-  because only one of the six suites folds a private vocabulary — the other five
-  would gain a function they never call — and because that shared file is
-  already being edited by this same feature for the per-test limit. Two
-  unrelated concerns arriving in one file in one commit is a coupling worth
-  avoiding, and FR-019 now forbids it explicitly so a later reader does not
-  "tidy" the function into the shared file.
-- The rejected alternative of running the suite in a child process against a
-  planted private file was declined because it would require writing that file
-  into a live checkout — which the Edge Cases forbid — or copying the whole tree,
-  which tests a copy and is slow enough to invite flakiness.
-
-**Consequence for scope**: every file this feature edits is under a test tree.
-FR-021 and SC-009 were tightened accordingly — no shipped script needs an
-exception, and a diff confined to the test trees is the proof.

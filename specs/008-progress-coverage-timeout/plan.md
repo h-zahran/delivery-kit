@@ -27,9 +27,11 @@ for this feature: a throwaway suite carrying no such declaration still honoured
 the per-test limit. The gap is pre-existing and out of scope here.
 
 **Primary Dependencies**: bats; `jq` (required by the state script and asserted
-at its top); an external `timeout` program, which the per-test limit needs and
-which is present at `/usr/bin/timeout` here. No dependency is added by this
-feature.
+at its top); and, for the per-test limit, **`ps` or `pkill`** — bats implements
+the limit itself with a backgrounded sleep and a signal, and refuses loudly with
+exit 1 when it can find neither. An earlier draft named an external `timeout`
+program instead; that was wrong, and was corrected after reading bats' source
+and measuring it. No dependency is added by this feature.
 
 **Storage**: none. The state script writes JSON files under a git-ignored
 directory; the tests drive it inside per-test scratch directories.

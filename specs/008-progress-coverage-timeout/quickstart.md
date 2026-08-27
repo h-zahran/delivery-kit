@@ -45,8 +45,10 @@ grep -c 'BATS_TEST_TIMEOUT' tests/helper.bash
 owners="$(mktemp)"
 git ls-files -z | xargs -0 grep -ln '^BATS_TEST_TIMEOUT=' > "$owners" 2>/dev/null
 cat "$owners"
-test "$(wc -l < "$owners")" -eq 1 && echo "exactly one assignment site"
-rm -f "$owners"
+n=$(wc -l < "$owners"); rm -f "$owners"
+printf 'assignment sites: %s (want 1)
+' "$n"
+[ "$n" -eq 1 ]
 ```
 
 Expected: the shared fixture file names the setting, and it is the **only**
@@ -55,10 +57,11 @@ its assignment sat above its own `load` line and was therefore overridden.
 
 **The pattern is anchored to the start of a line, and that is load-bearing.**
 This very document mentions the setting several times — in its own search
-patterns and in the throwaway fixture of section 5. Once this feature's spec
-directory is committed, an unanchored search would find this file too and the
-count would be two, so the block would go red for a reason that has nothing to
-do with the property it checks. Only the real assignment starts at column zero.
+patterns and in the throwaway fixture of section 5 — and the campaign plan
+mentions it too. Once this feature's spec directory is committed, an unanchored
+search finds three tracked files, so the block would go red for a reason that
+has nothing to do with the property it checks. Only the real assignment starts
+at column zero. (Measured: unanchored returns three, anchored returns one.)
 
 ---
 
@@ -115,7 +118,8 @@ writing this guide, which is why the guide does not do it.
 
 ```bash
 d="$(mktemp -d)"
-printf 'BATS_TEST_TIMEOUT=2\n' > "$d/helper.bash"
+printf 'BATS_TEST_TIMEOUT=2
+' > "$d/helper.bash"
 cat > "$d/stop.bats" <<'EOF'
 #!/usr/bin/env bats
 bats_require_minimum_version 1.5.0
@@ -124,9 +128,13 @@ load helper
 EOF
 BATS="${BATS:-$HOME/bats/bin/bats}"
 ( cd "$d" && "$BATS" stop.bats > out.txt 2>&1 )
-grep -q 'timeout after 2s' "$d/out.txt" && echo "stopped, and the limit is named"
-grep -q 'a test that overruns is stopped and named' "$d/out.txt" && echo "the TEST is named too"
+hits=0
+grep -q 'timeout after 2s' "$d/out.txt" && { echo "stopped, and the limit is named"; hits=$((hits+1)); }
+grep -q 'a test that overruns is stopped and named' "$d/out.txt" && { echo "the TEST is named too"; hits=$((hits+1)); }
 rm -rf "$d"
+printf 'checks passed: %s/2
+' "$hits"
+[ "$hits" -eq 2 ]
 ```
 
 Expected: both lines print. A deliberately tiny limit is used so the block takes
@@ -140,7 +148,13 @@ tracked is edited, so nothing has to be undone.
 ```bash
 grep -n -B4 'BATS_TEST_TIMEOUT=' tests/helper.bash
 grep -qi 'job cap' tests/helper.bash && echo "the hazard is still named"
-grep -c 'BATS_TEST_TIMEOUT' tests/layout.bats
+# grep -c prints 0 AND EXITS 1 when nothing matches, so a bare `grep -c` here
+# made this block fail on a CORRECT tree and pass on a broken one. Capture the
+# count, then assert it.
+n=$(grep -c 'BATS_TEST_TIMEOUT' tests/layout.bats)
+printf 'assignments left in the layout suite: %s (want 0)
+' "$n"
+[ "$n" -eq 0 ]
 ```
 
 Expected: the surviving assignment carries a comment naming the hazard, and the
@@ -170,22 +184,25 @@ read tests and the nine refusal tests. `not-ok=0`, `exit=0`.
 ## 8. Every refusal names its fault
 
 ```bash
-d="$(mktemp -d)"; PROG="$(pwd)/pipeline/scripts/progress.sh"
+d="$(mktemp -d)"; PROG="$(pwd)/pipeline/scripts/progress.sh"; out="$(mktemp)"
 ( cd "$d" && bash "$PROG" init 001-demo b main other >/dev/null
-  bash "$PROG" phase-done    001-demo ZZZ 2>&1 | grep -q "unknown phase 'ZZZ'"            && echo "C1 names the phase"
-  bash "$PROG" from-validate 001-demo E   2>&1 | grep -q "'plan' artefact"                && echo "C2 names the artefact"
-  bash "$PROG" from-validate 001-demo F   2>&1 | grep -q "'tasks' artefact"               && echo "C3 names the artefact"
-  bash "$PROG" from-validate 001-demo O   2>&1 | grep -q "no artefact rule admits it"     && echo "C4 names all three reasons"
-  bash "$PROG" lock-take     001-demo     2>&1 | grep -q "needs a session id"             && echo "C5 names the argument"
-  bash "$PROG" read                       2>&1 | grep -q "lock-release"                   && echo "C7 enumerates the subcommands"
+  bash "$PROG" phase-done    001-demo ZZZ 2>&1 | grep -q "unknown phase 'ZZZ'"               && echo "C1 names the phase"
+  bash "$PROG" from-validate 001-demo E   2>&1 | grep -q "'plan' artefact"                   && echo "C2 names the artefact"
+  bash "$PROG" from-validate 001-demo F   2>&1 | grep -q "'tasks' artefact"                  && echo "C3 names the artefact"
+  bash "$PROG" from-validate 001-demo O   2>&1 | grep -q "no artefact rule admits it"        && echo "C4 names all three reasons"
+  bash "$PROG" lock-take     001-demo     2>&1 | grep -q "needs a session id"                && echo "C5 names the argument"
+  bash "$PROG" read                       2>&1 | grep -q "lock-release"                      && echo "C7 enumerates the subcommands"
   mkdir -p .delivery-kit/lock
-  bash "$PROG" lock-take     001-demo s1  2>&1 | grep -q "run lock-take again"            && echo "C6 names the remedy"
+  bash "$PROG" lock-take     001-demo s1  2>&1 | grep -q "run lock-take again"               && echo "C6 names the remedy"
   rmdir .delivery-kit/lock
   jq '.completed_phases = "x"' .delivery-kit/runs/001-demo/progress.json > t && mv t .delivery-kit/runs/001-demo/progress.json
   bash "$PROG" validate      001-demo     2>&1 | grep -q "completed_phases must be an array" && echo "C8 names the key"
   jq '.completed_phases = [] | .current_phase = "ZZZ"' .delivery-kit/runs/001-demo/progress.json > t && mv t .delivery-kit/runs/001-demo/progress.json
-  bash "$PROG" validate      001-demo     2>&1 | grep -q "is not a phase this pipeline knows" && echo "C9 names the value" )
-rm -rf "$d"
+  bash "$PROG" validate      001-demo     2>&1 | grep -q "is not a phase this pipeline knows" && echo "C9 names the value" ) | tee "$out"
+n=$(grep -c '^C' "$out"); rm -rf "$d" "$out"
+printf 'refusals that named their fault: %s/9 (want 9)
+' "$n"
+[ "$n" -eq 9 ]
 ```
 
 Expected: nine lines, one per refusal. Note **C6 makes the lock path a
@@ -198,11 +215,12 @@ branch, entered deterministically.
 ## 9. The read contract, including the line-ending trap
 
 ```bash
-d="$(mktemp -d)"; PROG="$(pwd)/pipeline/scripts/progress.sh"
+d="$(mktemp -d)"; PROG="$(pwd)/pipeline/scripts/progress.sh"; out="$(mktemp)"
 ( cd "$d" && bash "$PROG" init 001-demo b main other >/dev/null
   SF=.delivery-kit/runs/001-demo/progress.json
   bash "$PROG" read 001-demo | jq -e . >/dev/null && echo "RC1 pure data, parser accepts it"
-  awk '{printf "%s\r\n", $0}' "$SF" > t && mv t "$SF"
+  awk '{printf "%s
+", $0}' "$SF" > t && mv t "$SF"
   bash "$PROG" read 001-demo | jq -e .feature >/dev/null && echo "RC3 still accepted with the two-character ending"
   v=$(bash "$PROG" read 001-demo | jq -r .current_phase)
   [ "$v" = "preflight" ] && echo "RC4 command substitution captures cleanly"
@@ -210,8 +228,11 @@ d="$(mktemp -d)"; PROG="$(pwd)/pipeline/scripts/progress.sh"
   grep -q '\^M' raw.txt && echo "RC5 the forbidden idiom DOES retain the stray character"
   jq '.completed_phases = "x"' "$SF" > t && mv t "$SF"
   n=$(bash "$PROG" read 001-demo 2>/dev/null | wc -c)
-  [ "$n" -eq 0 ] && echo "RC2 broken state puts 0 bytes on the data stream" )
-rm -rf "$d"
+  [ "$n" -eq 0 ] && echo "RC2 broken state puts 0 bytes on the data stream" ) | tee "$out"
+c=$(grep -c '^RC' "$out"); rm -rf "$d" "$out"
+printf 'read-contract checks passed: %s/5 (want 5)
+' "$c"
+[ "$c" -eq 5 ]
 ```
 
 Expected: five lines. **RC5 is the important one** — it proves the shipped
@@ -296,14 +317,31 @@ finding, not a footnote.
 ## 13. This feature's own documents are clean, controls first
 
 ```bash
-u=$(printf 'h_%s' 'zah'); dr=$(printf 'D:%s' '\'); cu=$(printf 'C:%sUsers%s' '\' '\')
-printf 'x %s y\n' "$u"  | grep -cF "$u"
-printf 'x %s y\n' "$dr" | grep -cF "$dr"
-printf 'x %s y\n' "$cu" | grep -cF "$cu"
-echo "--- the three controls above must each print 1 ---"
-for f in specs/008-progress-coverage-timeout/*.md specs/008-progress-coverage-timeout/*/*.md; do
-  printf '%-62s %s %s %s\n' "$f" "$(grep -cF "$u" "$f")" "$(grep -cF "$dr" "$f")" "$(grep -cF "$cu" "$f")"
-done
+# Every needle is built INSIDE awk, with sprintf("%c", 92), and this block
+# contains no backslash anywhere - it uses print rather than printf for exactly
+# that reason. Both are deliberate. An earlier version built the needles with
+# printf in the shell; the backslashes were eaten before the block ever reached
+# disk, so the scanner searched for "D:" instead of the drive root, matched its
+# own construction line, and could not have found a real hit. Measured twice in
+# this campaign. The account name is joined from two halves so this document
+# never contains the literal it scans for.
+awk 'BEGIN{
+       bs = sprintf("%c", 92)
+       dr = "D:" bs;  cu = "C:" bs "Users" bs;  un = "h_" "zah"
+       ctl = 0
+       if (index("x D:" bs " y",            dr)) ctl++
+       if (index("x C:" bs "Users" bs " y", cu)) ctl++
+       if (index("x h_" "zah y",            un)) ctl++
+       print "controls that fired: " ctl "/3 (all three MUST fire before a zero means anything)"
+       bad = 0
+     }
+     index($0, dr) || index($0, cu) || index($0, un) {
+       print "HIT " FILENAME ":" FNR; bad++
+     }
+     END{
+       print "documents carrying a banned shape: " bad " (want 0)"
+       exit ((ctl == 3 && bad == 0) ? 0 : 1)
+     }' specs/008-progress-coverage-timeout/*.md specs/008-progress-coverage-timeout/*/*.md
 ```
 
 Expected: three `1`s from the controls, then every document line ending in
