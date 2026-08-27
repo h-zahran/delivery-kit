@@ -165,10 +165,28 @@ denylist line was not removed or rewritten (FR-022, contract C7).
 
 ```bash
 BATS="${BATS:-$HOME/bats/bin/bats}"
-"$BATS" -r --print-output-on-failure tests handoff/tests pipeline/tests 2>&1 | tail -5
+out="$(mktemp)"
+"$BATS" -r --print-output-on-failure tests handoff/tests pipeline/tests > "$out" 2>&1
+st=$?
+grep -m1 '^1\.\.' "$out"
+n_ok=$(grep -c '^ok ' "$out")
+n_bad=$(grep -c '^not ok ' "$out")
+n_raw=$(grep -vcE '^(ok |not ok |1\.\.|#)' "$out")
+printf 'ok=%s not-ok=%s non-TAP=%s exit=%s\n' "$n_ok" "$n_bad" "$n_raw" "$st"
+tail -5 "$out"
+rm -f "$out"
+[ "$st" -eq 0 ]
 ```
 
-Expected: `1..123`, 123 ok, 0 not ok, 0 non-TAP.
+Expected: `1..123`, 123 ok, 0 not ok, 0 non-TAP, and `exit=0`.
+
+The suite is deliberately NOT piped into `tail`. A pipe hands the block
+`tail`'s exit status, which is always 0, and `tail` also cuts off the plan
+line that bats prints first — so a red suite would leave this block looking
+green while hiding the very count the block exists to show. That is the
+can't-go-red fault this feature exists to close. The status is captured
+before anything else runs, the counts are derived from the saved output, and
+the closing test carries the real result.
 
 The baseline before this feature was `1..121`. Any number other than 123 is a
 finding, not a footnote.
