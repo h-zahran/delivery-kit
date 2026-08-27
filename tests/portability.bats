@@ -17,14 +17,33 @@ load helper
 # locally and in their own CI; the published list carries the stack and tooling
 # names, which are the shapes a leak most often takes anyway.
 BANNED_WORDS='flutter|dart|pubspec|supabase|gradle|graphify|speckit|superpowers'
-if [ -f "$ROOT/.leakwords" ]; then
-  # Blank lines are stripped before joining. An empty alternation branch would
-  # match at every position, turning the scan into something that fires on
-  # everything — loudly, since the tests assert "no match", but for a reason
-  # that has nothing to do with a leak.
-  extra="$(grep -v '^[[:space:]]*$' "$ROOT/.leakwords" | paste -sd'|' -)"
-  [ -n "$extra" ] && BANNED_WORDS="$BANNED_WORDS|$extra"
-fi
+# Folding the optional private list into the vocabulary is a NAMED FUNCTION and
+# not a few inline lines, for one reason: the file it reads is untracked by
+# design, so no public build ever exercises this path. The only thing that can
+# exercise it is a test, and a test can only exercise it if it can CALL it.
+# It used to be inline, and the test that claimed to cover it rebuilt the same
+# join inside itself and checked its own copy - so a defect introduced here was
+# not caught by the test named for it. One copy, two callers: this line and that
+# test.
+#
+# Blank lines are stripped before joining. An empty alternation branch would
+# match at every position, turning the scan into something that fires on
+# everything - loudly, since the tests assert "no match", but for a reason that
+# has nothing to do with a leak. So when the private list contributes nothing -
+# absent file, empty file, or only blank lines - the base list comes back
+# UNCHANGED, with no trailing separator.
+fold_leakwords() {
+  local file="$1" base="$2" extra
+  [ -f "$file" ] || { printf '%s' "$base"; return 0; }
+  extra="$(grep -v '^[[:space:]]*$' "$file" | paste -sd'|' -)"
+  if [ -n "$extra" ]; then
+    printf '%s|%s' "$base" "$extra"
+  else
+    printf '%s' "$base"
+  fi
+}
+
+BANNED_WORDS="$(fold_leakwords "$ROOT/.leakwords" "$BANNED_WORDS")"
 # Absolute machine paths, for the SHIPPED surfaces. Its sibling is TREE_PATHS
 # below, which covers the whole tracked tree. The two are SEPARATE ON PURPOSE
 # and nothing keeps them in step: they scan different surfaces and need
@@ -103,8 +122,16 @@ VOCAB_RE="($BANNED_WORDS)"
 # The three published terms banned everywhere stay banned here, and
 # .leakwords folds in exactly as above: the relaxed list is named
 # exceptions, not a weaker principle.
-RELAXED_WORDS='supabase|graphify|superpowers'
-if [ -n "${extra:-}" ]; then RELAXED_WORDS="$RELAXED_WORDS|$extra"; fi
+# Folded through the SAME function as BANNED_WORDS above, and it must stay that
+# way. This line used to read the inline block's `extra` variable, which was a
+# file-scope global. The moment that block became a function with a `local
+# extra`, this line went dead and the private vocabulary silently stopped
+# guarding the relaxed surfaces - which are the ONLY surfaces the shipped lists
+# above deliberately exclude. Nothing went red, and nothing could: .leakwords is
+# untracked by design, so no public build can ever observe the loss. Caught in
+# review, not by a test. Do not reintroduce a shared variable here; call the
+# function.
+RELAXED_WORDS="$(fold_leakwords "$ROOT/.leakwords" 'supabase|graphify|superpowers')"
 RELAXED_RE="($RELAXED_WORDS)"
 
 # Everything a stranger installs or reads, registered entry by entry — a
@@ -754,18 +781,35 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 
 @test "a local .leakwords file extends the vocabulary" {
   # The private half of the denylist is the half that cannot be published, so
-  # nothing in CI exercises it and it would rot unnoticed. This builds the
-  # alternation the same way the suite does, against a fixture .leakwords, and
-  # checks three things that have each been a real failure mode here: the extra
-  # term is matched; a blank line does not produce an empty alternation branch
-  # that matches everything; and the shipped terms still work alongside it.
-  printf 'acmecorp\n\n  \n' > "$TEST_DIR/.leakwords"
-  extra="$(grep -v '^[[:space:]]*$' "$TEST_DIR/.leakwords" | paste -sd'|' -)"
-  [ "$extra" = "acmecorp" ]
-  re="($BANNED_WORDS|$extra)"
+  # nothing in CI exercises it and it would rot unnoticed. This drives the REAL
+  # folding - fold_leakwords, the very function the suite calls at load time -
+  # against a fixture, and checks the things that have each been a real failure
+  # mode here: the extra term is matched; a blank line does not produce an empty
+  # alternation branch that matches everything; and the shipped terms still work
+  # alongside it.
+  #
+  # It used to rebuild the join inside itself and check its own copy, which meant
+  # a defect introduced in the real folding was NOT caught by the test named for
+  # it. If you are tempted to inline the pipeline here again for readability:
+  # that is the bug, not the style.
+  # TWO terms, not one. With a single term the join in fold_leakwords is never
+  # asked to join anything, so a mutation changing its separator character
+  # stayed green - measured in review. Two terms make the separator
+  # load-bearing.
+  printf 'acmecorp\nnorthwind\n\n  \n' > "$TEST_DIR/.leakwords"
+  folded="$(fold_leakwords "$TEST_DIR/.leakwords" "$BANNED_WORDS")"
+  # Exact equality, not a suffix match. A suffix match accepts an INTERIOR empty
+  # branch, and an empty branch matches at every position - the precise failure
+  # the blank-line stripping exists to prevent.
+  [ "$folded" = "$BANNED_WORDS|acmecorp|northwind" ]
+  re="($folded)"
 
   printf 'we use acmecorp internally\n' > "$TEST_DIR/private.txt"
   run grep -rniwE "$re" "$TEST_DIR/private.txt"
+  [ "$status" -eq 0 ]
+
+  printf 'northwind is ours too\n' > "$TEST_DIR/second.txt"
+  run grep -rniwE "$re" "$TEST_DIR/second.txt"
   [ "$status" -eq 0 ]
 
   printf 'nothing to see here\n' > "$TEST_DIR/clean.txt"
@@ -775,6 +819,16 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   printf 'a flutter reference\n' > "$TEST_DIR/stack.txt"
   run grep -rniwE "$re" "$TEST_DIR/stack.txt"
   [ "$status" -eq 0 ]
+
+  # The empty-contribution case, which is what makes a blank line safe: a list
+  # that contributes nothing returns the base UNCHANGED - no trailing separator,
+  # and so no empty branch that would match at every position.
+  : > "$TEST_DIR/empty.leakwords"
+  [ "$(fold_leakwords "$TEST_DIR/empty.leakwords" "$BANNED_WORDS")" = "$BANNED_WORDS" ]
+  printf '\n  \n\n' > "$TEST_DIR/blank.leakwords"
+  [ "$(fold_leakwords "$TEST_DIR/blank.leakwords" "$BANNED_WORDS")" = "$BANNED_WORDS" ]
+  # And an absent file, which is the state of every public build.
+  [ "$(fold_leakwords "$TEST_DIR/nope.leakwords" "$BANNED_WORDS")" = "$BANNED_WORDS" ]
 }
 
 @test "every relative link in the shipped documentation resolves" {
