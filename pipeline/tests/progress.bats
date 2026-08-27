@@ -148,11 +148,15 @@ setup() {
 }
 
 # ---------------------------------------------------------------------------
-# The `read` subcommand. Two SHIPPED documents instruct their readers to obtain
-# a run's state through it rather than by reading the file, and one of them
-# warns about a platform-specific hazard in its output. Nothing tested either
-# claim until these two tests. A change that put a validation message on the
-# data stream would have shipped green.
+# The `read` subcommand. Shipped skill documents instruct their readers to get a
+# run's state through it rather than by reading the file, and one of them warns
+# about a platform-specific hazard in its output — the warning this second test
+# pins. Nothing tested either claim before these. A change that put a validation
+# message on the data stream would have shipped green.
+#
+# No count of those documents appears here or in a test name. One did, briefly,
+# and it was wrong: both skills rest on `read`, but only one carries the CRLF
+# warning.
 # ---------------------------------------------------------------------------
 
 @test "read puts pure JSON on stdout, and puts NOTHING there when the state is broken" {
@@ -161,15 +165,18 @@ setup() {
 
   # BYTE-IDENTICAL to the file, not merely parseable. A parser accepts leading
   # whitespace, so "jq accepts it" alone would still pass if read printed a
-  # blank line first - measured in review, with exactly that mutation. The
+  # blank line first — measured in review, with exactly that mutation. The
   # contract says read PRINTS THE STATE FILE, and only a byte comparison says
   # that.
   bash "$PROG" read 001-demo > got.txt
-  cmp -s got.txt "$sf"
+  # Not `cmp -s`: the silent form tells you only that the assertion failed,
+  # while plain cmp names the byte that differed — and it keeps "file missing"
+  # (exit 2) distinguishable from "files differ" (exit 1).
+  cmp got.txt "$sf"
   jq -e . < got.txt > /dev/null
 
   # Now break it. The fault belongs on stderr; a caller parsing stdout must see
-  # ZERO BYTES - not "nothing bats can see". bats strips trailing newlines from
+  # ZERO BYTES — not "nothing bats can see". bats strips trailing newlines from
   # $output, so [ -z "$output" ] passes on a one-byte newline. Measure the file.
   jq '.completed_phases = "not-a-list"' "$sf" > t.json
   mv t.json "$sf"
@@ -179,7 +186,7 @@ setup() {
   grep -q "completed_phases must be an array" err.txt
 }
 
-@test "read honours the CRLF contract the two skills rest on" {
+@test "read honours the documented CRLF contract" {
   bash "$PROG" init 001-demo b main web
   sf=.delivery-kit/runs/001-demo/progress.json
   # The condition is CONSTRUCTED, never waited for. It does not arise on every
@@ -188,7 +195,7 @@ setup() {
   #
   # ON WINDOWS THIS LINE IS A NO-OP, and that is not a reason to delete it. The
   # jq build there writes CRLF, so `init` already produced a CRLF state file and
-  # this conversion changes nothing - measured. On Linux and macOS, where jq
+  # this conversion changes nothing — measured. On Linux and macOS, where jq
   # writes LF, this line is the only thing that creates the condition, so those
   # two CI jobs are where the constructed half is actually exercised.
   awk '{printf "%s\r\n", $0}' "$sf" > t.json
@@ -246,8 +253,10 @@ setup() {
 
 @test "from-validate refuses the tasks group by naming the tasks artefact" {
   bash "$PROG" init 001-demo b main web
-  # Four phases share this one branch. Driving one proves the branch; driving
-  # all four would prove the case statement, which is not what is at risk.
+  # Every phase in that group shares this one branch. Driving one proves the
+  # branch; driving the rest would prove the case statement, which is not what
+  # is at risk — and a count written here would go stale the moment the group
+  # gains a phase, with nothing to redden it.
   run bash "$PROG" from-validate 001-demo F
   [ "$status" -ne 0 ]
   [[ "$output" == *"'tasks' artefact"* ]]
@@ -293,11 +302,12 @@ setup() {
   [[ "$output" == *"usage:"* ]]
   run bash "$PROG" read
   [ "$status" -ne 0 ]
-  # Assert the WHOLE enumeration in one comparison. Asserting a few names is
-  # not enough, and not for a subtle reason: three of the eight are substrings
-  # of others, so `validate` still matches after `validate|` is deleted, and a
-  # review measured five of the eight silently droppable under the old
-  # three-name assertion. Any drop, and any reorder, reddens this line.
+  # Assert the WHOLE enumeration in one comparison. Asserting a few names is not
+  # enough: one of the eight is a substring of another, so `validate` still
+  # matches after `validate|` is deleted — and a review measured five of the
+  # eight silently droppable under an earlier three-name assertion. Any drop,
+  # and any reorder, reddens this line. (An earlier draft of this comment said
+  # three names were substrings; measured, it is exactly one.)
   [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release>"* ]]
 }
 

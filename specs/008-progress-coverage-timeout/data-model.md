@@ -51,9 +51,9 @@ before it is stopped and named.
 |---|---|---|
 | Home | the shared fixture file | FR-001 |
 | Value | 60 seconds | research D3 |
-| Margin over the slowest measured test | 7.58× | research D3 |
+| Margin over the slowest measured test | about 4x the WORST of five readings (8.0-14.9 s) | research D3, corrected after review |
 | Speed-up against the hazard it replaces | 360× | research D3 |
-| External requirement | a `timeout` program on the path | research D1 |
+| External requirement | `ps` or `pkill` on the path — **not** an external `timeout` program | research D1, corrected after review |
 
 **State transitions**: none. It is set once, at load.
 

@@ -35,9 +35,16 @@ not ok 2 slow test should be stopped by the loaded timeout # timeout after 2s
 
 - The failure line carries `# timeout after <N>s`, and the test's own name is on
   that line. This is what satisfies "the output names the test that exceeded it".
-- The stop needs an external `timeout` program. It is present here at
-  `/usr/bin/timeout`. On a machine without it the limit would silently do
-  nothing, which is why the quickstart checks for it before anything else.
+- **CORRECTED 2026-08-27, after review.** An earlier draft of this entry said
+  the stop needs an external `timeout` program and would silently do nothing
+  without one. Both halves were wrong, and the error was caught by reading
+  bats' own source and then measuring it three ways: a shim placed first on
+  `PATH` was never called, and a stripped `PATH` produced a loud refusal.
+  What bats actually needs is **`ps` or `pkill`** — it implements the limit
+  itself with a backgrounded sleep and a signal — and with neither it prints
+  `Cannot execute timeout because neither pkill nor ps are available` and
+  **exits 1**. Loud, not silent. The quickstart checks for `ps`/`pkill`
+  accordingly.
 
 **Alternatives considered**: setting the limit separately in each of the six
 suites. Rejected — six copies of one value is exactly the drift the requirement
@@ -128,6 +135,38 @@ people to ignore timeouts.
 baseline. Rejected — it makes the limit depend on the machine, so CI and local
 would enforce different contracts, and a slow machine would quietly grant itself
 a longer limit, which is the failure mode inverted.
+
+
+### ADDENDUM, 2026-08-27, after review — the readings above do not reproduce
+
+The table above records one run. Review re-measured and got materially different
+numbers, so the single readings are amended here rather than rewritten above: a
+dated record stays as it was written, and the correction sits beside it.
+
+| Reading | Slowest single test | Full suite |
+|---|---|---|
+| Original, above | 7916 ms | 224.6 s / 123 tests |
+| Review run 1 | 14,347 ms | 523.3 s / 134 tests |
+| Review run 2 | 14,862 ms | 627.1 s / 134 tests |
+| Re-measured later | 8001 ms | — |
+
+**The spread is genuine, not a mistake in either reading.** The control settles
+it: the fastest suite's slowest test measured 1149, 1118, 1804 and 623 ms across
+those runs — a threefold swing on work that does almost nothing. The variance
+lives in process spawning, which is expensive on this platform and sensitive to
+load, and the handoff guard suite is the one that spawns most.
+
+**What this changes.** The derived `7.58×` margin is wrong; against the worst
+reading it is about `4×`. **What it does not change is the decision** — it
+strengthens it. At the slower readings the ten-second value being removed would
+not merely have run close to honest tests, it would have KILLED them: three in
+review run 1, six in run 2. The comment in the shared fixture now records the
+range and that consequence, rather than one number.
+
+**Lesson recorded, because it is the second time in this run:** a single timing
+reading on this machine is not a measurement, it is a sample. Anything derived
+from one reading and written into a shipped comment will be falsified by the
+next run.
 
 ---
 

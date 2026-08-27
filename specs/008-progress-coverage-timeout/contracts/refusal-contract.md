@@ -83,7 +83,7 @@ column is what the script prints today.
 | **Must name** | every legal subcommand |
 | **Captured** | `usage: progress.sh <init\|read\|validate\|phase-start\|phase-done\|from-validate\|lock-take\|lock-release> <feature> [args]` |
 | **Red when** | any subcommand disappears from the list |
-| **Note** | this is the one refusal whose message is a *complete enumeration*. Asserting one subcommand would let the list rot; the test asserts several, including the first and the last. |
+| **Note** | this is the one refusal whose message is a *complete enumeration*. The test asserts the WHOLE list in one comparison, so any drop and any reorder reddens it. An earlier draft asserted only a few names; a review measured five of the eight silently droppable that way. |
 
 ## C8 — The completed-phases value is not a list
 

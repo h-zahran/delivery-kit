@@ -22,15 +22,17 @@ BANNED_WORDS='flutter|dart|pubspec|supabase|gradle|graphify|speckit|superpowers'
 # design, so no public build ever exercises this path. The only thing that can
 # exercise it is a test, and a test can only exercise it if it can CALL it.
 # It used to be inline, and the test that claimed to cover it rebuilt the same
-# join inside itself and checked its own copy - so a defect introduced here was
-# not caught by the test named for it. One copy, two callers: this line and that
-# test.
+# join inside itself and checked its own copy — so a defect introduced here was
+# not caught by the test named for it. One copy, THREE callers: this line, the
+# RELAXED_WORDS line further down, and that test. The third was added as the fix
+# for a regression this very extraction caused, and this comment still said two
+# until review counted them.
 #
 # Blank lines are stripped before joining. An empty alternation branch would
 # match at every position, turning the scan into something that fires on
-# everything - loudly, since the tests assert "no match", but for a reason that
+# everything — loudly, since the tests assert "no match", but for a reason that
 # has nothing to do with a leak. So when the private list contributes nothing -
-# absent file, empty file, or only blank lines - the base list comes back
+# absent file, empty file, or only blank lines — the base list comes back
 # UNCHANGED, with no trailing separator.
 fold_leakwords() {
   local file="$1" base="$2" extra
@@ -126,7 +128,7 @@ VOCAB_RE="($BANNED_WORDS)"
 # way. This line used to read the inline block's `extra` variable, which was a
 # file-scope global. The moment that block became a function with a `local
 # extra`, this line went dead and the private vocabulary silently stopped
-# guarding the relaxed surfaces - which are the ONLY surfaces the shipped lists
+# guarding the relaxed surfaces — which are the ONLY surfaces the shipped lists
 # above deliberately exclude. Nothing went red, and nothing could: .leakwords is
 # untracked by design, so no public build can ever observe the loss. Caught in
 # review, not by a test. Do not reintroduce a shared variable here; call the
@@ -782,7 +784,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 @test "a local .leakwords file extends the vocabulary" {
   # The private half of the denylist is the half that cannot be published, so
   # nothing in CI exercises it and it would rot unnoticed. This drives the REAL
-  # folding - fold_leakwords, the very function the suite calls at load time -
+  # folding — fold_leakwords, the very function the suite calls at load time -
   # against a fixture, and checks the things that have each been a real failure
   # mode here: the extra term is matched; a blank line does not produce an empty
   # alternation branch that matches everything; and the shipped terms still work
@@ -794,12 +796,12 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # that is the bug, not the style.
   # TWO terms, not one. With a single term the join in fold_leakwords is never
   # asked to join anything, so a mutation changing its separator character
-  # stayed green - measured in review. Two terms make the separator
+  # stayed green — measured in review. Two terms make the separator
   # load-bearing.
   printf 'acmecorp\nnorthwind\n\n  \n' > "$TEST_DIR/.leakwords"
   folded="$(fold_leakwords "$TEST_DIR/.leakwords" "$BANNED_WORDS")"
   # Exact equality, not a suffix match. A suffix match accepts an INTERIOR empty
-  # branch, and an empty branch matches at every position - the precise failure
+  # branch, and an empty branch matches at every position — the precise failure
   # the blank-line stripping exists to prevent.
   [ "$folded" = "$BANNED_WORDS|acmecorp|northwind" ]
   re="($folded)"
@@ -821,7 +823,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   [ "$status" -eq 0 ]
 
   # The empty-contribution case, which is what makes a blank line safe: a list
-  # that contributes nothing returns the base UNCHANGED - no trailing separator,
+  # that contributes nothing returns the base UNCHANGED — no trailing separator,
   # and so no empty branch that would match at every position.
   : > "$TEST_DIR/empty.leakwords"
   [ "$(fold_leakwords "$TEST_DIR/empty.leakwords" "$BANNED_WORDS")" = "$BANNED_WORDS" ]
