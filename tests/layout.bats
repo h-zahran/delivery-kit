@@ -2,10 +2,6 @@
 
 bats_require_minimum_version 1.5.0
 
-# Cheap insurance: find_root no longer walks, but a regression that
-# reintroduces one gets a named timeout instead of GitHub's 360-minute job cap.
-BATS_TEST_TIMEOUT=10
-
 load helper
 
 @test "ROOT resolves to the directory holding the marketplace manifest" {

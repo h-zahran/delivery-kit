@@ -1,5 +1,41 @@
 # Shared fixtures for the delivery-kit suites.
 
+# Every suite loads this file, so a setting that must reach all six belongs
+# here. Cheap insurance: a regression that hangs a test - an unbounded walk, a
+# read that never returns, a lock never released - gets a NAMED timeout here
+# instead of running toward GitHub's 360-minute job cap, which kills the job
+# and names nothing.
+#
+# 60, not 10. Measured 2026-08-27 across several runs: the slowest single test
+# lands between roughly 7.9 and 8.4 seconds depending on machine load, so this
+# is over seven times that, and still hundreds of times faster than the job cap
+# it replaces. A range rather than one number, because a single reading went
+# stale inside this very change - a later run measured 8353 ms against the 7916
+# ms first written here. The old
+# value of 10 lived in tests/layout.bats and was only ever applied there - that
+# suite's slowest test is 1149 ms, so 10 gave IT 8.7x margin. Applied to all
+# six it would sit 2.7 s above the handoff guard suite's slowest test, on the
+# slowest machine measured - which is a developer machine, not a CI runner
+# (224.6 s locally against 155 s on the slowest hosted runner). A timeout that
+# flakes teaches people to ignore timeouts.
+#
+# This is the ONLY assignment in the tree, and it has to be: an assignment
+# written ABOVE a suite's `load` line loses to this one, silently, while one
+# written below it wins. Measured with throwaway suites, not assumed.
+# tests/layout.bats used to carry one above its load line; it was removed
+# rather than left reading like an owner it was not.
+#
+# What it actually needs is `ps` OR `pkill`, not an external `timeout` program.
+# bats implements the limit itself with a background sleep and a signal, and it
+# refuses out loud - `Cannot execute timeout because neither pkill nor ps are
+# available`, exit 1 - when it can find neither. Read out of bats-exec-test and
+# then measured: a `timeout` shim placed first on PATH was never called and the
+# limit still fired. An earlier draft of this comment named the wrong
+# dependency and called the failure silent. Both halves were wrong, and a guard
+# whose comment misdescribes its own prerequisite sends the next maintainer to
+# the wrong place.
+BATS_TEST_TIMEOUT=60
+
 # The repository root is the root of the git checkout containing the suite,
 # and it must hold the marketplace manifest. The old implementation walked
 # parent directories until a manifest appeared, and that walk had no boundary
