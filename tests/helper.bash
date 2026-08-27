@@ -88,6 +88,16 @@ ROOT="$(find_root "$BATS_TEST_DIRNAME")" || {
 # still grow by hand.
 HANDOFF="$ROOT/handoff"
 HOOK="$HANDOFF/hooks/context-guard.sh"
+PIPELINE="$ROOT/pipeline"
+PROBE="$PIPELINE/scripts/preflight.sh"
+
+# The absolute path of bash, resolved HERE and not inside a test. The probe
+# suite reaches several of its behaviours by handing the probe a search path
+# that holds almost nothing — and stripping PATH also removes bash, so a test
+# that tried to resolve the interpreter after narrowing its own path could not
+# start the probe at all. Resolving at load time is what makes that shape
+# possible; it is not a style choice.
+BASH_ABS="$(command -v bash)"
 
 setup() {
   # Every test gets its own TMPDIR and its own HOME. The hook keeps per-session
@@ -149,4 +159,40 @@ run_hook() {
   local payload
   payload="$(hook_input "$@")"
   run bash "$HOOK" <<< "$payload"
+}
+
+# probe [--path <dir>] [probe arguments...]
+#
+# Runs the pre-flight probe once, leaving the exit status in $status, the data
+# stream in $output and the diagnostic stream in $stderr — for the CALLING TEST.
+# bats does not declare those three local, which is what makes a `run` inside a
+# function visible to its caller. Measured, not assumed.
+#
+# It is a pass-through and supplies no probe flag of its own. That is
+# deliberate: one call site must be able to omit --base-branch entirely to reach
+# the current-branch fallback, and a helper that supplied it could not express
+# that call. It also keeps the fixture visible where the test names it.
+#
+# --path <dir> gives the probe a search path of exactly <dir>. There is no
+# collision: the probe's legal flags are --dir, --project-type and
+# --base-branch, and it refuses anything else by name. Two things about this
+# shape are load-bearing and were both measured:
+#
+#   * The environment is changed for the CHILD, via env. A subshell would work
+#     for the probe and be useless here — `run` inside a subshell sets its
+#     variables in the subshell, and the calling test sees nothing at all.
+#   * A bare `PATH=x cmd` prefix is a different trap and does NOT apply: that
+#     one is about a builtin's lookup in the CURRENT shell. The probe is a
+#     separate process, so its own `command -v` honours the environment it was
+#     born with.
+#
+# The directory handed to --path must be a path with no drive letter. Under Git
+# Bash a `C:/...` entry splits on its own colon into two broken entries and then
+# EVERY tool reads as absent — including jq, so the probe dies for a reason the
+# test did not name and passes for the wrong cause. $BATS_TEST_TMPDIR is
+# already in the right form.
+probe() {
+  local searchpath="$PATH"
+  if [ "${1:-}" = "--path" ] && [ "$#" -ge 2 ]; then searchpath="$2"; shift 2; fi
+  run --separate-stderr env PATH="$searchpath" "$BASH_ABS" "$PROBE" "$@"
 }
