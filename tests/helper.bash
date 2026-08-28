@@ -161,6 +161,51 @@ run_hook() {
   run bash "$HOOK" <<< "$payload"
 }
 
+# write_config <path> <body> — writes {"contextGuard":<body>} to <path>.
+#
+# BOTH parameters are required, and both by measurement rather than taste.
+#
+# The PATH, because the call sites do not all write the same file: most write
+# the repository configuration, and a handful write the USER one under $HOME.
+# That handful is what proves the precedence order between the two, so a helper
+# that hardcoded the repository path could not express them at all — it would
+# have to leave them unconverted, or silently write the wrong file and break the
+# very test that checks precedence.
+#
+# NO COUNT IS WRITTEN HERE, and that is a correction rather than vagueness. This
+# comment used to say twenty-three repository sites. It was wrong when written —
+# running the conversion found a third unconvertible site nobody had named, so
+# the number was twenty-two — and it went stale again the moment tests were
+# added, which is the whole hazard: a hand-written count drifts in the direction
+# that flatters. The counts as MEASURED at the conversion are recorded, dated,
+# in this feature's research and contract documents, where they describe an
+# event that does not change. What the argument above actually rests on is the
+# SHAPE — that two different files are written — and the shape does not drift.
+#
+# The BODY, because the bodies are not interchangeable. What repeats is the
+# wrapper, not the setting. Several bodies are deliberately
+# INVALID — a leading-zero number, a zero window, an out-of-range threshold —
+# because they exercise the validator, so the body is written verbatim. A helper
+# that normalised or rebuilt it would quietly repair exactly the inputs those
+# tests exist to reject.
+#
+# A site that builds its body by substitution interpolates before calling; the
+# helper needs no special case for it. Output is byte-identical to the literal
+# printf it replaces — checked with cmp, not by eye.
+write_config() {
+  printf '{"contextGuard":%s}\n' "$2" > "$1"
+}
+
+# bytes_of <file> <lines> — the byte count of the last <lines> lines of <file>.
+#
+# Four call sites, which is a small number and is said plainly rather than
+# dressed up: this exists for naming, and because the trailing-whitespace strip
+# is load-bearing on this platform and is the kind of thing that gets dropped
+# when an incantation is copied by hand. One definition cannot be copied wrongly.
+bytes_of() {
+  tail -n "$2" "$1" | wc -c | tr -d ' '
+}
+
 # probe [--path <dir>] [probe arguments...]
 #
 # Runs the pre-flight probe once, leaving the exit status in $status, the data
