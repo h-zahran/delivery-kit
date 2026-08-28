@@ -192,18 +192,57 @@ run_hook() {
 # A site that builds its body by substitution interpolates before calling; the
 # helper needs no special case for it. Output is byte-identical to the literal
 # printf it replaces — checked with cmp, not by eye.
+# The guards below are not defensive padding, and each closes a misuse whose
+# failure is SILENT — the file is written, the guard reads it, finds nothing it
+# recognises, and runs on defaults. The calling test then passes while naming a
+# setting it never applied, which is the one outcome a fixture helper must not
+# make easier than the literal it replaced. Review found all three; none was
+# hypothetical.
+#
+#   one argument   -> printf with no operand writes {"contextGuard":}, which is
+#                     not valid JSON, so every jq read returns empty.
+#   swapped        -> a file named for the BODY is created in whatever directory
+#                     bats runs from, which is the repository root.
+#   double-wrapped -> the natural copy-paste from the literals this replaced;
+#                     it nests to .contextGuard.contextGuard and reads as absent.
+#
+# Measured before adding: no existing call site trips any of the three.
 write_config() {
+  [ "$#" -eq 2 ] || { printf 'write_config needs <path> <body>, got %s\n' "$#" >&2; return 1; }
+  case "$1" in
+    '{'*) printf 'write_config: the path looks like a body — arguments swapped?\n' >&2; return 1 ;;
+  esac
+  case "$2" in
+    *'"contextGuard"'*) printf 'write_config: pass the INNER object; the wrapper is added here\n' >&2; return 1 ;;
+  esac
   printf '{"contextGuard":%s}\n' "$2" > "$1"
 }
 
 # bytes_of <file> <lines> — the byte count of the last <lines> lines of <file>.
 #
-# Four call sites, which is a small number and is said plainly rather than
-# dressed up: this exists for naming, and because the trailing-whitespace strip
-# is load-bearing on this platform and is the kind of thing that gets dropped
-# when an incantation is copied by hand. One definition cannot be copied wrongly.
+# This exists for naming, and because the trailing-whitespace strip is
+# load-bearing on this platform and is the kind of thing that gets dropped when
+# an incantation is copied by hand. One definition cannot be copied wrongly.
+#
+# IT MUST ALSO BE ABLE TO FAIL, and the first version could not. `tail` on a
+# missing file writes to stderr and the PIPELINE still exits 0, with `wc -c`
+# printing 0 — so a renamed fixture or a typo'd variable yielded a byte cap of
+# zero, the guard's validator rejected zero and kept its 8MB default, and the
+# uncapped read ran. All three tests that exist to prove the cap cannot starve
+# the median went on passing, asserting a percentage the uncapped path produces
+# identically. Demonstrated, not supposed: with this function pointed at a
+# nonexistent file the three of them stayed green.
+#
+# Note what that means for the argument above. Centralising an idiom is only
+# worth something if the centre can say no; a single definition that fails
+# silently propagates one silent failure to every caller instead of four.
 bytes_of() {
-  tail -n "$2" "$1" | wc -c | tr -d ' '
+  [ "$#" -eq 2 ] || { printf 'bytes_of needs <file> <lines>, got %s\n' "$#" >&2; return 1; }
+  [ -f "$1" ] || { printf 'bytes_of: no such file: %s\n' "$1" >&2; return 1; }
+  local n
+  n="$(tail -n "$2" "$1" | wc -c | tr -d ' ')"
+  [ -n "$n" ] && [ "$n" -gt 0 ] 2>/dev/null || { printf 'bytes_of: %s yielded no bytes\n' "$1" >&2; return 1; }
+  printf '%s' "$n"
 }
 
 # probe [--path <dir>] [probe arguments...]

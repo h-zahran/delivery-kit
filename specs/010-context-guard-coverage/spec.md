@@ -74,10 +74,17 @@ could not express them at all. This is why FR-011's path parameter is
 **required**, not a convenience.
 
 **And they do not write the same value.** Measured: **nineteen distinct
-bodies** across the twenty-seven — windows, thresholds, token counts, and
-several deliberately invalid values. What repeats is the *wrapper*, not the
-setting. A helper that took no body would collapse nineteen meaningful fixtures
-into one, and every test that depends on its own value would break.
+bodies** across every site that writes the guard key — windows, thresholds,
+token counts, and several deliberately invalid values. **Eighteen** of those
+belong to sites the helper converts; the nineteenth belongs to the patch-file
+site, which FR-011a keeps unconverted. What repeats is the *wrapper*, not the
+setting. A helper that took no body would collapse eighteen meaningful
+fixtures into one, and every test that depends on its own value would break.
+
+The two numbers are stated separately because an earlier draft gave only
+nineteen and attributed it to the converted sites — the same hand-counted
+drift this feature corrects in the helper's own comment, arrived at from the
+other direction.
 
 ### One figure the seed implies and does not state
 
@@ -345,13 +352,27 @@ The helper work (FR-010 to FR-014) adds no test.
 
 - **FR-010**: A single named helper MUST replace the repeated configuration-file
   wrapper, and MUST live in the fixture file every suite loads. What repeats is
-  the wrapper; the **nineteen distinct bodies** across those sites are each
-  meaningful and MUST survive the conversion unchanged.
-- **FR-011**: That helper MUST take the target path. Twenty-seven sites write
-  the repository configuration file; **two others write different files**, and
-  the seed names only one of them. Taking the path is what lets those two be
-  left alone rather than special-cased, and lets a future caller write elsewhere
-  without the helper being wrong.
+  the wrapper; the **eighteen distinct bodies** across the sites it converts
+  are each meaningful and MUST survive the conversion unchanged. (Nineteen
+  distinct bodies exist in the suite; the nineteenth belongs to the
+  patch-file site FR-011a keeps unconverted.)
+- **FR-011**: That helper MUST take the target path, and the reason is the
+  **four sites that write the USER configuration file** under the home
+  directory. Those four are the precedence test, so a helper that hardcoded
+  the repository path could not express them at all — it would have to leave
+  them unconverted, or silently write the wrong file and break the very test
+  that checks precedence. Twenty-three sites write the repository
+  configuration file and two more write files that are not configuration at
+  all; taking the path is also what lets the exceptions be left alone rather
+  than special-cased, and lets a future caller write elsewhere without the
+  helper being wrong.
+
+  This requirement previously said twenty-seven repository sites and *two*
+  others. That was wrong twice over: twenty-seven is the count of source
+  lines whose literal begins with the guard key, which is a different
+  quantity, and naming only two others erased the four user-file sites that
+  are the entire justification for this parameter. As written, a
+  hardcoded-path helper conformed.
 - **FR-011a**: The **three** exception sites MUST NOT be converted. Each writes a
   top-level key the guard does not own, or writes to a file that is not a
   configuration file at all. A helper able to express them would no longer be a
