@@ -87,6 +87,13 @@ the only thing that can answer.
 | Flag file | Age | After a run that **warned** |
 |---|---|---|
 | an old flag | 30 days | **removed** |
+
+**The shipped fixture is wider than this measurement.** The rows above record
+what was driven at Phase D and are left as they were driven. Review showed the
+pair they describe cannot tell `-mtime +7` from `+3` through `+6`, so the test
+now plants a **seven-day** file that must survive beside an eight-day file that
+must go — the only pair that distinguishes them — and covers all three swept
+name patterns rather than one.
 | a fresh flag | seconds | **kept** |
 
 Both halves are required. Removal alone would also be satisfied by something
@@ -204,7 +211,7 @@ this is the campaign's own, and it caught it.
 | What the missing-identifier test asserts | The flag file is named `ctx-warned-unknown` | "Did not crash" is nearly unfalsifiable |
 | How to isolate the absolute threshold | Pin the proportional one at 99% | At its default it fires first and the absolute setting does nothing |
 | What the override tests assert | The **wording difference** between the two messages | "Something warned" does not say which threshold fired |
-| The two exception sites | Left unconverted | One writes keys the guard does not own, and those keys are the assertion |
+| The **three** exception sites | Left unconverted | One writes keys the guard does not own, and those keys are the assertion |
 
 ## 8. Open items
 

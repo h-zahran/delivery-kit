@@ -86,7 +86,13 @@ which is the only thing that can answer the question the guard asks.
 
 | Flag file | Age | After a run that **warned** |
 |---|---|---|
-| an aged flag | 30 days | **removed** |
+| an aged flag | 2020-01-01 | **removed** |
+| an eight-day flag | 8 days | **removed** |
+| a seven-day flag | 7 days | **kept** |
+| a `dk-window-warned-*` flag | 2020-01-01 | **removed** |
+| the global `dk-jq-hint` | 2020-01-01 | **removed** |
+| an aged file none of the patterns name | 2020-01-01 | **kept** |
+| an aged DIRECTORY a pattern does name | 2020-01-01 | **kept** |
 | a fresh flag | seconds | **kept** |
 
 **The run must warn**, because the sweep sits past the firing decision. And both

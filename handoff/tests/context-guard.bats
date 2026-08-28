@@ -155,6 +155,12 @@ load ../../tests/helper
 
   # Uncapped the median of the five is 30000, so every cap must report 30%.
   for lines in 1 3 5; do
+    # TWO STATEMENTS ON PURPOSE — do not collapse this back into
+    # `export DELIVERY_KIT_MAX_BYTES="$(bytes_of ...)"`. Measured: `export
+    # V="$(f)"` reports export's OWN status, so a failing substitution is
+    # masked and the test carries on with an empty cap; a plain assignment
+    # aborts under the errexit bats applies. Collapsing it re-disarms exactly
+    # the failure bytes_of was rebuilt to produce.
     cap="$(bytes_of "$t" "$lines")"
     export DELIVERY_KIT_MAX_BYTES="$cap"
     run_hook "$t" "capped$lines"
@@ -173,6 +179,7 @@ load ../../tests/helper
   # a loud failure into a silent one. The cap must never be able to do that.
   t="$(transcript_with 48000 48000 48000 48000 900000)"
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
+  # Two statements on purpose; see the note at the first such site.
   cap="$(bytes_of "$t" 1)"
   export DELIVERY_KIT_MAX_BYTES="$cap"
 
@@ -192,6 +199,7 @@ load ../../tests/helper
   t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
                        900000 900000 900000 900000 900000 900000)"
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
+  # Two statements on purpose; see the note at the first such site.
   cap="$(bytes_of "$t" 8)"
   export DELIVERY_KIT_MAX_BYTES="$cap"
 
@@ -1085,24 +1093,36 @@ load ../../tests/helper
   # would then have to assert that nothing happened — passing for the wrong
   # reason, against a sweep that had never run at all.
   #
-  # THE FIXTURE PINS THE BOUNDARY, NOT MERELY "AN AGE FILTER". The first
-  # version of this test planted one ancient file and one fresh one, and review
-  # showed that -mtime +0, +7 and +365 all produce identical results against
-  # that pair: the ancient file goes under every one of them and the fresh file
-  # survives every one of them. It proved a filter existed while its name
-  # claimed seven days. Three days and eight days are the two readings that
-  # actually straddle the threshold — three must SURVIVE, which kills every
-  # setting below the real one, and eight must GO, which kills every setting
-  # above it.
+  # THE FIXTURE PINS THE BOUNDARY, NOT MERELY "AN AGE FILTER", and getting that
+  # right took two attempts. The first version planted one ancient file and one
+  # fresh one, against which -mtime +0, +7 and +365 are indistinguishable. The
+  # second used three days and eight days, and review showed that is still not
+  # the boundary: measured with find, +3, +4, +5 and +6 all delete the same set
+  # as +7 does, because a three-day file survives every one of them.
   #
-  # The relative stamps are computed through both date dialects because this
-  # suite runs on Linux, macOS and Windows runners: GNU takes -d "N days ago",
-  # BSD takes -v-Nd. The length assertion is the guard — a stamp that came back
-  # empty would make touch error for a reason the test did not name.
-  three="$(date -d '3 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-3d +%Y%m%d%H%M)"
+  # SEVEN AND EIGHT ARE THE ONLY PAIR THAT STRADDLES IT. Measured:
+  #
+  #     -mtime +6  deletes the 7-day file AND the 8-day file
+  #     -mtime +7  deletes the 8-day file and KEEPS the 7-day file
+  #     -mtime +8  deletes neither
+  #
+  # So "seven kept, eight gone" is true of +7 and of no other setting. It is
+  # what makes the name of this test checkable.
+  #
+  # The stamps are computed through both date dialects, because this suite runs
+  # on Linux, macOS and Windows runners: GNU takes -d "N days ago", BSD takes
+  # -v-Nd.
+  seven="$(date -d '7 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-7d +%Y%m%d%H%M)"
   eight="$(date -d '8 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-8d +%Y%m%d%H%M)"
-  [ "${#three}" -eq 12 ]
-  [ "${#eight}" -eq 12 ]
+  now="$(date +%Y%m%d%H%M)"
+  # A LENGTH CHECK WOULD NOT DO. Review found the previous one could not catch
+  # either failure it named: if both dialects fail the assignment itself aborts
+  # under errexit before any guard runs, and a date that ignored the offset and
+  # printed the current time is twelve characters long and passes. These
+  # compare instead — the stamps are zero-padded, so string order is time
+  # order — and a date that ignored the offset makes them equal to now.
+  [ "$eight" \< "$seven" ]
+  [ "$seven" \< "$now" ]
 
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
 
@@ -1115,7 +1135,7 @@ load ../../tests/helper
   # clauses from the hook left this whole suite green.
   printf '9\n' > "$TMPDIR/ctx-warned-ancient"
   printf '9\n' > "$TMPDIR/ctx-warned-eightdays"
-  printf '9\n' > "$TMPDIR/ctx-warned-threedays"
+  printf '9\n' > "$TMPDIR/ctx-warned-sevendays"
   printf '9\n' > "$TMPDIR/ctx-warned-recent"
   printf '9\n' > "$TMPDIR/dk-window-warned-ancient"
   : > "$TMPDIR/dk-jq-hint"
@@ -1129,7 +1149,7 @@ load ../../tests/helper
                         "$TMPDIR/dk-jq-hint" "$TMPDIR/unrelated-ancient" \
                         "$TMPDIR/ctx-warned-adirectory"
   touch -t "$eight" "$TMPDIR/ctx-warned-eightdays"
-  touch -t "$three" "$TMPDIR/ctx-warned-threedays"
+  touch -t "$seven" "$TMPDIR/ctx-warned-sevendays"
 
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" sweeper
@@ -1147,8 +1167,9 @@ load ../../tests/helper
 
   # Inside the threshold, or not named by it: kept. Removal alone is equally
   # satisfied by anything that cleared the directory, so these four are what
-  # show the age filter and the name filter are the things that acted.
-  [ -f "$TMPDIR/ctx-warned-threedays" ]
+  # show the age filter and the name filter are the things that acted. The
+  # seven-day file is the one that pins the number: -mtime +6 would take it.
+  [ -f "$TMPDIR/ctx-warned-sevendays" ]
   [ -f "$TMPDIR/ctx-warned-recent" ]
   [ -f "$TMPDIR/unrelated-ancient" ]
   [ -d "$TMPDIR/ctx-warned-adirectory" ]

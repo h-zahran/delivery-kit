@@ -178,52 +178,65 @@ had to be rebuilt; this is that rebuilt version.
 
 ```bash
 # The four machine-path shapes are READ FROM tests/portability.bats, not
-# retyped. The first version of this block hand-rolled them and silently
-# dropped two — the Windows-users shape and the agent-projects shape. That
-# mattered on one file in particular: root tests/ is excluded from the
-# tree-wide scan (':(exclude)tests/') and appears in no SHIPPED list, so this
-# block is the ONLY thing that ever reads tests/helper.bash.
+# retyped. A hand-rolled copy dropped two of them, on the one file this feature
+# touches that no automated scan reaches: root tests/ is excluded from the
+# tree-wide scan (':(exclude)tests/') and appears in no SHIPPED list.
 eval "$(grep -E '^TP_(DRIVE_ROOT|WINDOWS_USERS|GITBASH_HOME|AGENT_PROJECTS)=' tests/portability.bats)"
 for v in TP_DRIVE_ROOT TP_WINDOWS_USERS TP_GITBASH_HOME TP_AGENT_PROJECTS; do
-  eval "[ -n \"\${$v:-}\" ]" || { echo "$v did not load — the scan would be narrower than it claims"; false; }
+  eval "[ -n \"\${$v:-}\" ]" || { echo "$v did not load — the scan would be narrower than it claims"; exit 1; }
 done
 
-# Every needle and every control below is built from CHARACTER CODES. This file
-# lives under specs/, which the repository's own tree-wide scan reads, so a
-# literal machine path written here would make that scan red for ever.
-user="$(printf '%b' '\x68\x5f\x7a\x61\x68')"
-# THE UNION, not either list. tests/portability.bats deliberately does not
-# cover the forward-slash drive form — widening it there was measured and
-# rejected, because the general shape matches every URL in the repository.
-# This block's surface is small enough to carry it safely, and the first
-# derived-needle version of this block DROPPED it: Block 9 plants exactly
-# that shape, and the drill stayed green. Fixing two gaps opened a third.
+# THE UNION, not either list. tests/portability.bats deliberately does not cover
+# the forward-slash drive form — widening it there was measured and rejected,
+# because the general shape matches every URL in the repository. This block's
+# surface is small enough to carry it, and the first derived-needle version
+# DROPPED it: Block 9 plants exactly that shape and the drill stayed green.
 drivefwd="$(printf '%b' '\x44\x3a\x2f')"
-RE="$TP_DRIVE_ROOT|$TP_WINDOWS_USERS|$TP_GITBASH_HOME|$TP_AGENT_PROJECTS|$drivefwd|$user"
+RE="$TP_DRIVE_ROOT|$TP_WINDOWS_USERS|$TP_GITBASH_HOME|$TP_AGENT_PROJECTS|$drivefwd"
+
+# NO USERNAME IS HARDCODED HERE, and that is a correction. An earlier version
+# encoded this machine's own username into this tracked file, hex-escaped — a
+# form built to slip past the very scans it was helping to run. That is worse
+# than the leak it was looking for, and a username reaching a public branch is
+# the one incident this repository's own guards record. A username leaks as
+# part of a PATH, and both path shapes above already cover that. For a bare
+# private term the git-ignored .leakwords list is the mechanism that exists,
+# and it is folded in when present.
+if [ -f .leakwords ]; then
+  extra="$(grep -v '^[[:space:]]*$' .leakwords | paste -sd'|' -)"
+  [ -n "$extra" ] && RE="$RE|$extra"
+fi
 
 ctl=0
 printf '%b\n' 'x \x44\x3a\x5c y'                        | grep -qE "$TP_DRIVE_ROOT"     && ctl=$((ctl+1))
 printf '%b\n' 'x \x43\x3a\x5cUsers\x5c y'               | grep -qE "$TP_WINDOWS_USERS"  && ctl=$((ctl+1))
 printf '%b\n' 'x \x2fc\x2fUsers\x2fbob y'               | grep -qE "$TP_GITBASH_HOME"   && ctl=$((ctl+1))
 printf '%b\n' 'x \x7e\x2f\x2eclaude\x2fprojects\x2fq y' | grep -qE "$TP_AGENT_PROJECTS" && ctl=$((ctl+1))
-printf '%b\n' 'x \x44\x3a\x2f y'                          | grep -qE "$drivefwd"           && ctl=$((ctl+1))
-printf 'x %s y\n' "$user"                               | grep -qE "$user"              && ctl=$((ctl+1))
-printf 'controls fired: %s/6\n' "$ctl"
-test "$ctl" -eq 6 || { echo "a control did not fire — the scan below would mean nothing"; false; }
+printf '%b\n' 'x \x44\x3a\x2f y'                        | grep -qE "$drivefwd"          && ctl=$((ctl+1))
+printf 'controls fired: %s/5\n' "$ctl"
+[ "$ctl" -eq 5 ] || { echo "a control did not fire — the scan below would mean nothing"; exit 1; }
 
-# The SPEC files only. The two modified files are covered by part 2, which
-# reads the lines this feature ADDS — and that distinction is load-bearing:
-# tests/helper.bash carries a pre-existing comment naming the mixed path
-# form with the identifying part elided. That is documentation, not a leak,
-# and scanning the whole file with the forward-slash needle reports it.
+# The SPEC files only. The two modified files are covered by part 2, which reads
+# the lines this feature ADDS — and that distinction is load-bearing:
+# tests/helper.bash carries a pre-existing comment naming the mixed path form
+# with the identifying part elided. That is documentation, not a leak, and
+# scanning the whole file with the forward-slash needle reports it.
 files="$(git ls-files --cached --others --exclude-standard \
            'specs/010-context-guard-coverage/*')"
 n="$(printf '%s\n' $files | grep -c .)"
 printf 'files to scan: %s\n' "$n"
-test "$n" -gt 0 || { echo "SCANNED NOTHING"; false; }
+[ "$n" -gt 0 ] || { echo "SCANNED NOTHING — refusing to report a pass"; exit 1; }
 
-hits="$(grep -nE "$RE" $files || true)"
+# `/dev/null` as a trailing operand, exactly as tests/portability.bats does.
+# With no file operands grep reads STDIN, so an empty list prints the same clean
+# zero a clean tree does — and a bare `false` in a guard does not stop a block
+# that has no `set -e`, so the guard above must exit, not merely report.
+hits="$(grep -nE "$RE" -- $files /dev/null || true)"
 printf 'hits: [%s]\n' "${hits:-none}"
+# Handed to part 2 through a FILE, because rule 1 of this document says each
+# block is run on its own and a variable does not survive that.
+tmp="${TMPDIR:-/tmp}"
+printf '%s' "$RE" > "$tmp/dk-scan-re"
 test -z "$hits"
 ```
 
@@ -232,11 +245,20 @@ the lines this feature **adds** to them — a tighter read of the same
 surface — reuse `$RE` from the block above, in the same shell:
 
 ```bash
+# Self-contained: it reads the needle set from the file the block above wrote,
+# rather than inheriting a variable. An earlier version said "in the same
+# shell", which contradicted this document's own first rule — and run the
+# documented way, $RE was empty, `grep -E ""` matched every line, and the block
+# went red naming a leak that did not exist.
+tmp="${TMPDIR:-/tmp}"
+[ -s "$tmp/dk-scan-re" ] || { echo "run the block above first — it writes the needle set"; exit 1; }
+RE="$(cat "$tmp/dk-scan-re")"
+
 git diff main -- tests/helper.bash handoff/tests/context-guard.bats \
-  | grep '^+' | grep -v '^+++' > "$TMPDIR/added.txt"
-printf 'added lines to scan: %s\n' "$(wc -l < "$TMPDIR/added.txt")"
-test -s "$TMPDIR/added.txt"
-hits="$(grep -nE "$RE" "$TMPDIR/added.txt" || true)"
+  | grep '^+' | grep -v '^+++' > "$tmp/added.txt"
+printf 'added lines to scan: %s\n' "$(wc -l < "$tmp/added.txt")"
+[ -s "$tmp/added.txt" ] || { echo "no added lines were read — that is not a pass"; exit 1; }
+hits="$(grep -nE "$RE" -- "$tmp/added.txt" /dev/null || true)"
 printf 'hits: [%s]\n' "${hits:-none}"
 test -z "$hits"
 ```
@@ -267,8 +289,14 @@ f="specs/010-context-guard-coverage/plan.md"
 # to be extracted and run on its own, and a variable set in one block is
 # gone in the next — so the one check that proves the tree was restored was
 # the one check that could not be run the documented way.
-git hash-object "$f" > "$TMPDIR/decoy-hash-before"
-cat "$TMPDIR/decoy-hash-before"
+# ${TMPDIR:-/tmp}, never a bare $TMPDIR. On most Linux shells TMPDIR is
+# UNSET, so the bare form wrote to /decoy-hash-before, failed with
+# permission denied, and the next line still planted a machine path in a
+# tracked file — leaving the restore check comparing against nothing. The
+# hook itself uses ${TMPDIR:-${TEMP:-/tmp}} for the same reason.
+tmp="${TMPDIR:-/tmp}"
+git hash-object "$f" > "$tmp/decoy-hash-before"
+cat "$tmp/decoy-hash-before"
 printf 'a decoy: \104\072/Github/somewhere\n' >> "$f"
 tail -1 "$f"
 echo "planted; now run Block 8 -- it MUST report a hit and exit non-zero"
@@ -283,7 +311,8 @@ f="specs/010-context-guard-coverage/plan.md"
 # octal escape above exists to avoid.
 sed '$d' "$f" > "$f.trimmed" && mv "$f.trimmed" "$f"
 printf 'hash restored? %s\n' "$(git hash-object "$f")"
-test "$(git hash-object "$f")" = "$(cat "$TMPDIR/decoy-hash-before")"
+tmp="${TMPDIR:-/tmp}"
+test "$(git hash-object "$f")" = "$(cat "$tmp/decoy-hash-before")"
 ```
 
 The decoy is built from octal escapes for the same reason the needles are: a
@@ -320,8 +349,13 @@ afterwards:
 Two of the seven carry an extra burden, because their behaviour is a **silent
 success** and inverting a status assertion proves nothing:
 
-- **The sweep test** must show the aged file gone **and** the fresh one kept.
-  Inverting only the first would pass against a run that deleted everything.
+- **The sweep test** must show the aged files gone **and** the ones inside the
+  threshold kept. Inverting only the first would pass against a run that
+  deleted everything. The shipped fixture plants a seven-day file that must
+  SURVIVE beside an eight-day file that must GO — measured as the only pair
+  that distinguishes `-mtime +7` from `+3` through `+6` — plus all three
+  swept name patterns, an aged file the patterns do not name, and an aged
+  directory that they do.
 - **The empty-readings test** must show the output is empty on a run that would
   otherwise have warned — the rig's other cases supply that contrast.
 
