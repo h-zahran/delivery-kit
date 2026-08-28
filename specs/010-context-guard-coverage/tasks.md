@@ -38,6 +38,10 @@ path — so inverting a status assertion proves nothing:
 - **The sweep test** asserts the aged file is gone **and** the fresh one kept.
   Inverting only the first would still pass against a run that deleted
   everything.
+  **What shipped is wider than this.** Review showed one-aged-plus-one-fresh
+  cannot tell `-mtime +7` from `+3` through `+6`. The test now straddles the
+  boundary with a seven-day file kept beside an eight-day file gone, and
+  covers all three swept name patterns rather than one.
 - **The empty-readings test** asserts the output is empty on a run whose rig
   would otherwise have warned.
 
@@ -85,6 +89,15 @@ rather than discovered mid-batch.
 ## Phase 4: User Story 2 — the quiet housekeeping and empty-input paths (P2)
 
 - [x] T011 [US2] Add the seven-day sweep test to `handoff/tests/context-guard.bats` (FR-004). Age one flag file past the threshold by setting its timestamp back, leave a second fresh, and **drive the guard to WARN** — the sweep runs only after the firing decision. Assert the aged file is **gone** and the fresh one **kept**; removal alone would also be satisfied by anything that cleared the directory. Red-first drill: invert the kept-file assertion, not only the removed one.
+  - **Shipped wider, after review.** The task as written is left above because
+    it is the record of what was asked. Two rounds of review found the
+    fixture it describes proves only that *an* age filter exists: measured,
+    `-mtime +0`/`+3`/`+4`/`+5`/`+6`/`+365` are all indistinguishable from
+    `+7` against one aged and one fresh file. The shipped test plants a
+    **seven-day** file that must survive beside an **eight-day** file that
+    must go — the only pair that separates `+7` from `+6` — and plants all
+    three swept name patterns, an aged file none of them name, and an aged
+    directory that one does. Every mutant listed above now goes red.
 - [x] T012 [US2] Add the empty-readings test to `handoff/tests/context-guard.bats` (FR-005). A transcript that **exists** and parses to nothing usable. Assert exit 0 and **empty output**, against a rig that would otherwise have warned. Red-first drill: invert the empty-output assertion.
 
 **Checkpoint**: the guard suite reports `1..55`.

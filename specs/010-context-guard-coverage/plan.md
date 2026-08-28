@@ -131,7 +131,7 @@ nothing new enters the strict-vocabulary surface as a tracked fixture.
 |---|---|---|---|
 | 1 | FR-001 | The guard falls back to its own working directory when the payload carries none | run from a directory with **no** configuration → silent |
 | 2 | FR-002 | It finds configuration at a repository root from **two levels** down | the same shape with **no repository** → silent |
-| 3 | FR-004 | The seven-day sweep removes an aged flag file | a **fresh** flag file survives the same run |
+| 3 | FR-004 | The seven-day sweep removes flags past the threshold, across all three swept name patterns | a **seven-day** flag, a fresh flag, an unnamed aged file and an aged directory all survive the same run |
 | 4 | FR-005 | A transcript yielding no readings exits quietly | — |
 | 5 | FR-006 | A payload with no session identifier still works | the flag is named for the **placeholder** |
 | 6 | FR-007 | The proportional threshold override changes behaviour | 99% → silent, 1% → warns |
