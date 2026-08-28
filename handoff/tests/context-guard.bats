@@ -151,11 +151,11 @@ load ../../tests/helper
   # instead misreport context, which is the failure this whole file exists to
   # prevent.
   t="$(transcript_with 10000 20000 30000 40000 50000)"
-  printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
 
   # Uncapped the median of the five is 30000, so every cap must report 30%.
   for lines in 1 3 5; do
-    export DELIVERY_KIT_MAX_BYTES="$(tail -n "$lines" "$t" | wc -c | tr -d ' ')"
+    export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" "$lines")"
     run_hook "$t" "capped$lines"
     [ "$status" -eq 0 ]
     [[ "$output" == *"30% of the 100000-token window"* ]]
@@ -171,8 +171,8 @@ load ../../tests/helper
   # the guard reports 900% and tells the user to raise windowTokens — turning
   # a loud failure into a silent one. The cap must never be able to do that.
   t="$(transcript_with 48000 48000 48000 48000 900000)"
-  printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
-  export DELIVERY_KIT_MAX_BYTES="$(tail -n 1 "$t" | wc -c | tr -d ' ')"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
+  export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" 1)"
 
   run_hook "$t" starvecap
   [ "$status" -eq 0 ]
@@ -189,8 +189,8 @@ load ../../tests/helper
   # median is 48000 (48%), starved it is 900000 and the guard reports 900%.
   t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
                        900000 900000 900000 900000 900000 900000)"
-  printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
-  export DELIVERY_KIT_MAX_BYTES="$(tail -n 8 "$t" | wc -c | tr -d ' ')"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
+  export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" 8)"
 
   run_hook "$t" starvewide
   [ "$status" -eq 0 ]
@@ -255,7 +255,7 @@ load ../../tests/helper
 }
 
 @test "reads thresholdPct from .delivery-kit.json" {
-  printf '{"contextGuard":{"thresholdPct":10}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"thresholdPct":10}'
   t="$(transcript_with 30000 30000 30000 30000 30000)"   # 15% of 200000
   run_hook "$t"
   echo "$output" | jq -e '.decision == "block"'
@@ -263,7 +263,7 @@ load ../../tests/helper
 }
 
 @test "reads windowTokens from .delivery-kit.json" {
-  printf '{"contextGuard":{"windowTokens":1000000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"   # 45% of 200000, 9% of 1000000
   run_hook "$t"
   [ "$status" -eq 0 ]
@@ -283,9 +283,8 @@ load ../../tests/helper
   # here too, so a parse that dropped the whole contextGuard object on the
   # unfamiliar maxBytes key could not pass.
   t="$(transcript_with 48000 48000 48000 48000 900000)"
-  cap="$(tail -n 1 "$t" | wc -c | tr -d ' ')"
-  printf '{"contextGuard":{"windowTokens":100000,"thresholdPct":1,"maxBytes":%s}}\n' "$cap" \
-    > "$TEST_DIR/.delivery-kit.json"
+  cap="$(bytes_of "$t" 1)"
+  write_config "$TEST_DIR/.delivery-kit.json" "$(printf '{"windowTokens":100000,"thresholdPct":1,"maxBytes":%s}' "$cap")"
 
   run_hook "$t" cfgcap
   [ "$status" -eq 0 ]
@@ -295,7 +294,7 @@ load ../../tests/helper
 }
 
 @test "an environment variable overrides the config file" {
-  printf '{"contextGuard":{"windowTokens":1000000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000}'
   export DELIVERY_KIT_WINDOW_TOKENS=200000
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t"
@@ -311,7 +310,7 @@ load ../../tests/helper
   # the same reason it isolates TMPDIR, so these four tests write a user-level
   # file without touching the real one — and without the real one reaching any
   # other test in this file.
-  printf '{"contextGuard":{"windowTokens":1000000}}\n' > "$HOME/.delivery-kit.json"
+  write_config "$HOME/.delivery-kit.json" '{"windowTokens":1000000}'
   t="$(transcript_with 450000 450000 450000 450000 450000)"
   run_hook "$t" userlevel
   [ "$status" -eq 0 ]
@@ -335,8 +334,8 @@ load ../../tests/helper
   # windowTokens and says nothing about thresholdPct, so the threshold in the
   # reason can only have come from the user file — and the window can only have
   # come from the repo file. One test, both halves observable.
-  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
-  printf '{"contextGuard":{"windowTokens":300000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$HOME/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":20}'
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":300000}'
   t="$(transcript_with 150000 150000 150000 150000 150000)"
   run_hook "$t" repowins
   [ "$status" -eq 0 ]
@@ -357,8 +356,8 @@ load ../../tests/helper
   # the environment winning is indistinguishable from the files never being
   # read at all, and this test would survive the deletion of the very line it
   # exists to cover.
-  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
-  printf '{"contextGuard":{"windowTokens":500000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$HOME/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":20}'
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":500000}'
   export DELIVERY_KIT_WINDOW_TOKENS=250000
   t="$(transcript_with 125000 125000 125000 125000 125000)"
   run_hook "$t" envwins
@@ -394,7 +393,7 @@ load ../../tests/helper
   # read at all. Drop the user-level read and the threshold assertion fails;
   # accept the zero and the window assertion fails, because 60000 of a zero
   # window is a division by zero that leaves pct empty and the guard silent.
-  printf '{"contextGuard":{"windowTokens":0,"thresholdPct":20}}\n' > "$HOME/.delivery-kit.json"
+  write_config "$HOME/.delivery-kit.json" '{"windowTokens":0,"thresholdPct":20}'
   t="$(transcript_with 60000 60000 60000 60000 60000)"
   run_hook "$t" badusercfg
   [ "$status" -eq 0 ]
@@ -424,7 +423,7 @@ load ../../tests/helper
   # threshold comparison then errors into `|| exit 0` — the guard gone for
   # the session. Only reachable as a quoted string, since bare 08 is not
   # valid JSON, but that is exactly how a human writes a padded number.
-  printf '{"contextGuard":{"windowTokens":"08"}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":"08"}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t"
   [ "$status" -eq 0 ]
@@ -438,7 +437,7 @@ load ../../tests/helper
   # threshold is the first thing a new user tries when checking the install.
   # The same floor bites a 1M-token window at any threshold, where 5% is
   # 50,000 tokens.
-  printf '{"contextGuard":{"thresholdPct":1}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"thresholdPct":1}'
   t="$(transcript_with 6000 6000 6000 6000 6000)"   # 3% of 200000 -> bucket 0
   run_hook "$t" low-threshold
   [ "$status" -eq 0 ]
@@ -452,7 +451,7 @@ load ../../tests/helper
   # reached means the guard never fires again. Nothing downstream can catch
   # this: the window-misconfiguration report added in Task 6 runs only after
   # the guard has already decided to fire.
-  printf '{"contextGuard":{"thresholdPct":450}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"thresholdPct":450}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t"
   [ "$status" -eq 0 ]
@@ -463,7 +462,7 @@ load ../../tests/helper
   # The point of the absolute tripwire: it is decidable from the transcript
   # alone, so a windowTokens that is wrong — or, here, invalid and discarded —
   # cannot silence it.
-  printf '{"contextGuard":{"windowTokens":0,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":0,"thresholdTokens":400000}'
   t="$(transcript_with 405000 405000 405000 405000 405000)"
   run_hook "$t" abswins
   [ "$status" -eq 0 ]
@@ -474,7 +473,7 @@ load ../../tests/helper
 @test "the absolute tripwire fires with the relative one unreachable" {
   # Proving the OR rather than assuming it: threshold 100% is not reachable
   # here, so only the absolute one can be responsible for the emission.
-  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":100,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":100,"thresholdTokens":400000}'
   t="$(transcript_with 405000 405000 405000 405000 405000)"
   run_hook "$t" absonly
   [ "$status" -eq 0 ]
@@ -483,7 +482,7 @@ load ../../tests/helper
 }
 
 @test "the relative tripwire fires with the absolute one unreachable" {
-  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":900000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":900000}'
   t="$(transcript_with 450000 450000 450000 450000 450000)"
   run_hook "$t" relonly
   [ "$status" -eq 0 ]
@@ -497,7 +496,7 @@ load ../../tests/helper
   # two tests above. The absolute one is named because it is the more specific
   # statement and the value the user set deliberately — and the percentage is
   # carried in the same sentence, so nothing is lost by the choice.
-  printf '{"contextGuard":{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":400000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":45,"thresholdTokens":400000}'
   t="$(transcript_with 500000 500000 500000 500000 500000)"
   run_hook "$t" bothcrossed
   [ "$status" -eq 0 ]
@@ -524,7 +523,7 @@ load ../../tests/helper
   #
   # This must be explicit rather than relying on other tests happening to leave
   # the value unset.
-  printf '{"contextGuard":{"windowTokens":200000,"thresholdPct":45}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000,"thresholdPct":45}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" unsetabs
   [ "$status" -eq 0 ]
@@ -533,7 +532,7 @@ load ../../tests/helper
 }
 
 @test "an invalid thresholdTokens leaves the guard armed on the relative rule" {
-  printf '{"contextGuard":{"windowTokens":200000,"thresholdPct":45,"thresholdTokens":"08"}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000,"thresholdPct":45,"thresholdTokens":"08"}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" badabs
   [ "$status" -eq 0 ]
@@ -583,7 +582,7 @@ load ../../tests/helper
   # suggestion must not read as a competing instruction at the moment the user
   # has least context to spare — so a test that only checked the text was
   # present would pass with it placed first, which is the failure.
-  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000}'
   t="$(transcript_with 300000 300000 300000 300000 300000)"
   run_hook "$t" deferred
   [ "$status" -eq 0 ]
@@ -602,7 +601,7 @@ load ../../tests/helper
   # model's context, which is consistent with the field rendering to the
   # terminal and is not evidence either way. Nothing in this design depends on
   # it being delivered, and no test may claim it is.
-  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000}'
   t="$(transcript_with 300000 300000 300000 300000 300000)"
   run_hook "$t" hedge
   [ "$status" -eq 0 ]
@@ -632,7 +631,7 @@ load ../../tests/helper
   # this project exists to prevent, sitting underneath the project itself. So
   # the warning now also goes out on the channel that is documented AND
   # observed, on every firing rather than only the rare misconfigured one.
-  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" nohedge
   [ "$status" -eq 0 ]
@@ -680,7 +679,7 @@ load ../../tests/helper
   # below — the negatives included — already fails against silence. Stated here
   # so the next reader does not re-derive it: a negated `jq -e` is not vacuous
   # on empty input, because 4 is not 0.
-  printf '{"contextGuard":{"windowTokens":200000}}\n' > "$TEST_DIR/.delivery-kit.json"
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000}'
   t="$(transcript_with 300000 300000 300000 300000 300000)"   # 150% -> bucket 30
   run_hook "$t" hedge-once
   [ "$status" -eq 0 ]
@@ -966,4 +965,264 @@ load ../../tests/helper
   distinct="$(printf '%s\n' "$medians" | sort -u | grep -c . || true)"
   [ "$distinct" -eq 1 ] || {
     echo "the median program disagrees:"; printf '%s\n' "$medians" | sort -u; false; }
+}
+
+@test "falls back to its own working directory when the payload carries none" {
+  # FR-001. Claude Code always supplies cwd, so no test in this file has ever
+  # reached the fallback — and the fallback is the line that runs on a real
+  # machine the day that field is renamed, dropped, or arrives empty. It is
+  # covered here for the same reason the subagent exit is: a path that only
+  # real users take is the one a suite must not leave to inspection.
+  #
+  # The payload omits cwd and keeps a VALID transcript. That pairing is
+  # load-bearing. Every payload in this file that omits cwd today also omits a
+  # usable transcript, so it dies two steps earlier at the transcript gate and
+  # never reaches the fallback at all — it would pass this test for the wrong
+  # reason, which is the failure this test exists to close.
+  #
+  # FR-003, and why there is no separate assertion for it: a payload that died
+  # at the gate exits silently. A warning therefore cannot be produced without
+  # having passed the gate, read the working directory, resolved the fallback
+  # and read the file beside it. The warning IS the proof that the
+  # configuration step was reached. An extra assertion would not be stricter,
+  # only redundant, and this paragraph is here to stop a later reader adding
+  # one.
+  #
+  # The guard reads $PWD, which belongs to the PROCESS. So the runs below move
+  # a CHILD shell into the directory under test. A plain `cd` here would move
+  # the harness itself and leave it standing inside a directory teardown is
+  # about to delete.
+  #
+  # The rig is 30000 against a configured 50000 — 60%, which fires — while the
+  # 200000-token DEFAULT reads the same transcript as 15% and stays silent.
+  # That gap is what makes the control below mean anything: a reading that
+  # fires on the defaults would warn from a directory holding nothing, and the
+  # pair would prove only that the guard runs.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+
+  mkdir -p "$TEST_DIR/beside"
+  write_config "$TEST_DIR/beside/.delivery-kit.json" '{"windowTokens":50000}'
+  payload="$(jq -nc --arg t "$t" '{transcript_path:$t, session_id:"wdfallback"}')"
+  run bash -c 'cd "$1" && exec bash "$2"' _ "$TEST_DIR/beside" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  # Naming the configured window, not merely blocking: the number can only have
+  # come from the file beside the process's own directory.
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+
+  # THE CONTROL. Same payload shape, same transcript, a directory holding no
+  # configuration. Without it, "warned" above is satisfied by the guard finding
+  # configuration anywhere at all. The status assertion is not decoration: a
+  # failed `cd` in the child would also produce empty output, and silence for
+  # that reason would fake this pass.
+  mkdir -p "$TEST_DIR/bare"
+  payload="$(jq -nc --arg t "$t" '{transcript_path:$t, session_id:"wdcontrol"}')"
+  run bash -c 'cd "$1" && exec bash "$2"' _ "$TEST_DIR/bare" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "finds configuration at the repository root when the working directory is below it" {
+  # FR-002. Claude Code's working directory is often a subdirectory of the
+  # repository, so the guard asks git for the root when nothing sits beside the
+  # working directory. Like the fallback above, this is a line every real user
+  # exercises and no test in this file has ever run.
+  #
+  # TWO levels below the root, not one. One level is explainable by a plain
+  # walk up to the parent, so a one-level test would stay green against an
+  # implementation that never asked git at all. Two levels is the cheapest
+  # depth that only a root query can answer.
+  #
+  # FR-003, and why there is no separate assertion for it: as in the test
+  # above, a payload that died at the transcript gate exits silently. A warning
+  # cannot be produced without having passed that gate and reached the
+  # configuration step, so the warning IS that proof. Nothing further is needed
+  # and a later reader should not add it.
+  #
+  # Same rig, same reason: 30000 reads as 60% under the configured 50000-token
+  # window and 15% under the 200000-token default. A reading that fired on the
+  # defaults would warn from anywhere and the control below would prove nothing.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+
+  mkdir -p "$TEST_DIR/repo/sub/deeper"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR/repo/sub/deeper" \
+    '{transcript_path:$t, session_id:"rootdisc", cwd:$c}')"
+  run bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  # The configured window in the message is the observable. Nothing beside the
+  # working directory could have supplied it: the only copy is at the root.
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+
+  # THE CONTROL. The same shape two levels deep, with no repository anywhere
+  # above it — the harness's own directory is a plain temporary tree, not a
+  # checkout, so git has nothing to answer with. This is what shows the root
+  # query did the work rather than some broader search: remove the repository
+  # and the warning goes away.
+  mkdir -p "$TEST_DIR/plain/sub/deeper"
+  write_config "$TEST_DIR/plain/.delivery-kit.json" '{"windowTokens":50000}'
+  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR/plain/sub/deeper" \
+    '{transcript_path:$t, session_id:"norepo", cwd:$c}')"
+  run bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "sweeps flag files older than seven days and keeps the fresh ones" {
+  # FR-004. One flag file per session accumulates in the temp directory
+  # forever, so the guard sweeps the old ones — and it does that on the rare
+  # path that has just written a flag, which keeps the cost off every tool
+  # call.
+  #
+  # THAT POSITION IS WHY THIS TEST DRIVES THE GUARD TO WARN. The sweep sits
+  # AFTER the firing decision, not on every invocation. A test that aged a flag
+  # and then ran the guard below every threshold would observe nothing, and
+  # would then have to assert that nothing happened — passing for the wrong
+  # reason, against a sweep that had never run at all.
+  #
+  # The stamp is a fixed past date rather than a relative expression: the
+  # relative form is not portable to every runner this suite is run on, and a
+  # fixed date in the past only ever gets older, so it cannot go stale in the
+  # direction that hurts.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
+  printf '9\n' > "$TMPDIR/ctx-warned-ancient"
+  printf '9\n' > "$TMPDIR/ctx-warned-recent"
+  touch -t 202001010000 "$TMPDIR/ctx-warned-ancient"
+  [ -f "$TMPDIR/ctx-warned-ancient" ]
+  [ -f "$TMPDIR/ctx-warned-recent" ]
+
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  run_hook "$t" sweeper
+  [ "$status" -eq 0 ]
+  # Asserted before the two files, so a failure says which half broke. Without
+  # the emission the sweep never runs and both file assertions would be
+  # reporting on a guard that exited early.
+  echo "$output" | jq -e '.decision == "block"'
+
+  # BOTH HALVES ARE REQUIRED. Removal alone is equally satisfied by anything
+  # that cleared the directory, so the fresh file surviving is what shows the
+  # age filter is the thing that acted.
+  [ ! -f "$TMPDIR/ctx-warned-ancient" ]
+  [ -f "$TMPDIR/ctx-warned-recent" ]
+}
+
+@test "a transcript that exists but yields no readings leaves the guard silent" {
+  # FR-005. The transcript gate two steps earlier catches a missing or empty
+  # path. This is the other shape: a file that EXISTS, is readable, and parses
+  # to nothing the median can use — a plain-text line, and a message carrying no
+  # usage block. Claude Code writes lines of both kinds, so an ingestion change
+  # that started counting them would be reported by this test and by nothing
+  # else in this file.
+  #
+  # THIS IS A SILENT SUCCESS, so exit status proves nothing on its own: the
+  # guard exits 0 on almost every path it takes. The assertion that carries the
+  # test is the EMPTY OUTPUT, and it only means something against a rig that
+  # would otherwise have warned — which is why the contrast run below is part
+  # of the test rather than a separate one.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
+
+  t="$TEST_DIR/no-readings.jsonl"
+  printf 'not JSON at all, just a line of text\n' > "$t"
+  printf '{"message":{"role":"assistant","content":"no usage block here"}}\n' >> "$t"
+  [ -f "$t" ]
+  run_hook "$t" noreadings
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # THE CONTRAST. The same configuration, the same directory, the same helper —
+  # only the transcript differs. It warns. So the silence above is the absence
+  # of usable readings and not a rig that could never have fired.
+  t2="$(transcript_with 90000 90000 90000 90000 90000)"
+  run_hook "$t2" wouldhavewarned
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+}
+
+@test "a payload with no session identifier warns and files its flag under the placeholder" {
+  # FR-006. The guard substitutes the literal placeholder when the payload
+  # carries no session identifier. Nothing in this file has ever sent such a
+  # payload, and the substitution is what keeps the once-per-bucket rule
+  # working at all — without it the flag path would collapse to a bare prefix.
+  #
+  # THE FILENAME IS THE ASSERTION, and that choice is the whole point of this
+  # test. Asserting only that the guard warned, or that it did not crash, is
+  # nearly unfalsifiable: the guard warns on this rig whatever it puts in the
+  # path. The flag file's NAME is the only externally visible proof that the
+  # substitution happened, so it is what this test reads.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+
+  # Built here rather than through the shared helper: that helper always
+  # supplies a session identifier, which is exactly the field under test.
+  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR" '{transcript_path:$t, cwd:$c}')"
+  run bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  [ -f "$TMPDIR/ctx-warned-unknown" ]
+}
+
+@test "the proportional threshold setting decides whether the guard fires, and words itself as a percentage" {
+  # FR-007, behaviourally. This file already has a test that reads a
+  # documentation snippet and counts the environment variable names it
+  # mentions. That test proves the documentation lists four names. It runs the
+  # guard not at all, so it is not evidence about this setting — see FR-009.
+  #
+  # The rig is 90000 against a 100000-token window, so context sits at 90%.
+  # That is comfortably above one setting below and comfortably below the
+  # other, so the outcome of each run is decided by the setting under test and
+  # by nothing else.
+  #
+  # THE WORDING IS ASSERTED, not merely the firing. The guard has two
+  # tripwires, and "something warned" does not say which one. The proportional
+  # path words itself as a percentage OF THE WINDOW and never mentions a limit;
+  # the absolute path is the other way round. Reading that difference is what
+  # makes this a test of this setting.
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+
+  # Above the reading: silent.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":99}'
+  run_hook "$t" pctsilent
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # Below the reading: fires, and says so as a percentage of the window.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
+  run_hook "$t" pctfires
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 90% of the 100000-token window \\(threshold 1%\\)")'
+  echo "$output" | jq -e '.reason | test("limit") | not'
+}
+
+@test "the absolute threshold setting decides whether the guard fires, and words itself as a token count" {
+  # FR-008, behaviourally, and the same rig as the test above: 90000 against a
+  # 100000-token window, so context sits at 90%.
+  #
+  # THE PROPORTIONAL THRESHOLD IS PINNED AT 99 IN BOTH RUNS, and that pin is
+  # what makes this a test of the absolute setting. Left at its default of 45
+  # the proportional tripwire fires first at 90%, and both runs below would
+  # warn — the firing one for the wrong reason, and the test would stay green
+  # with the absolute setting doing nothing whatsoever.
+  #
+  # THE WORDING IS ASSERTED. The absolute path names a token count past a token
+  # limit and carries the percentage in the same sentence; the proportional
+  # path names only the percentage. Reading that difference is what proves
+  # which tripwire fired.
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+
+  # Above the reading: silent. Neither tripwire is reachable.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":99,"thresholdTokens":999999}'
+  run_hook "$t" abssilent
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # Below the reading: fires, and says so as a token count past a token limit.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":99,"thresholdTokens":50000}'
+  run_hook "$t" absfires
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 90000 tokens, past the 50000-token limit")'
+  echo "$output" | jq -e '.reason | test("90% of the 100000-token window")'
 }
