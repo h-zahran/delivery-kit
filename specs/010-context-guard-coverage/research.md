@@ -87,14 +87,16 @@ the only thing that can answer.
 | Flag file | Age | After a run that **warned** |
 |---|---|---|
 | an old flag | 30 days | **removed** |
-
-**The shipped fixture is wider than this measurement.** The rows above record
-what was driven at Phase D and are left as they were driven. Review showed the
-pair they describe cannot tell `-mtime +7` from `+3` through `+6`, so the test
-now plants a **seven-day** file that must survive beside an eight-day file that
-must go — the only pair that distinguishes them — and covers all three swept
-name patterns rather than one.
 | a fresh flag | seconds | **kept** |
+
+**The shipped fixture is wider than this measurement.** The two rows above
+record what was driven at Phase D and are left as they were driven. Review
+showed the pair they describe cannot tell `-mtime +7` from `+3` through `+6`,
+so the test now straddles the boundary with files just inside and just outside
+it, stamped from EPOCH seconds rather than wall clock — a wall-clock stamp is
+an hour short across a daylight-saving shift, and the outer file then survives.
+It also covers all three swept name patterns on both sides, the file-type
+filter and the depth limit.
 
 Both halves are required. Removal alone would also be satisfied by something
 deleting the whole directory; the fresh file surviving is what shows the age

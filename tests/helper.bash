@@ -148,17 +148,66 @@ transcript_with() {
   printf '%s' "$f"
 }
 
-# hook_input <transcript_path> [session_id] -> prints the stdin payload
+# hook_input [--no-cwd] [--cwd <dir>] [--no-session] <transcript_path> [session_id]
+#   -> prints the stdin payload
+#
+# The payload SHAPE is written down once, here. The three flags exist because
+# the coverage tests need payloads this function could not previously express
+# — one with no working directory, one with a working directory that is not
+# $TEST_DIR, and one with no session identifier — and each of them was
+# hand-rolled as its own inline jq call instead. Five literal payload
+# constructions is the same duplication write_config was added to remove, one
+# field over: when Claude Code renames or adds a field, this function is
+# updated and hand-rolled copies silently keep sending the old shape while
+# their tests still pass.
+#
+# Keys are DELETED after the object is built rather than assembled
+# conditionally, so there is exactly one place the shape is spelled out.
 hook_input() {
-  jq -nc --arg t "$1" --arg s "${2:-test-session}" --arg c "$TEST_DIR" \
-    '{transcript_path:$t, session_id:$s, cwd:$c}'
+  local cwd="$TEST_DIR" drop_cwd=0 drop_session=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --no-cwd)     drop_cwd=1; shift ;;
+      --cwd)        cwd="$2"; shift 2 ;;
+      --no-session) drop_session=1; shift ;;
+      *)            break ;;
+    esac
+  done
+  jq -nc --arg t "$1" --arg s "${2:-test-session}" --arg c "$cwd" \
+     --argjson dc "$drop_cwd" --argjson ds "$drop_session" \
+    '{transcript_path:$t, session_id:$s, cwd:$c}
+     | if $dc == 1 then del(.cwd) else . end
+     | if $ds == 1 then del(.session_id) else . end'
 }
 
-# run_hook <transcript_path> [session_id]
+# run_hook [hook_input flags] <transcript_path> [session_id]
 run_hook() {
   local payload
   payload="$(hook_input "$@")"
   run bash "$HOOK" <<< "$payload"
+}
+
+# run_hook_from <dir> [hook_input flags] <transcript_path> [session_id]
+#
+# Runs the guard with <dir> as the PROCESS working directory, which is what
+# the cwd fallback reads when the payload carries no working directory of its
+# own. Almost always used with --no-cwd.
+#
+# THE CHILD MOVES, NOT THE HARNESS, and that is the whole reason this is a
+# function. A plain `cd` in a test leaves bats standing inside a directory
+# teardown is about to delete — which on this platform fails rather than
+# succeeding quietly, and fails in teardown, where the message points at the
+# wrong thing. The rule was written in a comment at one call site and copied
+# to a second without it; a third copy would have carried neither.
+#
+# `exec` so the guard is the same process the cd applied to, and positional
+# arguments rather than an interpolated script, so a path can never be read
+# as shell.
+run_hook_from() {
+  local dir="$1" payload
+  shift
+  payload="$(hook_input "$@")"
+  run bash -c 'cd "$1" || exit 99; exec bash "$2"' _ "$dir" "$HOOK" <<< "$payload"
 }
 
 # write_config <path> <body> — writes {"contextGuard":<body>} to <path>.
@@ -209,6 +258,15 @@ run_hook() {
 # Measured before adding: no existing call site trips any of the three.
 write_config() {
   [ "$#" -eq 2 ] || { printf 'write_config needs <path> <body>, got %s\n' "$#" >&2; return 1; }
+  # A FOURTH MISUSE, found only after the first three were closed: an EMPTY
+  # body passes all of them — it is two arguments, it does not start with a
+  # brace, and it carries no guard key. It writes {"contextGuard":}, which
+  # does not parse, so every jq read in the hook returns empty under its
+  # 2>/dev/null and the guard runs on its defaults. That is the exact
+  # false-green the other three exist to stop, reached by the one route they
+  # left open. A body arrives empty whenever an earlier substitution
+  # produced nothing, which is a normal way for a fixture to break.
+  [ -n "$2" ] || { printf 'write_config: the body is empty; that writes invalid JSON the guard ignores\n' >&2; return 1; }
   case "$1" in
     '{'*) printf 'write_config: the path looks like a body — arguments swapped?\n' >&2; return 1 ;;
   esac

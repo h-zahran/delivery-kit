@@ -999,10 +999,11 @@ load ../../tests/helper
   # only redundant, and this paragraph is here to stop a later reader adding
   # one.
   #
-  # The guard reads $PWD, which belongs to the PROCESS. So the runs below move
-  # a CHILD shell into the directory under test. A plain `cd` here would move
-  # the harness itself and leave it standing inside a directory teardown is
-  # about to delete.
+  # The guard reads $PWD, which belongs to the PROCESS, so the runs below move
+  # a CHILD shell into the directory under test. That rule now lives in
+  # run_hook_from rather than in a comment at each call site — it was written
+  # here once and copied to the repository-root test without it, and a third
+  # copy would have carried neither.
   #
   # The rig is 30000 against a configured 50000 — 60%, which fires — while the
   # 200000-token DEFAULT reads the same transcript as 15% and stays silent.
@@ -1013,8 +1014,7 @@ load ../../tests/helper
 
   mkdir -p "$TEST_DIR/beside"
   write_config "$TEST_DIR/beside/.delivery-kit.json" '{"windowTokens":50000}'
-  payload="$(jq -nc --arg t "$t" '{transcript_path:$t, session_id:"wdfallback"}')"
-  run bash -c 'cd "$1" && exec bash "$2"' _ "$TEST_DIR/beside" "$HOOK" <<< "$payload"
+  run_hook_from "$TEST_DIR/beside" --no-cwd "$t" wdfallback
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   # Naming the configured window, not merely blocking: the number can only have
@@ -1027,8 +1027,7 @@ load ../../tests/helper
   # failed `cd` in the child would also produce empty output, and silence for
   # that reason would fake this pass.
   mkdir -p "$TEST_DIR/bare"
-  payload="$(jq -nc --arg t "$t" '{transcript_path:$t, session_id:"wdcontrol"}')"
-  run bash -c 'cd "$1" && exec bash "$2"' _ "$TEST_DIR/bare" "$HOOK" <<< "$payload"
+  run_hook_from "$TEST_DIR/bare" --no-cwd "$t" wdcontrol
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -1058,9 +1057,7 @@ load ../../tests/helper
   mkdir -p "$TEST_DIR/repo/sub/deeper"
   git -C "$TEST_DIR/repo" init -q
   write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
-  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR/repo/sub/deeper" \
-    '{transcript_path:$t, session_id:"rootdisc", cwd:$c}')"
-  run bash "$HOOK" <<< "$payload"
+  run_hook --cwd "$TEST_DIR/repo/sub/deeper" "$t" rootdisc
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   # The configured window in the message is the observable. Nothing beside the
@@ -1074,9 +1071,15 @@ load ../../tests/helper
   # and the warning goes away.
   mkdir -p "$TEST_DIR/plain/sub/deeper"
   write_config "$TEST_DIR/plain/.delivery-kit.json" '{"windowTokens":50000}'
-  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR/plain/sub/deeper" \
-    '{transcript_path:$t, session_id:"norepo", cwd:$c}')"
-  run bash "$HOOK" <<< "$payload"
+  # THE PRECONDITION IS ASSERTED, not assumed. This control means nothing if
+  # the harness directory happens to sit inside a checkout, and it can: the
+  # directory comes from mktemp against the ambient temp path, which a
+  # developer may legitimately point at a repo-local scratch directory. Then
+  # git DOES answer, the root query DOES run, and the silence below would come
+  # from that root's configuration carrying no guard key rather than from the
+  # query finding nothing — the control passing while proving the opposite.
+  ! git -C "$TEST_DIR/plain" rev-parse --show-toplevel >/dev/null 2>&1
+  run_hook --cwd "$TEST_DIR/plain/sub/deeper" "$t" norepo
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -1093,63 +1096,68 @@ load ../../tests/helper
   # would then have to assert that nothing happened — passing for the wrong
   # reason, against a sweep that had never run at all.
   #
-  # THE FIXTURE PINS THE BOUNDARY, NOT MERELY "AN AGE FILTER", and getting that
-  # right took two attempts. The first version planted one ancient file and one
-  # fresh one, against which -mtime +0, +7 and +365 are indistinguishable. The
-  # second used three days and eight days, and review showed that is still not
-  # the boundary: measured with find, +3, +4, +5 and +6 all delete the same set
-  # as +7 does, because a three-day file survives every one of them.
+  # THE FIXTURE PINS THE BOUNDARY, and getting there took three attempts, each
+  # corrected by measurement rather than argument:
   #
-  # SEVEN AND EIGHT ARE THE ONLY PAIR THAT STRADDLES IT. Measured:
+  #   one ancient + one fresh  — +0, +7 and +365 are indistinguishable.
+  #   three days + eight days  — +3, +4, +5 and +6 all match +7, because a
+  #                              three-day file survives every one of them.
+  #   SEVEN-ish + EIGHT-ish    — only +7 keeps the first and takes the second.
   #
-  #     -mtime +6  deletes the 7-day file AND the 8-day file
-  #     -mtime +7  deletes the 8-day file and KEEPS the 7-day file
-  #     -mtime +8  deletes neither
+  # AND THE STAMPS ARE COMPUTED FROM EPOCH SECONDS, NOT WALL CLOCK. `date -d '8
+  # days ago'` returns a local wall-clock stamp, so across a spring-forward the
+  # file it stamps is 191 real hours old rather than 192 — and find floors 191h
+  # to seven periods, while `-mtime +7` needs strictly more than seven. The file
+  # would SURVIVE, and the assertion that it is gone would go red, for the eight
+  # days after each transition on any machine whose zone observes DST. CI runs
+  # in UTC and would never show it. Measured, not feared: a file stamped 191
+  # hours back is not deleted by `-mtime +7`.
   #
-  # So "seven kept, eight gone" is true of +7 and of no other setting. It is
-  # what makes the name of this test checkable.
-  #
-  # The stamps are computed through both date dialects, because this suite runs
-  # on Linux, macOS and Windows runners: GNU takes -d "N days ago", BSD takes
-  # -v-Nd.
-  seven="$(date -d '7 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-7d +%Y%m%d%H%M)"
-  eight="$(date -d '8 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-8d +%Y%m%d%H%M)"
+  # Mid-band is the fix: 7.5 days (648000s) and 8.5 days (734400s). Measured to
+  # discriminate identically — +6 takes both, +7 takes only the outer one, +8
+  # takes neither — with twelve hours of slack against a one-hour shift either
+  # way. Both dialects are covered: GNU takes -d @EPOCH, BSD takes -r EPOCH.
+  now_s="$(date +%s)"
+  inside="$(date -d "@$(( now_s - 648000 ))" +%Y%m%d%H%M 2>/dev/null || date -r "$(( now_s - 648000 ))" +%Y%m%d%H%M)"
+  outside="$(date -d "@$(( now_s - 734400 ))" +%Y%m%d%H%M 2>/dev/null || date -r "$(( now_s - 734400 ))" +%Y%m%d%H%M)"
   now="$(date +%Y%m%d%H%M)"
-  # A LENGTH CHECK WOULD NOT DO. Review found the previous one could not catch
-  # either failure it named: if both dialects fail the assignment itself aborts
-  # under errexit before any guard runs, and a date that ignored the offset and
-  # printed the current time is twelve characters long and passes. These
-  # compare instead — the stamps are zero-padded, so string order is time
-  # order — and a date that ignored the offset makes them equal to now.
-  [ "$eight" \< "$seven" ]
-  [ "$seven" \< "$now" ]
+  # ORDER, not length. A length check catches neither failure it would claim: a
+  # stamp that came back empty aborts at the assignment under errexit before any
+  # guard runs, and a date that ignored its offset returns twelve characters and
+  # passes. These cannot both hold unless the offsets were applied.
+  [ "$outside" \< "$inside" ]
+  [ "$inside" \< "$now" ]
 
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
 
-  # ALL THREE SWEPT NAME PATTERNS, not just the obvious one. The hook sweeps
-  # ctx-warned-*, dk-window-warned-* and dk-jq-hint, and its own comment says
-  # dk-jq-hint is the one that HAS to be swept: it is global rather than
-  # per-session, so nothing else would ever remove it, and a user who fixes jq
-  # and later loses it again would get a silently dead guard and no second
-  # hint. With only ctx-warned-* planted, deleting either of the other two
-  # clauses from the hook left this whole suite green.
+  # ALL THREE SWEPT NAME PATTERNS, on BOTH sides. The hook sweeps ctx-warned-*,
+  # dk-window-warned-* and dk-jq-hint, and its own comment argues dk-jq-hint is
+  # the one that HAS to be swept: it is global rather than per-session, so
+  # nothing else would ever remove it, and a user who fixes jq and later loses
+  # it again would get a silently dead guard and no second hint. Planting only
+  # ctx-warned-* left the suite green with either of the other clauses deleted.
   printf '9\n' > "$TMPDIR/ctx-warned-ancient"
-  printf '9\n' > "$TMPDIR/ctx-warned-eightdays"
-  printf '9\n' > "$TMPDIR/ctx-warned-sevendays"
+  printf '9\n' > "$TMPDIR/ctx-warned-just-outside"
+  printf '9\n' > "$TMPDIR/ctx-warned-just-inside"
   printf '9\n' > "$TMPDIR/ctx-warned-recent"
   printf '9\n' > "$TMPDIR/dk-window-warned-ancient"
+  printf '9\n' > "$TMPDIR/dk-window-warned-fresh"
   : > "$TMPDIR/dk-jq-hint"
-  # And one aged file the patterns do NOT name, plus an aged DIRECTORY that one
-  # of them does. Both must survive: the first shows the sweep is bounded by
-  # name rather than clearing whatever is old, the second pins the -type f the
-  # hook comments on.
+  # An aged file no pattern names, and an aged DIRECTORY that one does: the
+  # first shows the sweep is bounded by name rather than clearing whatever is
+  # old, the second pins the -type f the hook comments on.
   printf '9\n' > "$TMPDIR/unrelated-ancient"
   mkdir -p "$TMPDIR/ctx-warned-adirectory"
+  # And an aged flag one level DOWN, which pins -maxdepth 1. Without it the
+  # sweep would walk into per-session subdirectories under the temp directory
+  # and delete flags it was never meant to reach.
+  mkdir -p "$TMPDIR/sub"
+  printf '9\n' > "$TMPDIR/sub/ctx-warned-nested"
   touch -t 202001010000 "$TMPDIR/ctx-warned-ancient" "$TMPDIR/dk-window-warned-ancient" \
                         "$TMPDIR/dk-jq-hint" "$TMPDIR/unrelated-ancient" \
-                        "$TMPDIR/ctx-warned-adirectory"
-  touch -t "$eight" "$TMPDIR/ctx-warned-eightdays"
-  touch -t "$seven" "$TMPDIR/ctx-warned-sevendays"
+                        "$TMPDIR/ctx-warned-adirectory" "$TMPDIR/sub/ctx-warned-nested"
+  touch -t "$outside" "$TMPDIR/ctx-warned-just-outside"
+  touch -t "$inside" "$TMPDIR/ctx-warned-just-inside"
 
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" sweeper
@@ -1159,20 +1167,39 @@ load ../../tests/helper
   # reporting on a guard that exited early.
   echo "$output" | jq -e '.decision == "block"'
 
-  # Past the threshold: gone.
+  # Past the threshold: gone. All three name patterns.
   [ ! -f "$TMPDIR/ctx-warned-ancient" ]
-  [ ! -f "$TMPDIR/ctx-warned-eightdays" ]
+  [ ! -f "$TMPDIR/ctx-warned-just-outside" ]
   [ ! -f "$TMPDIR/dk-window-warned-ancient" ]
   [ ! -f "$TMPDIR/dk-jq-hint" ]
 
-  # Inside the threshold, or not named by it: kept. Removal alone is equally
-  # satisfied by anything that cleared the directory, so these four are what
-  # show the age filter and the name filter are the things that acted. The
-  # seven-day file is the one that pins the number: -mtime +6 would take it.
-  [ -f "$TMPDIR/ctx-warned-sevendays" ]
+  # Inside the threshold, or out of the sweep's reach: kept. Removal alone is
+  # equally satisfied by anything that cleared the directory, so these are what
+  # show the age filter, the name filter, the file-type filter and the depth
+  # limit are the things that acted. The just-inside file is the one that pins
+  # the number: -mtime +6 would take it.
+  [ -f "$TMPDIR/ctx-warned-just-inside" ]
   [ -f "$TMPDIR/ctx-warned-recent" ]
+  [ -f "$TMPDIR/dk-window-warned-fresh" ]
   [ -f "$TMPDIR/unrelated-ancient" ]
   [ -d "$TMPDIR/ctx-warned-adirectory" ]
+  [ -f "$TMPDIR/sub/ctx-warned-nested" ]
+
+  # THE GLOBAL HINT'S KEPT SIDE NEEDS A SECOND RUN, because dk-jq-hint is one
+  # fixed filename: a single run can show it aged-and-removed or fresh-and-kept,
+  # never both. Without this, moving it out of the -mtime group and deleting it
+  # unconditionally would leave the suite green — and that would silently break
+  # the once-per-outage contract the hook's comment describes.
+  #
+  # A HIGHER BUCKET is what makes the guard fire again: the once-per-bucket rule
+  # suppresses a second warning at the same 5% step, and a run that does not
+  # warn does not sweep. 90% is bucket 18; 99% is bucket 19.
+  : > "$TMPDIR/dk-jq-hint"
+  t2="$(transcript_with 99000 99000 99000 99000 99000)"
+  run_hook "$t2" sweeper
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  [ -f "$TMPDIR/dk-jq-hint" ]
 }
 
 @test "a transcript that exists but yields no readings leaves the guard silent" {
@@ -1193,7 +1220,14 @@ load ../../tests/helper
   t="$TEST_DIR/no-readings.jsonl"
   printf 'not JSON at all, just a line of text\n' > "$t"
   printf '{"message":{"role":"assistant","content":"no usage block here"}}\n' >> "$t"
-  [ -f "$t" ]
+  # THE PREMISE, ASSERTED. The `[ -f "$t" ]` this replaces could not fail: the
+  # two redirections above create the file, and a failed redirection aborts
+  # under errexit before any check runs. It read as a guard while guarding
+  # nothing. What actually matters is that the file is NON-EMPTY and carries
+  # no usable reading — which is what makes the silence below meaningful, and
+  # which a fixture edit could genuinely break.
+  [ -s "$t" ]
+  ! grep -q 'input_tokens' "$t"
   run_hook "$t" noreadings
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -1221,10 +1255,10 @@ load ../../tests/helper
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
   t="$(transcript_with 90000 90000 90000 90000 90000)"
 
-  # Built here rather than through the shared helper: that helper always
-  # supplies a session identifier, which is exactly the field under test.
-  payload="$(jq -nc --arg t "$t" --arg c "$TEST_DIR" '{transcript_path:$t, cwd:$c}')"
-  run bash "$HOOK" <<< "$payload"
+  # --no-session, rather than a hand-rolled payload. The shared builder could
+  # not express this shape when the test was written, which is why it was
+  # hand-rolled; it can now, and the payload shape stays written down once.
+  run_hook --no-session "$t"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   [ -f "$TMPDIR/ctx-warned-unknown" ]
