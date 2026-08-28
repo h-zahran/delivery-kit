@@ -26,8 +26,10 @@ configuration. A helper that hardcoded the repository path could not express
 them at all — it would have to leave four sites unconverted, or silently write
 the wrong file and break the very test that checks precedence.
 
-**The body**, because there are **nineteen distinct bodies** across those
-sites. What repeats is the wrapper, not the setting. Several bodies
+**The body**, because there are **eighteen distinct bodies** across the sites
+the helper converts — nineteen exist in the suite, and the nineteenth belongs
+to the patch-file site that is deliberately not converted. What repeats is the
+wrapper, not the setting. Several bodies
 are deliberately *invalid* — a leading-zero number, a zero window, an
 out-of-range threshold — because they test the validator. A helper that
 normalised or reconstructed the body would quietly repair exactly the inputs
@@ -50,8 +52,15 @@ calling and the helper is unchanged:
 
 ```
 cap="$(bytes_of "$t" 1)"
-write_config "$TEST_DIR/.delivery-kit.json" "{\"windowTokens\":100000,\"maxBytes\":$cap}"
+write_config "$TEST_DIR/.delivery-kit.json" \
+  "$(printf '{"windowTokens":100000,"thresholdPct":1,"maxBytes":%s}' "$cap")"
 ```
+
+The example above is the shape actually shipped. An earlier draft showed the
+same body written with escaped inner quotes; both interpolate before calling,
+which is the property this section asserts, but the document and the code
+should not disagree about the one site the document singles out — and a
+`printf` template reads better than a line of backslash-escaped quotes.
 
 Measured: this site converts cleanly and needs no exception. (FR-012a first
 guessed this would be the third exception. It is not — the third is a site whose

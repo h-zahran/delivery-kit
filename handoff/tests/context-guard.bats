@@ -155,7 +155,8 @@ load ../../tests/helper
 
   # Uncapped the median of the five is 30000, so every cap must report 30%.
   for lines in 1 3 5; do
-    export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" "$lines")"
+    cap="$(bytes_of "$t" "$lines")"
+    export DELIVERY_KIT_MAX_BYTES="$cap"
     run_hook "$t" "capped$lines"
     [ "$status" -eq 0 ]
     [[ "$output" == *"30% of the 100000-token window"* ]]
@@ -172,7 +173,8 @@ load ../../tests/helper
   # a loud failure into a silent one. The cap must never be able to do that.
   t="$(transcript_with 48000 48000 48000 48000 900000)"
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
-  export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" 1)"
+  cap="$(bytes_of "$t" 1)"
+  export DELIVERY_KIT_MAX_BYTES="$cap"
 
   run_hook "$t" starvecap
   [ "$status" -eq 0 ]
@@ -190,7 +192,8 @@ load ../../tests/helper
   t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
                        900000 900000 900000 900000 900000 900000)"
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000,"thresholdPct":1}'
-  export DELIVERY_KIT_MAX_BYTES="$(bytes_of "$t" 8)"
+  cap="$(bytes_of "$t" 8)"
+  export DELIVERY_KIT_MAX_BYTES="$cap"
 
   run_hook "$t" starvewide
   [ "$status" -eq 0 ]
@@ -1082,30 +1085,73 @@ load ../../tests/helper
   # would then have to assert that nothing happened — passing for the wrong
   # reason, against a sweep that had never run at all.
   #
-  # The stamp is a fixed past date rather than a relative expression: the
-  # relative form is not portable to every runner this suite is run on, and a
-  # fixed date in the past only ever gets older, so it cannot go stale in the
-  # direction that hurts.
+  # THE FIXTURE PINS THE BOUNDARY, NOT MERELY "AN AGE FILTER". The first
+  # version of this test planted one ancient file and one fresh one, and review
+  # showed that -mtime +0, +7 and +365 all produce identical results against
+  # that pair: the ancient file goes under every one of them and the fresh file
+  # survives every one of them. It proved a filter existed while its name
+  # claimed seven days. Three days and eight days are the two readings that
+  # actually straddle the threshold — three must SURVIVE, which kills every
+  # setting below the real one, and eight must GO, which kills every setting
+  # above it.
+  #
+  # The relative stamps are computed through both date dialects because this
+  # suite runs on Linux, macOS and Windows runners: GNU takes -d "N days ago",
+  # BSD takes -v-Nd. The length assertion is the guard — a stamp that came back
+  # empty would make touch error for a reason the test did not name.
+  three="$(date -d '3 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-3d +%Y%m%d%H%M)"
+  eight="$(date -d '8 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-8d +%Y%m%d%H%M)"
+  [ "${#three}" -eq 12 ]
+  [ "${#eight}" -eq 12 ]
+
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
+
+  # ALL THREE SWEPT NAME PATTERNS, not just the obvious one. The hook sweeps
+  # ctx-warned-*, dk-window-warned-* and dk-jq-hint, and its own comment says
+  # dk-jq-hint is the one that HAS to be swept: it is global rather than
+  # per-session, so nothing else would ever remove it, and a user who fixes jq
+  # and later loses it again would get a silently dead guard and no second
+  # hint. With only ctx-warned-* planted, deleting either of the other two
+  # clauses from the hook left this whole suite green.
   printf '9\n' > "$TMPDIR/ctx-warned-ancient"
+  printf '9\n' > "$TMPDIR/ctx-warned-eightdays"
+  printf '9\n' > "$TMPDIR/ctx-warned-threedays"
   printf '9\n' > "$TMPDIR/ctx-warned-recent"
-  touch -t 202001010000 "$TMPDIR/ctx-warned-ancient"
-  [ -f "$TMPDIR/ctx-warned-ancient" ]
-  [ -f "$TMPDIR/ctx-warned-recent" ]
+  printf '9\n' > "$TMPDIR/dk-window-warned-ancient"
+  : > "$TMPDIR/dk-jq-hint"
+  # And one aged file the patterns do NOT name, plus an aged DIRECTORY that one
+  # of them does. Both must survive: the first shows the sweep is bounded by
+  # name rather than clearing whatever is old, the second pins the -type f the
+  # hook comments on.
+  printf '9\n' > "$TMPDIR/unrelated-ancient"
+  mkdir -p "$TMPDIR/ctx-warned-adirectory"
+  touch -t 202001010000 "$TMPDIR/ctx-warned-ancient" "$TMPDIR/dk-window-warned-ancient" \
+                        "$TMPDIR/dk-jq-hint" "$TMPDIR/unrelated-ancient" \
+                        "$TMPDIR/ctx-warned-adirectory"
+  touch -t "$eight" "$TMPDIR/ctx-warned-eightdays"
+  touch -t "$three" "$TMPDIR/ctx-warned-threedays"
 
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t" sweeper
   [ "$status" -eq 0 ]
-  # Asserted before the two files, so a failure says which half broke. Without
-  # the emission the sweep never runs and both file assertions would be
+  # Asserted before the files, so a failure says which half broke. Without the
+  # emission the sweep never runs and every file assertion below would be
   # reporting on a guard that exited early.
   echo "$output" | jq -e '.decision == "block"'
 
-  # BOTH HALVES ARE REQUIRED. Removal alone is equally satisfied by anything
-  # that cleared the directory, so the fresh file surviving is what shows the
-  # age filter is the thing that acted.
+  # Past the threshold: gone.
   [ ! -f "$TMPDIR/ctx-warned-ancient" ]
+  [ ! -f "$TMPDIR/ctx-warned-eightdays" ]
+  [ ! -f "$TMPDIR/dk-window-warned-ancient" ]
+  [ ! -f "$TMPDIR/dk-jq-hint" ]
+
+  # Inside the threshold, or not named by it: kept. Removal alone is equally
+  # satisfied by anything that cleared the directory, so these four are what
+  # show the age filter and the name filter are the things that acted.
+  [ -f "$TMPDIR/ctx-warned-threedays" ]
   [ -f "$TMPDIR/ctx-warned-recent" ]
+  [ -f "$TMPDIR/unrelated-ancient" ]
+  [ -d "$TMPDIR/ctx-warned-adirectory" ]
 }
 
 @test "a transcript that exists but yields no readings leaves the guard silent" {
@@ -1193,7 +1239,7 @@ load ../../tests/helper
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   echo "$output" | jq -e '.reason | test("at 90% of the 100000-token window \\(threshold 1%\\)")'
-  echo "$output" | jq -e '.reason | test("limit") | not'
+  echo "$output" | jq -e '.reason | test("-token limit") | not'
 }
 
 @test "the absolute threshold setting decides whether the guard fires, and words itself as a token count" {
