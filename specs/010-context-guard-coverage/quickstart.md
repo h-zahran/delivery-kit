@@ -23,6 +23,21 @@ test -f .claude-plugin/marketplace.json
 
 ---
 
+**Every block below that reads a diff takes its baseline from `$BASE`, not from
+`main`.** They ask questions about *this feature's* change — did the conversion
+alter an assertion, is the hook untouched, was a changelog written — and `main`
+answered them only while it was the commit this branch left. Once the feature
+merged, `main` became the commit the branch *arrived at*, the diffs emptied or
+inverted, and Block 6 went red on a correct tree. A commit id cannot drift; a
+branch name can, and did. Override `BASE` to re-run these against a different
+starting point.
+
+```bash
+BASE="${BASE:-88bb292}"
+git rev-parse --verify "$BASE^{commit}" > /dev/null || { echo "BASE is not a commit"; exit 1; }
+printf 'diff baseline: %s (%s)\n' "$BASE" "$(git log -1 --format=%s "$BASE")"
+```
+
 ## Block 1 — the full house suite reports `1..154`
 
 SC-001. The baseline before this feature is `1..147`.
@@ -60,7 +75,8 @@ Then, separately — a suite's count cannot move unless its own file changed, an
 `tests/helper.bash` holds no test:
 
 ```bash
-moved="$(git diff --name-only main -- '*.bats')"
+BASE="${BASE:-88bb292}"
+moved="$(git diff --name-only "$BASE" -- '*.bats')"
 printf 'bats files changed: [%s]\n' "$moved"
 test "$moved" = "handoff/tests/context-guard.bats"
 ```
@@ -72,7 +88,8 @@ test "$moved" = "handoff/tests/context-guard.bats"
 FR-015, SC-007. This feature reads the hook; a later phase owns it.
 
 ```bash
-d="$(git diff --stat main -- handoff/hooks/context-guard.sh)"
+BASE="${BASE:-88bb292}"
+d="$(git diff --stat "$BASE" -- handoff/hooks/context-guard.sh)"
 printf 'hook diff vs main: [%s]\n' "$d"
 test -z "$d"
 ```
@@ -85,7 +102,8 @@ FR-016, SC-008. **Three changelog files exist**, so the check covers all of them
 rather than naming one.
 
 ```bash
-touched="$(git diff --name-only main | grep -i 'changelog' || true)"
+BASE="${BASE:-88bb292}"
+touched="$(git diff --name-only "$BASE" | grep -i 'changelog' || true)"
 printf 'changelog paths in the diff: [%s]\n' "$touched"
 test -z "$touched"
 ```
@@ -133,7 +151,8 @@ FR-013, SC-006. Every removed line in the diff must be a configuration write or
 a byte-cap idiom; anything else would be an altered assertion.
 
 ```bash
-strays="$(git diff main -- handoff/tests/context-guard.bats \
+BASE="${BASE:-88bb292}"
+strays="$(git diff "$BASE" -- handoff/tests/context-guard.bats \
   | grep '^-' | grep -v '^---' \
   | grep -v 'contextGuard' \
   | grep -v 'wc -c' \
@@ -162,7 +181,8 @@ test of a real thing, it is **not** coverage of the two overrides, and it must
 survive.
 
 ```bash
-gone="$(git diff main -- handoff/tests/context-guard.bats \
+BASE="${BASE:-88bb292}"
+gone="$(git diff "$BASE" -- handoff/tests/context-guard.bats \
   | grep '^-.*for v in DELIVERY_KIT_' || true)"
 printf 'the doc-snippet test, removed or altered? [%s]\n' "${gone:-no}"
 test -z "$gone"
@@ -245,6 +265,7 @@ the lines this feature **adds** to them — a tighter read of the same
 surface — reuse `$RE` from the block above, in the same shell:
 
 ```bash
+BASE="${BASE:-88bb292}"
 # Self-contained: it reads the needle set from the file the block above wrote,
 # rather than inheriting a variable. An earlier version said "in the same
 # shell", which contradicted this document's own first rule — and run the
@@ -254,7 +275,7 @@ tmp="${TMPDIR:-/tmp}"
 [ -s "$tmp/dk-scan-re" ] || { echo "run the block above first — it writes the needle set"; exit 1; }
 RE="$(cat "$tmp/dk-scan-re")"
 
-git diff main -- tests/helper.bash handoff/tests/context-guard.bats \
+git diff "$BASE" -- tests/helper.bash handoff/tests/context-guard.bats \
   | grep '^+' | grep -v '^+++' > "$tmp/added.txt"
 printf 'added lines to scan: %s\n' "$(wc -l < "$tmp/added.txt")"
 [ -s "$tmp/added.txt" ] || { echo "no added lines were read — that is not a pass"; exit 1; }
