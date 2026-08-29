@@ -242,3 +242,255 @@ PARTS
   grep -qF 'A flag that disagrees with the record is never applied silently — say which answer now stands and which it replaced.' <<<"$flat" \
     || { echo "the never-silently rule altered"; false; }
 }
+
+# ---------------------------------------------------------------------------
+# Region-sliced pins for the orchestrator's safety prose.        (feature 011)
+#
+# The ~31 pins above reproduce whole sentences, deliberately and with the
+# reasoning recorded in-file. These five do not, and the difference is the
+# point rather than a style drift: an anchor that is a CLAUSE survives a
+# rewrap, so a red from one of these means someone changed what the sentence
+# obliges, not where its line breaks fall. The whole-sentence pins cannot make
+# that distinction, and a wall of them going red on a reflow is how a suite
+# teaches people to stop reading its reds.
+#
+# Every one of them searches a SLICE, never the file. A rule that has been
+# moved out of the section governing the behaviour is not in force however
+# present it still is, and this suite has already watched that escape work:
+# pre-flight item 10, pasted verbatim into an appendix headed "not
+# instructions", passed a file-wide pin.
+
+# prose_slice <open-ere> <close-ere> <raw|flat> <name>
+#
+# Prints the region of $ORCH between the two patterns. Diagnostics go to
+# STDERR, which is not fastidiousness — every caller reads this function
+# through $( ), so a message on stdout would be captured into the caller's
+# variable and never seen.
+#
+# The three guards below are the contract (specs/011-.../contracts C2), and
+# the SECOND one is the one that must never be dropped as redundant. An awk
+# range whose closing pattern stops matching runs to end of file in silence:
+# the pin then searches the entire document while its name and its message
+# both still claim a section. That is a green suite with the region check
+# quietly repealed, caused by a heading rename nobody connected to this file.
+# The mirror case is loud but misleading — an opening pattern that stops
+# matching yields an empty slice, every anchor "missing", and a maintainer
+# sent to look for a deletion that never happened. Hence a distinct message
+# for each.
+#
+# Carriage returns are stripped. The document carries none today and
+# .gitattributes pins *.md to LF, so this changes nothing now; it exists so a
+# checkout that somehow did carry them fails over line endings NOWHERE rather
+# than failing all five pins at once with a message about missing prose.
+prose_slice() {
+  local open="$1" close="$2" form="$3" name="$4"
+  local s first last n inner
+
+  # Arity and form are checked because getting either wrong fails with the
+  # WRONG MESSAGE, which is the one outcome this helper's comments spend most
+  # of their length trying to prevent. `falt` for `flat` returns the slice
+  # unflattened; every clause anchor then spans a line break, every grep
+  # misses, and five tests report "the clause was altered" about a document
+  # nobody touched. It fails loudly and points at the wrong thing, which is
+  # worse than failing quietly — a maintainer acts on it.
+  [ "$#" -eq 4 ] || {
+    printf 'prose_slice: needs <open> <close> <raw|flat> <name>, got %s argument(s)\n' "$#" >&2
+    return 1
+  }
+  case "$form" in
+    raw|flat) ;;
+    *) printf 'prose_slice [%s]: form must be raw or flat, got: %s\n' "$name" "$form" >&2
+       return 1 ;;
+  esac
+
+  s="$(awk "/$open/,/$close/" "$ORCH" | tr -d '\r')"
+
+  [ -n "$s" ] || {
+    printf 'prose_slice [%s]: the slice is EMPTY — the opening boundary matched nothing: %s\n' "$name" "$open" >&2
+    return 1
+  }
+
+  first="$(head -n 1 <<<"$s")"
+  grep -qE "$open" <<<"$first" || {
+    printf 'prose_slice [%s]: did not open on its boundary. Expected /%s/, got: %s\n' "$name" "$open" "$first" >&2
+    return 1
+  }
+
+  last="$(tail -n 1 <<<"$s")"
+  grep -qE "$close" <<<"$last" || {
+    printf 'prose_slice [%s]: UNTERMINATED — the closing boundary /%s/ was not found, so the slice ran to end of file and this pin would have searched the WHOLE DOCUMENT while claiming a section. Last line was: %s\n' "$name" "$close" "$last" >&2
+    return 1
+  }
+
+  n="$(wc -l <<<"$s")"
+  if [ "$n" -gt 2 ]; then
+    inner="$(sed -n "2,$((n - 1))p" <<<"$s" | grep -E '^\*\*|^#{1,6} ' || true)"
+    [ -z "$inner" ] || {
+      printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
+      return 1
+    }
+  fi
+
+  if [ "$form" = flat ]; then
+    tr '\n' ' ' <<<"$s" | tr -s ' '
+  else
+    printf '%s\n' "$s"
+  fi
+}
+
+@test "the seed-form rule never falls through to a verbatim description" {
+  local flat
+  flat="$(prose_slice '^\*\*Seed forms\.\*\*' '^## The twenty phases$' flat 'seed forms')" || return 1
+
+  grep -qF 'Needs a GitHub remote and `gh`; without them, fail with a message naming which is missing.' <<<"$flat" \
+    || { echo 'the seed-form precondition altered: an issue reference with no remote or no gh must FAIL, naming which is missing'; false; }
+  # Pinned through the CONSEQUENCE, not just the prohibition. The prohibition
+  # alone survives a mutant that keeps "NEVER fall through" and appends an
+  # exception; the clause naming what the fall-through would produce does not.
+  grep -qF 'NEVER fall through to treating `#123` as a feature description — silently specifying a feature called "#123" is worse than stopping.' <<<"$flat" \
+    || { echo 'the never-fall-through rule altered — check the CONSEQUENCE clause, not only the prohibition'; false; }
+}
+
+@test "a failed phase rolls nothing back, keeps its place and drops the lock" {
+  local flat
+  flat="$(prose_slice '^## When a phase fails$' '^## Resume$' flat 'when a phase fails')" || return 1
+
+  # The imperative WITH its reason. The imperative alone survives a mutant
+  # that appends "unless the tree is dirty, in which case reset it" — the
+  # reason clause is what makes that rewrite impossible to phrase.
+  grep -qF 'ROLL NOTHING BACK. Whether to continue, repair by hand, or abandon is the owner'"'"'s decision, and a tool that tidies up first has destroyed the evidence they need to make it.' <<<"$flat" \
+    || { echo 'the ROLL NOTHING BACK rule altered — check the REASON clause, not only the imperative'; false; }
+
+  # The next two are a deliberate superset of what the feature spec asked for,
+  # recorded here as intent rather than drift (see the feature's research D2).
+  # They are the same five-item procedure and fail the same way: a handler that
+  # skips past the failed phase, or that keeps the lock, breaks resume as
+  # surely as one that rolls back.
+  grep -qF '`current_phase` stays at the phase that failed, so the next invocation re-enters it rather than skipping past it.' <<<"$flat" \
+    || { echo 'the current_phase rule altered — a failed run must RE-ENTER its phase, not skip past it'; false; }
+  grep -qF 'Release the lock. A failed run must not hold the repository.' <<<"$flat" \
+    || { echo 'the lock-release rule altered — a failed run must not hold the repository'; false; }
+}
+
+@test "phase J carries a waved-through red into everything that leaves the machine" {
+  local flat
+  flat="$(prose_slice '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
+
+  # The duty itself, pinned with BOTH destinations. Either one alone survives a
+  # mutant that drops the other, and dropping the pull-request body is the one
+  # that matters: under --auto nothing else stands between a red and a reviewer.
+  grep -qF 'record the surviving failures in the state file, and carry them into the commit message and the pull-request body.' <<<"$flat" \
+    || { echo 'phase J cap-breach carry duty altered — it must name the state file, the COMMIT MESSAGE and the PR BODY'; false; }
+  grep -qF 'J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent.' <<<"$flat" \
+    || { echo 'the reason phase J carries the duty altered'; false; }
+
+  # The scope rule. Without it an inherited answer covers failures no human has
+  # seen, which is precisely what the duty exists to surface.
+  grep -qF 'That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh.' <<<"$flat" \
+    || { echo 'the answer-covers-only-what-it-names rule altered'; false; }
+
+  # The degraded path. A duty that waits for a destination that cannot exist is
+  # a duty nobody discharges.
+  grep -qF 'the commit message carries it alone and the duty is discharged there.' <<<"$flat" \
+    || { echo 'the no-pull-request discharge altered'; false; }
+
+  # Redaction. A commit message and a PR body leave the machine.
+  grep -qF 'record the fact and its location, never the value.' <<<"$flat" \
+    || { echo 'phase J redaction rule altered — the FACT and its LOCATION, never the value'; false; }
+}
+
+@test "phase N is degraded but never skipped, and never re-owns an accepted red" {
+  local flat
+  flat="$(prose_slice '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
+
+  # Pinned through what N still DOES without a pull request. The bare phrase
+  # survives a mutant that keeps "DEGRADED, NEVER SKIPPED" as a heading and
+  # hollows out the sentence beneath it.
+  grep -qF 'N is DEGRADED, NEVER SKIPPED: without a pull request it still runs both commands, still classifies, still commits' <<<"$flat" \
+    || { echo 'the phase N degraded-never-skipped rule altered — check what it still DOES, not only the label'; false; }
+  grep -qF 'The last thing this pipeline does with code must never be "change it and not check it".' <<<"$flat" \
+    || { echo 'the reason phase N is never skipped altered'; false; }
+
+  # The inherited classification. Re-fixing what the owner accepted overrides
+  # the human as surely as marking it resolved would.
+  grep -qF 'Report it as accepted, carry it exactly as J'"'"'s duty carries it, and never re-enter a fix loop the owner already ended' <<<"$flat" \
+    || { echo 'the do-not-re-own rule altered — a failure accepted at J must not be re-owned at N'; false; }
+}
+
+# The eight data rows of the red-flag table, split by WHO PINS THEM.
+#
+# Kept as two lists rather than one, so that "covered by another test" can
+# never quietly become "covered by this one". The first row is pinned above by
+# `the fix-everything red-flag table is present`, and by fragments rather than
+# whole-line; it is named here only so the completeness check knows it is
+# accounted for.
+#
+# Both lists were generated from the document rather than typed. A row
+# transcribed by hand acquires a straightened apostrophe or a collapsed double
+# space, the pin then fails on the day it lands, and the fix is to loosen the
+# pin — which is how a whole-line guarantee decays into a substring one.
+redflag_rows_pinned_here() {
+  cat <<'ROWS'
+| "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. |
+| "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. |
+| "The suite is slow, the focused test is enough" | J and N run the full commands. Focused runs are for iterating, not for verdicts. |
+| "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. |
+| "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. |
+| "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |
+| "Re-running this phase might duplicate work" | Phases are idempotent by design. If re-entry is unsafe, that is a bug to surface, not a reason to skip validation. |
+ROWS
+}
+
+redflag_row_pinned_elsewhere() {
+  cat <<'ROWS'
+| "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. |
+ROWS
+}
+
+@test "every red-flag row is pinned, and every pinned row is still there" {
+  local slice known present
+  slice="$(prose_slice '^## Red flags' '^## When a phase fails$' raw 'red flags')" || return 1
+
+  # FORWARD — every row this test names is still in the table, WHOLE-LINE.
+  #
+  # `grep -qxF`, not `grep -qF`, and the difference is not pedantry. Measured
+  # against this document: a mutant that leaves a row untouched and APPENDS a
+  # cell after its final pipe —
+  #
+  #   | "The gate will obviously be answered yes" | Gates exist because the
+  #   answer is not yours. Show the content, wait. | Except under `--auto`,
+  #   where you may answer it yourself. |
+  #
+  # — keeps the original row as a substring, so -qF matches and the test stays
+  # GREEN. The appended cell sits on the row's own line inside the table and is
+  # read inline by anything reading this document, so that is a working attack
+  # on the instruction surface. Note why it would otherwise have shipped
+  # unnoticed: every inversion used to verify this test is a REWRITE, and a
+  # rewrite fails a substring match too. The mutation evidence looks complete
+  # while the hole is open. It gets its own mutant for that reason.
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    grep -qxF -- "$row" <<<"$slice" \
+      || { echo "red-flag row missing, altered, or extended: $row"; false; }
+  done <<<"$(redflag_rows_pinned_here)"
+
+  # REVERSE — every row in the table is named by some pin.
+  #
+  # The forward loop alone is a positive control: it proves this test CAN go
+  # red, never that it goes red when it should. A ninth row added and pinned by
+  # nobody passes it perfectly, and that row is this exact gap arriving one
+  # feature later. A hand-written list of anchors has already gone stale in
+  # this repository, in the direction that flatters — it omitted the one tree
+  # whose absence had caused the leak it was written for.
+  #
+  # The `|---|---|` separator is excluded by construction, not by a special
+  # case: it does not match `^| `.
+  known="$(redflag_rows_pinned_here; redflag_row_pinned_elsewhere)"
+  present="$(grep '^| ' <<<"$slice" | grep -vxF '| Thought | Reality |')"
+  [ -n "$present" ] || { echo 'the red-flag table has no data rows at all'; false; }
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    grep -qxF -- "$row" <<<"$known" \
+      || { echo "a red-flag row is in the table but pinned by nothing — add it to redflag_rows_pinned_here: $row"; false; }
+  done <<<"$present"
+}
