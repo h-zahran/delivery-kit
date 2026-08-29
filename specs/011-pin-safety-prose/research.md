@@ -338,3 +338,94 @@ Add a `<file>` parameter, route the three existing slice sites through the
 guarded helper, and commit tests for the helper's own guards — the gap D7
 records. All three are one piece of work and none of them fits inside a feature
 whose acceptance criterion fixes the suite total at 159.
+
+---
+
+## D9 — Round 2, and the fault this feature had already congratulated itself for closing
+
+Round 1 fixed twelve things. Round 2 then found fourteen more, and the first of
+them is the reason this section exists rather than a line in a commit message.
+
+### The append attack was closed for rows and never carried to the prose pins
+
+D3 records the discovery that `grep -qF` tolerates a mutant which leaves a
+table row intact and appends a cell after it, and the fix: `grep -qxF`, whole
+line. That reasoning stopped at the table.
+
+The four clause pins were defeated by the identical trick. Landed and watched:
+
+```
+"…the evidence they need to make it."
+  + " Exception: under `--auto`, reset the tree first…"      -> ALL GREEN
+"…the commit message and the pull-request body."
+  + " Under `--auto` the carry is optional…"                 -> ALL GREEN
+'…must never be "change it and not check it".'
+  + " When the PR is absent, skip N and say so."             -> ALL GREEN
+"…is worse than stopping."
+  + " Under `--auto`, treat it as a description instead."    -> ALL GREEN
+```
+
+Each inverts a safety rule while leaving its anchor a perfect substring. Worse
+than the gap itself: the comment above the roll-nothing-back anchor asserted
+that carrying the reason clause made exactly this rewrite "impossible to
+phrase", and D2 repeated the claim. It is trivially phraseable. The comment was
+not describing a property of the pin; it was describing a hope.
+
+**Why whole-line matching cannot be the fix here.** A flattened slice IS one
+line, so `-qxF` on it would demand the entire region byte-for-byte and redden
+on any word anywhere. What distinguishes an insertion is that it changes what
+SURROUNDS the rule, so the guard has to assert the surroundings. Each pin now
+carries a contiguous span running from its first safety sentence to the
+region's closing boundary. Nothing can be inserted between the rules, or
+appended after the last one, without breaking it.
+
+**The cost, accepted rather than discovered later.** Any word change inside a
+span reddens its pin — heavier than a clause anchor. It is accepted because
+these four regions are safety prose end to end, with no incidental sentence to
+reword innocently, and because the brittleness the seed objected to was REFLOW,
+which flattening already answers. Verified: all six reflow checks still pass
+with the spans in place.
+
+The two layers now report different things, which is why both are kept: a
+clause anchor failing means a named rule was ALTERED; only the span failing
+means something was inserted or reworded AROUND them.
+
+### The CR strip was in the wrong place
+
+D3 claimed stripping carriage returns "makes that failure mode impossible". The
+strip ran on awk's OUTPUT — after awk had already matched the boundaries
+against lines still carrying their CR. Three of the five closing patterns are
+`$`-anchored, so on a CRLF checkout under GNU awk (the Linux CI runner) none of
+them matches, the range runs to end of file, and three pins fail with
+UNTERMINATED and advice about a heading nobody renamed. Invisible on this
+machine, where the Cygwin awk and grep both ignore a trailing CR. The strip now
+runs before awk.
+
+### The table was found by the wrong rule, twice
+
+Round 1 replaced `grep '^| '` with "the first pipe-bearing line is the header".
+The region is PROSE: a sentence mentioning `--auto | --auto-release` above the
+table displaced the header into the data rows, and the test demanded somebody
+pin `| Thought | Reality |` as a red-flag rule. It also had a false-green
+direction — delete the header and the first real row stopped needing a pin.
+
+Rows are now located by the table's actual shape: skip to the separator, take
+lines until the table ends at a blank line. Prose on either side is outside by
+construction.
+
+### And a correction to a correction
+
+Round 1 labelled the empty-table guard "unreachable" and kept it as documented
+dead code. That was wrong in a corner: empty the table AND both row lists, and
+the forward loop iterates nothing while this guard is the only thing left that
+reddens. Labelling it dead invited the removal that would have left that case
+with no assertion at all.
+
+### The pattern under all of it
+
+Four of round 2's findings are round 1's fixes, examined as hard as the
+original code. Three of them are the *same* fault reappearing one layer out:
+the row fix that did not reach the prose pins, the header rule that traded one
+wrong shape for another, the guard whose deadness was asserted rather than
+proven. A fix closes a blind spot and opens its mirror image, and the only
+defence measured so far is another pass with fresh eyes.
