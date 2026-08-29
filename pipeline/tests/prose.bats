@@ -326,7 +326,12 @@ prose_slice() {
   # empty slice and all five pins announce that their opening boundary matched
   # nothing — the true cause printed beside a guard message contradicting it.
   # That is the wrong-message class the arity and form guards were added for.
-  [ -r "$ORCH" ] || {
+  # `-f` as well as `-r`: a directory is READABLE, so replacing SKILL.md with a
+  # directory of the same name passed this guard, `tr` failed with "Is a
+  # directory", the slice came back empty, and all five pins blamed a missing
+  # opening boundary — the exact wrong-message failure this guard exists to
+  # stop, surviving one substitution of the path.
+  { [ -f "$ORCH" ] && [ -r "$ORCH" ]; } || {
     printf 'prose_slice [%s]: cannot read the orchestrator at %s — this is not a prose failure, the file is missing or unreadable\n' "$name" "$ORCH" >&2
     return 1
   }
@@ -359,6 +364,13 @@ prose_slice() {
     return 1
   }
 
+  # NEAR-UNREACHABLE, and labelled rather than left to look load-bearing.
+  # awk's range operator only starts emitting on a line matching PS_OPEN, so
+  # the first line always matches unless awk and grep disagree about the ERE —
+  # which they do not for the `\*`, `\.` and em dashes used here. Contract C2
+  # obligation 1 asks for it, so it stays; but a maintainer reconciling code
+  # against C2 should know its red is not producible, because the comment above
+  # warns that a surplus guard invites deletion.
   first="$(head -n 1 <<<"$s")"
   grep -qE "$open" <<<"$first" || {
     printf 'prose_slice [%s]: did not open on its boundary. Expected /%s/, got: %s\n' "$name" "$open" "$first" >&2
@@ -443,27 +455,55 @@ prose_slice() {
 #   only the span fails    -> something was inserted or reworded AROUND them
 #
 # Generated from the document, never transcribed.
+# assert_span <span-function> <message>
+#
+# Never `grep -qF -- "$(span_x)"` directly, and this is not style. A command
+# substitution that fails — a renamed function, a typo, an emptied heredoc — is
+# NOT caught by errexit in an argument position, and GNU grep treats an EMPTY
+# -F pattern as matching every line. The guard then passes, silently, having
+# asserted nothing. Measured: `grep -qF -- "$(nosuchfn)" <<<"whatever"` prints
+# "command not found" to stderr and exits 0.
+#
+# That is the fault helper.bash records for bytes_of in capitals — IT MUST ALSO
+# BE ABLE TO FAIL — arriving by a different route, and here one typo would have
+# repealed a whole region's insertion protection with nothing going red.
+assert_span() {
+  local fn="$1" msg="$2" span
+  span="$("$fn" 2>/dev/null)" || span=""
+  [ -n "$span" ] || {
+    echo "the span function $fn produced NOTHING — an empty pattern matches every line, so this guard asserted nothing at all"
+    return 1
+  }
+  grep -qF -- "$span" <<<"$flat" || { echo "$msg"; return 1; }
+}
+
+span_redflags() {
+  cat <<'SPAN'
+## Red flags — findings are fixed or surfaced, never waved through If you notice one of these thoughts, stop: you are rationalising. | Thought | Reality | |---|---| | "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. | | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. | | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. | | "The suite is slow, the focused test is enough" | J and N run the full commands. Focused runs are for iterating, not for verdicts. | | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. | | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. | | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. | | "Re-running this phase might duplicate work" | Phases are idempotent by design. If re-entry is unsafe, that is a bug to surface, not a reason to skip validation. | ## When a phase fails
+SPAN
+}
+
 span_seed() {
   cat <<'SPAN'
-2. `#` followed by digits — fetch that GitHub issue. Needs a GitHub remote and `gh`; without them, fail with a message naming which is missing. NEVER fall through to treating `#123` as a feature description — silently specifying a feature called "#123" is worse than stopping. 3. Anything else — the feature description, verbatim, which is what the specify command takes natively. ## The twenty phases
+**Seed forms.** The seed is interpreted three ways, in order: 1. Text matching `Phase <N>: <title>` — read that section out of `planFile`. 2. `#` followed by digits — fetch that GitHub issue. Needs a GitHub remote and `gh`; without them, fail with a message naming which is missing. NEVER fall through to treating `#123` as a feature description — silently specifying a feature called "#123" is worse than stopping. 3. Anything else — the feature description, verbatim, which is what the specify command takes natively. ## The twenty phases
 SPAN
 }
 
 span_fail() {
   cat <<'SPAN'
-1. Print the phase, the reason, and the working tree as it stands. 2. Write the failure into the state file; `current_phase` stays at the phase that failed, so the next invocation re-enters it rather than skipping past it. 3. ROLL NOTHING BACK. Whether to continue, repair by hand, or abandon is the owner's decision, and a tool that tidies up first has destroyed the evidence they need to make it. 4. Release the lock. A failed run must not hold the repository. 5. Offer the resume prompt on the next invocation. ## Resume
+## When a phase fails 1. Print the phase, the reason, and the working tree as it stands. 2. Write the failure into the state file; `current_phase` stays at the phase that failed, so the next invocation re-enters it rather than skipping past it. 3. ROLL NOTHING BACK. Whether to continue, repair by hand, or abandon is the owner's decision, and a tool that tidies up first has destroyed the evidence they need to make it. 4. Release the lock. A failed run must not hold the repository. 5. Offer the resume prompt on the next invocation. ## Resume
 SPAN
 }
 
 span_j() {
   cat <<'SPAN'
-A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into the commit message and the pull-request body. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint or a token, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.** Show the exact file list (every path by
+**J — analyzer and full suite.** Run `analyzeCommand`, then `testCommand`. Classify every failure against `test_baseline`: pre-existing failures are reported, not owned; new failures are this run's to fix. Fixes for independent failures fan out. Loop until clean against baseline, at most `maxVerifyIters` iterations; a cap breach is a conditional stop — show the failures that survived and ask whether to continue; a hard failure still stops the run outright. A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into the commit message and the pull-request body. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint or a token, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.**
 SPAN
 }
 
 span_n() {
   cat <<'SPAN'
-**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again, classify against baseline, commit fixes, push to the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs both commands, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.** Three strategies by project type:
+**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again, classify against baseline, commit fixes, push to the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs both commands, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.**
 SPAN
 }
 
@@ -480,8 +520,7 @@ SPAN
     || { echo 'the never-fall-through rule altered — check the CONSEQUENCE clause, not only the prohibition'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  grep -qF -- "$(span_seed)" <<<"$flat" \
-    || { echo 'the seed-form region gained, lost or reworded text around its rules. The anchors above name a rule that CHANGED; this one fires when text was INSERTED beside them — an appended exception inverts a rule while leaving its anchor intact.'; false; }
+  assert_span span_seed 'the seed-form region gained, lost or reworded text around its rules. The anchors above name a rule that CHANGED; this one fires when text was INSERTED beside them — an appended exception inverts a rule while leaving its anchor intact.' || false
 }
 
 @test "a failed phase rolls nothing back, keeps its place and drops the lock" {
@@ -505,8 +544,7 @@ SPAN
     || { echo 'the lock-release rule altered — a failed run must not hold the repository'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  grep -qF -- "$(span_fail)" <<<"$flat" \
-    || { echo 'the failure procedure gained, lost or reworded text around its rules. An appended exception ("unless the tree is dirty, reset it") inverts ROLL NOTHING BACK while leaving its anchor a perfect substring.'; false; }
+  assert_span span_fail 'the failure procedure gained, lost or reworded text around its rules. An appended exception ("unless the tree is dirty, reset it") inverts ROLL NOTHING BACK while leaving its anchor a perfect substring.' || false
 }
 
 @test "phase J carries a waved-through red into everything that leaves the machine" {
@@ -536,8 +574,7 @@ SPAN
     || { echo 'phase J redaction rule altered — the FACT and its LOCATION, never the value'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  grep -qF -- "$(span_j)" <<<"$flat" \
-    || { echo 'the phase J cap-breach paragraphs gained, lost or reworded text around the duty. An appended opt-out ("under --auto the carry is optional") inverts the duty while leaving its anchor intact.'; false; }
+  assert_span span_j 'the phase J cap-breach paragraphs gained, lost or reworded text around the duty. An appended opt-out ("under --auto the carry is optional") inverts the duty while leaving its anchor intact.' || false
 }
 
 @test "phase N is degraded but never skipped, and never re-owns an accepted red" {
@@ -558,8 +595,7 @@ SPAN
     || { echo 'the do-not-re-own rule altered — a failure accepted at J must not be re-owned at N'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  grep -qF -- "$(span_n)" <<<"$flat" \
-    || { echo 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.'; false; }
+  assert_span span_n 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.' || false
 }
 
 # The eight data rows of the red-flag table, split by WHO PINS THEM.
@@ -630,6 +666,16 @@ ROWS
   # succeeded once in this suite. The two lists below stay separate because
   # they record different things — who OWNS a pin, and what is in the table —
   # but presence is checked for both.
+  # INSERTION GUARD for this region too. Round 3 found the Red flags section
+  # was the one safety region without one — and its rows are the most directly
+  # instruction-shaped text in the document. Rewriting the intro to "…stop: you
+  # are rationalising — except under `--auto`, where every one of them is
+  # acceptable." neutralised all eight rows while both loops below stayed
+  # green, because both check only the rows themselves. Measured.
+  local flat
+  flat="$(prose_slice '^## Red flags' '^## When a phase fails$' flat 'red flags')" || return 1
+  assert_span span_redflags 'the Red flags region gained, lost or reworded text around the table. The row checks below prove each ROW is intact; only this proves nothing was written around them — an exception added to the intro neutralises every row without touching one.' || false
+
   known="$(redflag_rows_pinned_here; redflag_row_pinned_elsewhere)"
   while IFS= read -r row; do
     [ -n "$row" ] || continue
@@ -695,15 +741,26 @@ ROWS
   # dashes, colons and spaces, with at least one dash), then take lines until
   # the table ends. Prose on either side is outside by construction rather than
   # by exclusion, and every row spelling GFM accepts is inside.
+  # The separator must contain a PIPE as well as a dash. Without that, a plain
+  # `---` thematic break anywhere in the region was taken as the table
+  # separator: the next line is blank, the scan ended immediately, and the test
+  # announced that the table had been emptied while all eight rows sat intact
+  # below. Measured.
+  #
+  # And the scan does not STOP at the first blank line, it resumes looking for
+  # the next separator. Stopping made a second table block — blank line,
+  # header, separator, a ninth rationalisation — completely invisible to the
+  # completeness check, which is the FR-005a escape this loop exists to close,
+  # reached by adding a table instead of a row. Measured too.
   present="$(awk '
-    !seen && /^[[:space:]]*[|[:space:]:-]*-[|[:space:]:-]*$/ { seen = 1; next }
-    seen && /^[[:space:]]*$/ { exit }
+    !seen && /\|/ && /-/ && /^[[:space:]]*[|[:space:]:-]+$/ { seen = 1; next }
+    seen && /^[[:space:]]*$/ { seen = 0; next }
     seen { print }
   ' <<<"$slice" || true)"
   [ -n "$present" ] || { echo 'the red-flag table has no data rows at all — the table was emptied or its shape changed'; false; }
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     grep -qxF -- "$row" <<<"$known" \
-      || { echo "a red-flag row is in the table but pinned by nothing — add it to redflag_rows_pinned_here: $row"; false; }
+      || { echo "a red-flag row is in the table but pinned by nothing — add it to redflag_rows_pinned_here, or to redflag_row_pinned_elsewhere if another test owns it: $row"; false; }
   done <<<"$present"
 }

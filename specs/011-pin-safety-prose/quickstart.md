@@ -187,10 +187,22 @@ boundary, not naming the prose. Restore with section 3d.
 
 ---
 
-## 6. The reflow check
+## 6. The reflow checks
 
-Proves the four multi-line pins tolerate a rewrap. The red-flag rows are
-excluded by construction: a row is one line and has no width to change.
+Proves the pins tolerate a rewrap. Rewrap EACH of the four multi-line regions
+in turn, and phase K as well.
+
+Phase K is not an afterthought. Round 3 found that `span_j` ended in a wrap
+fragment of phase K's first line, so rewrapping K — touching nothing in J —
+reddened the phase J pin with a message blaming J. An earlier version of this
+section rewrapped only the phase N region, which is the one span that had no
+neighbour coupling, and that single check was cited as evidence for all four.
+Check the neighbour of any region whose closing boundary is a heading, or the
+check proves the wrong thing.
+
+The red-flag rows are excluded by construction: a row is one line and has no
+width to change. The region's PROSE is not excluded, and it is guarded by a
+span like the other four.
 
 ```bash
 O=pipeline/skills/pipeline/SKILL.md
