@@ -383,8 +383,20 @@ appended after the last one, without breaking it.
 span reddens its pin — heavier than a clause anchor. It is accepted because
 these four regions are safety prose end to end, with no incidental sentence to
 reword innocently, and because the brittleness the seed objected to was REFLOW,
-which flattening already answers. Verified: all six reflow checks still pass
-with the spans in place.
+which flattening already answers.
+
+**Correction, from round 3.** An earlier version of this paragraph said "all
+six reflow checks still pass". There are four reflow checks, not six — six was
+the count of BEHAVIOURAL checks, of which two expect a red. And the claim was
+load-bearing in the wrong direction: the shipped quickstart carried exactly one
+rewrap, of the phase N region, which is the one span with no neighbour coupling.
+Phase J's span ended in a wrap fragment of phase K's first line, so rewrapping
+phase K — touching nothing in J — reddened the J pin with a message blaming J's
+cap-breach paragraphs. A reader trusting the "six reflow checks" line would have
+believed the property verified for all four spans when the reproducible evidence
+covered the single region that happened to be immune. Spans now end on a stable
+heading unit rather than a wrapped line, and the quickstart rewraps all four
+regions plus phase K.
 
 The two layers now report different things, which is why both are kept: a
 clause anchor failing means a named rule was ALTERED; only the span failing
@@ -429,3 +441,72 @@ the row fix that did not reach the prose pins, the header rule that traded one
 wrong shape for another, the guard whose deadness was asserted rather than
 proven. A fix closes a blind spot and opens its mirror image, and the only
 defence measured so far is another pass with fresh eyes.
+
+---
+
+## D10 — Round 3, and the third appearance of one fault
+
+Round 3 found eleven things. The lead finding is, again, the previous round's
+fix examined as hard as the original code — and it is the third consecutive
+round in which that is where the worst defect lived.
+
+### The spans guarded the rules but not the way in
+
+Round 2 added contiguous spans and this document claimed of them: "Nothing can
+be inserted between the rules, or appended after the last one, without breaking
+it." Three of the four spans opened at their region's *first safety sentence*
+rather than at the region boundary, so the HEAD of each region was outside the
+guard. Landed and watched, all green:
+
+- an exception inserted between `## When a phase fails` and item 1, inverting
+  ROLL NOTHING BACK;
+- an opt-out appended to phase J's first paragraph, which sits above where
+  `span_j` began;
+- the seed-forms lead rewritten to "under `--auto`, always take the third";
+- and the red-flag table neutralised from its intro sentence — that region had
+  no span at all, though its rows are the most directly instruction-shaped text
+  in the document.
+
+Every span now runs from its region's opening boundary to a STABLE part of its
+closing boundary, and the Red flags region has one too.
+
+### The tail had the opposite defect
+
+`span_j` ended mid-sentence inside phase K's first line, because that is where
+the slice's closing boundary happened to wrap. Rewrapping phase K — touching
+nothing in J — turned the J pin red with a message blaming J. Spans now end on
+the closing heading's stable unit (`**K — commit. STOPS AND ASKS.**`), not on
+the wrapped line that carries it.
+
+So the same mechanism was simultaneously too short at one end and too long at
+the other, and each error produced the opposite failure: a silent green and a
+misdirected red.
+
+### A guard that could not fail, again
+
+The four guards were written `grep -qF -- "$(span_x)"`. A command substitution
+that fails in an argument position does NOT trip errexit, and GNU grep treats
+an empty `-F` pattern as matching every line — so a renamed function, a typo or
+an emptied heredoc would silently repeal a whole region's insertion protection.
+Measured: `grep -qF -- "$(nosuchfn)" <<<"whatever"` exits 0. Guards now go
+through `assert_span`, which refuses an empty span by name, and that refusal was
+fired and watched.
+
+This is the third distinct instance in this feature of the fault helper.bash
+records in capitals about `bytes_of`: IT MUST ALSO BE ABLE TO FAIL.
+
+### Two more shape errors in the table scan
+
+A plain `---` thematic break matched the separator pattern, so the scan reported
+the table emptied while all eight rows sat intact below it. And the scan stopped
+at the first blank line, so a SECOND table block — with its own header,
+separator and a ninth rationalisation — was invisible to the completeness check.
+Both fixed, both measured.
+
+### The count, and what it suggests
+
+Rounds 1, 2 and 3 found 15, 14 and 11. The severity did not fall as fast as the
+count: each round's most serious finding was in the previous round's fix, and
+each was the same *kind* of mistake — a guard whose reach was asserted rather
+than measured. Three rounds have not converged on zero. They have converged on
+a pattern, which is the more useful result and the reason this section exists.
