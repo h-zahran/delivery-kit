@@ -185,7 +185,7 @@ T004–T006  prose_slice helper          ← blocks everything
    ↓
 T007–T012  the five pins written        ← must precede any verification
    ↓
-T013–T034  twenty-one mutations         ← each restores before the next starts
+T013–T034  twenty-two mutations          ← each restores before the next starts
    ↓
 T035       restore proof
    ↓
@@ -204,7 +204,7 @@ serialising is the only safe order, not because of a data dependency.
 ## Implementation strategy
 
 **MVP is Phase 2 plus Phase 3.** The helper and the five pins, with all
-twenty-one mutations proven, deliver the whole point of the feature: a
+twenty-two mutations proven, deliver the whole point of the feature: a
 dangerous edit goes red. Phases 4 and 5 prove the pins are the RIGHT shape —
 tolerant of reflow, intolerant of relocation — which is quality, not
 capability.

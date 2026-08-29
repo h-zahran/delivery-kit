@@ -47,7 +47,7 @@ per-test timeout is 60 s and the slowest existing test measures ~14.9 s.
 changelog entry (FR-013). Existing pins untouched (FR-010).
 
 **Scale/Scope**: One file changed. Five `@test` blocks and one helper
-function, roughly 120 lines. Twenty-one mutation runs.
+function, roughly 120 lines. Twenty-two mutation runs.
 
 ## Constitution Check
 
@@ -137,18 +137,32 @@ before this plan was written; research D1 and D2 record the commands.
 
 ### Verification
 
-Twenty-one mutations, each an inversion rather than a deletion, each with the
+Twenty-two mutations, each an inversion rather than a deletion, each with the
 changed line displayed before its red is believed:
 
 - 13, one per clause anchor, the others left intact
 - 7, one per red-flag row
 - 1 appending mutant, which the seven rewrites cannot expose
+- 1 unpinned-ninth-row mutant, for the reverse completeness check
 
-Plus four kinds of behavioural check that are not inversions, run as five
-tasks: an added unpinned row must go red; a rewrap must leave all five green
-(done twice, on the N block and on the anchor-dense J block); a relocated
-passage must go red; a renamed boundary must fail naming the BOUNDARY rather
-than the prose. `quickstart.md` carries all of them as runnable blocks.
+An earlier draft of this plan counted twenty-one here and filed the ninth-row
+mutant among the behavioural checks instead. It is a mutation: it edits the
+document and requires a red. The count is corrected rather than the
+classification, because three artefacts carried two different totals for the
+same work, and this repository has already been bitten by a hand-written count
+drifting in the flattering direction.
+
+Plus six behavioural checks, which are not inversions: four rewraps that must
+leave all five pins GREEN — the N block, the anchor-dense J block, and the two
+LIST-shaped regions a paragraph rewrap would skip — then a relocated passage
+that must go red, and a renamed boundary that must fail naming the BOUNDARY
+rather than the prose. `quickstart.md` carries all of them as runnable blocks.
+
+**Twenty-two plus six is the whole verification budget, and the two halves are
+counted separately on purpose.** A mutation asks "does this pin go red when the
+rule is broken". A behavioural check asks "does this pin stay quiet when
+nothing is". Both are needed and neither substitutes: a pin that reddens on
+everything passes every mutation.
 
 Before any of it, one check in the opposite direction: the five pins must be
 GREEN on the unmutated document. Every mutation below succeeds by observing a
@@ -186,5 +200,5 @@ here rather than burying in research:
 | Choice | Cheaper alternative | Why the cheaper one was rejected |
 |---|---|---|
 | Two-direction completeness on the red-flag rows | Forward check only — every listed row is present | Forward alone is a positive control: it proves the pin can go red, never that it goes red when it should. A hand-written list that has fallen behind the table passes it perfectly. This repository has already shipped one hand-written coverage list that went stale in the direction that hurts. |
-| Twenty-one mutations | Five, one per `@test` | One inversion cannot distinguish a test that checks five clauses from one that checks one and silently skips four. The owner's clarify answer said exactly this about the seven rows; it is true of the J pin's five clauses for the same reason. |
+| Twenty-two mutations | Five, one per `@test` | One inversion cannot distinguish a test that checks five clauses from one that checks one and silently skips four. The owner's clarify answer said exactly this about the seven rows; it is true of the J pin's five clauses for the same reason. |
 | Whole-line row matching | Substring, matching the rest of the file's idiom | Measured: substring stays green when a mutant appends a cell after the row's final pipe, and that text is read inline by anything reading the document. |

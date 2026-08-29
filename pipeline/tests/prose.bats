@@ -267,8 +267,15 @@ PARTS
 # through $( ), so a message on stdout would be captured into the caller's
 # variable and never seen.
 #
-# The three guards below are the contract (specs/011-.../contracts C2), and
-# the SECOND one is the one that must never be dropped as redundant. An awk
+# FIVE guards follow, and they are the contract (specs/011-.../contracts C2):
+# the file is readable, the slice is non-empty, it opened on its boundary, it
+# closed on its boundary, and it holds no unexpected heading. Counted here
+# rather than described loosely, because the sentence after this one says one
+# of them must never be removed as redundant — and a miscount is an invitation
+# to decide which of the "extra" ones that was. (Arity and form are checked
+# above, before any of this; they are about the CALL, not the slice.)
+#
+# The CLOSED-ON-ITS-BOUNDARY guard is the one that must never go. An awk
 # range whose closing pattern stops matching runs to end of file in silence:
 # the pin then searches the entire document while its name and its message
 # both still claim a section. That is a green suite with the region check
@@ -303,7 +310,27 @@ prose_slice() {
        return 1 ;;
   esac
 
-  s="$(awk "/$open/,/$close/" "$ORCH" | tr -d '\r')"
+  # The orchestrator must be READABLE before its absence can be blamed on the
+  # document's contents. awk writes "can't open file" to stderr and its status
+  # is swallowed by the pipe below, so a renamed or moved SKILL.md yields an
+  # empty slice and all five pins announce that their opening boundary matched
+  # nothing — the true cause printed beside a guard message contradicting it.
+  # That is the wrong-message class the arity and form guards were added for.
+  [ -r "$ORCH" ] || {
+    printf 'prose_slice [%s]: cannot read the orchestrator at %s — this is not a prose failure, the file is missing or unreadable\n' "$name" "$ORCH" >&2
+    return 1
+  }
+
+  # Patterns reach awk through the ENVIRONMENT, not spliced into its program
+  # text. Two reasons, both measured. Interpolation makes a pattern containing
+  # a slash a SYNTAX ERROR — awk then prints nothing, and the empty-slice guard
+  # below blames the document for a quoting bug in the caller. And `-v`, the
+  # obvious alternative, processes backslash escapes in the value: it turns
+  # `\.` into `.` and warns, silently loosening every pattern here. ENVIRON
+  # does neither. Verified byte-identical to the interpolated form on all five
+  # slices, with empty stderr.
+  s="$(PS_OPEN="$open" PS_CLOSE="$close" \
+       awk '$0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]' "$ORCH" | tr -d '\r')"
 
   [ -n "$s" ] || {
     printf 'prose_slice [%s]: the slice is EMPTY — the opening boundary matched nothing: %s\n' "$name" "$open" >&2
@@ -319,6 +346,7 @@ prose_slice() {
   last="$(tail -n 1 <<<"$s")"
   grep -qE "$close" <<<"$last" || {
     printf 'prose_slice [%s]: UNTERMINATED — the closing boundary /%s/ was not found, so the slice ran to end of file and this pin would have searched the WHOLE DOCUMENT while claiming a section. Last line was: %s\n' "$name" "$close" "$last" >&2
+    printf '  If you renamed that heading, this pin needs the new name — nothing is wrong with the prose it guards.\n' >&2
     return 1
   }
 
@@ -327,6 +355,13 @@ prose_slice() {
     inner="$(sed -n "2,$((n - 1))p" <<<"$s" | grep -E '^\*\*|^#{1,6} ' || true)"
     [ -z "$inner" ] || {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
+      # Naming the likely cause, because this red is about STRUCTURE and every
+      # other red from these pins is about wording. Without this line a
+      # maintainer who has just added a sub-phase goes looking for deleted
+      # prose. Sub-phases are not hypothetical here: the document already
+      # carries C.5, F.5, H.5, H.7 and N.5, so a J.5 or an L.5 is ordinary
+      # maintenance, and it must land as a two-line fix rather than a mystery.
+      printf '  If you added a sub-phase inside this region, move this pin s closing boundary to it. The slice no longer covers the section it names.\n' >&2
       return 1
     }
   fi
@@ -468,11 +503,20 @@ ROWS
   # unnoticed: every inversion used to verify this test is a REWRITE, and a
   # rewrite fails a substring match too. The mutation evidence looks complete
   # while the hole is open. It gets its own mutant for that reason.
+  # ALL EIGHT rows are checked here, not the seven this test owns. The eighth
+  # is pinned above by `the fix-everything red-flag table is present`, but that
+  # pin is two file-wide substring greps — so the row could be cut out of the
+  # table and pasted into an appendix and every check in this file would stay
+  # green. That is the relocation escape C1 exists to close, and it has already
+  # succeeded once in this suite. The two lists below stay separate because
+  # they record different things — who OWNS a pin, and what is in the table —
+  # but presence is checked for both.
+  known="$(redflag_rows_pinned_here; redflag_row_pinned_elsewhere)"
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     grep -qxF -- "$row" <<<"$slice" \
-      || { echo "red-flag row missing, altered, or extended: $row"; false; }
-  done <<<"$(redflag_rows_pinned_here)"
+      || { echo "red-flag row missing, altered, extended, or moved out of the table: $row"; false; }
+  done <<<"$known"
 
   # REVERSE — every row in the table is named by some pin.
   #
@@ -483,11 +527,41 @@ ROWS
   # this repository, in the direction that flatters — it omitted the one tree
   # whose absence had caused the leak it was written for.
   #
-  # The `|---|---|` separator is excluded by construction, not by a special
-  # case: it does not match `^| `.
-  known="$(redflag_rows_pinned_here; redflag_row_pinned_elsewhere)"
-  present="$(grep '^| ' <<<"$slice" | grep -vxF '| Thought | Reality |')"
-  [ -n "$present" ] || { echo 'the red-flag table has no data rows at all'; false; }
+  # ROWS ARE FOUND BY SHAPE, NOT BY `^| `. That obvious spelling misses three
+  # forms GFM accepts and renders identically — no space after the pipe, up to
+  # three leading spaces, and a body row with the leading pipe omitted — so a
+  # row added in any of them would be pinned by nobody while this loop stayed
+  # green, which is the gap this loop exists to close, reached by formatting
+  # rather than by malice. Measured: all three are invisible to `^| `.
+  #
+  # The header and the separator are dropped by SHAPE too, and that is not
+  # tidiness. Excluding the header by its literal text meant renaming it
+  # produced a red instructing the maintainer to pin a table header as a
+  # red-flag rule. Excluding only `|---|---|` meant any formatter that padded
+  # it to `| --- | --- |` did the same. A separator is any line holding
+  # nothing but pipes, dashes, colons and spaces; the header is simply the
+  # first table line.
+  #
+  # `|| true` on both assignments. bats runs test bodies under `set -eET`, so a
+  # grep matching nothing aborts the test ON THE ASSIGNMENT, quoting the raw
+  # shell line instead of saying anything useful. Reproduced against bats-core
+  # v1.11 before this was added.
+  #
+  # THE GUARD BELOW IS UNREACHABLE, and saying so is the point. Review found it
+  # dead — the abort above pre-empted it — and it is STILL dead after that fix,
+  # for a second reason: emptying the table makes the FORWARD loop fail first,
+  # on all eight rows, with a better message than this one. To reach this line
+  # every named row would have to be present in the slice while the table
+  # detection found nothing, and a row contains a pipe, so it cannot happen.
+  #
+  # Kept, not deleted, and labelled rather than left to imply coverage it does
+  # not give. This suite's own history is the argument: a helper that could not
+  # fail propagated one silent false green to four callers, and three tests
+  # went on passing while asserting nothing. An unreachable guard is the same
+  # mistake dressed as diligence — harmless only while everyone knows.
+  table="$(grep -F '|' <<<"$slice" || true)"
+  present="$(tail -n +2 <<<"$table" | grep -vE '^[[:space:]|:-]*$' || true)"
+  [ -n "$present" ] || { echo 'the red-flag table has no data rows at all — the table was emptied or its shape changed'; false; }
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     grep -qxF -- "$row" <<<"$known" \
