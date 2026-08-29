@@ -65,8 +65,11 @@ echo "exit status: $rc"
 
 ## 3. The mutation cycle
 
-Run once per anchor. Twenty-one times in total: thirteen clause anchors, seven
-rows, one appending mutant.
+Run once per mutation. TWENTY-TWO in total: thirteen clause anchors, seven
+rows, one appending mutant (section 4) and one unpinned-ninth-row mutant
+(section 7). An earlier draft of this line said twenty-one and left its own
+section 7 out of the count — recorded here because a hand-written total that
+drifts downward is exactly how a run reports more demonstrations than it made.
 
 `git checkout --` is not available for the restore — the orchestrator's own
 never-bend table forbids it, along with `git reset --hard`, `git clean` and
@@ -98,7 +101,7 @@ sed -i 's/ROLL NOTHING BACK\. Whether to continue/ROLL THE TREE BACK TO ITS LAST
 after="$(grep -n 'ROLL THE TREE BACK' "$O")"
 echo "BEFORE: $before"
 echo "AFTER : $after"
-[ -n "$after" ] || { echo "MUTATION DID NOT LAND — the sed matched nothing"; }
+[ -n "$after" ] || { echo "MUTATION DID NOT LAND — the sed matched nothing"; exit 1; }
 ```
 
 ### 3c. Watch it go red
@@ -131,7 +134,6 @@ and adds a cell after it.
 
 ```bash
 O=pipeline/skills/pipeline/SKILL.md
-row='| "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |'
 python - "$O" <<'PY'
 import sys
 p = sys.argv[1]

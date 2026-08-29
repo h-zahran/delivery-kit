@@ -238,7 +238,11 @@ seven suite runs and are the only thing that proves the list is complete.
   proves a test can go red, and cannot distinguish a test that checks five
   things from one that checks one and silently skips four. Twenty
   demonstrations in total — thirteen clause anchors across the four
-  single-passage pins, plus seven rows.
+  single-passage pins, plus seven rows. Read this number together with SC-002b
+  and FR-005a, which each require one more: the whole verification runs
+  twenty-two mutations. Twenty is the ANCHOR count, not the total, and the two
+  are stated apart because a reader checking "were all mutations run" against a
+  single figure will otherwise conclude one run is missing or one was extra.
 - **SC-002b**: The row pins match whole lines, and this is demonstrated
   against an appending mutant specifically: a row left intact with extra text
   added after its final cell. Such a mutant is read inline by anything reading

@@ -211,9 +211,14 @@ and the test then passes for the honest reason while being recorded as a
 proven mutation. That is a false green manufactured by the verification step
 itself.
 
-**Twenty inversions, not five.** The seed says each pin is mutation-verified;
-"pin" there means anchor, not `@test`. Thirteen clause anchors plus seven rows
-is twenty, plus one appending mutant for SC-002b — twenty-one runs. The
+**Twenty-two mutations, not five.** The seed says each pin is
+mutation-verified; "pin" there means anchor, not `@test`. Thirteen clause
+anchors plus seven rows is twenty; the appending mutant SC-002b requires makes
+twenty-one, and the unpinned-ninth-row mutant FR-005a requires makes
+twenty-two. That last one was first filed among the behavioural checks, which
+left this document, the plan and the tasks file carrying two different totals
+for identical work. It is a mutation — it edits the document and requires a
+red — and the count, not the classification, was wrong. The
 clarified answer about the seven rows applies for exactly the same reason to
 the J pin's five clauses: one inversion cannot distinguish a test that checks
 five things from one that checks one and skips four.
@@ -222,7 +227,7 @@ five things from one that checks one and skips four.
 runs `pipeline/tests/prose.bats` alone. The full house from the repository root
 runs twice: once at F.5 for the baseline, once at J for the verdict. This is
 the red-flag table's own rule — focused runs are for iterating, not for
-verdicts — and twenty-one full-house runs would prove nothing the focused ones
+verdicts — and twenty-two full-house runs would prove nothing the focused ones
 do not, at roughly twenty times the wall clock.
 
 **Alternatives considered.** `git stash` to park the mutation. Rejected: the
@@ -288,3 +293,48 @@ means committing guard tests, which changes the suite total that this feature's
 own acceptance criterion fixes at 159 — so it is the next piece of work, not
 this one. It is recorded here, and in the pull request, so that the next person
 to touch `prose_slice` knows the suite will not catch them.
+
+---
+
+## D8 — Three review findings deferred, and why they are not fixed here
+
+The phase-M review found three real defects that this feature is not allowed to
+fix. They are recorded here, and filed as a follow-up issue, because a finding
+that is neither fixed nor written down has been waved through.
+
+### The two unguarded slices in existing tests
+
+`the G pre-answer contract is pinned sentence by sentence` and
+`the implementer key's consent surface is pinned outside the G slice` both
+slice with a bare `awk` range and no boundary assertions. Reword their closing
+boundary — `**H — implement.**`, `**Base branch:**`, or the probe block's
+`Will skip ` line — and the range runs to end of file. Every anchor in them can
+then be satisfied from ANYWHERE in the document while the test name and all
+eleven failure messages still claim a section.
+
+That is the exact failure `prose_slice` was written to prevent, sitting in the
+same file, in the tests that were themselves rewritten to close the relocation
+escape. The second one is sharper than the first: its own comment records that
+pre-flight item 10 was moved off a file-wide pin *because* a verbatim appendix
+copy beat it — and a boundary rename silently puts it back on a file-wide pin.
+
+**Not fixed because FR-010 forbids it.** "MUST NOT alter, convert or reword any
+pin already in it", which the seed states as "Do not convert the existing
+pins." Routing those two through `prose_slice` is exactly that conversion. The
+constraint is the right one — converting 31 pins mid-feature is how a
+pinning change becomes an unreviewable rewrite — and it means this defect
+outlives this feature by design.
+
+### The helper cannot serve them anyway
+
+`prose_slice` takes no file argument; it reads `$ORCH`. So even without FR-010
+it could not cover the `$docs` and `$changelog` slices in the same file. Adding
+the parameter now would be generality with no consumer, which is its own smell,
+so it belongs with the work that gains one.
+
+### What the follow-up has to do
+
+Add a `<file>` parameter, route the three existing slice sites through the
+guarded helper, and commit tests for the helper's own guards — the gap D7
+records. All three are one piece of work and none of them fits inside a feature
+whose acceptance criterion fixes the suite total at 159.
