@@ -178,7 +178,23 @@ seven suite runs and are the only thing that proves the list is complete.
   directions: every row it names is present, and every row present is named.
 - **FR-006**: Each new pin MUST anchor on the operative clause of its passage
   — the words that carry the obligation — rather than on a whole sentence
-  reproduced verbatim. The red-flag rows are the stated exception and are
+  reproduced verbatim.
+
+  **ACCEPTED DEVIATION, decided by the owner at review round 4.** As shipped,
+  each pin ALSO asserts a span covering its whole region, and that span was
+  measured to be a byte-exact copy of the flattened region. So the effective
+  assertion is the whole region reproduced verbatim modulo whitespace — beyond
+  what this requirement asks — and the clause anchors, while still present and
+  still required, are subsumed by it and function as diagnostics that name
+  which rule changed.
+
+  The deviation was put to the owner with the alternatives (shorten the spans
+  to the region interior, or drop them and keep clause anchors only) and the
+  spans were kept deliberately. The reason is that the round-2 append attack —
+  an exception appended after a rule, inverting it while leaving its anchor a
+  perfect substring — lands INSIDE the pinned text, and nothing weaker catches
+  it. The cost accepted in exchange is that any word change inside a safety
+  region reddens its pin. See research D9 and D11. The red-flag rows are the stated exception and are
   pinned whole: a table row occupies a single line, so it cannot be reflowed,
   and the tolerance FR-006 buys elsewhere would buy nothing there while
   leaving half of each row free to change.
