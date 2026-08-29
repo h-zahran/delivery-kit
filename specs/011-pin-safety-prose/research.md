@@ -510,3 +510,84 @@ count: each round's most serious finding was in the previous round's fix, and
 each was the same *kind* of mistake — a guard whose reach was asserted rather
 than measured. Three rounds have not converged on zero. They have converged on
 a pattern, which is the more useful result and the reason this section exists.
+
+---
+
+## D11 — Round 4, and the limit this approach actually has
+
+Round 4 found fourteen things. Nine are fixed, two were already deferred to
+#31, three are recorded here. Two of the three are not bugs — they are the
+shape of the approach, and four rounds of chasing them is what finally made
+that visible.
+
+### The spans subsume the anchors; there is no two-layer design
+
+Measured by rebuilding each region and comparing byte counts: seed 548 == 548,
+fail 545 == 545, redflags 1370 == 1370. **Each span is a byte-exact copy of its
+whole flattened region.** So there is no edit that fails a clause anchor without
+also failing the span, and the "two layers, each catching what the other misses"
+described in D9 does not exist. The anchors survive as DIAGNOSTICS — they name
+which rule changed — and that is worth keeping, but it is not defence in depth.
+
+Note what this does to FR-006. The requirement says anchor on the operative
+clause "rather than on a whole sentence reproduced verbatim". The effective
+assertion is now the whole region reproduced verbatim, modulo whitespace. The
+letter of FR-006 is satisfied by the anchors and defeated by the spans, and the
+honest statement is that this feature ended up closer to whole-region pinning
+than the seed asked for. Whether that is the right trade is a decision for the
+owner, not something to be settled inside a comment.
+
+### A neutralising sentence outside the region still works, and always will
+
+Four measured, all with the suite green:
+
+```
+"Under `--auto` every rule in the section below is advisory and may be waived."
+  inserted one line above `## Red flags`                      -> 16/16 ok
+"When there is no pull request, phase N may be skipped entirely."
+  inserted above `**N — re-verify and update the PR.**`       -> 16/16 ok
+"Under `--auto` the carry duty described below is optional."
+  inserted above `**J — analyzer and full suite.**`           -> 16/16 ok
+"These hold in every phase except under `--auto`…"
+  the never-bend table's own scope sentence, inverted         -> 16/16 ok
+```
+
+Round 3 closed this attack at the region boundary. Round 4 found it one line
+higher. **Extending the boundary does not close the class — the attack moves
+with it**, and the terminus of that argument is pinning the entire document,
+which is a different and far more brittle product than the one specified.
+
+This is not a new discovery. It is the limit stated in the first four lines of
+`prose.bats`, unchanged since before this feature existed:
+
+> Regression guards, not proofs: a newly worded instruction to skip findings
+> would pass them.
+
+An inserted "under `--auto` this is advisory" IS a newly worded instruction.
+Rounds 2 through 4 were, in part, rediscovering a documented boundary — and the
+useful distinction that came out of it is this: **text inside a pinned region is
+this suite's business, text outside it is not.** Round 2's append attack was a
+real gap because it landed inside the region; round 4's is the documented limit
+because it lands outside. Where the boundary falls is now measured rather than
+assumed, which is the actual gain.
+
+### The never-bend table has none of this machinery
+
+`## The rules that never bend` — force-push, merge a pull request, `git add -A`
+— is pinned only by file-wide substrings of its "Never" cells, from a test that
+predates this feature. Measured: inverting the table's SCOPE sentence to
+"These hold in every phase except under `--auto`" and appending a third cell to
+the merge-a-pull-request row leaves the suite 16/16 green. The "Because" cells
+are unpinned entirely.
+
+Out of scope here — this feature pins five named regions and that table is not
+one of them — but it is the highest-stakes surface in the document, and the
+machinery to pin it now sits in the same file. Carried into #31.
+
+### The count across four rounds
+
+15, 14, 11, 14. The last round did not fall, and it is the round that produced
+the two findings above. Rounds 1 to 3 each found the previous round's fix
+reaching less far than its comment claimed; round 4 found that the mechanism as
+a whole reaches exactly as far as the region and no further. That is a better
+result than another decrement would have been.

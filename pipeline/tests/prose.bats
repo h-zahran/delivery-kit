@@ -371,6 +371,19 @@ prose_slice() {
   # obligation 1 asks for it, so it stays; but a maintainer reconciling code
   # against C2 should know its red is not producible, because the comment above
   # warns that a surplus guard invites deletion.
+  # awk's range operator RESTARTS on every later line matching the opener, so a
+  # duplicated boundary silently concatenates two disjoint regions into one
+  # slice while the pin's name and message claim a single section. Today's five
+  # boundaries are heading-shaped, so a duplicate happens to trip the
+  # inner-heading guard below — by accident, with a message about a restructure.
+  # For a non-heading boundary (the probe lines this helper should absorb next)
+  # nothing would catch it at all.
+  [ "$(tr -d '\r' < "$ORCH" | grep -cE "$open")" -eq 1 ] || {
+    printf 'prose_slice [%s]: the opening boundary /%s/ matches more than once, so the slice concatenates disjoint regions
+' "$name" "$open" >&2
+    return 1
+  }
+
   first="$(head -n 1 <<<"$s")"
   grep -qE "$open" <<<"$first" || {
     printf 'prose_slice [%s]: did not open on its boundary. Expected /%s/, got: %s\n' "$name" "$open" "$first" >&2
@@ -391,7 +404,7 @@ prose_slice() {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
       # ACCEPTED COST, named so nobody rediscovers it as a bug: this fires on
       # ANY line starting with `**`, not only a heading. A bold-led sentence
-      # inside one of these four regions — "**Note.** Under `--auto` the
+      # inside one of these five regions — "**Note.** Under `--auto` the
       # analyzer runs first." — trips it, and these are prose sections where
       # that is an ordinary thing to write. The alternative is a rule that
       # distinguishes a heading from emphasis, which markdown does not let a
@@ -417,7 +430,7 @@ prose_slice() {
 }
 
 # ---------------------------------------------------------------------------
-# INSERTION GUARDS for the four clause pins.                    (feature 011)
+# INSERTION GUARDS for all five pinned regions.                    (feature 011)
 #
 # Phase-M round 2 found the hole these close, and it is the SAME hole this
 # feature congratulated itself for closing on the table rows. `grep -qxF` was
@@ -438,14 +451,36 @@ prose_slice() {
 #
 # Whole-line matching cannot help here: a flattened slice IS one line. What
 # distinguishes an insertion is that it changes what SURROUNDS the rule, so the
-# guard has to assert the surroundings. Each span below runs from the first
-# safety sentence of its region to the region's closing boundary, flattened.
-# Nothing can be inserted anywhere inside it, or appended after the last rule,
-# without breaking the match.
+# guard has to assert the surroundings. Each span below is the WHOLE flattened
+# region, opening boundary to closing boundary.
+#
+# TWO THINGS THAT FOLLOW, both of which earlier drafts of this comment got
+# wrong, and both of which matter more than the guard itself:
+#
+# 1. THE SPANS SUBSUME THE ANCHORS. A span is a byte-exact copy of its region
+#    (measured: 548==548, 545==545, 1370==1370), so there is no edit that fails
+#    a clause anchor without also failing the span. The anchors are DIAGNOSTICS
+#    — they name which rule changed — not an independent layer. An earlier
+#    version of this comment described a two-layer design where each catches
+#    what the other misses. That design is not what is here.
+#
+# 2. THE SPANS STOP AT THE REGION BOUNDARY, AND SO DOES THE PROTECTION. A
+#    neutralising sentence placed ONE LINE ABOVE a region's opening heading
+#    inverts every rule inside it with this suite fully green. Measured, four
+#    ways, including "Under `--auto` every rule in the section below is
+#    advisory" above `## Red flags`. Extending the boundary does not close this
+#    — the attack moves with it — and pinning the whole document is a different
+#    product. It is the limit the header of this file has always named: these
+#    are REGRESSION GUARDS, NOT PROOFS, and a newly worded instruction passes
+#    them. Recorded in the feature's research D11.
+#
+# What the spans do buy is real and worth the lines: text inserted INSIDE a
+# pinned region — an exception appended after a rule, which is how a reword
+# actually arrives in review — is caught, and was not before.
 #
 # The cost, stated rather than discovered later: any word change inside a span
 # reddens its pin. That is a heavier trigger than the clause anchors, and it is
-# accepted because these four regions are safety prose end to end — there is no
+# accepted because these five regions are safety prose end to end — there is no
 # incidental sentence in them to reword innocently. The brittleness the seed
 # objected to was REFLOW, and flattening already answers that: a span is
 # immune to rewrapping and sensitive only to words.
@@ -468,13 +503,37 @@ prose_slice() {
 # BE ABLE TO FAIL — arriving by a different route, and here one typo would have
 # repealed a whole region's insertion protection with nothing going red.
 assert_span() {
-  local fn="$1" msg="$2" span
-  span="$("$fn" 2>/dev/null)" || span=""
-  [ -n "$span" ] || {
-    echo "the span function $fn produced NOTHING — an empty pattern matches every line, so this guard asserted nothing at all"
+  # assert_span <span-function> <haystack> <message>
+  #
+  # The haystack is the SECOND argument, matching the call sites. An earlier
+  # version declared it third while every caller passed it second, so `msg`
+  # held the region text and the haystack held the message: every guard
+  # searched for its span inside its own error string, failed, and printed the
+  # whole region as the diagnostic. Five tests red at once, for a reason none
+  # of their messages named.
+  local fn="$1" haystack="$2" msg="$3" span stripped
+  [ -n "$haystack" ] || {
+    echo "assert_span was given an EMPTY haystack for $fn — nothing was searched"
     return 1
   }
-  grep -qF -- "$span" <<<"$flat" || { echo "$msg"; return 1; }
+  span="$("$fn" 2>/dev/null)" || span=""
+  # Whitespace-only, not just empty. A heredoc gutted to a single space is
+  # non-empty, and `grep -qF -- " "` matches every flattened slice — they all
+  # contain spaces. That is the same false green this function exists to close,
+  # arriving one character later.
+  stripped="${span//[[:space:]]/}"
+  [ -n "$stripped" ] || {
+    echo "the span function $fn produced only whitespace — that matches every line, so this guard would assert nothing at all"
+    return 1
+  }
+  # And a length floor. A real span here is 500-2000 characters; a truncating
+  # edit or a bad regeneration that left a fragment would still match, and
+  # would silently narrow the region this guard covers.
+  [ "${#span}" -ge 200 ] || {
+    echo "the span function $fn produced only ${#span} characters — too short to be a region span; a truncated span silently narrows what this guard covers"
+    return 1
+  }
+  grep -qF -- "$span" <<<"$haystack" || { echo "$msg"; return 1; }
 }
 
 span_redflags() {
@@ -520,7 +579,7 @@ SPAN
     || { echo 'the never-fall-through rule altered — check the CONSEQUENCE clause, not only the prohibition'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  assert_span span_seed 'the seed-form region gained, lost or reworded text around its rules. The anchors above name a rule that CHANGED; this one fires when text was INSERTED beside them — an appended exception inverts a rule while leaving its anchor intact.' || false
+  assert_span span_seed "$flat" 'the seed-form region gained, lost or reworded text around its rules. The anchors above name a rule that CHANGED; this one fires when text was INSERTED beside them — an appended exception inverts a rule while leaving its anchor intact.' || false
 }
 
 @test "a failed phase rolls nothing back, keeps its place and drops the lock" {
@@ -544,7 +603,7 @@ SPAN
     || { echo 'the lock-release rule altered — a failed run must not hold the repository'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  assert_span span_fail 'the failure procedure gained, lost or reworded text around its rules. An appended exception ("unless the tree is dirty, reset it") inverts ROLL NOTHING BACK while leaving its anchor a perfect substring.' || false
+  assert_span span_fail "$flat" 'the failure procedure gained, lost or reworded text around its rules. An appended exception ("unless the tree is dirty, reset it") inverts ROLL NOTHING BACK while leaving its anchor a perfect substring.' || false
 }
 
 @test "phase J carries a waved-through red into everything that leaves the machine" {
@@ -574,7 +633,7 @@ SPAN
     || { echo 'phase J redaction rule altered — the FACT and its LOCATION, never the value'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  assert_span span_j 'the phase J cap-breach paragraphs gained, lost or reworded text around the duty. An appended opt-out ("under --auto the carry is optional") inverts the duty while leaving its anchor intact.' || false
+  assert_span span_j "$flat" 'the phase J cap-breach paragraphs gained, lost or reworded text around the duty. An appended opt-out ("under --auto the carry is optional") inverts the duty while leaving its anchor intact.' || false
 }
 
 @test "phase N is degraded but never skipped, and never re-owns an accepted red" {
@@ -595,7 +654,7 @@ SPAN
     || { echo 'the do-not-re-own rule altered — a failure accepted at J must not be re-owned at N'; false; }
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
-  assert_span span_n 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.' || false
+  assert_span span_n "$flat" 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.' || false
 }
 
 # The eight data rows of the red-flag table, split by WHO PINS THEM.
@@ -666,16 +725,6 @@ ROWS
   # succeeded once in this suite. The two lists below stay separate because
   # they record different things — who OWNS a pin, and what is in the table —
   # but presence is checked for both.
-  # INSERTION GUARD for this region too. Round 3 found the Red flags section
-  # was the one safety region without one — and its rows are the most directly
-  # instruction-shaped text in the document. Rewriting the intro to "…stop: you
-  # are rationalising — except under `--auto`, where every one of them is
-  # acceptable." neutralised all eight rows while both loops below stayed
-  # green, because both check only the rows themselves. Measured.
-  local flat
-  flat="$(prose_slice '^## Red flags' '^## When a phase fails$' flat 'red flags')" || return 1
-  assert_span span_redflags 'the Red flags region gained, lost or reworded text around the table. The row checks below prove each ROW is intact; only this proves nothing was written around them — an exception added to the intro neutralises every row without touching one.' || false
-
   known="$(redflag_rows_pinned_here; redflag_row_pinned_elsewhere)"
   while IFS= read -r row; do
     [ -n "$row" ] || continue
@@ -707,10 +756,19 @@ ROWS
   # nothing but pipes, dashes, colons and spaces; the header is simply the
   # first table line.
   #
-  # `|| true` on both assignments. bats runs test bodies under `set -eET`, so a
-  # grep matching nothing aborts the test ON THE ASSIGNMENT, quoting the raw
-  # shell line instead of saying anything useful. Reproduced against bats-core
-  # v1.11 before this was added.
+  # `|| true` on the assignment below — one site, not two; `known` above is two
+  # `cat` heredocs and needs none. bats runs test bodies under `set -eET`, so a
+  # failing command aborts the test ON THE ASSIGNMENT, quoting the raw shell
+  # line instead of saying anything useful.
+  #
+  # Note honestly what it does and does not do HERE. The rationale originally
+  # written for it is grep's — "matched nothing" is a non-zero exit — and this
+  # is awk, which exits non-zero only on a program or IO error. So the `|| true`
+  # is not catching an empty match; it is swallowing an awk FAILURE and turning
+  # it into "the red-flag table has no data rows at all", which would be the
+  # wrong message about an intact table. It is kept because an aborted test
+  # quoting a raw shell line is worse, and the guard below at least names a
+  # table problem — but it is a trade, not a fix.
   #
   # THE GUARD BELOW IS NEARLY, BUT NOT ENTIRELY, UNREACHABLE — and the earlier
   # version of this comment called it dead outright, which was wrong in a way
@@ -763,4 +821,21 @@ ROWS
     grep -qxF -- "$row" <<<"$known" \
       || { echo "a red-flag row is in the table but pinned by nothing — add it to redflag_rows_pinned_here, or to redflag_row_pinned_elsewhere if another test owns it: $row"; false; }
   done <<<"$present"
+
+  # INSERTION GUARD, LAST rather than first, and the ordering is the finding.
+  # Round 3 added it ahead of the loops; round 4 measured what that cost:
+  # rewording ONE cell produced only "text around the table … the row checks
+  # below prove each ROW is intact", which affirmatively told the maintainer
+  # the rows were fine while a row was exactly what had changed. Specific
+  # first, general last — the four pins above are ordered the same way.
+  #
+  # The haystack is flattened from the slice ALREADY taken, not by calling
+  # prose_slice a second time. Two calls put the boundary literals twice in one
+  # test, so changing one and not the other would have left the row loops and
+  # this guard examining different regions — and doubled a helper that spawns
+  # a dozen processes and re-reads the document.
+  local flat
+  flat="$(tr '
+' ' ' <<<"$slice" | tr -s ' ')"
+  assert_span span_redflags "$flat" 'the Red flags region gained, lost or reworded text around the table. The row checks above name any ROW that changed; this fires when text was written AROUND them — an exception added to the intro neutralises every row without touching one.' || false
 }

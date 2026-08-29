@@ -19,20 +19,32 @@ The bounded excerpt of the orchestrator that one pin is allowed to search.
 | `close` | awk regex matching the last line | Must match exactly one line, after `open` |
 | `form` | `raw` or `flat` | `flat` collapses newlines to single spaces |
 
-**Validation rules.** Every slice, before it is searched:
+**Validation rules.** SIX, and the count is stated because a miscount here is
+what invites someone to delete the one that matters. Every slice, before it is
+searched:
 
-1. Its first line matches `open`. A slice that opened somewhere else is a
-   slice of the wrong region.
-2. Its last line matches `close`. This is the one that matters: an awk range
-   whose closing pattern never matches runs silently to end of file, and the
-   pin then searches the whole document while claiming to search a section —
-   the exact failure FR-007 exists to prevent, arriving through the back door.
-3. It contains no heading-shaped line (`^**` or `^#` through `^######`) other
-   than the closing one. A heading appearing inside means the document was
-   restructured underneath the slice.
+1. The orchestrator is a readable FILE — `-f` as well as `-r`, because a
+   directory is readable and would otherwise produce five pins blaming missing
+   prose.
+2. The slice is non-empty. An empty slice means the opening boundary matched
+   nothing.
+3. Its first line matches `open`. NEAR-UNREACHABLE in practice — awk's range
+   only starts emitting on a matching line — and labelled as such in-file.
+4. Its last line matches `close`. **This is the one that must never go.** An
+   awk range whose closing pattern never matches runs silently to end of file,
+   and the pin then searches the whole document while claiming a section — the
+   exact failure FR-007 exists to prevent, arriving through the back door.
+5. `open` matches exactly once in the document. awk's range operator RESTARTS
+   on every later match, silently concatenating disjoint regions into one slice.
+6. It contains no heading-shaped line (`^**` or `^#` through `^######`) other
+   than the closing one. A heading inside means the document was restructured
+   underneath the slice. Fires on any bold-led line, not only a heading — an
+   accepted cost, recorded in-file.
 
-Rule 2 is FR-008. Rules 1 and 3 are the existing G-slice pin's own checks,
-reused because they have already caught a real restructuring once.
+Rule 4 is FR-008. Rules 3 and 6 are the existing G-slice pin's own checks,
+reused because they have already caught a real restructuring once. Rules 1, 2
+and 5 came from review rounds 2 and 3, each after a measured wrong-message or
+silent-widening failure.
 
 **The `\r` strip.** Every slice passes through `tr -d '\r'` before anything
 compares against it. The document carries no carriage returns today and
@@ -80,9 +92,17 @@ One `@test` block. Five of them.
 | `P2` roll nothing back | `## When a phase fails` → `## Resume` | flat | 3 | FR-002 |
 | `P3` J carry duty | `**J — analyzer…**` → `**K — commit.` | flat | 5 | FR-003 |
 | `P4` N degraded | `**N — re-verify…**` → `**N.5 — runtime check.**` | flat | 3 | FR-004 |
-| `P5` red-flag rows | `## Red flags` → `## When a phase fails` | raw | 7 rows + completeness | FR-005, FR-005a |
+| `P5` red-flag rows | `## Red flags` → `## When a phase fails` | raw + flat | 8 rows + completeness + span | FR-005, FR-005a |
 
-Thirteen clause anchors, seven row anchors, one completeness assertion.
+Thirteen clause anchors, EIGHT row anchors, one completeness assertion, and
+five insertion spans.
+
+Eight rather than seven: the forward loop whole-line checks all eight data
+rows, including the one whose pin is owned by another test. That was a
+deliberate hardening — the eighth row's only other pin is two file-wide
+substrings, so it could be cut from the table and pasted into an appendix with
+everything green. Undercounting it here would hide exactly the hardening that
+closed a relocation escape.
 
 ---
 
@@ -99,9 +119,27 @@ by the existing test rather than here. A row present in the table and absent
 from that list is a new red-flag row nobody pinned, and it goes red naming
 itself.
 
-Data rows are identified as lines matching `^| ` minus the header
-`| Thought | Reality |`. The `|---|---|` separator does not match `^| ` and is
-excluded by construction, not by a special case.
+Data rows are found by the table's SHAPE: skip to the separator line — pipes,
+dashes, colons and spaces, carrying at least one of each of the first two —
+then take lines until the table ends at a blank line, resuming if another
+separator follows.
+
+**This replaced an earlier rule that was measured broken, and the earlier rule
+is recorded here because a reader reconciling code against this document would
+otherwise "fix" the code back to it.** That rule was: lines matching `^| `,
+minus the literal header `| Thought | Reality |`, with the `|---|---|`
+separator excluded "by construction". Every clause of it failed:
+
+- `^| ` misses three row spellings GFM renders identically — no space after the
+  pipe, up to three leading spaces, and a body row with the leading pipe
+  omitted — so a row added in any of them was pinned by nobody.
+- Excluding the header by its literal text meant renaming the header produced a
+  red instructing the maintainer to pin a table header as a red-flag rule.
+- A formatter that pads the separator to `| --- | --- |` defeats the separator
+  exclusion, and a plain `---` thematic break elsewhere in the region was taken
+  as the separator.
+- Taking the header as "the first pipe-bearing line" broke on prose: the region
+  is prose, and a sentence mentioning `--auto | --auto-release` displaced it.
 
 **Why both.** Forward alone is a positive control: it proves the pin can go
 red, never that it goes red when it should. A hand-written list that has
