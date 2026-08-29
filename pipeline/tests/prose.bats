@@ -247,12 +247,17 @@ PARTS
 # Region-sliced pins for the orchestrator's safety prose.        (feature 011)
 #
 # The ~31 pins above reproduce whole sentences, deliberately and with the
-# reasoning recorded in-file. These five do not, and the difference is the
-# point rather than a style drift: an anchor that is a CLAUSE survives a
-# rewrap, so a red from one of these means someone changed what the sentence
-# obliges, not where its line breaks fall. The whole-sentence pins cannot make
-# that distinction, and a wall of them going red on a reflow is how a suite
-# teaches people to stop reading its reds.
+# reasoning recorded in-file. These five prefer the operative CLAUSE — though
+# not uniformly, and the exception matters more than the rule here: several
+# anchors below are complete sentences, because that is how long the obligation
+# runs. Anchor LENGTH is not what makes them reflow-safe. FLATTENING is, and
+# the older `flat`-based pins above already do it.
+#
+# Say that plainly, because getting it wrong is dangerous in one direction: a
+# maintainer who believes short anchors are what survives a rewrap will shorten
+# one, and a shortened anchor is a cuttable anchor — the failure C3 records
+# twice in this very suite. Shorten nothing to buy reflow-safety you already
+# have.
 #
 # Every one of them searches a SLICE, never the file. A rule that has been
 # moved out of the section governing the behaviour is not in force however
@@ -267,13 +272,18 @@ PARTS
 # through $( ), so a message on stdout would be captured into the caller's
 # variable and never seen.
 #
-# FIVE guards follow, and they are the contract (specs/011-.../contracts C2):
-# the file is readable, the slice is non-empty, it opened on its boundary, it
-# closed on its boundary, and it holds no unexpected heading. Counted here
-# rather than described loosely, because the sentence after this one says one
-# of them must never be removed as redundant — and a miscount is an invitation
-# to decide which of the "extra" ones that was. (Arity and form are checked
-# above, before any of this; they are about the CALL, not the slice.)
+# FIVE guards follow: the file is readable, the slice is non-empty, it opened
+# on its boundary, it closed on its boundary, and it holds no unexpected
+# heading. THREE of them are contract C2 (opened, closed, no heading); the
+# readable-file and non-empty checks come from FR-008 and from this function's
+# own reasoning, not from C2.
+#
+# The split is spelled out because the first version of this comment cited C2
+# for all five — while the sentence below warns that a surplus guard invites
+# deletion. A maintainer reconciling code against the cited contract would have
+# found two guards the contract does not ask for, having just been told that a
+# miscount is suspicious. (Arity and form are checked further up, before any of
+# this; they are about the CALL, not the slice.)
 #
 # The CLOSED-ON-ITS-BOUNDARY guard is the one that must never go. An awk
 # range whose closing pattern stops matching runs to end of file in silence:
@@ -329,8 +339,20 @@ prose_slice() {
   # `\.` into `.` and warns, silently loosening every pattern here. ENVIRON
   # does neither. Verified byte-identical to the interpolated form on all five
   # slices, with empty stderr.
-  s="$(PS_OPEN="$open" PS_CLOSE="$close" \
-       awk '$0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]' "$ORCH" | tr -d '\r')"
+  # THE CR STRIP RUNS BEFORE awk, NOT AFTER. An earlier version piped awk's
+  # output through `tr -d '\r'`, which is far too late to be the defence it
+  # claimed to be: awk had already matched the boundaries against lines still
+  # carrying their CR, and three of the five closing patterns are `$`-anchored
+  # — '^## Resume$', '^## The twenty phases$', '^## When a phase fails$'. On a
+  # CRLF checkout, under an awk that does not itself ignore a trailing CR (GNU
+  # awk, which is what the Linux CI runner has), none of the three matches: the
+  # range runs to end of file and three pins fail with UNTERMINATED and advice
+  # about a heading nobody renamed. That is precisely the wrong-message class
+  # the strip was added to prevent, produced by the strip sitting in the wrong
+  # place. It is invisible on this machine, where the Cygwin awk and grep both
+  # ignore a trailing CR — which is why it survived the first round.
+  s="$(tr -d '\r' < "$ORCH" | PS_OPEN="$open" PS_CLOSE="$close" \
+       awk '$0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]')"
 
   [ -n "$s" ] || {
     printf 'prose_slice [%s]: the slice is EMPTY — the opening boundary matched nothing: %s\n' "$name" "$open" >&2
@@ -355,13 +377,22 @@ prose_slice() {
     inner="$(sed -n "2,$((n - 1))p" <<<"$s" | grep -E '^\*\*|^#{1,6} ' || true)"
     [ -z "$inner" ] || {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
+      # ACCEPTED COST, named so nobody rediscovers it as a bug: this fires on
+      # ANY line starting with `**`, not only a heading. A bold-led sentence
+      # inside one of these four regions — "**Note.** Under `--auto` the
+      # analyzer runs first." — trips it, and these are prose sections where
+      # that is an ordinary thing to write. The alternative is a rule that
+      # distinguishes a heading from emphasis, which markdown does not let a
+      # grep do reliably; a false red that names its own cause was judged the
+      # better failure. Hence the line below.
+      #
       # Naming the likely cause, because this red is about STRUCTURE and every
       # other red from these pins is about wording. Without this line a
       # maintainer who has just added a sub-phase goes looking for deleted
       # prose. Sub-phases are not hypothetical here: the document already
       # carries C.5, F.5, H.5, H.7 and N.5, so a J.5 or an L.5 is ordinary
       # maintenance, and it must land as a two-line fix rather than a mystery.
-      printf '  If you added a sub-phase inside this region, move this pin s closing boundary to it. The slice no longer covers the section it names.\n' >&2
+      printf '  If you added a sub-phase inside this region, move this pin'"'"'s closing boundary to it. The slice no longer covers the section it names.\n' >&2
       return 1
     }
   fi
@@ -371,6 +402,69 @@ prose_slice() {
   else
     printf '%s\n' "$s"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# INSERTION GUARDS for the four clause pins.                    (feature 011)
+#
+# Phase-M round 2 found the hole these close, and it is the SAME hole this
+# feature congratulated itself for closing on the table rows. `grep -qxF` was
+# adopted for rows because a mutant that leaves a row intact and APPENDS to it
+# keeps the original as a substring. That reasoning was never carried to the
+# four prose pins, and the comment above the roll-nothing-back anchor claimed
+# an immunity it did not have — "the reason clause is what makes that rewrite
+# impossible to phrase". It is entirely possible to phrase. Measured, landed,
+# and watched: appending
+#
+#   " Exception: under `--auto`, reset the tree first so the next phase
+#     starts clean."
+#
+# after the ROLL NOTHING BACK reason clause left the whole suite GREEN, and the
+# same trick silenced phase J's carry duty and phase N's never-skipped rule.
+# The rule is inverted, the anchor is untouched, and a substring match cannot
+# tell the difference.
+#
+# Whole-line matching cannot help here: a flattened slice IS one line. What
+# distinguishes an insertion is that it changes what SURROUNDS the rule, so the
+# guard has to assert the surroundings. Each span below runs from the first
+# safety sentence of its region to the region's closing boundary, flattened.
+# Nothing can be inserted anywhere inside it, or appended after the last rule,
+# without breaking the match.
+#
+# The cost, stated rather than discovered later: any word change inside a span
+# reddens its pin. That is a heavier trigger than the clause anchors, and it is
+# accepted because these four regions are safety prose end to end — there is no
+# incidental sentence in them to reword innocently. The brittleness the seed
+# objected to was REFLOW, and flattening already answers that: a span is
+# immune to rewrapping and sensitive only to words.
+#
+# The two layers report different things, which is why both are kept:
+#   a clause anchor fails  -> a named rule was ALTERED
+#   only the span fails    -> something was inserted or reworded AROUND them
+#
+# Generated from the document, never transcribed.
+span_seed() {
+  cat <<'SPAN'
+2. `#` followed by digits — fetch that GitHub issue. Needs a GitHub remote and `gh`; without them, fail with a message naming which is missing. NEVER fall through to treating `#123` as a feature description — silently specifying a feature called "#123" is worse than stopping. 3. Anything else — the feature description, verbatim, which is what the specify command takes natively. ## The twenty phases
+SPAN
+}
+
+span_fail() {
+  cat <<'SPAN'
+1. Print the phase, the reason, and the working tree as it stands. 2. Write the failure into the state file; `current_phase` stays at the phase that failed, so the next invocation re-enters it rather than skipping past it. 3. ROLL NOTHING BACK. Whether to continue, repair by hand, or abandon is the owner's decision, and a tool that tidies up first has destroyed the evidence they need to make it. 4. Release the lock. A failed run must not hold the repository. 5. Offer the resume prompt on the next invocation. ## Resume
+SPAN
+}
+
+span_j() {
+  cat <<'SPAN'
+A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into the commit message and the pull-request body. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint or a token, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.** Show the exact file list (every path by
+SPAN
+}
+
+span_n() {
+  cat <<'SPAN'
+**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again, classify against baseline, commit fixes, push to the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs both commands, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.** Three strategies by project type:
+SPAN
 }
 
 @test "the seed-form rule never falls through to a verbatim description" {
@@ -384,6 +478,10 @@ prose_slice() {
   # exception; the clause naming what the fall-through would produce does not.
   grep -qF 'NEVER fall through to treating `#123` as a feature description — silently specifying a feature called "#123" is worse than stopping.' <<<"$flat" \
     || { echo 'the never-fall-through rule altered — check the CONSEQUENCE clause, not only the prohibition'; false; }
+  # INSERTION GUARD — see the block above. A clause anchor proves a rule is
+  # still present; only this proves nothing was added beside it.
+  grep -qF -- "$(span_seed)" <<<"$flat" \
+    || { echo 'the seed-form region gained, lost or reworded text around its rules. The anchors above name a rule that CHANGED; this one fires when text was INSERTED beside them — an appended exception inverts a rule while leaving its anchor intact.'; false; }
 }
 
 @test "a failed phase rolls nothing back, keeps its place and drops the lock" {
@@ -405,6 +503,10 @@ prose_slice() {
     || { echo 'the current_phase rule altered — a failed run must RE-ENTER its phase, not skip past it'; false; }
   grep -qF 'Release the lock. A failed run must not hold the repository.' <<<"$flat" \
     || { echo 'the lock-release rule altered — a failed run must not hold the repository'; false; }
+  # INSERTION GUARD — see the block above. A clause anchor proves a rule is
+  # still present; only this proves nothing was added beside it.
+  grep -qF -- "$(span_fail)" <<<"$flat" \
+    || { echo 'the failure procedure gained, lost or reworded text around its rules. An appended exception ("unless the tree is dirty, reset it") inverts ROLL NOTHING BACK while leaving its anchor a perfect substring.'; false; }
 }
 
 @test "phase J carries a waved-through red into everything that leaves the machine" {
@@ -432,6 +534,10 @@ prose_slice() {
   # Redaction. A commit message and a PR body leave the machine.
   grep -qF 'record the fact and its location, never the value.' <<<"$flat" \
     || { echo 'phase J redaction rule altered — the FACT and its LOCATION, never the value'; false; }
+  # INSERTION GUARD — see the block above. A clause anchor proves a rule is
+  # still present; only this proves nothing was added beside it.
+  grep -qF -- "$(span_j)" <<<"$flat" \
+    || { echo 'the phase J cap-breach paragraphs gained, lost or reworded text around the duty. An appended opt-out ("under --auto the carry is optional") inverts the duty while leaving its anchor intact.'; false; }
 }
 
 @test "phase N is degraded but never skipped, and never re-owns an accepted red" {
@@ -450,15 +556,28 @@ prose_slice() {
   # the human as surely as marking it resolved would.
   grep -qF 'Report it as accepted, carry it exactly as J'"'"'s duty carries it, and never re-enter a fix loop the owner already ended' <<<"$flat" \
     || { echo 'the do-not-re-own rule altered — a failure accepted at J must not be re-owned at N'; false; }
+  # INSERTION GUARD — see the block above. A clause anchor proves a rule is
+  # still present; only this proves nothing was added beside it.
+  grep -qF -- "$(span_n)" <<<"$flat" \
+    || { echo 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.'; false; }
 }
 
 # The eight data rows of the red-flag table, split by WHO PINS THEM.
 #
-# Kept as two lists rather than one, so that "covered by another test" can
-# never quietly become "covered by this one". The first row is pinned above by
-# `the fix-everything red-flag table is present`, and by fragments rather than
-# whole-line; it is named here only so the completeness check knows it is
-# accounted for.
+# Kept as two lists rather than one to record WHO OWNS each pin — nothing more.
+# Both lists are whole-line checked by the forward loop below, so the split is
+# documentation, not a difference in protection. An earlier version of this
+# comment said the second row was named "only so the completeness check knows
+# it is accounted for", which contradicted the loop and invited someone to drop
+# it as inert; dropping it would have removed the only whole-line check on that
+# row, since the test that owns it pins it with two file-wide substrings.
+#
+# The ownership claim itself is UNVERIFIED and cannot easily be otherwise: no
+# assertion connects this list to the test named in it, so reword or delete
+# that test and this comment quietly becomes false. That is the same
+# hand-written-list-goes-stale failure the reverse loop exists to close, one
+# level up. It is tolerable only because the claim is no longer load-bearing —
+# the forward loop checks the row either way.
 #
 # Both lists were generated from the document rather than typed. A row
 # transcribed by hand acquires a straightened apostrophe or a collapsed double
@@ -547,20 +666,40 @@ ROWS
   # shell line instead of saying anything useful. Reproduced against bats-core
   # v1.11 before this was added.
   #
-  # THE GUARD BELOW IS UNREACHABLE, and saying so is the point. Review found it
-  # dead — the abort above pre-empted it — and it is STILL dead after that fix,
-  # for a second reason: emptying the table makes the FORWARD loop fail first,
-  # on all eight rows, with a better message than this one. To reach this line
-  # every named row would have to be present in the slice while the table
-  # detection found nothing, and a row contains a pipe, so it cannot happen.
+  # THE GUARD BELOW IS NEARLY, BUT NOT ENTIRELY, UNREACHABLE — and the earlier
+  # version of this comment called it dead outright, which was wrong in a way
+  # worth recording. Normally the FORWARD loop fails first, on all eight rows,
+  # with a better message. But if someone empties the table AND empties both
+  # row lists, `known` is empty, the forward loop's `[ -n "$row" ] || continue`
+  # makes it assert nothing at all, and this line is the only thing left that
+  # reddens. Calling it dead invited its removal, which would have left that
+  # case with no assertion whatsoever — a test passing on an empty table by
+  # iterating an empty list.
   #
   # Kept, not deleted, and labelled rather than left to imply coverage it does
   # not give. This suite's own history is the argument: a helper that could not
   # fail propagated one silent false green to four callers, and three tests
   # went on passing while asserting nothing. An unreachable guard is the same
   # mistake dressed as diligence — harmless only while everyone knows.
-  table="$(grep -F '|' <<<"$slice" || true)"
-  present="$(tail -n +2 <<<"$table" | grep -vE '^[[:space:]|:-]*$' || true)"
+  # THE TABLE IS FOUND BY ITS SEPARATOR, not by "the first line carrying a
+  # pipe". That earlier rule assumed the first pipe-bearing line in the region
+  # is the header — and the region is PROSE. A sentence mentioning
+  # `--auto | --auto-release` above the table displaced the header into the
+  # data rows, and the test then demanded somebody pin `| Thought | Reality |`
+  # as a red-flag rule; a sentence below the table was reported as an unpinned
+  # row. Both measured. It also had a false-green direction: delete the header
+  # line and the first real row silently stopped needing a pin.
+  #
+  # A GFM table is a separator line, then rows, then a blank line. That is the
+  # real shape, so that is what this looks for — skip to the separator (pipes,
+  # dashes, colons and spaces, with at least one dash), then take lines until
+  # the table ends. Prose on either side is outside by construction rather than
+  # by exclusion, and every row spelling GFM accepts is inside.
+  present="$(awk '
+    !seen && /^[[:space:]]*[|[:space:]:-]*-[|[:space:]:-]*$/ { seen = 1; next }
+    seen && /^[[:space:]]*$/ { exit }
+    seen { print }
+  ' <<<"$slice" || true)"
   [ -n "$present" ] || { echo 'the red-flag table has no data rows at all — the table was emptied or its shape changed'; false; }
   while IFS= read -r row; do
     [ -n "$row" ] || continue

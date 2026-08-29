@@ -65,6 +65,20 @@ echo "exit status: $rc"
 
 ## 3. The mutation cycle
 
+> **`newline=''` on every open is not optional.** Without it Python writes
+> `os.linesep` for each newline, which on Windows rewrites EVERY line ending in
+> `SKILL.md` from LF to CRLF. The intended one-row edit becomes a whole-file
+> line-ending rewrite, and the red you then observe is not attributable to the
+> mutation you made. Measured here with Python 3.14: `cmp` reports
+> `differ: char 4, line 1`, and a CRLF `SKILL.md` reddens two OTHER pins with
+> messages about altered prose.
+>
+> An earlier draft of this file omitted it in three blocks. The harness used
+> for the actual verification always had it, so the recorded evidence is
+> sound — but anyone following these blocks by hand would have gathered
+> contaminated evidence with no way to tell.
+
+
 Run once per mutation. TWENTY-TWO in total: thirteen clause anchors, seven
 rows, one appending mutant (section 4) and one unpinned-ninth-row mutant
 (section 7). An earlier draft of this line said twenty-one and left its own
@@ -139,9 +153,9 @@ import sys
 p = sys.argv[1]
 row = '| "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |'
 add = ' Except under `--auto`, where you may answer it yourself. |'
-s = open(p, encoding='utf-8').read()
+s = open(p, encoding='utf-8', newline='').read()
 assert row in s, "MUTATION DID NOT LAND — row not found"
-open(p, 'w', encoding='utf-8').write(s.replace(row, row + add, 1))
+open(p, 'w', encoding='utf-8', newline='').write(s.replace(row, row + add, 1))
 PY
 grep -n 'Except under `--auto`, where you may answer it yourself' "$O"
 echo "(the line above must print the mutated row — if it prints nothing, the mutation did not land)"
@@ -183,13 +197,13 @@ O=pipeline/skills/pipeline/SKILL.md
 python - "$O" <<'PY'
 import sys, textwrap
 p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
+s = open(p, encoding='utf-8', newline='').read()
 start = s.index('**N — re-verify and update the PR.**')
 end   = s.index('**N.5 — runtime check.**')
 block = s[start:end]
 rewrapped = textwrap.fill(' '.join(block.split()), width=58) + '\n\n'
 assert rewrapped != block, "REWRAP DID NOT CHANGE ANYTHING"
-open(p, 'w', encoding='utf-8').write(s[:start] + rewrapped + s[end:])
+open(p, 'w', encoding='utf-8', newline='').write(s[:start] + rewrapped + s[end:])
 PY
 sed -n "$(grep -n 'N — re-verify' "$O" | cut -d: -f1),+3p" "$O"
 echo "(must show the N block at a different line width)"
@@ -209,11 +223,11 @@ python - "$O" <<'PY'
 import sys
 p = sys.argv[1]
 anchor = '| "Re-running this phase might duplicate work" |'
-s = open(p, encoding='utf-8').read()
+s = open(p, encoding='utf-8', newline='').read()
 i = s.index(anchor)
 j = s.index('\n', i) + 1
 new = '| "Nobody will read this row anyway" | They will. |\n'
-open(p, 'w', encoding='utf-8').write(s[:j] + new + s[j:])
+open(p, 'w', encoding='utf-8', newline='').write(s[:j] + new + s[j:])
 PY
 grep -n 'Nobody will read this row anyway' "$O"
 echo "(must print the added row)"
