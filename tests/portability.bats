@@ -616,7 +616,14 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # agree with each other, so only plugin-vs-changelog can see this.
   c="$TEST_DIR/version-fire-changelog"
   cp -r "$base" "$c"
-  sed -i '0,/^## \[[0-9][0-9.]*\] - /s/^## \[[0-9][0-9.]*\] - /## [9.9.9] - /' "$c/$copied/CHANGELOG.md"
+  # awk, not `sed -i`. BSD sed — which is macos-latest's sed — requires an
+  # argument after -i and has no address 0, so the GNU one-liner this replaces
+  # failed there with "invalid command code" while passing on the other two
+  # platforms. Measured on CI, not guessed: the first version of this fixture
+  # went green locally and red on macos alone.
+  awk 'done != 1 && /^## \[[0-9]/ { sub(/^## \[[0-9][0-9.]*\]/, "## [9.9.9]"); done = 1 } { print }' \
+    "$c/$copied/CHANGELOG.md" > "$c/$copied/CHANGELOG.new"
+  mv "$c/$copied/CHANGELOG.new" "$c/$copied/CHANGELOG.md"
   grep -q '^## \[9\.9\.9\] - ' "$c/$copied/CHANGELOG.md" \
     || { echo "the changelog break did not land in $c/$copied/CHANGELOG.md; the assertion below would prove nothing"; false; }
   run bash -c "cd \"$c\" && bash \"$ROOT/scripts/check-versions.sh\""
