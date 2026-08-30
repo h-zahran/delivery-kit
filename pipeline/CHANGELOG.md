@@ -18,6 +18,13 @@ All notable changes to the `pipeline` plugin.
   skip lines are printed as *not read* rather than as the values those absent
   commands appeared to return.
 
+  The rule is pinned, not merely written: a suite test slices the probe block,
+  the not-read rule and the decision walk, and asserts the stop's condition, its
+  action, its fires-first ordering, the printed link and the
+  capability-not-a-skip rule inside the region each belongs to. Deleting the
+  rule, inverting its ordering, or softening the stop to a warning each turn
+  that test red.
+
   Two limits, stated because the alternative is a reader discovering them. The
   answer is recorded where a run has somewhere to record it; on a fresh run the
   stop precedes the state file's creation, so there the stop and the printed

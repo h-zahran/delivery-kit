@@ -42,7 +42,10 @@ machine contract; the orchestrator is a document read by a model.
 
 - Stdout stays pure JSON; every diagnostic goes to stderr.
 - No existing key changes name, type or meaning.
-- Exactly two new tests. A third would falsify SC-002.
+- Three new tests: two in the probe suite, and one prose pin. This was two,
+  matching the seed. The owner raised it after three review rounds each found
+  the feature's own behaviour guarded by nothing. See SC-002 for the reasoning
+  and the mutation evidence.
 - Every pinned string stays intact. `pipeline/tests/prose.bats` slices the probe
   block with `awk '/^Project type : /,/^Will skip /'` and the decision walk with
   `awk '/^The script only reports.../,/^\*\*Base branch:\*\*/'`, then pins

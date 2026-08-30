@@ -156,13 +156,17 @@ phase on git's account; the consequence lives in the pre-flight walk as a stop.
 
 ### How each requirement is verified
 
-Recorded here so the plan does not have to rediscover it, and so nobody adds a
-third test that would falsify SC-002.
+Recorded here so the plan does not have to rediscover it. Note how much of this
+list moved: most of the prose requirements were originally verified by a human
+reading a document once, which is what three review rounds objected to.
 
-- **By the two new tests**: FR-001, FR-003, FR-004, FR-009, FR-010.
+- **By the two new probe tests**: FR-001, FR-003, FR-004, FR-009, FR-010.
+- **By the new prose pin**, whose reach was mutation-measured: FR-005, FR-005a,
+  FR-006a, FR-007, FR-008.
 - **By the existing suite passing unedited**: FR-002.
-- **By reading the changed documents**: FR-005, FR-005a, FR-006, FR-006a,
-  FR-007, FR-008, FR-012.
+- **By reading the changed documents**: FR-006, FR-012. FR-006 says the stop
+  precedes any phase, which is a property of being a pre-flight decision at all
+  and has no line to pin; FR-012 is a changelog entry.
 - **By measurement, then a decision not to edit**: FR-011.
 
 ### Key Entities
@@ -182,7 +186,15 @@ third test that would falsify SC-002.
   before the run creates its first artefact, rather than after implementation has
   begun.
 - **SC-002**: The full house suite passes from the repository root with exactly
-  two more tests than before this change, none failing and none malformed.
+  **three** more tests than before this change, none failing and none malformed.
+
+  This was two, matching the seed. The owner raised it to three after three
+  independent review rounds each found that the feature's own behaviour — the
+  stop, its ordering, the printed link, and the probe-block line — was guarded
+  by nothing, and could be deleted with every suite green. The seed's number was
+  arithmetic written before anyone knew this change would be mostly prose; the
+  guard it was blocking is worth more than the arithmetic. The deviation is
+  named here, in the pull request and in the commit rather than quietly taken.
 - **SC-003**: Both new tests are observed failing before the probe change lands,
   proving each one tests what it claims.
 - **SC-004**: Every existing probe test passes without being edited, proving the
@@ -196,14 +208,22 @@ Two review findings are real, are not fixed here, and are named rather than
 left for a reader to discover. Both are blocked by a constraint this feature
 was specified against, not by effort.
 
-- **The new prose has no automated guard.** Decision item 11 and the `git`
-  probe-block line could both be deleted with the whole suite still green.
-  Closing it means a new test in `pipeline/tests/prose.bats`, which would take
-  the plan line to a third new test and falsify SC-002 — and SC-002 is the
-  acceptance this change was written against. This repository has measured the
-  consequence before: the comment at the head of that suite records that
-  mutants deleted unpinned rules while the suite stayed green, which is why
-  other stop rules are pinned. Follow-up work, sized as one test.
+- **CLOSED, by the owner's decision, at the cost of the seed's test count.**
+  This gap read: decision item 11 and the `git` probe-block line could both be
+  deleted with the whole suite still green. It is now pinned by a test in
+  `pipeline/tests/prose.bats`, which is why SC-002 says three rather than two.
+  The pin's reach was measured, not assumed — five mutations, each caught:
+  deleting the probe-block line; deleting item 11; inverting its ordering from
+  fires-first to fires-last; restoring the over-reaching blanket not-read rule;
+  and turning the stop into a warning.
+
+- **`gh` and `adb` keep the boolean-type hole this change measured on them.**
+  Switching either to `--arg` ships a string with the whole suite green, and a
+  consumer writing `.capabilities.gh | not` reads the string `"false"` as
+  truthy. Both new git tests assert the type; the two neighbours cannot, because
+  giving them the same assertion means editing tests that already exist, which
+  SC-004 forbids in this change. It is a one-line addition to each, and the
+  measurement that proves it is needed is recorded in `data-model.md`.
 
 - **Several reported fields still speak confidently from reads that never
   happened.** Named, not counted, because a count here would drift the way this

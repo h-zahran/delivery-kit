@@ -152,8 +152,9 @@ grep -c '^ok ' /tmp/house.tap
 grep -c '^not ok ' /tmp/house.tap
 ```
 
-Expected: the plan line reports exactly two more tests than the run before this
-change, `not ok` count `0`, and exit `0`.
+Expected: the plan line reports exactly three more tests than the run before
+this change — two in the probe suite and one prose pin — with `not ok` count
+`0` and exit `0`.
 
 Do **not** pipe the suite into `head` or `tail`. A pipe hands the block the
 status of the last command in it, which is always `0`, and the plan line bats
@@ -192,20 +193,34 @@ grep -n 'Read item 11 before item 1' pipeline/skills/pipeline/SKILL.md
 bash "$HOME/bats/bin/bats" --print-output-on-failure pipeline/tests/prose.bats
 ```
 
-Expected: green — but read what that does and does not prove.
+Expected: green, and here it does prove what you want it to.
 
-This suite slices the probe block and the decision walk and greps pinned
-sentences inside each. Green means **the sentences it already pins** are
-unchanged, which is what protects this feature: it proves the lines added here
-did not disturb the `Implementer` template line or decision item 10.
+The suite slices the orchestrator and greps pinned sentences inside each slice.
+Green proves two things: the lines this change added did not disturb the
+`Implementer` template line or decision item 10, **and** the lines it added are
+themselves pinned — the `git` probe-block line, the read-me-first pointer,
+item 11's condition, its action, its fires-first ordering, the printed link, the
+capability-not-a-skip rule, and the not-read rule together with the carve-out
+that stops it over-marking.
 
-It does **not** guard the lines this feature added. Nothing in the suite
-mentions git, the `git` probe-block line, or decision item 11 — delete either
-and this suite still passes. That gap is deliberate rather than overlooked: the
-acceptance criterion for this change fixes the suite at exactly two new tests,
-and a pin would be a third. It is recorded in the specification and named in
-the pull request as follow-up work. Do not read step 7's green as coverage of
-decision 11.
+Green alone would not prove that, so the pin's reach was measured. Try it:
+
+```bash
+cp pipeline/skills/pipeline/SKILL.md /tmp/skill.orig
+sed -i 's/^    FIRST — before item 1 and before every other decision on this list\./    LAST — after every other decision on this list has been made./' \
+  pipeline/skills/pipeline/SKILL.md
+grep -n '    LAST — after every' pipeline/skills/pipeline/SKILL.md
+bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats | grep '^not ok '
+cp /tmp/skill.orig pipeline/skills/pipeline/SKILL.md
+bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats | tail -1
+```
+
+Expected: the `grep -n` shows the mutation landed — check that before trusting
+the red, because a `sed` that matched nothing produces a green that means
+nothing — then one `not ok`, then green again after the restore. Four other
+mutations were measured the same way: deleting the probe-block line, deleting
+item 11, restoring the blanket not-read rule, and turning the stop into a
+warning. Each is caught.
 
 ## Cleanup
 

@@ -35,8 +35,10 @@
   those paths ARE the scope boundary for this change, not an implementation
   choice. Everything else is stated in terms of behaviour: "the probe reports",
   "the walk stops", "the report is complete".
-- SC-002 states a relative delta ("exactly two more tests than before") rather
+- SC-002 states a relative delta ("exactly three more tests than before") rather
   than an absolute count, so the criterion does not go stale the next time a
-  test is added elsewhere.
+  test is added elsewhere. The delta was two until the owner raised it: three
+  review rounds each found the feature's own behaviour guarded by nothing, and
+  the third test is the prose pin that closes it.
 - Items marked incomplete require spec updates before `/speckit-clarify` or
   `/speckit-plan`. None are incomplete.

@@ -161,13 +161,33 @@ states that it fires first, names the download page, and says git is never a
       runs an OLDER analyser than this machine and the older one reports more,
       so a local green is evidence, not proof — CI is the arbiter.
 - [X] T017 Run the full house suite from the repository root, redirecting to a
-      file. Expect exactly two more tests than T003 recorded, `not ok` count
-      `0`, `0` non-TAP lines, and exit `0`.
+      file. Expect exactly three more tests than T003 recorded, `not ok` count
+      `0`, `0` non-TAP lines, and exit `0`. (Was two. Raised by the owner at the
+      review cap — see T019.)
 - [X] T018 Execute [quickstart.md](./quickstart.md) — run every block in it,
       do not read it. A block that reads fine and does not run is the defect
       this task exists to catch.
 
 ---
+
+---
+
+## Phase 7: Convergence — added at the review cap, on the owner's instruction
+
+Three review rounds each independently found that the feature's own behaviour
+was guarded by nothing: decision item 11 and the `git` probe-block line could be
+deleted with every suite green. Closing it needs a third new test, which the
+seed's stated acceptance forbade. The pipeline stopped at the review cap and
+asked; the owner chose the guard over the count.
+
+- [X] T019 Add one test to `pipeline/tests/prose.bats` pinning the git stop in
+      all three regions it lives in — the probe block, the region holding the
+      not-read rule, and the decision walk. Slice each region rather than
+      grepping the file, because a file-wide pin is satisfied by text pasted
+      into an appendix; that exact defeat is recorded in the suite already. Pin
+      through the operative clause, never the heading alone. Then MEASURE the
+      pin's reach with mutations at its edges — do not trust its green — and
+      confirm each mutation landed before believing the red it produces.
 
 ## Dependencies
 
