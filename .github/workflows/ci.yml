@@ -134,41 +134,45 @@ jobs:
             echo "bats is at $got, expected $BATS_PIN" >&2
             exit 1
           }
-          # HEAD names a commit; it does not say the FILES match it. A restore that
-          # arrived truncated, or was written with a modified tree at the right
-          # revision, passes a rev-parse check and is then EXECUTED by the step below.
-          # The pin exists so third-party code this workflow runs cannot change
-          # unnoticed, and a tampered tree at the right HEAD is that same outcome
-          # reached by a different door.
-          #
-          # --name-only tested for emptiness, NOT --quiet: measured, --quiet takes a
-          # fast path that ignores --ignore-cr-at-eol, and the first version of this
-          # check used it and reddened windows-latest on a CORRECT tree. The cache
-          # round-trip leaves the working files with the line endings this platform
-          # checks out, which is a legitimate difference and not a tamper.
-          #
-          # Untracked files are deliberately NOT checked. The upstream tree contains a
-          # symlink this platform cannot materialise, so a clean checkout reports an
-          # untracked entry of its own — a guard that fires on a correct tree is worse
-          # than the gap it closes.
+          echo "bats is at $got"
+
+      # HEAD names a commit; it does not say the FILES match it. A restore that
+      # arrived truncated, or was written with a modified tree at the right
+      # revision, passes the check above and is then EXECUTED by the step below.
+      #
+      # NOT run on windows, and the reason is a property of the DEPENDENCY meeting
+      # a property of the RUNNER — not a shortcut. Measured on CI, twice, each
+      # time by reddening a correct tree: the upstream tree contains symlinks
+      # (test/fixtures/parallel/setup_file/*.bats and
+      # test/fixtures/suite/recursive_with_symlinks/subsuite), and this runner's
+      # git cannot create them, so it writes ordinary files holding the target
+      # path and then reports a CLEAN checkout as modified.
+      #
+      # Be exact, because "windows" alone is the wrong reason and would mislead:
+      # a windows checkout with core.symlinks=true materialises them and reports
+      # nothing — verified on a windows development machine, where this check
+      # passes. It is symlink support, not the operating system, that decides.
+      # The condition names the OS because that is what the runner exposes; if a
+      # future image enables symlink creation, this exclusion can go.
+      #
+      # There is no flag that quiets it, because the difference is real — only
+      # its meaning differs. A guard that fires on a correct tree is worse than
+      # the gap it leaves, so the gap is named here rather than papered over.
+      #
+      # --name-only tested for emptiness, not --quiet: --quiet takes a fast path
+      # that ignores --ignore-cr-at-eol, and that flag is what keeps this quiet
+      # on a platform that checks out different line endings.
+      - name: Verify the bats working tree matches the pin
+        if: runner.os != 'Windows'
+        run: |
           changed="$(git -C "$HOME/bats" diff --ignore-cr-at-eol --name-only HEAD)"
           [ -z "$changed" ] || {
-            echo "bats working tree does not match $got:" >&2
+            echo "bats working tree does not match $BATS_PIN:" >&2
             echo "$changed" >&2
             exit 1
           }
-          echo "bats verified at $got, tracked files match"
+          echo "bats tracked files match $BATS_PIN"
 
-      # -r so a suite added in a subdirectory of one of these cannot be
-      # silently skipped while CI stays green, and --print-output-on-failure
-      # so a red test's output lands in the job log — the only diagnostic
-      # channel a matrix runner has. The paths are named explicitly rather
-      # than discovered, because a glob that matches nothing expands to
-      # itself and bats would report "no such file" — loudly, but for the
-      # wrong reason. A test in tests/portability.bats pins that every suite
-      # directory is covered by this line — directly or via an ancestor,
-      # since -r recurses — and polices the contributing guide's copy of the
-      # same command.
       - name: Run the test suites
         run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 
