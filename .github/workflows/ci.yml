@@ -33,6 +33,35 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      # bats-core v1.11.0.
+      #
+      # This is the COMMIT the release tag points AT, not the tag object's own
+      # id. v1.11.0 is an ANNOTATED tag, so asking the upstream repository for
+      # it returns two identifiers, and the one the obvious query prints first
+      # is the tag object. Re-derive both with:
+      #   git ls-remote https://github.com/bats-core/bats-core.git 'refs/tags/v1.11.0*'
+      # and take the line whose ref carries the peel suffix.
+      #
+      # MEASURED 2026-08-30, because the obvious reason to prefer the commit is
+      # wrong: BOTH identifiers fetch and check out fine — git peels the tag on
+      # checkout, and HEAD lands on the same commit either way. The real reasons
+      # are narrower and both hold. First, after checkout `git rev-parse HEAD`
+      # returns the COMMIT, so a verification comparing HEAD against this value
+      # only works when this value is the commit. Second, a tag object's id is a
+      # hash of the tag's own metadata as well as its target, so re-tagging the
+      # SAME code with a new message yields a NEW tag object id: the commit is
+      # the more stable name for the code, which is what is being pinned.
+      #
+      # Pinned rather than cloned at the tag because a tag is MUTABLE: an
+      # upstream retag would silently change third-party code this workflow
+      # EXECUTES, with nothing here going red. The human-readable release name
+      # stays in this comment so the pin does not become an opaque number.
+      #
+      # Declared once, at job level, because it is used twice below — as the
+      # cache key and as the revision fetched. Two copies of a pin is the same
+      # hand-maintained-twin hazard the version job just had removed.
+      BATS_PIN: 5da66876b8b619235aee1eb3e54954eaca88059b
     steps:
       - uses: actions/checkout@v7
 
@@ -46,8 +75,56 @@ jobs:
           esac
           jq --version
 
+      # Keyed on the pin, so changing BATS_PIN misses the cache with nobody
+      # having to remember to invalidate it, and on the runner OS, because this
+      # matrix runs three and one shared entry would restore one platform's
+      # tree onto another.
+      #
+      # A cache restore can drop an executable bit. It cannot break this
+      # dependency: the run step below hands bats to a shell rather than
+      # executing it, which was already true before this step existed.
+      - name: Cache bats
+        id: bats-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/bats
+          key: bats-${{ runner.os }}-${{ env.BATS_PIN }}
+
+      # A shallow clone takes a branch or a tag, never an arbitrary revision,
+      # so fetching one commit means init-fetch-checkout rather than clone.
+      # GitHub permits fetching a reachable revision by name, which is what
+      # makes this shape work; if it ever stops, this step fails at the fetch
+      # rather than quietly falling back to something mutable.
+      #
+      # actions/* above stays on a moving major version while this third-party
+      # dependency is pinned to a commit. That is deliberate and not an
+      # oversight: the platform's own actions are already referenced that way
+      # throughout this file, and pinning one of them while the rest move would
+      # be a false tidiness. Changing that policy is a decision about every
+      # action here, not a side effect of pinning bats.
       - name: Install bats
-        run: git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
+        if: steps.bats-cache.outputs.cache-hit != 'true'
+        run: |
+          git init -q "$HOME/bats"
+          git -C "$HOME/bats" fetch --depth 1 https://github.com/bats-core/bats-core.git "$BATS_PIN"
+          git -C "$HOME/bats" checkout -q FETCH_HEAD
+
+      # UNCONDITIONAL, and deliberately a step of its own rather than a line at
+      # the end of the fetch. The fetch is skipped on a cache hit, which is the
+      # COMMON path, so a check living inside it verifies only the uncommon one
+      # — and the comment above justifies pinning the commit rather than the tag
+      # object precisely on the grounds that HEAD can be compared against this
+      # value. That comparison has to actually exist for the reasoning to be
+      # true, and for a restored cache to be held to the same standard as a
+      # fresh fetch.
+      - name: Verify the bats checkout is the pinned commit
+        run: |
+          got="$(git -C "$HOME/bats" rev-parse HEAD)"
+          [ "$got" = "$BATS_PIN" ] || {
+            echo "bats is at $got, expected $BATS_PIN" >&2
+            exit 1
+          }
+          echo "bats verified at $got"
 
       # -r so a suite added in a subdirectory of one of these cannot be
       # silently skipped while CI stays green, and --print-output-on-failure
@@ -68,60 +145,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ONE implementation, TWO callers. This step and the suite gate in
+      # tests/portability.bats used to hold two copies of the walk this line
+      # replaces, kept in step by hand. They drifted once — an unanchored regex
+      # here read a changelog heading the suite copy rejected — and the drift
+      # was invisible until a release. The logic now lives in
+      # scripts/check-versions.sh and both callers invoke it, so there is no
+      # pair left to keep in step.
+      #
+      # A test in tests/portability.bats pins that both callers name one script
+      # AND that neither has grown an inline copy beside the call, so the
+      # arrangement this comment describes cannot silently come apart again.
+      #
+      # The script asserts for itself that its working directory holds the
+      # marketplace manifest, so running it from the workspace root is checked
+      # rather than assumed.
       - name: every plugin's manifest, marketplace entry and changelog agree
-        run: |
-          # A hand-maintained twin of the bats gate in tests/portability.bats.
-          # The two are kept in step BY HAND and have drifted once already —
-          # an unanchored regex here read a heading the bats copy rejected.
-          # Every check below exists there; edit the pair together.
-          checked=0
-          for dir in */; do
-            p="${dir%/}"
-            [ -f "$p/.claude-plugin/plugin.json" ] || continue
-            checked=$((checked + 1))
-            pn=$(jq -r '.name // empty' "$p/.claude-plugin/plugin.json")
-            pv=$(jq -r '.version // empty' "$p/.claude-plugin/plugin.json")
-            [ -n "$pn" ] || { echo "$p: plugin.json has no name"; exit 1; }
-            [ -n "$pv" ] || { echo "$p: plugin.json has no version"; exit 1; }
-            # The tag gate below resolves a plugin from the DIRECTORY name;
-            # this loop resolves entries from the manifest name. Pin the two
-            # identities together or the gates key on different things.
-            [ "$pn" = "$p" ] || { echo "$p: plugin.json name '$pn' does not match its directory"; exit 1; }
-            jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
-              || { echo "$p: no marketplace entry named $pn"; exit 1; }
-            mv=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)
-            [ -n "$mv" ] || { echo "$p: marketplace entry $pn has no version"; exit 1; }
-            ms=$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)
-            src="${ms#./}"; src="${src%/}"
-            [ "$src" = "$p" ] || { echo "$p: marketplace entry $pn has source '$ms', which does not resolve to $p"; exit 1; }
-            # `|| true` so a missing heading reaches the diagnostic below —
-            # Actions runs this under `bash -eo pipefail`. Anchored with a
-            # trailing $ exactly as the bats copy is: an unanchored match
-            # accepted '## [X.Y.Z] - DATE (hotfix)' here while bats refused it.
-            cv=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' "$p/CHANGELOG.md" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
-            echo "$p: plugin=$pv marketplace=$mv changelog=$cv"
-            [ -n "$cv" ] || { echo "$p: $p/CHANGELOG.md has no '## [X.Y.Z] - YYYY-MM-DD' heading"; exit 1; }
-            [ "$pv" = "$mv" ] || { echo "$p: plugin.json and marketplace.json disagree"; exit 1; }
-            [ "$pv" = "$cv" ] || { echo "$p: plugin.json and CHANGELOG.md disagree"; exit 1; }
-          done
-          [ "$checked" -ge 1 ] || { echo "no plugin directories found"; exit 1; }
-          # The other direction: every marketplace entry names a directory
-          # that exists, and the two walks cover the same set.
-          entries=0
-          while IFS= read -r en; do
-            # jq on windows-latest is a native binary with text-mode stdout:
-            # each line it prints ends `\r\n`, and `read` keeps that CR while
-            # command substitution strips it — measured in the bats twin. A
-            # name carrying a stray CR matches no marketplace entry, so this
-            # walk would false-red a clean tree wherever jq emits CRLF.
-            en="${en%$'\r'}"
-            entries=$((entries + 1))
-            es=$(jq -r --arg n "$en" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)
-            ed="${es#./}"; ed="${ed%/}"
-            [ -n "$ed" ] && [ -f "$ed/.claude-plugin/plugin.json" ] \
-              || { echo "marketplace entry '$en': source '$es' names no plugin directory"; exit 1; }
-          done < <(jq -r '.plugins[].name' .claude-plugin/marketplace.json)
-          [ "$entries" -eq "$checked" ] || { echo "marketplace lists $entries plugins, the tree holds $checked"; exit 1; }
+        run: bash scripts/check-versions.sh
 
       - name: tag matches the manifest version
         if: startsWith(github.ref, 'refs/tags/')
@@ -153,3 +193,86 @@ jobs:
           [ -f "$plugin/.claude-plugin/plugin.json" ] || { echo "tag $ref names no plugin directory"; exit 1; }
           ver=$(jq -r '.version' "$plugin/.claude-plugin/plugin.json")
           [ "$tag" = "$ver" ] || { echo "tag $ref does not match $plugin $ver"; exit 1; }
+
+  shell-analysis:
+    name: shell analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same shape as "Ensure jq" in the test job: use what the image provides,
+      # install it if absent, and always print the version. Be exact about how
+      # far that uniformity goes — the `version` job below deliberately does
+      # NEITHER, consuming jq straight from the runner image with no ensure
+      # step, because it runs only on ubuntu where jq is guaranteed. So this
+      # file carries two patterns, not one: ensure-then-use where a tool might
+      # be missing, assume-the-image where it cannot be.
+      #
+      # The version print is what makes a red on unchanged code diagnosable in
+      # one look: the analyser is the runner image's, and an image upgrade can
+      # move it.
+      - name: Ensure shellcheck
+        run: |
+          if shellcheck --version; then exit 0; fi
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck --version
+
+      # WHAT IS ANALYSED, and why the boundary sits where it does. Read this
+      # before widening or narrowing it.
+      #
+      # The set is DISCOVERED, never listed. A list of filenames goes stale
+      # silently the first time a shell file is added and nobody remembers the
+      # list — and it would have gone stale in the very commit that introduced
+      # it, which also added scripts/check-versions.sh. Discovery covers a new
+      # file on the day it lands, and covering that script is this rule's own
+      # first proof.
+      #
+      # OUT: .specify/scripts/bash/ — vendored scaffold, not authored here and
+      # regenerated whenever its upstream tool is re-run, so a fix made to it is
+      # discarded on the next upgrade. Measured 2026-08-30: about ten finding
+      # lines across four identifiers, and it already carries the repository's
+      # only pre-existing suppression directive. Fixing code that will be
+      # overwritten produces nothing.
+      #
+      # OUT: the .bats suites. The analyser DOES read them — this is not an
+      # extension it cannot parse — and measured 2026-08-30 it reports 55
+      # findings over the six of them. The distribution is the reason, not the
+      # count: over half are reports about single quotes preventing expansion,
+      # which is exactly what a pattern fixture wants, and several are unquoted
+      # expansions in the leak scanners, where word splitting is the mechanism
+      # rather than a mistake. Bringing them in is separate work with its own
+      # suppression budget and its own review.
+      #
+      # There is NO job-level suppression list. The one finding this repository
+      # had is suppressed at its own line in tests/helper.bash, with the reader
+      # named. An empty list here is the strongest available reading of "keep
+      # any disable list short and explicit".
+      #
+      # An empty discovery is a FAILURE, not a pass. A scan that read nothing
+      # and a scan that found nothing otherwise report the same clean result,
+      # and this repository has been bitten by that shape before.
+      #
+      # --norc, and it is load bearing. Without it shellcheck reads a
+      # .shellcheckrc from the directory of each analysed file and every
+      # ancestor, so a four-line rc saying `disable=all` at the repository root
+      # turns this job green PERMANENTLY — while it still prints "analysing 5
+      # file(s):" and lists all five. Measured 2026-08-30, both directions.
+      # That needs no attacker: a maintainer adding an rc for editor parity
+      # does it. The empty-discovery guard below does not cover it, because
+      # discovery is not what was neutered. Inline `# shellcheck disable=`
+      # directives are unaffected by --norc — also measured, because the one
+      # suppression this repository has is inline and had to survive.
+      #
+      # NUL-delimited into an array, never a whitespace-split string: a tracked
+      # path containing a space would otherwise be analysed as two files that do
+      # not exist, and shellcheck would fail for the wrong reason.
+      - name: Analyse the first-party shell files
+        run: |
+          mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "the discovery matched no shell file; this job examined NOTHING" >&2
+            exit 1
+          fi
+          printf 'analysing %s file(s):\n' "${#files[@]}"
+          printf '  %s\n' "${files[@]}"
+          shellcheck --norc -f gcc -- "${files[@]}"

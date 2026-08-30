@@ -9,6 +9,15 @@ git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git 
 bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 ```
 
+The tag above is the readable one, and it is deliberately NOT the commit
+the workflow pins. CI fetches an immutable commit, because an upstream
+retag would otherwise change the third-party code an automated gate
+executes and reports on. A local clone is your own machine and your own
+eyes, so it keeps the readable reference. Carrying the commit here too
+would create exactly the hand-maintained pair the version check just had
+removed; the pin lives in one place, `.github/workflows/ci.yml`, with the
+release name beside it.
+
 Name every suite path. The suites sit in more than one directory, and
 passing only `tests` runs the repository's own suite, silently skips the
 plugins', and reports green — which is the failure this project exists to
@@ -81,17 +90,28 @@ becomes unusable for everyone else.
 - Each plugin keeps its own `CHANGELOG.md`; the root one is only an index. A
   plugin's `.claude-plugin/plugin.json` version, the version of the marketplace
   entry whose `name` matches that manifest, and the newest heading in that
-  plugin's own changelog must agree. Both gates — the version test in
-  `tests/portability.bats` and the `version` job in `.github/workflows/ci.yml` —
-  loop over every top-level directory holding a `.claude-plugin/plugin.json` and
-  pick the marketplace entry by name rather than by position, so a plugin added
-  later is covered without either gate being edited, and neither can be fooled
-  by a reordered array. Both loops are `for dir in */`, so a plugin nested
-  deeper than the root is not covered by either — keep plugin directories at
-  the top level. One shared changelog would have made "the newest heading" a
-  question about which plugin released last.
-- Changelog headings are `## [X.Y.Z] - YYYY-MM-DD`. Both gates parse that shape,
-  date included.
+  plugin's own changelog must agree. That check lives in exactly ONE place —
+  `scripts/check-versions.sh` — and both gates call it: the version test in
+  `tests/portability.bats` and the `version` job in
+  `.github/workflows/ci.yml`. It used to live in both of them, kept in step by
+  hand, and it drifted — an unanchored regex in one accepted a changelog
+  heading the other refused, and nothing noticed until a release. A separate
+  test now pins that the two callers name one script AND that neither has
+  regrown a copy beside the call, so the pair cannot come back quietly.
+  The check loops over every top-level directory holding a
+  `.claude-plugin/plugin.json` and picks the marketplace entry by name rather
+  than by position, so a plugin added later is covered without any gate being
+  edited, and it cannot be fooled by a reordered array. The loop is
+  `for dir in */`, so a plugin nested deeper than the root is not covered —
+  keep plugin directories at the top level. One shared changelog would have
+  made "the newest heading" a question about which plugin released last.
+- Changelog headings are `## [X.Y.Z] - YYYY-MM-DD`. The shared check parses
+  that shape, date included, anchored at both ends.
+- Shell files are statically analysed on every pull request by the
+  `shell-analysis` job in `.github/workflows/ci.yml`. The job discovers what it
+  reads rather than carrying a list, so a shell file you add is analysed the
+  day it lands. What is excluded, and why, is written into the job itself —
+  read it there rather than looking for a second copy here.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.
 
