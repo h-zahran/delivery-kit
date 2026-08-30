@@ -165,10 +165,11 @@ if url="$(git remote get-url origin 2>/dev/null)"; then
 fi
 # git sits beside gh and adb because the probe is the same, but its absence
 # means something different in KIND. gh and adb each degrade one named phase.
-# git degrades nothing, because phases B, K and L are git operations and the
-# four git reads in this block quietly report an empty base branch and a clean
-# tree without it — that silence is what this line exists to end. Reporting is
-# still all this script does; the stop is the orchestrator's decision 11.
+# git degrades nothing, because phases B, K and L are git operations and this
+# block's git reads — three above this line, and the working-tree read below it
+# — quietly report an empty base branch and a clean tree without it. That
+# silence is what this line exists to end. Reporting is still all this script
+# does; the stop is the orchestrator's decision 11.
 git_present=false; command -v git >/dev/null 2>&1 && git_present=true
 gh_present=false; command -v gh >/dev/null 2>&1 && gh_present=true
 adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true

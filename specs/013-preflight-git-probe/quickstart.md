@@ -50,20 +50,36 @@ tool to that variable and a typed copy is short by two, so the shim directory is
 missing something other than git and the run below proves nothing about git. A
 document that hand-copies the list re-opens exactly that hole.
 
+The directory is `/tmp/...`, spelled out, **never `$TMPDIR`.** It becomes the
+whole of `PATH`, and under Git Bash a `C:/...` entry splits on its own colon
+into two broken entries — then EVERY tool reads as absent, `jq` included, the
+probe dies at "jq is required", and the reader concludes the git probe is
+broken. The suite documents this hazard at `tests/helper.bash` and at the head
+of `pipeline/tests/preflight.bats`, and avoids it the same way. `$TMPDIR` is
+often unset (in which case this reads the same), which is exactly what makes the
+bug invisible until someone runs it on a machine where it is not.
+
 ```bash
-d="${TMPDIR:-/tmp}/preflight-nogit"; rm -rf "$d"; mkdir -p "$d"
+d=/tmp/preflight-nogit; rm -rf "$d"; mkdir -p "$d"
 B="$(command -v bash)"
 all="$(sed -n 's/^PROBE_TOOLS="\(.*\)"$/\1/p' pipeline/tests/preflight.bats)"
-[ -n "$all" ] || { echo "could not read PROBE_TOOLS - stop, do not guess"; }
-for t in $all; do
-  [ "$t" = git ] && continue
-  src="$(command -v "$t")" || continue
-  printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$d/$t"
-  chmod +x "$d/$t"
-done
-echo "shimmed: $(ls "$d" | tr '\n' ' ')"
-env PATH="$d" "$B" pipeline/scripts/preflight.sh --base-branch main | jq '.capabilities, .willSkip, .tree'
+if [ -z "$all" ]; then
+  echo "could not read PROBE_TOOLS from the suite - STOP. Do not hand-list it."
+else
+  for t in $all; do
+    [ "$t" = git ] && continue
+    src="$(command -v "$t")" || continue
+    printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$d/$t"
+    chmod +x "$d/$t"
+  done
+  echo "shimmed: $(ls "$d" | tr '\n' ' ')"
+  env PATH="$d" "$B" pipeline/scripts/preflight.sh --base-branch main | jq '.capabilities, .willSkip, .tree'
+fi
 ```
+
+The guard is an `if`, not an `echo` followed by the work. A message that says
+STOP and then carries on regardless is worse than no guard: it produces the
+"jq is required" death it warned about, one screen further down.
 
 The `shimmed:` line must list every tool in `PROBE_TOOLS` except `git`. If it is
 short by more than git, the shim build failed and the result below is worthless.
@@ -71,16 +87,19 @@ short by more than git, the shim build failed and the result below is worthless.
 Expected, and all three parts matter:
 
 - `capabilities.git` is `false`.
-- `willSkip` holds exactly two entries, for phases `L` and `M`. Neither is
-  about git — they are the existing no-remote entries, which fire because the
-  remote cannot be read without git.
+- `willSkip` holds exactly two entries, for phases `L` and `M`, carrying the
+  pre-existing no-remote reasons word for word. Neither was added by this
+  change: they fire because the remote cannot be read without git. Note that
+  `L`'s reason says "no git remote", which is itself misleading — the remote was
+  never looked for — and that is why the orchestrator is told to mark those two
+  entries as not established rather than print them as findings.
 - The document still parses, and the command still exits `0`. Reporting is not
   failing.
 
 Check the exit status explicitly, because a pipe would hide it:
 
 ```bash
-d="${TMPDIR:-/tmp}/preflight-nogit"; B="$(command -v bash)"
+d=/tmp/preflight-nogit; B="$(command -v bash)"
 # Rebuild the shim directory rather than assuming the block above left one.
 # Re-deriving only the NAME is not enough: this block depends on the directory
 # and its shims existing, and without them the probe dies at "jq is required"
@@ -191,5 +210,5 @@ decision 11.
 ## Cleanup
 
 ```bash
-rm -rf "${TMPDIR:-/tmp}/preflight-nogit"
+rm -rf /tmp/preflight-nogit
 ```

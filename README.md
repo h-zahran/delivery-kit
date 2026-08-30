@@ -125,8 +125,9 @@ Check it the same way, **inside Git Bash**:
 git --version
 ```
 
-`handoff` does not need `git`. The context guard reads a transcript and writes a
-document; it never touches a repository.
+`handoff` uses `git` too, but optionally and for one narrow purpose — see
+[its install notes](handoff/docs/install.md). Without `git` the guard falls back
+to defaults rather than failing. `pipeline` is the one that stops.
 
 ### A spec tool — required by `pipeline` only
 

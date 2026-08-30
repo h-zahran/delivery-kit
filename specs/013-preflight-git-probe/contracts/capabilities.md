@@ -55,7 +55,7 @@ Nothing else in the document changes.
 
 | Consumer | Reads | Effect of this change |
 |---|---|---|
-| `pipeline/skills/pipeline/SKILL.md` pre-flight | the whole document | renders `git` on the `Available` or `Missing` line; stops on `false` |
+| `pipeline/skills/pipeline/SKILL.md` pre-flight | the whole document | prints `git` on a line of its own in the probe block, AND on the generic `Available`/`Missing` line; stops on `false` |
 | `pipeline/tests/preflight.bats` | every key, per test | two new tests read `capabilities.git`; no existing test is edited |
 
 Deliberately NOT listed as a consumer: the run's state file. `progress.sh init`
@@ -79,9 +79,21 @@ rather than counted, because a count in prose drifts:
   found. It was not looked for.
 - `tree.dirty` reads `false`, as though a tree had been examined.
 
-Every one of these was already the behaviour before this change, and none of
-them is fixed by it: correcting them would change an existing field's type or
-meaning, which this contract forbids. Two things are different now. The report
-names the cause, in `capabilities.git`. And the orchestrator is instructed to
-print those lines as *not read* rather than as values, so a reader is no longer
-told a clean tree exists when nothing looked.
+Every one of these was already the behaviour before this change, and **none of
+them is fixed by it.** Correcting them would change an existing field's type or
+meaning, which this contract forbids. The JSON is unchanged, so every consumer
+other than the orchestrator still reads the false source and the invented
+`none`. Two things ARE different:
+
+- The report names the cause, in `capabilities.git`.
+- The orchestrator is instructed to mark the git-derived parts of what it prints
+  as *not read* — specifically the `Base branch` line when its source is
+  git-derived, `remote.kind`, and the `L`/`M` skip entries. It is told NOT to
+  mark the parts that stand on their own: a `baseBranch` that came from
+  configuration, `ghPresent`, and a device-tool skip. `tree.dirty` has no line
+  in that block at all, so nothing is printed about the tree either way — the
+  false `false` simply is not shown.
+
+The deferral is therefore invisible to anything reading the JSON directly. A
+marker field would carry it in the document itself; adding one is a second new
+key and beyond what this change was asked for.

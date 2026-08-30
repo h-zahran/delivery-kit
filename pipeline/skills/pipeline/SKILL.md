@@ -147,13 +147,22 @@ Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```
 
-When `capabilities.git` is false, three of those lines came from commands that
-did not run. Print `Base branch`, `Remote` and `Will skip` as
-`— not read, git is absent`, never the values the script reported. `Remote :
-none` and `Will skip : Phase L — no git remote` each state a fact nobody
-established: the remote was not found missing, it was never looked for. This
-block is the FIRST thing the operator reads, so suppressing the restatement
-lower down is not enough — the wrong cause has to not be printed here.
+When `capabilities.git` is false, mark the parts of that block that came from
+commands which did not run — and only those parts. This block is the FIRST
+thing the operator reads, so suppressing a wrong cause lower down is not enough;
+it has to not be printed here. But over-marking is its own lie, so be exact:
+
+- `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
+  `current branch` — print `— not read, git is absent`. When the source is
+  `configured` the name came from a configuration file and IS established:
+  print it, and add that it was not checked against the repository.
+- `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
+  on the same line is not: it comes from looking for `gh` and is unaffected.
+  Keep it.
+- `Will skip`: print the entries that do not depend on git — an `N.5` entry
+  comes from looking for a device tool and stands. Mark the `L` and `M`
+  entries as not established: `no git remote` reads as though a remote had
+  been looked for and not found, and it was never looked for at all.
 
 The script only reports; the decisions are yours, in this order:
 

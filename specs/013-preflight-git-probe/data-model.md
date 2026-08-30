@@ -39,10 +39,17 @@ how the document reads to a human, not a contract change.
 
 - **Additive only.** No field above may change its name, its type or its
   meaning. Verified by the existing suite passing unedited.
-- **Boolean, never a string.** The suite reads these with `jq -r` and compares
-  against the bare words `true` and `false`; a quoted `"true"` would still
-  compare equal, so the type is instead protected by emitting through
-  `--argjson`, as `gh` and `adb` already are.
+- **Boolean, never a string.** `jq -r` prints the JSON string `"true"` as a bare
+  `true`, so a value comparison cannot tell the two apart. Emitting through
+  `--argjson` is what produces the right type, but emitting is not a guard —
+  measured on this branch: switching `git` to `--arg` shipped a string and NOT
+  ONE test in the suite went red. The guard is an explicit
+  `type == "boolean"` assertion, and both new tests carry one.
+
+  `gh` and `adb` do not have that assertion and are still checked by value
+  alone, so the same substitution would ship them as strings unnoticed. Adding
+  it means editing tests that already exist, which SC-004 forbids in this
+  change. Named here so the next change can close it.
 - **Complete when a tool is absent.** An absent tool sets its field to `false`.
   It never removes the field, never truncates the document, and never causes a
   non-zero exit.

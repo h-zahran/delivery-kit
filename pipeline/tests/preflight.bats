@@ -479,9 +479,19 @@ stub() {
 
   # No skip is announced on git's OWN account. The two that are announced belong
   # to the pre-existing no-remote branch: without git the remote cannot be read,
-  # so it reads "none", and that branch names L and M. The exact set is pinned
-  # rather than a count, because a count would let a future git-flavoured skip
-  # replace one of these silently. A degradation names a phase the run can do
-  # without, and for git there is no such phase — hence a stop, not a skip.
+  # so it reads "none", and that branch names L and M. A degradation names a
+  # phase the run can do without, and for git there is no such phase — hence a
+  # stop, not a skip.
+  #
+  # The phase set AND both reasons are pinned, and the reasons are the half that
+  # does the work. A phase-only assertion cannot see the failure it was written
+  # to prevent: rewriting add_skip "L" to a git-flavoured reason leaves the set
+  # exactly ["L","M"] and stays green, while the report now announces git as a
+  # degradation. Pinning the strings makes that change go red and be argued for.
+  # The suite's other skip tests assert reasons for the same reason.
   [ "$(jq -c '[.willSkip[].phase] | sort' <<<"$output")" = '["L","M"]' ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="L")] | .[0].reason' <<<"$output")" \
+      = "no git remote — the run stops after the commit gate and says so" ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "no pull request without a remote" ]
 }
