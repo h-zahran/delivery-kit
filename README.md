@@ -111,6 +111,23 @@ in, and a `jq` that PowerShell can see is not necessarily one the hook can.
 Without `jq` the context guard cannot run. It says so once and then stays quiet,
 rather than pretending to work.
 
+### `git` — required by `pipeline` only
+
+`pipeline` branches, commits and opens pull requests, and its pre-flight reads
+the base branch and the working tree with `git` before anything else runs.
+Without `git` it stops at pre-flight, names the tool, and points at
+<https://git-scm.com/downloads>. Nothing is installed for you, and the run does
+not carry on in a degraded mode — there is no useful subset of it left.
+
+Check it the same way, **inside Git Bash**:
+
+```
+git --version
+```
+
+`handoff` does not need `git`. The context guard reads a transcript and writes a
+document; it never touches a repository.
+
 ### A spec tool — required by `pipeline` only
 
 `pipeline` drives [spec-kit](https://github.com/github/spec-kit); it does not
@@ -256,6 +273,7 @@ Pre-flight prints what it detected before doing anything:
 Project type : web  (detected from the project's own manifest)
 spec tool    : 0.16.5 at .specify/ — in range
 Constitution : set
+git          : present
 Base branch  : main  (from origin/HEAD)
 Remote       : github  (gh present)
 Missing      : adb

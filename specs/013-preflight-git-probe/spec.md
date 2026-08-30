@@ -25,7 +25,7 @@ specification, planning and implementation, and the first git operation fails
 somewhere in the middle — after the operator has spent time and money on agents.
 
 After this change the probe reports git as an absent capability, the pre-flight
-walk names it, prints the install command, records the answer, and stops. Nothing
+walk names it, prints the install link, records the answer, and stops. Nothing
 is installed on the operator's behalf.
 
 **Why this priority**: This is the whole feature. Every other story serves it.
@@ -41,7 +41,7 @@ stops rather than continuing to the first phase.
    the report is still complete, well-formed and readable by every existing
    consumer.
 2. **Given** that report, **When** the pre-flight walk reads it, **Then** the
-   walk names git as the missing tool, shows the exact install command, records
+   walk names git as the missing tool, shows the install link, records
    the answer, installs nothing, and stops before any phase begins.
 3. **Given** a machine where git is present, **When** the probe runs, **Then**
    its report says the git capability is present and the walk continues normally.
@@ -123,8 +123,8 @@ phase on git's account; the consequence lives in the pre-flight walk as a stop.
   own account.
 - **FR-005**: The pre-flight walk MUST treat an absent git as a hard stop, under
   the orchestrator's existing rule that a missing tool is its own question: name
-  the tool, show the install command, record the answer, install nothing.
-- **FR-005a**: The install command shown MUST be the project's official download
+  the tool, show the install link, record the answer, install nothing.
+- **FR-005a**: The install link shown MUST be the project's official download
   page, `https://git-scm.com/downloads`, and MUST NOT name any single platform's
   package manager. The pipeline supports three operating systems and cannot know
   which one is in front of it.
@@ -205,14 +205,26 @@ was specified against, not by effort.
   mutants deleted unpinned rules while the suite stayed green, which is why
   other stop rules are pinned. Follow-up work, sized as one test.
 
-- **Three reported fields still speak confidently from reads that never
-  happened.** With git absent, `baseBranchSource` still says a branch was read
-  from the current checkout, and `tree.dirty` still says `false`. Making them
-  honest means changing an existing field's type or meaning, which FR-002
-  forbids outright. The harm is bounded here because the stop fires before any
-  decision consumes them, and the orchestrator now tells the reader not to
-  repeat the `Will skip` lines when it fires — but the fields themselves are
-  unchanged, and a wider fix belongs to its own change.
+- **Several reported fields still speak confidently from reads that never
+  happened.** Named, not counted, because a count here would drift the way this
+  repository has been bitten by before. With git absent: `baseBranch` reads
+  empty, `baseBranchSource` still claims the branch was read from the current
+  checkout, `remote.kind` reads `none` as though a remote had been looked for
+  and not found, and `tree.dirty` reads `false` as though a tree had been
+  examined. Making any of them honest means changing an existing field's type
+  or meaning, which FR-002 forbids outright. The harm is bounded at the display
+  layer — the orchestrator now prints those lines as *not read* rather than as
+  values, and the stop fires before any decision consumes them — but the fields
+  themselves are unchanged, and a wider fix belongs to its own change.
+
+- **The probe asks only whether git can be FOUND.** A git that is present but
+  refuses to operate — the ownership check that fires routinely on Windows, on
+  shared checkouts and inside containers — reports `true`, the stop never
+  fires, and the old silence survives for that cause. This is disclaimed in the
+  specification's edge cases and in the contract, and the seed asked for
+  `command -v` specifically. A usability probe rather than a findability one
+  would cover both and costs about the same line; it is the natural next
+  change, not this one.
 
 ## Assumptions
 
@@ -226,7 +238,7 @@ was specified against, not by effort.
   `pipeline/docs/` is strict. The changelog is a strict surface too.
 - Recording the answer follows the orchestrator's existing timing rule: state
   writes bind from the moment the state file exists, and on a fresh run no state
-  file exists yet at pre-flight. There, the stop and the printed install command
+  file exists yet at pre-flight. There, the stop and the printed install link
   stand on their own. This is settled by existing orchestrator text and is not a
   new decision.
 - Nothing in this change alters what the pipeline does once git IS present.

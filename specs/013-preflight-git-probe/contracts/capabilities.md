@@ -57,6 +57,7 @@ Nothing else in the document changes.
 |---|---|---|
 | `pipeline/skills/pipeline/SKILL.md` pre-flight | the whole document | renders `git` on the `Available` or `Missing` line; stops on `false` |
 | `pipeline/tests/preflight.bats` | every key, per test | two new tests read `capabilities.git`; no existing test is edited |
+
 Deliberately NOT listed as a consumer: the run's state file. `progress.sh init`
 creates an empty `capabilities` key and nothing in the script ever writes to
 it, and no shipped instruction tells the orchestrator to fill it — the
@@ -68,13 +69,19 @@ phase B and the stop precedes it.
 
 ## Downstream note
 
-With git absent, three other reported fields degrade as a consequence, and this
-is expected rather than a defect:
+With git absent, other reported fields degrade as a consequence. They are named
+rather than counted, because a count in prose drifts:
 
-- `baseBranch` reads empty (or the configured value, when one was passed).
-- `remote.kind` reads `none`, because the remote cannot be read.
-- `tree.dirty` reads `false`, because the tree cannot be read.
+- `baseBranch` reads empty, or the configured value when one was passed.
+- `baseBranchSource` reads `current branch` — asserting a route that was never
+  taken — or `configured` when a base branch was passed.
+- `remote.kind` reads `none`, as though a remote had been looked for and not
+  found. It was not looked for.
+- `tree.dirty` reads `false`, as though a tree had been examined.
 
-These were already the behaviour before this change. The difference is that the
-report now names the cause, so a reader is no longer told a clean tree exists
-when nothing looked.
+Every one of these was already the behaviour before this change, and none of
+them is fixed by it: correcting them would change an existing field's type or
+meaning, which this contract forbids. Two things are different now. The report
+names the cause, in `capabilities.git`. And the orchestrator is instructed to
+print those lines as *not read* rather than as values, so a reader is no longer
+told a clean tree exists when nothing looked.

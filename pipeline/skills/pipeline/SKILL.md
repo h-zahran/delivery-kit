@@ -147,6 +147,14 @@ Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```
 
+When `capabilities.git` is false, three of those lines came from commands that
+did not run. Print `Base branch`, `Remote` and `Will skip` as
+`— not read, git is absent`, never the values the script reported. `Remote :
+none` and `Will skip : Phase L — no git remote` each state a fact nobody
+established: the remote was not found missing, it was never looked for. This
+block is the FIRST thing the operator reads, so suppressing the restatement
+lower down is not enough — the wrong cause has to not be printed here.
+
 The script only reports; the decisions are yours, in this order:
 
 **Read item 11 before item 1.** It is the one decision that fires out of

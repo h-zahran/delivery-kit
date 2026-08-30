@@ -2,7 +2,10 @@
 
 This feature has no database and no persisted records. Its one "entity" is the
 JSON document `preflight.sh` writes to stdout, which is a machine contract read
-by the orchestrator and by six tests. Only one field changes.
+by the orchestrator and by every test in the probe suite. Only one field
+changes. No count is given here on purpose: a written one drifts the first time
+a test is added, and this document's whole subject is a contract that must not
+drift.
 
 ## Entity: `capabilities`
 

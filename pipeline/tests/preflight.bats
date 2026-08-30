@@ -429,9 +429,17 @@ stub() {
   # reason: git is off the search path built below, so the enclosing
   # checkout's origin/HEAD cannot be read and the fixture's git facts come
   # from this call's flags and the script's defaults instead of from this
-  # repository. Put git back on that path for any reason and the exception
-  # collapses — origin/HEAD wins, the remote reads as the code host, and these
-  # assertions fail for a cause this test's name does not mention.
+  # repository. Put git back on that path and the exception collapses.
+  #
+  # What catches that, measured rather than asserted. Restoring git to the list
+  # below turns this test red at its FIRST assertion, the capability itself,
+  # which is where bats stops. The baseBranchSource and willSkip assertions are
+  # corroborating, not the tripwire: they prove the git facts below came from
+  # this call's flags and the script's defaults rather than from the enclosing
+  # checkout. And note which assertion does NOT catch it — the baseBranch VALUE
+  # stays "main" either way, because origin/HEAD here points at main, so it
+  # would pass for a route this test does not intend. That is why the SOURCE is
+  # asserted beside it.
   d="$BATS_TEST_TMPDIR/without-git"
   # DERIVED from PROBE_TOOLS by removing one name, never hand-listed. A hand
   # list goes stale the day a tool is added to that variable, and it goes stale
@@ -450,12 +458,24 @@ stub() {
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
   [ "$(jq -r '.capabilities.git' <<<"$output")" = "false" ]
+  # Type, for the same reason the present-git test asserts it: `jq -r` cannot
+  # tell the boolean false from the string "false", and a consumer writing
+  # `.capabilities.git | not` reads the string as truthy.
+  jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
 
   # The report is COMPLETE, not truncated. Absence sets a field to false; it
   # never drops a key, and no consumer should have to read a short document as
   # the signal for a missing tool.
   [ "$(jq -r '.projectType' <<<"$output")" = "other" ]
   [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  # THE TRIPWIRE for the exception declared above, and it is the SOURCE, not
+  # the value. Measured: this checkout publishes origin/HEAD -> origin/main, so
+  # with git restored to the search path baseBranch resolves to "main" from
+  # origin/HEAD — the same string the line above asserts, arriving by a route
+  # this test does not intend. The value alone therefore proves nothing. The
+  # source does: it reads "configured" only while git cannot be found, and
+  # flips to "origin/HEAD" the moment it can.
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
 
   # No skip is announced on git's OWN account. The two that are announced belong
   # to the pre-existing no-remote branch: without git the remote cannot be read,

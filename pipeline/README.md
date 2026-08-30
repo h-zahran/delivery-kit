@@ -92,6 +92,11 @@ cleanup is your call.
   instructions when it is absent. Tested against 0.15.x through 0.16.x; other
   versions warn and continue.
 - `jq`, on every platform.
+- `git`, on every platform. Unlike the optional tools below, an absent `git`
+  does not degrade a phase — it stops the run at pre-flight, because branching,
+  committing and opening a pull request are all git operations and pre-flight's
+  own branch and working-tree reads are git commands. Pre-flight names it and
+  points at the download page; nothing is installed for you.
 - Optional, each degrading a *named* phase when absent, announced before any
   work starts: `gh` for the pull-request phases; a browser or an attached
   device for the runtime check; the code-review and simplify plugins for their

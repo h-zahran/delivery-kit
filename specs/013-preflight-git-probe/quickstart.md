@@ -44,16 +44,29 @@ Note `$B` below: the interpreter is called by ABSOLUTE path, because stripping
 broke when nothing has run at all. The suite solves it the same way, and says
 so at `pipeline/tests/preflight.bats`.
 
+The tool list is **derived from the suite, never typed here.** The suite keeps it
+in `PROBE_TOOLS` and its own comment explains why a hand list is unsafe: add a
+tool to that variable and a typed copy is short by two, so the shim directory is
+missing something other than git and the run below proves nothing about git. A
+document that hand-copies the list re-opens exactly that hole.
+
 ```bash
 d="${TMPDIR:-/tmp}/preflight-nogit"; rm -rf "$d"; mkdir -p "$d"
 B="$(command -v bash)"
-for t in awk grep head jq od; do
+all="$(sed -n 's/^PROBE_TOOLS="\(.*\)"$/\1/p' pipeline/tests/preflight.bats)"
+[ -n "$all" ] || { echo "could not read PROBE_TOOLS - stop, do not guess"; }
+for t in $all; do
+  [ "$t" = git ] && continue
   src="$(command -v "$t")" || continue
   printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$d/$t"
   chmod +x "$d/$t"
 done
+echo "shimmed: $(ls "$d" | tr '\n' ' ')"
 env PATH="$d" "$B" pipeline/scripts/preflight.sh --base-branch main | jq '.capabilities, .willSkip, .tree'
 ```
+
+The `shimmed:` line must list every tool in `PROBE_TOOLS` except `git`. If it is
+short by more than git, the shim build failed and the result below is worthless.
 
 Expected, and all three parts matter:
 
@@ -73,7 +86,9 @@ d="${TMPDIR:-/tmp}/preflight-nogit"; B="$(command -v bash)"
 # and its shims existing, and without them the probe dies at "jq is required"
 # and the reader sees a failure that looks like the probe broke.
 rm -rf "$d"; mkdir -p "$d"
-for t in awk grep head jq od; do
+all="$(sed -n 's/^PROBE_TOOLS="\(.*\)"$/\1/p' pipeline/tests/preflight.bats)"
+for t in $all; do
+  [ "$t" = git ] && continue
   src="$(command -v "$t")" || continue
   printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$d/$t"
   chmod +x "$d/$t"
