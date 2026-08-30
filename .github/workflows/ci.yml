@@ -80,9 +80,19 @@ jobs:
       # matrix runs three and one shared entry would restore one platform's
       # tree onto another.
       #
-      # A cache restore can drop an executable bit. It cannot break this
-      # dependency: the run step below hands bats to a shell rather than
-      # executing it, which was already true before this step existed.
+      # CORRECTED after review, because the first version of this comment was
+      # wrong in the direction that misdirects a maintainer. It said a lost
+      # executable bit "cannot break this dependency: the run step hands bats to
+      # a shell rather than executing it". Handing bin/bats to a shell bypasses
+      # the bit on THAT FILE ONLY — read the file: its last line is an `exec` of
+      # $BATS_ROOT/libexec/bats-core/bats, which in turn execs the per-suite and
+      # per-test binaries. A restore that dropped those bits would fail the test
+      # step with "Permission denied" while this comment told the next reader
+      # the outcome was impossible.
+      #
+      # Why it is nonetheless safe: the caching action stores and restores a tar
+      # archive, and tar carries the mode bits. The verification step below is
+      # what would catch a restore that arrived wrong.
       - name: Cache bats
         id: bats-cache
         uses: actions/cache@v4
@@ -124,7 +134,23 @@ jobs:
             echo "bats is at $got, expected $BATS_PIN" >&2
             exit 1
           }
-          echo "bats verified at $got"
+          # HEAD names a commit; it does not say the files match it. A restore
+          # that arrived truncated, or was written with a modified tree at the
+          # right revision, passes a rev-parse check and is then EXECUTED by
+          # the step below. The pin exists because third-party code this
+          # workflow runs must not change unnoticed, and a tampered tree at the
+          # right HEAD is that same outcome reached by a different door.
+          git -C "$HOME/bats" diff --quiet HEAD || {
+            echo "bats working tree does not match $got" >&2
+            exit 1
+          }
+          dirty="$(git -C "$HOME/bats" status --porcelain)"
+          [ -z "$dirty" ] || {
+            echo "bats checkout has untracked or modified files:" >&2
+            echo "$dirty" >&2
+            exit 1
+          }
+          echo "bats verified at $got, tree clean"
 
       # -r so a suite added in a subdirectory of one of these cannot be
       # silently skipped while CI stays green, and --print-output-on-failure
@@ -241,7 +267,10 @@ jobs:
       #
       # OUT: .specify/scripts/bash/ — vendored scaffold, not authored here and
       # regenerated whenever its upstream tool is re-run, so a fix made to it is
-      # discarded on the next upgrade. Measured 2026-08-30: about ten finding
+      # discarded on the next upgrade. Measured 2026-08-30 WITH ANALYSER 0.9.0,
+      # the version this image ships — every count in this comment is relative
+      # to it, and a different version yields different numbers, as this job
+      # learned on its first run: about ten finding
       # lines across four identifiers, and it already carries the repository's
       # only pre-existing suppression directive. Fixing code that will be
       # overwritten produces nothing.
@@ -254,6 +283,17 @@ jobs:
       # expansions in the leak scanners, where word splitting is the mechanism
       # rather than a mistake. Bringing them in is separate work with its own
       # suppression budget and its own review.
+      #
+      # OUT, and this exclusion was missing from the list until review pointed
+      # at it: the inline `run:` shell in THIS FILE. The discovery matches
+      # tracked files by extension, and a workflow is YAML, so no shell inside
+      # it is analysed — including the release-tag step below, which parses a
+      # tag reference and is the only release gate the repository has. That is
+      # the largest and most security-relevant block of inline shell in the
+      # tree, and a reader who saw only the two exclusions above would fairly
+      # conclude the rest was covered. Closing it needs a different tool, one
+      # that extracts `run:` blocks from workflow YAML; that is separate work,
+      # and naming the gap is the minimum owed until then.
       #
       # There is NO job-level suppression list. The one finding this repository
       # had is suppressed at its own line in tests/helper.bash, with the reader

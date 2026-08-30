@@ -47,7 +47,19 @@ die() { printf 'check-versions.sh: %s\n' "$*" >&2; exit 1; }
 # how it was written. One function, called from both walks. Writing this rule
 # out twice — in the file whose header explains why a hand-kept pair is the
 # defect — would be the same mistake one level down.
-norm_source() { local s="${1#./}"; printf '%s' "${s%/}"; }
+norm_source() {
+  local s="$1"
+  # Collapse doubled separators FIRST, then strip leading current-directory
+  # prefixes, then trailing separators — in that order, and each repeatedly.
+  # A single pass of each was not enough: ".//handoff" survived as "/handoff",
+  # which then tripped the absolute-path guard in the reverse walk and was
+  # reported as escaping the repository. Every spelling here names the same
+  # directory, which is what this function exists to say.
+  while [ "$s" != "${s//\/\//\/}" ]; do s="${s//\/\//\/}"; done
+  while [ "$s" != "${s#./}" ]; do s="${s#./}"; done
+  while [ "$s" != "${s%/}" ]; do s="${s%/}"; done
+  printf '%s' "$s"
+}
 
 # The working directory IS the contract. Assert it before reading anything, so
 # a caller that starts somewhere unexpected gets a named refusal instead of a
@@ -187,7 +199,14 @@ while IFS=$'\t' read -r en es; do
   # states the rule instead of stat-ing outside the tree and reading the miss
   # as an answer.
   case "$ed" in
-    /*|*..*) die "marketplace entry '$en': source '$es' leaves the repository" ;;
+    /*) die "marketplace entry '$en': source '$es' is an absolute path" ;;
+  esac
+  # `..` as a PATH COMPONENT, not as a substring. `*..*` also matched a
+  # directory legitimately named "my..plugin" and refused it while naming a
+  # traversal that was not there — a wrong diagnostic is its own defect, even
+  # when it fails in the safe direction.
+  case "/$ed/" in
+    */../*) die "marketplace entry '$en': source '$es' leaves the repository" ;;
   esac
   # Written as an `if`, not `A && B || C`. The chained form means the same
   # thing here, but it is the shape that silently does the wrong thing when B

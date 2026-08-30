@@ -621,11 +621,17 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # failed there with "invalid command code" while passing on the other two
   # platforms. Measured on CI, not guessed: the first version of this fixture
   # went green locally and red on macos alone.
-  awk 'done != 1 && /^## \[[0-9]/ { sub(/^## \[[0-9][0-9.]*\]/, "## [9.9.9]"); done = 1 } { print }' \
+  # The guard matches the SAME anchored shape check-versions.sh parses, not a
+  # looser one. A looser guard rewrote headings the script never reads — one
+  # carrying a trailing parenthetical, say — and the test then accused a
+  # working check of not running. That trailing-parenthetical heading is the
+  # exact divergence this whole change exists to end, so planting on it was
+  # the worst available way to be wrong.
+  awk 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { sub(/^## \[[0-9]+[.][0-9]+[.][0-9]+\]/, "## [9.9.9]"); done = 1 } { print }' \
     "$c/$copied/CHANGELOG.md" > "$c/$copied/CHANGELOG.new"
   mv "$c/$copied/CHANGELOG.new" "$c/$copied/CHANGELOG.md"
   grep -q '^## \[9\.9\.9\] - ' "$c/$copied/CHANGELOG.md" \
-    || { echo "the changelog break did not land in $c/$copied/CHANGELOG.md; the assertion below would prove nothing"; false; }
+    || { echo "the changelog break did not land in the $copied fixture; the assertion below would prove nothing"; false; }
   run bash -c "cd \"$c\" && bash \"$ROOT/scripts/check-versions.sh\""
   [ "$status" -ne 0 ] \
     || { echo "the script accepted $copied with its CHANGELOG heading changed to 9.9.9; the plugin-vs-changelog check is not running"; false; }
@@ -660,9 +666,16 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   owned="$(awk '
     /^@test "/ { name = $0; sub(/^@test "/, "", name); sub(/" \{$/, "", name) }
     /^[[:space:]]*run[[:space:]]+bash[[:space:]]+[^[:space:]]+\.sh/ {
-      line = $0; sub(/#.*$/, "", line)
-      n = split(line, w, /[ \t]+/)
-      print name "\t" w[n]
+      # match(), not the last field of split(). Stripping a trailing comment
+      # leaves trailing whitespace, and split() then emits an EMPTY final
+      # field — so a call written with a trailing comment yielded an empty
+      # path and reddened a CORRECT tree with "the two gates call different
+      # scripts: suite=". Reproduced before this line was changed. match()
+      # takes the path itself and cannot pick up a comment, because the
+      # pattern it matches contains no whitespace.
+      if (match($0, /[^[:space:]]+[.]sh/)) {
+        print name "\t" substr($0, RSTART, RLENGTH)
+      }
     }
   ' tests/portability.bats)"
   [ -n "$owned" ] || { echo "no 'run bash <script>.sh' invocation found in tests/portability.bats"; false; }
@@ -1131,4 +1144,33 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # copies, not a minimum suite count. Change the set of policed copies and
   # this number changes with it.
   [ "$checked" -ge 2 ] || { echo "no tracked .bats file was found under $ROOT; this gate examined nothing"; false; }
+
+  # The bats VERSION is a second cross-copy agreement, and this change is what
+  # created it. Removing the version-gate twin added one here: the pin's commit
+  # in ci.yml, the release name in the comment above it, and the clone command
+  # in each of the two documents. Bump the pin and forget the rest and CI runs
+  # one bats while every contributor runs another, with nothing going red —
+  # the same drift class, one dependency over.
+  #
+  # This is asserted HERE, inside the test that already polices these two files
+  # against each other, rather than as a test of its own: the suite's size is
+  # fixed by this feature's own stated delta, and this belongs to the property
+  # this test already owns.
+  #
+  # The commit hash is deliberately NOT checked against the network. A gate that
+  # needs the internet to pass is a gate that fails on a bad afternoon. What is
+  # checked is that the three human-readable copies agree; re-deriving the hash
+  # is a release-time act, and the comment beside the pin says how.
+  civer="$(grep -m1 -oE '^ *# bats-core v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/ci.yml | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)"
+  [ -n "$civer" ] || { echo "no '# bats-core vX.Y.Z' release name found beside the pin in ci.yml"; false; }
+  for doc in CONTRIBUTING.md README.md; do
+    docver="$(grep -m1 -oE '[-][-]branch v[0-9]+[.][0-9]+[.][0-9]+' "$doc" | grep -oE 'v[0-9]+[.][0-9]+[.][0-9]+' || true)"
+    [ -n "$docver" ] || { echo "no '--branch vX.Y.Z' bats clone command found in $doc"; false; }
+    [ "$docver" = "$civer" ] \
+      || { echo "$doc clones bats $docver but ci.yml pins $civer; the pin and the documented command have drifted"; false; }
+  done
+  # And the pin itself must be present and shaped like a commit, so that
+  # deleting it cannot leave the three release names agreeing about nothing.
+  pin="$(grep -m1 -oE '^ *BATS_PIN: [0-9a-f]{40}$' .github/workflows/ci.yml | grep -oE '[0-9a-f]{40}' || true)"
+  [ -n "$pin" ] || { echo "no 40-character BATS_PIN found in ci.yml; the release names above agree about nothing"; false; }
 }

@@ -1,3 +1,11 @@
+# shellcheck shell=bash
+# Stated, not inferred. This file has no shebang — it is `load`ed by bats, not
+# executed — so an analyser otherwise guesses the dialect from the .bash
+# extension. Rename or move the file and that guess is gone: without a
+# directive the analyser reports "target shell is unknown", and if it ever
+# resolved to sh instead, every `local` and every array below becomes an error.
+# The shell-analysis job reads this file, so the dependency is named here
+# rather than left resting on a filename.
 # Shared fixtures for the delivery-kit suites.
 
 # Every suite loads this file, so a setting that must reach them all belongs
