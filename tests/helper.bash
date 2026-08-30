@@ -43,6 +43,18 @@
 # dependency and called the failure silent. Both halves were wrong, and a guard
 # whose comment misdescribes its own prerequisite sends the next maintainer to
 # the wrong place.
+#
+# Assigned here and read by nothing in this file, so static analysis reports it
+# as unused. It is not: bats reads it out of the environment of the file it
+# loads, and an analyser cannot see a reader that lives outside the file. The
+# suppression carries that reason rather than standing bare, because a bare
+# suppression silences a real defect and reads like a fix.
+#
+# NOT exported to satisfy the analyser. Exporting would silence the report
+# honestly and would also change what every child process inherits — a
+# behaviour change to test plumbing, made for a cosmetic reason. The value
+# stays a plain assignment.
+# shellcheck disable=SC2034 # read by bats from this file's environment, not here
 BATS_TEST_TIMEOUT=60
 
 # The repository root is the root of the git checkout containing the suite,

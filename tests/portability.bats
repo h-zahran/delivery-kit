@@ -166,7 +166,7 @@ RELAXED_RE="($RELAXED_WORDS)"
 # same change that split it, and 16KB of release history — the largest block of
 # prose these scans cover — would have left the scanned surface without a single
 # test going red.
-SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE .claude-plugin .gitignore .gitattributes .github"
+SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE .claude-plugin .gitignore .gitattributes .github scripts"
 SHIPPED_HANDOFF="handoff/hooks handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/tests handoff/.claude-plugin"
 SHIPPED_PIPELINE="pipeline/README.md pipeline/CHANGELOG.md pipeline/.claude-plugin pipeline/commands pipeline/docs"
 SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
@@ -524,117 +524,208 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 
 @test "every plugin's manifest, marketplace entry and changelog agree" {
   cd "$ROOT"
-  # Loop over plugin directories rather than naming one. A gate that knows a
-  # single plugin's name stops covering the repository the moment a second
-  # plugin lands, and does so silently.
-  checked=0
-  for dir in */; do
-    p="${dir%/}"
-    [ -f "$p/.claude-plugin/plugin.json" ] || continue
-    checked=$((checked + 1))
+  # The logic this test used to hold inline now lives in scripts/check-versions.sh,
+  # and ci.yml's version job calls the same file. Those two copies were kept in
+  # step BY HAND and drifted once — an unanchored regex in one accepted a
+  # changelog heading the other rejected — and the drift was invisible until a
+  # release. One implementation is the only arrangement that cannot drift.
+  #
+  # The test KEEPS ITS NAME across that change on purpose: the suite's own
+  # record of what it covers stays continuous, and a reader diffing releases
+  # sees a body change rather than a coverage change.
+  #
+  # `cd "$ROOT"` above is not incidental. The script asserts its working
+  # directory holds the marketplace manifest and refuses otherwise, so a caller
+  # starting somewhere else gets a named refusal instead of a walk over zero
+  # plugins that passes having verified nothing.
+  #
+  # `run` rather than a bare call: on failure the script's diagnostic is in
+  # $output, and --print-output-on-failure puts it in the log. A bare call under
+  # errexit would abort the test with the status alone.
+  run bash scripts/check-versions.sh
+  [ "$status" -eq 0 ]
 
-    pn="$(jq -r '.name // empty' "$p/.claude-plugin/plugin.json")"
-    pv="$(jq -r '.version // empty' "$p/.claude-plugin/plugin.json")"
-    [ -n "$pn" ] || { echo "$p: plugin.json has no name"; false; }
-    [ -n "$pv" ] || { echo "$p: plugin.json has no version"; false; }
+  # It must have REPORTED, not merely exited zero. The script prints one line
+  # per plugin naming the three versions it compared; a run that produced none
+  # of them examined nothing.
+  case "$output" in
+    *plugin=*) ;;
+    *) echo "the script exited 0 without reporting a single plugin. output: $output"; false ;;
+  esac
 
-    # The tag gate resolves a plugin FROM THE DIRECTORY NAME — ci.yml strips
-    # `-v<version>` from the tag and reads <plugin>/.claude-plugin/plugin.json
-    # — while this loop resolves the marketplace entry from the manifest's
-    # .name. Nothing else holds those two identities together: a manifest
-    # renamed without its directory left every gate green while release tags
-    # silently stopped naming the plugin.
-    [ "$pn" = "$p" ] || { echo "$p: plugin.json name '$pn' does not match its directory"; false; }
+  # And it must be CAPABLE of failing. Everything above is satisfied by a
+  # script whose entire body is `exit 0` — measured in review, where exactly
+  # that substitution left this suite green with all twelve checks deleted.
+  # Moving logic out of a test file moves it out of the diff a reviewer reads,
+  # so the gate has to prove the thing it delegates to still bites.
+  #
+  # TWO breaks, not one, and each chosen so that exactly ONE comparison in the
+  # script can see it. A single break that disagrees with two recorded places
+  # is caught by either comparison, so deleting one of them leaves this test
+  # green — measured, on the first version of this fixture. The pair closes
+  # that: break the marketplace entry and only plugin-vs-marketplace fires;
+  # break the changelog heading and only plugin-vs-changelog fires.
+  #
+  # Be exact about what this still does not prove: the script has twelve
+  # checks and this exercises two of them. The full per-check sweep lives in
+  # the run record, not in the suite, because the suite's size is fixed here.
+  #
+  # The fixture is built from the marketplace's OWN source list rather than by
+  # re-walking */ here: a second copy of the discovery rule, inside the test
+  # that exists because a second copy of this logic drifted, would be a poor
+  # joke. Every plugin is copied so the script's count reconciliation is
+  # satisfied and a failure can only come from the value deliberately broken.
+  base="$TEST_DIR/version-fire-base"
+  mkdir -p "$base/.claude-plugin"
+  cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+  copied=""
+  while IFS= read -r src; do
+    src="${src%$'\r'}"
+    d="${src#./}"; d="${d%/}"
+    mkdir -p "$base/$d/.claude-plugin"
+    cp "$d/.claude-plugin/plugin.json" "$base/$d/.claude-plugin/plugin.json"
+    cp "$d/CHANGELOG.md" "$base/$d/CHANGELOG.md"
+    [ -n "$copied" ] || copied="$d"
+  done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
 
-    # Select by name, never by position. A second plugin prepended to the array
-    # would otherwise be compared against the wrong entry — and could agree
-    # with it by accident.
-    # Existence and the version key are two different absences with two
-    # different fixes, so they get two different messages. Without `// empty`,
-    # jq prints the literal string "null" for a present entry missing the
-    # key, which passes [ -n ] and sends the maintainer diffing two version
-    # numbers when one of them does not exist.
-    jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
-      || { echo "$p: no marketplace entry named $pn"; false; }
-    mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)"
-    [ -n "$mv" ] || { echo "$p: marketplace entry $pn has no version"; false; }
+  # A fixture built over nothing proves nothing — the same non-empty
+  # discipline the scans below apply to their own operands.
+  [ -n "$copied" ] || { echo "the fire-proof fixture copied no plugin; it proves nothing"; false; }
 
-    # And the entry must point AT the directory this iteration just read.
-    # Nothing else in the repository reads `source` — no other test, no
-    # workflow, no script — and it is the field the installer follows to find
-    # the manifest, so an entry naming the wrong directory is a broken install
-    # that every gate here calls agreement. That is not hypothetical: `source`
-    # said `"./"`, a directory holding no plugin manifest, from the commit that
-    # moved the plugin into handoff/ until the commit that renamed it, and the
-    # whole suite was green for the duration.
-    #
-    # Checked inside this loop rather than in a test of its own because the
-    # loop has already found the directory the entry has to name and looked the
-    # entry up by name; a separate test would duplicate both, and would need
-    # its own guard against passing over zero plugins.
-    ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
-    [ -n "$ms" ] || { echo "$p: marketplace entry $pn has no source"; false; }
-    # Both spellings a relative source can take resolve to the same directory,
-    # so normalise before comparing: what is being asserted is which directory
-    # is named, not how it was written.
-    src="${ms#./}"; src="${src%/}"
-    [ "$src" = "$p" ] || { echo "$p: marketplace entry $pn has source '$ms', which does not resolve to $p"; false; }
+  # The faithful copy must PASS. Without this, a fixture broken by accident of
+  # construction would make both breaks below succeed for the wrong reason.
+  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -eq 0 ] \
+    || { echo "the untouched fire-proof fixture already fails; the breaks below would prove nothing. output: $output"; false; }
 
-    # The heading format is pinned precisely because this line parses it, so
-    # assert the date half too rather than trusting it to stay. Be exact about
-    # what that buys: `-m1` takes the first heading that MATCHES, so when the
-    # newest heading has drifted and the older ones have not, this reads an
-    # older release's version and the drift surfaces as a version disagreement
-    # rather than as a complaint about the format. Measured, not assumed.
-    #
-    # The `|| true` is load bearing, for the same reason ci.yml's version job
-    # carries one: bats runs each test under errexit, and a failing command
-    # substitution in an assignment aborts the test AT THIS LINE, so the
-    # diagnostic below never runs. Also measured — without it, a missing
-    # CHANGELOG.md fails with grep's "No such file or directory" and names no
-    # format, and a file whose ONLY heading has drifted fails with no output at
-    # all, which is exactly the case the diagnostic exists for. It cannot mask a
-    # real failure: an empty head is rejected on the next line.
-    head="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' "$p/CHANGELOG.md" || true)"
-    [ -n "$head" ] || { echo "$p: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"; false; }
-    cv="$(printf '%s' "$head" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+  # Break 1 — the MARKETPLACE entry's version. The manifest and the changelog
+  # still agree with each other, so only plugin-vs-marketplace can see this.
+  m="$TEST_DIR/version-fire-marketplace"
+  cp -r "$base" "$m"
+  jq --arg n "$copied" '.plugins |= map(if .name == $n then .version = "0.0.0-fireproof" else . end)' \
+    "$base/.claude-plugin/marketplace.json" > "$m/.claude-plugin/marketplace.json"
+  run bash -c "cd \"$m\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -ne 0 ] \
+    || { echo "the script accepted $copied with its MARKETPLACE version changed to 0.0.0-fireproof; the plugin-vs-marketplace check is not running"; false; }
+  case "$output" in
+    *0.0.0-fireproof*) ;;
+    *) echo "the script rejected the marketplace break, but not for the planted value. output: $output"; false ;;
+  esac
 
-    # Name the values on failure. A bare line number tells you the versions
-    # disagree but not which file is the odd one out — and now, not which
-    # plugin.
-    [ "$pv" = "$mv" ] || { echo "$p: plugin=$pv marketplace=$mv"; false; }
-    [ "$pv" = "$cv" ] || { echo "$p: plugin=$pv changelog=$cv"; false; }
+  # Break 2 — the CHANGELOG heading. The manifest and the marketplace still
+  # agree with each other, so only plugin-vs-changelog can see this.
+  c="$TEST_DIR/version-fire-changelog"
+  cp -r "$base" "$c"
+  sed -i '0,/^## \[[0-9][0-9.]*\] - /s/^## \[[0-9][0-9.]*\] - /## [9.9.9] - /' "$c/$copied/CHANGELOG.md"
+  grep -q '^## \[9\.9\.9\] - ' "$c/$copied/CHANGELOG.md" \
+    || { echo "the changelog break did not land in $c/$copied/CHANGELOG.md; the assertion below would prove nothing"; false; }
+  run bash -c "cd \"$c\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -ne 0 ] \
+    || { echo "the script accepted $copied with its CHANGELOG heading changed to 9.9.9; the plugin-vs-changelog check is not running"; false; }
+  case "$output" in
+    *changelog=9.9.9*) ;;
+    *) echo "the script rejected the changelog break, but not for the planted value. output: $output"; false ;;
+  esac
+}
+
+# The gate above and ci.yml's version job used to hold two copies of one piece
+# of logic. The workflow's own comment said they were kept in step BY HAND and
+# had drifted once already. Nothing held them together, so nothing noticed.
+#
+# This test is what now holds them together. It asserts the two callers name
+# ONE script, and — separately — that neither has quietly grown an inline copy
+# beside the call, which is the arrangement a well-meaning revert produces and
+# which every other assertion here would accept.
+@test "one version-agreement script, and both gates call it" {
+  cd "$ROOT"
+
+  # The invocation must live INSIDE the version gate, not merely somewhere in
+  # this file. Measured in review: gutting the gate's body to `true` and parking
+  # the invocation in an unrelated test left this test green while the suite
+  # carried no version coverage at all — `grep -m1` binds to the first match in
+  # the file, and the first match is not necessarily the gate's.
+  #
+  # So map each invocation to the @test block that encloses it, and require
+  # exactly one, owned by the gate. awk carries the current block's name
+  # forward; the name is compared as a STRING, not matched as a pattern, so the
+  # apostrophe in it needs no escaping and cannot behave as a metacharacter.
+  gate_name="every plugin's manifest, marketplace entry and changelog agree"
+  owned="$(awk '
+    /^@test "/ { name = $0; sub(/^@test "/, "", name); sub(/" \{$/, "", name) }
+    /^[[:space:]]*run[[:space:]]+bash[[:space:]]+[^[:space:]]+\.sh/ {
+      line = $0; sub(/#.*$/, "", line)
+      n = split(line, w, /[ \t]+/)
+      print name "\t" w[n]
+    }
+  ' tests/portability.bats)"
+  [ -n "$owned" ] || { echo "no 'run bash <script>.sh' invocation found in tests/portability.bats"; false; }
+  [ "$(printf '%s\n' "$owned" | wc -l)" -eq 1 ] \
+    || { echo "expected exactly one 'run bash <script>.sh' invocation in this file, found:"; printf '%s\n' "$owned"; false; }
+  owner="${owned%%$'\t'*}"
+  suite_path="${owned##*$'\t'}"
+  [ "$owner" = "$gate_name" ] \
+    || { echo "the invocation of $suite_path lives in '$owner', not in the version gate '$gate_name'"; false; }
+
+  # The workflow side. Accept the invocation whether it sits on the `run:` line
+  # or inside a block scalar beneath one, so that adding a `set -x` to the step
+  # cannot red this test on a workflow that is still correct. Require exactly
+  # one, for the same binding reason as above.
+  ci_all="$(grep -oE '^[[:space:]]*(run:[[:space:]]*)?bash[[:space:]]+[^[:space:]]+\.sh' .github/workflows/ci.yml || true)"
+  [ -n "$ci_all" ] || { echo "no 'bash <script>.sh' invocation found in .github/workflows/ci.yml"; false; }
+  [ "$(printf '%s\n' "$ci_all" | wc -l)" -eq 1 ] \
+    || { echo "expected exactly one 'bash <script>.sh' invocation in ci.yml, found:"; printf '%s\n' "$ci_all"; false; }
+  ci_path="${ci_all##*[[:space:]]}"
+
+  # Compare what the two callers NAME, not how they spelled the path: `./x.sh`
+  # and `x.sh` are the same file and must not read as a disagreement.
+  [ "${suite_path#./}" = "${ci_path#./}" ] \
+    || { echo "the two gates call different scripts: suite=$suite_path ci=$ci_path"; false; }
+  [ -s "$suite_path" ] \
+    || { echo "both gates name '$suite_path', which is not a non-empty file"; false; }
+
+  # Calling the script while ALSO keeping an inline copy satisfies everything
+  # above and restores exactly the hazard this test exists to close. So assert
+  # the absence of the logic in both callers, by a marker only the
+  # implementation has reason to carry: the by-name selection of a marketplace
+  # entry, which is the heart of the walk.
+  #
+  # A REGEX, not a fixed string, and tolerant of the whitespace around the
+  # operator: measured in review, a re-typed inline copy that closed up the
+  # spaces around the equality — one character different — evaded a
+  # fixed-string marker completely. This widens the net; it does not make it
+  # complete, and the limit is stated plainly below rather than left for a
+  # reader to discover.
+  #
+  # This comment deliberately DESCRIBES that spelling instead of showing it.
+  # Written out, the example would sit in a file this test greps, and the
+  # test would report its own comment as an inline copy — which is exactly
+  # what happened on the first attempt.
+  #
+  # The regex cannot match the line that defines it: that line spells the
+  # parenthesis escaped, so the literal the pattern requires is not present.
+  # If that were ever wrong the failure is a RED on a correct tree, never a
+  # green on a broken one.
+  marker='select\(\.name[[:space:]]*==[[:space:]]*\$n\)'
+  for f in tests/portability.bats .github/workflows/ci.yml; do
+    if grep -qE -- "$marker" "$f"; then
+      echo "$f holds the version-agreement logic inline as well as calling $suite_path"
+      false
+    fi
   done
 
-  # The loop above walks directory -> entry, so an entry whose directory is
-  # missing is never visited: a retired plugin's leftover entry, or an entry
-  # added ahead of its directory (the exact ordering hazard of landing a
-  # second plugin), advertises a broken install while every gate calls it
-  # agreement. Walk the other direction too, and pin the two counts to each
-  # other so the walks cannot quietly cover different sets.
-  entries=0
-  while IFS= read -r en; do
-    # jq here is a native Windows binary whose stdout is text mode: every line
-    # it prints ends `\r\n`. Command substitution strips that trailing CR, but
-    # `read` does not, and a name carrying a stray CR matches no marketplace
-    # entry. Measured: without this strip, the lookup below returned empty for
-    # every entry on this platform, failing a clean tree. A no-op elsewhere.
-    en="${en%$'\r'}"
-    entries=$((entries + 1))
-    es="$(jq -r --arg n "$en" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
-    ed="${es#./}"; ed="${ed%/}"
-    [ -n "$ed" ] && [ -f "$ed/.claude-plugin/plugin.json" ] \
-      || { echo "marketplace entry '$en': source '$es' names no plugin directory"; false; }
-  done < <(jq -r '.plugins[].name' .claude-plugin/marketplace.json)
-  [ "$entries" -eq "$checked" ] || { echo "marketplace lists $entries plugins, the tree holds $checked"; false; }
+  # A marker that has quietly stopped matching reports both callers clean and
+  # proves nothing — the same failure shape as a denylist that has stopped
+  # working. Fire it against the implementation, where it MUST match, before
+  # believing the two absences above.
+  grep -qE -- "$marker" "$suite_path" \
+    || { echo "the inline-copy marker matched nothing in $suite_path; this test's copy detection is dead"; false; }
 
-  # A loop over zero plugins passes vacuously, having verified nothing. That is
-  # the defect this repository keeps rediscovering: the SKILL.md search above
-  # needs a non-empty pin for it, the link test below counts what it resolved
-  # because it once reported PASS having resolved none, and an empty SHIPPED
-  # list would aim `grep -r` at the working directory rather than erroring. So
-  # pin that this loop found work to do.
-  [ "$checked" -ge 1 ] || { echo "no plugin directories found under $ROOT"; false; }
+  # What this test does NOT prove, said out loud so no reader infers more from
+  # a green than it carries: it is textual. It cannot see that the workflow
+  # step is reached — a step disabled with `if: false` still satisfies every
+  # assertion above — and a copy rewritten to select an entry some other way
+  # carries no marker to find. It closes the drift that actually happened, and
+  # the literal revert that would bring it back.
 }
 
 # A denylist that has silently stopped working is indistinguishable from a

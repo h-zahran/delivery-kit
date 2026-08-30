@@ -436,6 +436,11 @@ git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git 
 bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 ```
 
+CI fetches an immutable commit rather than this tag, so an upstream retag
+cannot change the third-party code an automated gate executes. A local
+clone keeps the readable reference; the pin lives in one place, beside
+the release name, in `.github/workflows/ci.yml`.
+
 Expect green on Linux, macOS and Windows under Git Bash. CI runs all three; a
 change that passes on only one is not finished.
 
