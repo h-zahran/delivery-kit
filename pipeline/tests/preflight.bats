@@ -399,3 +399,53 @@ stub() {
   [ "$(jq -r '.baseBranch' <<<"$output")" = "feature-x" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
 }
+
+# --- the git capability -------------------------------------------------------
+# git is the one probed tool the run cannot proceed without: phases B, K and L
+# are git operations, and four of this script's own reads are git commands. It
+# is reported here like any other capability, and NOTHING here asserts on a
+# stop, because a report is the only thing this script produces. The stop is
+# the orchestrator's pre-flight decision 11, made from what is asserted below.
+
+@test "the capability report names git present when git is findable" {
+  d="$BATS_TEST_TMPDIR/with-git"
+  shimdir "$d" $PROBE_TOOLS
+  probe --path "$d" --dir "$FIX/other" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+}
+
+@test "the capability report names git absent, and the report survives it" {
+  d="$BATS_TEST_TMPDIR/without-git"
+  # DERIVED from PROBE_TOOLS by removing one name, never hand-listed. A hand
+  # list goes stale the day a tool is added to that variable, and it goes stale
+  # in the direction that hurts: the shim directory would then be missing TWO
+  # tools, and this test would pass for a cause it does not name.
+  tools=""
+  for t in $PROBE_TOOLS; do [ "$t" = git ] || tools="$tools $t"; done
+  shimdir "$d" $tools
+  probe --path "$d" --dir "$FIX/other" --base-branch main
+
+  # Reporting is not failing. The script still exits 0 and still emits one
+  # well-formed document with git absent — which is exactly why the stop lives
+  # in the orchestrator and not here. A script that died would leave this test
+  # nothing to read, and the capability could only be inferred from an exit
+  # code.
+  [ "$status" -eq 0 ]
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "false" ]
+
+  # The report is COMPLETE, not truncated. Absence sets a field to false; it
+  # never drops a key, and no consumer should have to read a short document as
+  # the signal for a missing tool.
+  [ "$(jq -r '.projectType' <<<"$output")" = "other" ]
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+
+  # No skip is announced on git's OWN account. The two that are announced belong
+  # to the pre-existing no-remote branch: without git the remote cannot be read,
+  # so it reads "none", and that branch names L and M. The exact set is pinned
+  # rather than a count, because a count would let a future git-flavoured skip
+  # replace one of these silently. A degradation names a phase the run can do
+  # without, and for git there is no such phase — hence a stop, not a skip.
+  [ "$(jq -c '[.willSkip[].phase] | sort' <<<"$output")" = '["L","M"]' ]
+}

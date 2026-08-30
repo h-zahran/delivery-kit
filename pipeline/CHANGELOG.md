@@ -4,6 +4,18 @@ All notable changes to the `pipeline` plugin.
 
 ## [Unreleased]
 
+### Added
+
+- Pre-flight now probes `git` and reports it beside `jq`, `gh` and `adb`. An
+  absent `git` is a STOP, not a degradation: the run names the tool, prints
+  `https://git-scm.com/downloads`, records the answer and installs nothing.
+  It stops because nothing survives the absence — branching, committing and
+  opening a pull request are all git operations, and the probe's own base
+  branch and working tree reads are git commands that, without it, quietly
+  reported an empty branch and a clean tree. Naming a phase to skip would have
+  named a capability nobody acts on. The stop fires before every other
+  pre-flight decision, including the two that call git themselves.
+
 ### Changed
 
 - `README.md` rewritten for a first-time reader: the twenty phases drawn as
