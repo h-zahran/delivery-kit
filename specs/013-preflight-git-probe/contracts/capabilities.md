@@ -57,7 +57,14 @@ Nothing else in the document changes.
 |---|---|---|
 | `pipeline/skills/pipeline/SKILL.md` pre-flight | the whole document | renders `git` on the `Available` or `Missing` line; stops on `false` |
 | `pipeline/tests/preflight.bats` | every key, per test | two new tests read `capabilities.git`; no existing test is edited |
-| the run's state file | capabilities, recorded at pre-flight | records `git` alongside the others |
+Deliberately NOT listed as a consumer: the run's state file. `progress.sh init`
+creates an empty `capabilities` key and nothing in the script ever writes to
+it, and no shipped instruction tells the orchestrator to fill it — the
+non-empty objects seen in real run files were written by hand during a run.
+Saying otherwise here would promise a mechanism that does not exist. Related,
+and conceded in the orchestrator's own text: decision 11's "record the answer"
+cannot reach a state file on a fresh run at all, because the file is created in
+phase B and the stop precedes it.
 
 ## Downstream note
 

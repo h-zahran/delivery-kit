@@ -168,11 +168,18 @@ gap — that would be a silent tool install.
 
 ## Finding F — `gh` is present despite the probe saying otherwise
 
-`preflight.sh` reported `capabilities.gh: false` on this machine. That is a
-false negative: `gh` is a Scoop shim at `C:\Users\h_zah\scoop\shims\gh.cmd`,
-which the Bash environment's `command -v` cannot see. Verified in PowerShell:
-`gh version 2.92.0`.
+`preflight.sh` reported `capabilities.gh: false` on the machine this run used.
+That is a false negative. On that machine the client is installed as a shim
+under the user's home directory by a Windows package manager, and the Bash
+environment's `command -v` cannot see it. Verified from the Windows shell
+instead: version 2.92.0 answered.
 
-Consequence for this run: **phase M is not skipped**, and every `gh` call must
-be made through PowerShell rather than Bash. This is a property of the machine,
-not a defect in this feature, and it is recorded in the run's state file.
+The absolute path is deliberately NOT written here. This file is tracked, and
+`tests/portability.bats` scans the whole tracked tree for machine paths — a home
+directory carries a username, and this repository is public. The shape is what a
+future reader needs; the path is what would leak.
+
+Consequence for this run: **phase M is not skipped**, and every call to that
+client must be made from the Windows shell rather than from Bash. This is a
+property of one machine, not a defect in this feature, and it is recorded in the
+run's state file.

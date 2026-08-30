@@ -190,6 +190,30 @@ third test that would falsify SC-002.
 - **SC-005**: Every string the suites pin in shipped prose is still present
   after the change.
 
+## Known gaps, deferred with cause
+
+Two review findings are real, are not fixed here, and are named rather than
+left for a reader to discover. Both are blocked by a constraint this feature
+was specified against, not by effort.
+
+- **The new prose has no automated guard.** Decision item 11 and the `git`
+  probe-block line could both be deleted with the whole suite still green.
+  Closing it means a new test in `pipeline/tests/prose.bats`, which would take
+  the plan line to a third new test and falsify SC-002 — and SC-002 is the
+  acceptance this change was written against. This repository has measured the
+  consequence before: the comment at the head of that suite records that
+  mutants deleted unpinned rules while the suite stayed green, which is why
+  other stop rules are pinned. Follow-up work, sized as one test.
+
+- **Three reported fields still speak confidently from reads that never
+  happened.** With git absent, `baseBranchSource` still says a branch was read
+  from the current checkout, and `tree.dirty` still says `false`. Making them
+  honest means changing an existing field's type or meaning, which FR-002
+  forbids outright. The harm is bounded here because the stop fires before any
+  decision consumes them, and the orchestrator now tells the reader not to
+  repeat the `Will skip` lines when it fires — but the fields themselves are
+  unchanged, and a wider fix belongs to its own change.
+
 ## Assumptions
 
 - The consequence of an absent git is a stop rather than a degradation. The

@@ -413,9 +413,25 @@ stub() {
   probe --path "$d" --dir "$FIX/other" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+  # The TYPE, not only the value, and it needs its own assertion. `jq -r`
+  # prints the JSON string "true" as a bare true, so a value comparison alone
+  # cannot tell a boolean from a string. Measured 2026-08-30: changing
+  # --argjson to --arg in the script made the emitted type "string" and NOT ONE
+  # test in this suite went red. A consumer writing `.capabilities.git | not`
+  # then gets the wrong answer, because the string "false" is truthy.
+  jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
 }
 
 @test "the capability report names git absent, and the report survives it" {
+  # This test asserts baseBranch, and a willSkip set that is wholly a function
+  # of the remote — both of which the header at the top of this file says no
+  # fixture test does. The exception is deliberate and it is safe for ONE
+  # reason: git is off the search path built below, so the enclosing
+  # checkout's origin/HEAD cannot be read and the fixture's git facts come
+  # from this call's flags and the script's defaults instead of from this
+  # repository. Put git back on that path for any reason and the exception
+  # collapses — origin/HEAD wins, the remote reads as the code host, and these
+  # assertions fail for a cause this test's name does not mention.
   d="$BATS_TEST_TMPDIR/without-git"
   # DERIVED from PROBE_TOOLS by removing one name, never hand-listed. A hand
   # list goes stale the day a tool is added to that variable, and it goes stale
