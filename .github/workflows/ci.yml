@@ -134,23 +134,30 @@ jobs:
             echo "bats is at $got, expected $BATS_PIN" >&2
             exit 1
           }
-          # HEAD names a commit; it does not say the files match it. A restore
-          # that arrived truncated, or was written with a modified tree at the
-          # right revision, passes a rev-parse check and is then EXECUTED by
-          # the step below. The pin exists because third-party code this
-          # workflow runs must not change unnoticed, and a tampered tree at the
-          # right HEAD is that same outcome reached by a different door.
-          git -C "$HOME/bats" diff --quiet HEAD || {
-            echo "bats working tree does not match $got" >&2
+          # HEAD names a commit; it does not say the FILES match it. A restore that
+          # arrived truncated, or was written with a modified tree at the right
+          # revision, passes a rev-parse check and is then EXECUTED by the step below.
+          # The pin exists so third-party code this workflow runs cannot change
+          # unnoticed, and a tampered tree at the right HEAD is that same outcome
+          # reached by a different door.
+          #
+          # --name-only tested for emptiness, NOT --quiet: measured, --quiet takes a
+          # fast path that ignores --ignore-cr-at-eol, and the first version of this
+          # check used it and reddened windows-latest on a CORRECT tree. The cache
+          # round-trip leaves the working files with the line endings this platform
+          # checks out, which is a legitimate difference and not a tamper.
+          #
+          # Untracked files are deliberately NOT checked. The upstream tree contains a
+          # symlink this platform cannot materialise, so a clean checkout reports an
+          # untracked entry of its own — a guard that fires on a correct tree is worse
+          # than the gap it closes.
+          changed="$(git -C "$HOME/bats" diff --ignore-cr-at-eol --name-only HEAD)"
+          [ -z "$changed" ] || {
+            echo "bats working tree does not match $got:" >&2
+            echo "$changed" >&2
             exit 1
           }
-          dirty="$(git -C "$HOME/bats" status --porcelain)"
-          [ -z "$dirty" ] || {
-            echo "bats checkout has untracked or modified files:" >&2
-            echo "$dirty" >&2
-            exit 1
-          }
-          echo "bats verified at $got, tree clean"
+          echo "bats verified at $got, tracked files match"
 
       # -r so a suite added in a subdirectory of one of these cannot be
       # silently skipped while CI stays green, and --print-output-on-failure
