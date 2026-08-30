@@ -311,7 +311,14 @@ bytes_of() {
   [ -f "$1" ] || { printf 'bytes_of: no such file: %s\n' "$1" >&2; return 1; }
   local n
   n="$(tail -n "$2" "$1" | wc -c | tr -d ' ')"
-  [ -n "$n" ] && [ "$n" -gt 0 ] 2>/dev/null || { printf 'bytes_of: %s yielded no bytes\n' "$1" >&2; return 1; }
+  # An `if`, not `A && B || C`. This line predates the shell-analysis job and
+  # is unchanged in meaning; the job reports the chained form, so it is fixed
+  # here rather than suppressed. A suppression would be silencing a real
+  # report on code nobody had looked at, which is the opposite of the point.
+  if [ -z "$n" ] || ! [ "$n" -gt 0 ] 2>/dev/null; then
+    printf 'bytes_of: %s yielded no bytes\n' "$1" >&2
+    return 1
+  fi
   printf '%s' "$n"
 }
 

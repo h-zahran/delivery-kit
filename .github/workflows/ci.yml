@@ -211,6 +211,18 @@ jobs:
       # The version print is what makes a red on unchanged code diagnosable in
       # one look: the analyser is the runner image's, and an image upgrade can
       # move it.
+      #
+      # THE VERSION HERE IS THE ONE THAT GOVERNS, and it is not necessarily the
+      # one a contributor has. Measured 2026-08-30, the hard way: this image
+      # shipped 0.9.0 while the machine the job was written on had 0.11.0, and
+      # 0.9.0 reports a check 0.11.0 does not have at any severity. The job went
+      # red on a tree that was clean locally, twice over — once on new code and
+      # once on a line that predated the job entirely.
+      #
+      # Note the direction, because it is the dangerous one: a contributor with
+      # a NEWER analyser sees FEWER findings than this gate does. Read the
+      # version this step prints before concluding a local green means anything,
+      # and see CONTRIBUTING.md for how to match it.
       - name: Ensure shellcheck
         run: |
           if shellcheck --version; then exit 0; fi

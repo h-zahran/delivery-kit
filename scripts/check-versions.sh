@@ -189,8 +189,15 @@ while IFS=$'\t' read -r en es; do
   case "$ed" in
     /*|*..*) die "marketplace entry '$en': source '$es' leaves the repository" ;;
   esac
-  [ -n "$ed" ] && [ -f "./$ed/.claude-plugin/plugin.json" ] \
-    || die "marketplace entry '$en': source '$es' names no plugin directory"
+  # Written as an `if`, not `A && B || C`. The chained form means the same
+  # thing here, but it is the shape that silently does the wrong thing when B
+  # can fail for a second reason, and CI's analyser reports it. WHICH analyser
+  # matters, and this is measured rather than assumed: the runner image ships
+  # 0.9.0, which reports this, while 0.11.0 does not. A contributor with a
+  # newer local copy therefore sees FEWER findings than the gate does.
+  if [ -z "$ed" ] || [ ! -f "./$ed/.claude-plugin/plugin.json" ]; then
+    die "marketplace entry '$en': source '$es' names no plugin directory"
+  fi
 done < <(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json)
 
 [ "$entries" -eq "$checked" ] || die "marketplace lists $entries plugins, the tree holds $checked"
