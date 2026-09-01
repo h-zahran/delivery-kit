@@ -19,10 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would flatter the change. A run that fires spends one more, on the emission
   that writes the instruction; that one is the output itself.
 
-  **Behaviour is unchanged.** Every default, every validation, every message and
-  every exit code is what it was; the guard's own test suite passes unedited,
-  and each extracted field was compared against the old extraction across
-  present, absent, null and empty-string inputs before this landed.
+  **Behaviour was measured, not asserted.** A differential harness ran the
+  pre-change hook against this one over 26 payload and configuration shapes —
+  present, absent, null, empty-string and wrong-type fields, leading zeros,
+  out-of-range values, string numbers, an object where a string was expected, a
+  missing transcript, an empty payload, and a value containing an embedded
+  newline — comparing stdout and exit code on each. All 26 matched, and the
+  guard's own test suite passes unedited.
+
+  That harness is why this entry reports a measurement instead of the flat
+  claim it first carried. The first draft of this change was **not**
+  behaviour-preserving, in two ways the suite could not see: splitting the
+  joined fields with `read` truncated any value containing a newline and
+  silently dropped every field after it, and the payload program was missing
+  the `map(tostring)` its twin already had, so a field of an unexpected type
+  aborted the extraction and left the guard silent. Both were found by the
+  differential and fixed before this shipped.
 
   The fields are joined with the ASCII unit separator rather than a tab, and
   that choice is load-bearing rather than cosmetic. A tab is treated as

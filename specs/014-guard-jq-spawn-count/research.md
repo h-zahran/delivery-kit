@@ -14,6 +14,16 @@ The two probe scripts that produced these numbers are reproduced in
 (`\u001f`, written as a jq escape) and split it with `IFS=$'\037' read -r`.
 Do **not** use `@tsv` with `IFS=$'\t' read`.
 
+> **Amended 2026-09-01, during phase M.** Two *spellings* in this decision were
+> superseded after review; the decision itself — unit separator, not tab — was
+> not, and everything below still holds. The separator is no longer written a
+> second time as a jq unicode escape inside each program: it is defined once as
+> `US=$'\037'` and handed to jq with `--arg`, so one definition cannot
+> desynchronise from another and no escape appears in the jq source at all. And
+> the split is no longer `IFS=$'\037' read -r`, which shipped in `765ce87` and
+> was measured broken; it is parameter expansion. See the "Superseded in part"
+> note under Decision 2.
+
 **Rationale**: tab is an *IFS-whitespace* character. When IFS contains only
 whitespace characters, the shell collapses runs of them and strips leading and
 trailing ones. An empty field therefore does not survive.
@@ -75,6 +85,35 @@ Verified on the chosen design: the last field, after `$()` capture and an
 
 This is a second, independent reason for the single-line separator design. Even
 if tab were safe, multi-line would not be.
+
+### Superseded in part, 2026-09-01, during phase M
+
+The reasoning above stands; the **splitter** named in it does not. This note is
+appended rather than folded in, because the finding is only legible against the
+decision that produced it.
+
+`IFS=$'\037' read` shipped in `765ce87` and phase M's review found it broken.
+`read` stops at the first newline, and a JSON string value may legally contain
+one — so `read` kept a prefix and silently dropped every field after it.
+Measured: a `windowTokens` of `"5\n999999"` lost `thresholdPct`,
+`thresholdTokens` and `maxBytes` outright, and the hook applied the default 45%
+where the pre-change hook applied the configured 50%.
+
+Note what this does to the verification two paragraphs up. "The last field
+contains no `^M`" was true of the *sample*, and it generalised no further:
+a carriage return does reach a variable whenever a value contains a newline,
+because jq writes that newline as `\r\n` **inside** the field. The property
+`$()` actually enforces is narrower — it strips jq's own trailing line ending,
+nothing more. Both were re-measured on 2026-09-01.
+
+The splitter is now parameter expansion (`${var%%…}` / `${var#…}`), which cuts
+on the separator byte alone and leaves an embedded newline inside its own
+field — restoring exactly what the per-field `$()` did. Equivalence was
+re-proved with a differential harness: the pre-change hook against the fixed
+hook over 26 payload and configuration shapes, comparing stdout and exit code.
+26 identical, 0 different. See
+[contracts/extraction.md](./contracts/extraction.md), "Two hazards the join
+creates".
 
 ## Decision 3 — the configuration split has the same bug, and it is worse
 
@@ -216,11 +255,17 @@ Shebang is `#!/usr/bin/env bash`, but a scan finds no `mapfile`, no `readarray`,
 no `[[ ]]` and no `local`. The file is written in portable shell despite being
 run by bash.
 
-`IFS=$'\037'` is a bashism (`$'…'` is not POSIX). It is used because the
+`$'\037'` is a bashism (`$'…'` is not POSIX). It is used because the
 alternative is a literal control byte in the source, which is worse: invisible
-in diffs and easy to destroy with a careless editor. `read -r` with a custom IFS
-is otherwise portable. Worth stating in the plan so the choice is deliberate
-rather than accidental drift.
+in diffs and easy to destroy with a careless editor. Worth stating in the plan
+so the choice is deliberate rather than accidental drift.
+
+> **Amended 2026-09-01, during phase M.** This finding originally added that
+> "`read -r` with a custom IFS is otherwise portable". Portable it may be, but
+> it is not correct here: `read` stops at the first newline and truncates any
+> value containing one. The split is parameter expansion, which is a second
+> bashism and is the one the shipped code uses. See Decision 2's "Superseded in
+> part" note.
 
 ## Finding D — the "do not edit the hook suite" rule is the real tripwire
 

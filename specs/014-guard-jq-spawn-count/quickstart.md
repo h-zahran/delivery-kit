@@ -132,7 +132,7 @@ Expected: `today` and `candidate` match. `naive` shifts — the token threshold
 picks up the byte cap's value, which is a positive integer and therefore
 **passes validation and gets installed.**
 
-## 4. Prove jq emits carriage returns here, and that one line survives them
+## 4. Prove jq emits carriage returns, and what the capture actually strips
 
 ```bash
 printf '{"transcript_path":"/t"}' | jq -r '.transcript_path' | cat -A
@@ -140,8 +140,27 @@ v=$(printf '{"transcript_path":"/t"}' | jq -r '.transcript_path'); printf '[%s]\
 ```
 
 Expected: the piped form shows `^M` (a carriage return). The `$()` form does
-not — command substitution strips it. That is why the design produces **one**
-line captured with `$()`, and not several lines consumed with `read`.
+not — command substitution strips it. That is why the fields are joined into
+**one** value captured with `$()`, rather than emitted as four lines read one
+at a time, which would leave a stray `^M` on three of the four.
+
+**Read that result narrowly.** What `$()` strips is jq's own *trailing* line
+ending, and nothing more. It is not a guarantee that no carriage return reaches
+a variable: a value that itself contains a newline arrives with `\r\n` in the
+middle of its own field, and did so before this change too. "The output is one
+line" is a property of ordinary data, not of the program — which is why the
+split is parameter expansion and never `read`. Prove that with the block below.
+
+```bash
+US=$'\037'
+p=$(printf '%s' '{"a":"p\nq","b":"z"}' | jq -r --arg US "$US" '[.a,.b] | map(tostring) | join($US)')
+printf '%s' "${p%%"$US"*}" | od -c   # field 1: p \r \n q  — the newline stays inside it
+printf '%s' "${p#*"$US"}"  | od -c   # field 2: z          — NOT lost
+```
+
+Expected: field 1 keeps its embedded newline and field 2 survives. Swap the
+split for `IFS="$US" read -r f1 f2` and field 1 truncates to `p\r` while field 2
+vanishes — that is the regression this quickstart now pins.
 
 ## 5. The hook's own suite, unedited
 

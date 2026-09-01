@@ -24,9 +24,16 @@ command substitution. Spread across the file: the agent identifier inside an
 
 ### After
 
-One `jq` invocation producing a single line, the four values joined by the unit
-separator, captured through command substitution and split with
-`IFS=$'\037' read -r`. Placed once, before the subagent check.
+One `jq` invocation, the four values joined by the unit separator, captured
+through command substitution and split with **parameter expansion**. Placed
+once, before the subagent check.
+
+The split is deliberately not `read`. A JSON string value may contain a
+newline, and `read` stops at the first one: it would keep a prefix and drop
+every field after it. Parameter expansion splits on the separator byte alone
+and leaves an embedded newline inside its own field, which is what the
+per-field `$()` did. This is measured, not argued — see the validation rule
+below, and the differential recorded in the changelog entry.
 
 ### Validation rules
 
@@ -35,8 +42,24 @@ separator, captured through command substitution and split with
 - **Empty values must survive in every position, including the first.** The
   agent identifier is empty in the ordinary case, so this is the common path,
   not an edge case.
-- **No carriage return may reach any variable.** Guaranteed by producing one
-  line and capturing it with `$()`, which strips the trailing `\r\n`.
+- **One field of an unexpected type must not abort the extraction.** Enforced by
+  `map(tostring)` before the join, the same guard the configuration program
+  already carried. `join` errors on a non-string, an erroring `jq` yields an
+  empty payload, and an empty payload gives an empty transcript and a guard that
+  exits silently — the one direction this hook must never fail in. Measured with
+  a `cwd` that is an object; the payload program shipped without this and did
+  exactly that.
+- **jq's own trailing line ending must not reach any variable.** Enforced by
+  the capture: `jq` emits `\r\n` on this platform, and `$()` under MSYS2 bash
+  strips the trailing carriage return along with the newline. Measured.
+
+  Read that rule for exactly what it says, because an earlier wording claimed
+  more and was wrong. It is **not** a guarantee that no carriage return reaches
+  any variable: a value that itself contains a newline arrives as `\r\n` in the
+  middle of its own field, and it did so before this change too. Nor is "the
+  output is one line" a property of the program — it is an assumption about the
+  data, and a value containing a newline breaks it. What the program actually
+  enforces is that the split does not depend on the line count at all.
 - **The working-directory fallback to `$PWD` stays in the shell**, not in the
   jq program: `$PWD` is a shell fact, and moving it would change what the
   fallback means.
