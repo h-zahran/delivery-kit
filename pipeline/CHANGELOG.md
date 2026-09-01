@@ -4,6 +4,34 @@ All notable changes to the `pipeline` plugin.
 
 ## [Unreleased]
 
+### Added
+
+- Pre-flight now probes `git` and reports it beside `jq`, `gh` and `adb`. An
+  absent `git` is a STOP, not a degradation: the run names the tool, prints
+  `https://git-scm.com/downloads`, and installs nothing. It stops because
+  nothing survives the absence — branching, committing and opening a pull
+  request are all git operations, and the probe's own base branch and working
+  tree reads are git commands that, without it, quietly reported an empty
+  branch and a clean tree. Naming a phase to skip would have named a capability
+  nobody acts on. The stop fires before every other pre-flight decision,
+  including the two that call git themselves, and the base branch, remote and
+  skip lines are printed as *not read* rather than as the values those absent
+  commands appeared to return.
+
+  The rule is pinned, not merely written: a suite test slices the probe block,
+  the not-read rule and the decision walk, and asserts the stop's condition, its
+  action, its fires-first ordering, the printed link and the
+  capability-not-a-skip rule inside the region each belongs to. Deleting the
+  rule, inverting its ordering, or softening the stop to a warning each turn
+  that test red.
+
+  Two limits, stated because the alternative is a reader discovering them. The
+  answer is recorded where a run has somewhere to record it; on a fresh run the
+  stop precedes the state file's creation, so there the stop and the printed
+  link stand on their own. And the probe asks whether `git` can be FOUND, not
+  whether it will work — a `git` that is present but refuses to operate on the
+  repository still reports present, and the stop does not fire for it.
+
 ### Changed
 
 - `README.md` rewritten for a first-time reader: the twenty phases drawn as

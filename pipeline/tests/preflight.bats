@@ -399,3 +399,99 @@ stub() {
   [ "$(jq -r '.baseBranch' <<<"$output")" = "feature-x" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
 }
+
+# --- the git capability -------------------------------------------------------
+# git is the one probed tool the run cannot proceed without: phases B, K and L
+# are git operations, and four of this script's own reads are git commands. It
+# is reported here like any other capability, and NOTHING here asserts on a
+# stop, because a report is the only thing this script produces. The stop is
+# the orchestrator's pre-flight decision 11, made from what is asserted below.
+
+@test "the capability report names git present when git is findable" {
+  d="$BATS_TEST_TMPDIR/with-git"
+  shimdir "$d" $PROBE_TOOLS
+  probe --path "$d" --dir "$FIX/other" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+  # The TYPE, not only the value, and it needs its own assertion. `jq -r`
+  # prints the JSON string "true" as a bare true, so a value comparison alone
+  # cannot tell a boolean from a string. Measured 2026-08-30: changing
+  # --argjson to --arg in the script made the emitted type "string" and NOT ONE
+  # test in this suite went red. A consumer writing `.capabilities.git | not`
+  # then gets the wrong answer, because the string "false" is truthy.
+  jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
+}
+
+@test "the capability report names git absent, and the report survives it" {
+  # This test asserts baseBranch, and a willSkip set that is wholly a function
+  # of the remote — both of which the header at the top of this file says no
+  # fixture test does. The exception is deliberate and it is safe for ONE
+  # reason: git is off the search path built below, so the enclosing
+  # checkout's origin/HEAD cannot be read and the fixture's git facts come
+  # from this call's flags and the script's defaults instead of from this
+  # repository. Put git back on that path and the exception collapses.
+  #
+  # What catches that, measured rather than asserted. Restoring git to the list
+  # below turns this test red at its FIRST assertion, the capability itself,
+  # which is where bats stops. The baseBranchSource and willSkip assertions are
+  # corroborating, not the tripwire: they prove the git facts below came from
+  # this call's flags and the script's defaults rather than from the enclosing
+  # checkout. And note which assertion does NOT catch it — the baseBranch VALUE
+  # stays "main" either way, because origin/HEAD here points at main, so it
+  # would pass for a route this test does not intend. That is why the SOURCE is
+  # asserted beside it.
+  d="$BATS_TEST_TMPDIR/without-git"
+  # DERIVED from PROBE_TOOLS by removing one name, never hand-listed. A hand
+  # list goes stale the day a tool is added to that variable, and it goes stale
+  # in the direction that hurts: the shim directory would then be missing TWO
+  # tools, and this test would pass for a cause it does not name.
+  tools=""
+  for t in $PROBE_TOOLS; do [ "$t" = git ] || tools="$tools $t"; done
+  shimdir "$d" $tools
+  probe --path "$d" --dir "$FIX/other" --base-branch main
+
+  # Reporting is not failing. The script still exits 0 and still emits one
+  # well-formed document with git absent — which is exactly why the stop lives
+  # in the orchestrator and not here. A script that died would leave this test
+  # nothing to read, and the capability could only be inferred from an exit
+  # code.
+  [ "$status" -eq 0 ]
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "false" ]
+  # Type, for the same reason the present-git test asserts it: `jq -r` cannot
+  # tell the boolean false from the string "false", and a consumer writing
+  # `.capabilities.git | not` reads the string as truthy.
+  jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
+
+  # The report is COMPLETE, not truncated. Absence sets a field to false; it
+  # never drops a key, and no consumer should have to read a short document as
+  # the signal for a missing tool.
+  [ "$(jq -r '.projectType' <<<"$output")" = "other" ]
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  # THE TRIPWIRE for the exception declared above, and it is the SOURCE, not
+  # the value. Measured: this checkout publishes origin/HEAD -> origin/main, so
+  # with git restored to the search path baseBranch resolves to "main" from
+  # origin/HEAD — the same string the line above asserts, arriving by a route
+  # this test does not intend. The value alone therefore proves nothing. The
+  # source does: it reads "configured" only while git cannot be found, and
+  # flips to "origin/HEAD" the moment it can.
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
+
+  # No skip is announced on git's OWN account. The two that are announced belong
+  # to the pre-existing no-remote branch: without git the remote cannot be read,
+  # so it reads "none", and that branch names L and M. A degradation names a
+  # phase the run can do without, and for git there is no such phase — hence a
+  # stop, not a skip.
+  #
+  # The phase set AND both reasons are pinned, and the reasons are the half that
+  # does the work. A phase-only assertion cannot see the failure it was written
+  # to prevent: rewriting add_skip "L" to a git-flavoured reason leaves the set
+  # exactly ["L","M"] and stays green, while the report now announces git as a
+  # degradation. Pinning the strings makes that change go red and be argued for.
+  # The suite's other skip tests assert reasons for the same reason.
+  [ "$(jq -c '[.willSkip[].phase] | sort' <<<"$output")" = '["L","M"]' ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="L")] | .[0].reason' <<<"$output")" \
+      = "no git remote — the run stops after the commit gate and says so" ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "no pull request without a remote" ]
+}

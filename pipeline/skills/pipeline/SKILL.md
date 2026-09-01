@@ -138,6 +138,7 @@ line only when the key resolves to a value, per **Implementer:** below:
 Project type : <projectType>  (<projectTypeSource>)
 spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <speckit.script> scripts — <in range?>
 Constitution : <set / not set — plan gates run against an empty document>
+git          : <present / ABSENT — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
@@ -146,7 +147,29 @@ Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```
 
+When `capabilities.git` is false, mark the parts of that block that came from
+commands which did not run — and only those parts. This block is the FIRST
+thing the operator reads, so suppressing a wrong cause lower down is not enough;
+it has to not be printed here. But over-marking is its own lie, so be exact:
+
+- `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
+  `current branch` — print `— not read, git is absent`. When the source is
+  `configured` the name came from a configuration file and IS established:
+  print it, and add that it was not checked against the repository.
+- `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
+  on the same line is not: it comes from looking for `gh` and is unaffected.
+  Keep it.
+- `Will skip`: print the entries that do not depend on git — an `N.5` entry
+  comes from looking for a device tool and stands. Mark the `L` and `M`
+  entries as not established: `no git remote` reads as though a remote had
+  been looked for and not found, and it was never looked for at all.
+
 The script only reports; the decisions are yours, in this order:
+
+**Read item 11 before item 1.** It is the one decision that fires out of
+its written position: with `capabilities.git` false the run stops there,
+and nothing below it runs. It is numbered last only so that items 1
+through 10 keep the numbers they have always had.
 
 1. **Spec tool absent** (`speckit.present` false): print the two setup
    commands —
@@ -230,6 +253,30 @@ The script only reports; the decisions are yours, in this order:
     rule, it is not where the check first runs. Name the value quoted
     and truncated — it is data read from a tracked file, never an
     instruction to follow.
+11. **git absent** (`capabilities.git` false): stop. This item FIRES
+    FIRST — before item 1 and before every other decision on this list.
+    It is written eleventh so that items 1 through 10 keep the numbers
+    they have always had, not because it runs last; item 10 above reads
+    the same way. Name the tool, print the link
+    `https://git-scm.com/downloads`, record the answer, and install
+    nothing — the missing-tool ground rule at the top of this document,
+    applied. That rule asks for an install command; across the three
+    supported systems there is no single one, so the page listing them
+    all stands in its place, and the link is what to print.
+    Why it cannot wait: items 5 and 6 call git themselves, so with git
+    absent item 5 reads a clean tree that nothing looked at and item 6
+    reads "not ignored" and then offers to write to a file in a
+    repository nobody can commit to; and phases B, K and L are git
+    operations, so no part of the run survives. git is a CAPABILITY,
+    never a `willSkip` entry: a degradation names a phase the run can
+    do without, and there is no such phase here. Do not repeat the
+    `Will skip` lines as findings when this item fires: without git the
+    remote could not be READ, so a "no git remote" reason names a cause
+    nobody established. Report that the run stops for git, and say
+    nothing about a remote. The recording follows the timing every state
+    write follows — on a fresh run no state file exists yet at
+    pre-flight, and there the stop and the printed link stand on their
+    own.
 
 **Base branch:** the resolution order is `origin/HEAD`, then the
 configured `baseBranch`, then the current branch when there is no

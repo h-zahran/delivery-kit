@@ -839,3 +839,67 @@ ROWS
 ' ' ' <<<"$slice" | tr -s ' ')"
   assert_span span_redflags "$flat" 'the Red flags region gained, lost or reworded text around the table. The row checks above name any ROW that changed; this fires when text was written AROUND them — an exception added to the intro neutralises every row without touching one.' || false
 }
+
+@test "the git stop is pinned in both surfaces a reader meets it in" {
+  # Added on the owner's explicit instruction, KNOWING it takes the suite past
+  # the +2 its own change was specified against. Three independent review
+  # rounds reached the same conclusion: without this test, decision 11 and the
+  # probe-block line could both be deleted and every suite would stay green —
+  # and the comment at the head of the implementer test above records that this
+  # repository has already watched mutants do exactly that to unpinned rules.
+  #
+  # SLICED, not file-wide, for the reason that test learned the hard way: item
+  # 10 pasted verbatim into an appendix headed "not instructions" passed a
+  # file-wide pin. A rule has to be pinned where it is obeyed.
+  #
+  # THREE slices, because the rule has three homes and they do not overlap.
+  # Measured while writing this: the not-read rule sits BETWEEN the probe block
+  # and the walk, so pinning it in either of those two slices would have
+  # matched nothing and passed forever — a test that scans the wrong region and
+  # a test that finds nothing wrong report the same green.
+  local walk probe notread
+  walk="$(awk '/^The script only reports; the decisions are yours/,/^\*\*Base branch:\*\*/' "$ORCH")"
+  probe="$(awk '/^Project type : /,/^Will skip /' "$ORCH")"
+  notread="$(awk '/^Will skip /,/^The script only reports; the decisions are yours/' "$ORCH")"
+
+  # The probe-block line. Pinned inside the BLOCK, so moving it to a footnote
+  # does not satisfy the pin — this line is what an operator reads first.
+  grep -qF 'git          : <present / ABSENT — the run stops, see decision 11>' <<<"$probe" \
+    || { echo 'the git probe-block line altered or left its block'; false; }
+
+  # The read-me-first pointer, pinned THROUGH its consequence. The heading
+  # alone is cuttable: a mutant can keep "Read item 11 before item 1" and
+  # rewrite the tail to "it is a footnote you may safely reach last", which is
+  # the whole ordering guarantee inverted while the pin holds.
+  grep -qF 'with `capabilities.git` false the run stops there' <<<"$walk" \
+    || { echo 'the read-me-first pointer lost the consequence that makes it load-bearing'; false; }
+
+  # Item 11, pinned through the ACTION and through the ORDERING, separately.
+  # Either alone is beatable: keep the ordering sentence and replace the action
+  # with "warn and continue", or keep the action and delete "FIRES FIRST" so an
+  # orchestrator reading top-down performs items 1 through 10 first — which is
+  # the dirty-tree and gitignore-write hazard the item exists to prevent.
+  grep -qF '11. **git absent** (`capabilities.git` false): stop.' <<<"$walk" \
+    || { echo 'pre-flight item 11 lost its condition or its action'; false; }
+  grep -qF 'FIRST — before item 1 and before every other decision on this list.' <<<"$walk" \
+    || { echo 'item 11 lost its fires-first ordering guarantee'; false; }
+  grep -qF 'https://git-scm.com/downloads' <<<"$walk" \
+    || { echo 'item 11 no longer prints the install link'; false; }
+
+  # Stop, never degradation. A mutant that adds a willSkip entry for git turns
+  # the capability into a named phase skip nobody can act on — the exact defect
+  # the feature was written to close, restored under a new name.
+  grep -qF 'git is a CAPABILITY,' <<<"$walk" \
+    || { echo 'item 11 no longer says git is a capability rather than a skip'; false; }
+
+  # The not-read rule, pinned WITH its carve-out. The carve-out is the half
+  # that gets lost: an earlier draft of this rule marked the whole block unread
+  # whenever git was absent, which suppressed a base branch that came from
+  # configuration, the gh probe sharing the Remote line, and a device-tool skip
+  # — replacing one false statement with another. "and only those parts" is
+  # what stops that draft coming back.
+  grep -qF 'and only those parts' <<<"$notread" \
+    || { echo 'the not-read rule lost its precision carve-out and may over-mark again'; false; }
+  grep -qF 'the name came from a configuration file and IS established' <<<"$notread" \
+    || { echo 'the configured-base-branch carve-out was removed from the not-read rule'; false; }
+}
