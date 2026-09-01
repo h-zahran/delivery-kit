@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The context guard reads the payload and each configuration file in **one**
+  `jq` call instead of one per field. It runs after every tool call, and process
+  spawn dominates on Windows under Git Bash, so the cost was paid constantly.
+  Measured on one non-firing run — the case that follows almost every tool
+  call — for zero, one and two configuration files present: the whole run falls
+  from 8, 12 and 16 `jq` processes to 5, 6 and 7, and the part before the
+  transcript is read, which is what the reduction actually touches, from 5, 9
+  and 13 to 2, 3 and 4. Both figures are given because quoting only the second
+  would flatter the change. A run that fires spends one more, on the emission
+  that writes the instruction; that one is the output itself.
+
+  **Behaviour is unchanged.** Every default, every validation, every message and
+  every exit code is what it was; the guard's own test suite passes unedited,
+  and each extracted field was compared against the old extraction across
+  present, absent, null and empty-string inputs before this landed.
+
+  The fields are joined with the ASCII unit separator rather than a tab, and
+  that choice is load-bearing rather than cosmetic. A tab is treated as
+  whitespace when splitting, so an empty leading field collapses — and the
+  agent identifier is empty in every main-session payload. Measured: with a tab,
+  the guard reads every main session as a subagent and stops firing, silently.
+  The same collapse in the configuration reader is quieter still, because every
+  setting is a positive integer, so a value landing in the wrong slot passes
+  validation and is installed.
+
 - `README.md` rewritten for a first-time reader: what the guard actually
   prints, the resume prompt it hands back, and the document's sections as a
   table, with the measurement that motivated the plugin moved below them.

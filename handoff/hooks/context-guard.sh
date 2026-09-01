@@ -62,6 +62,32 @@ if ! jq --version >/dev/null 2>&1; then
   exit 0
 fi
 
+# Every field this hook needs from the payload, in ONE jq call rather than one
+# call per field. This hook runs on PostToolUse after EVERY tool call, and
+# process spawn dominates on Windows under Git Bash, which is a supported
+# platform. Measured 2026-09-01, on the NON-FIRING path — the one that follows
+# almost every tool call: this took the whole run from 8/12/16 jq processes to
+# 5/6/7, for zero, one and two config files present. A firing run spends one
+# more, on the emission at the bottom of this file, which is the output itself.
+#
+# THE SEPARATOR IS NOT A TAB, AND THAT IS LOAD BEARING. Tab is an IFS-whitespace
+# character, so `read` collapses runs of it and strips leading ones — an empty
+# field does not survive. agent_id is EMPTY in every main-session payload, which
+# is the ordinary case, so with a tab the fields shift left and agent_id reads
+# as the transcript path. That is non-empty, so the check below would exit 0 and
+# THE GUARD WOULD NEVER FIRE IN THE MAIN SESSION AGAIN, silently. Measured, both
+# ways, before this was written. The unit separator is not IFS-whitespace, so
+# empty fields keep their position.
+#
+# ONE line, not four, and that is load bearing too. jq emits CRLF on this
+# platform; command substitution strips the trailing carriage return, `read`
+# does not. Four lines read individually would carry a stray CR on three values.
+#
+# The defaults are the ones this hook has always applied, moved into the jq
+# program unchanged — empty for three fields, "unknown" for the session.
+payload=$(printf '%s' "$input" | jq -r '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | join("\u001f")')
+IFS=$'\037' read -r agent_id transcript session cwd <<< "$payload"
+
 # Inside a subagent this hook is handed the PARENT's transcript_path and the
 # PARENT's session_id — measured on 2026-08-18 by logging the hook's stdin and
 # driving one throwaway subagent; both of its tool calls arrived carrying the
@@ -86,12 +112,9 @@ fi
 # A check that instead required some field to be present before arming would
 # fail toward silence in the MAIN session, which is the one direction this hook
 # must never fail in.
-if [ -n "$(printf '%s' "$input" | jq -r '.agent_id // empty')" ]; then
+if [ -n "$agent_id" ]; then
   exit 0
 fi
-
-transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
-session=$(printf '%s' "$input" | jq -r '.session_id // "unknown"')
 
 [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
 
@@ -101,7 +124,6 @@ session=$(printf '%s' "$input" | jq -r '.session_id // "unknown"')
 # defaults, which is the failure this layer exists to reduce. The repo file
 # still wins, so a project can override for its own reasons, and the
 # environment still wins over both for a one-session override.
-cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 [ -n "$cwd" ] || cwd="$PWD"
 config="$cwd/.delivery-kit.json"
 if [ ! -f "$config" ]; then
@@ -131,10 +153,23 @@ THRESHOLD_TOKENS=""
 # it is called out rather than assumed.
 read_config() {
   [ -f "$1" ] || return 0
-  cfg_window=$(jq -r '.contextGuard.windowTokens // empty' "$1" 2>/dev/null)
-  cfg_threshold=$(jq -r '.contextGuard.thresholdPct // empty' "$1" 2>/dev/null)
-  cfg_tokens=$(jq -r '.contextGuard.thresholdTokens // empty' "$1" 2>/dev/null)
-  cfg_max_bytes=$(jq -r '.contextGuard.maxBytes // empty' "$1" 2>/dev/null)
+  # ONE jq call for all four settings, not one per setting. Same reasoning as
+  # the payload extraction above, and the same two traps: the separator must
+  # not be IFS-whitespace, and the result must be one line.
+  #
+  # The trap is QUIETER here than it is up there, which makes it worse. Every
+  # value below is a positive integer, so a value that lands in the wrong slot
+  # PASSES validation and is installed. Measured with thresholdPct absent — an
+  # ordinary shape, since every key is optional — a tab-split installs maxBytes
+  # as thresholdTokens: the guard would fire at ten thousand tokens instead of
+  # six hundred and fifty thousand, with no error and no failing test.
+  #
+  # tostring after the empty default: these are JSON numbers. The local jq
+  # joins numbers without help, but CI runs a different one, and this project
+  # has already been bitten by an analyser version gap of exactly that shape.
+  # One token of jq buys out the question.
+  cfg=$(jq -r '.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join("\u001f")' "$1" 2>/dev/null)
+  IFS=$'\037' read -r cfg_window cfg_threshold cfg_tokens cfg_max_bytes <<< "$cfg"
   is_positive_int "$cfg_window" && WINDOW=$cfg_window
   is_valid_threshold "$cfg_threshold" && THRESHOLD_PCT=$cfg_threshold
   # No upper bound, unlike the threshold above. That cap exists because a
