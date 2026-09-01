@@ -245,11 +245,12 @@ in that field. Both re-measured 2026-09-01.
 
 **Not addressed, and each needs a decision rather than typing:**
 
-- Review finding 4 — nothing pins the positional parsing, so changing the
+- ~~Review finding 4 — nothing pins the positional parsing, so changing the
   separator or reordering either jq array leaves the whole suite green while
-  installing the wrong setting. A test would close it, and the seed forbids
-  adding tests. This is the same shape as Phase 13's cap-breach question and
-  belongs to the owner.
+  installing the wrong setting.~~ **FALSIFIED BY MEASUREMENT, 2026-09-01 — see
+  Phase 9.** The suite does not stay green: every transposition of both arrays
+  turns it red. This paragraph is left struck rather than deleted because the
+  round-1 and round-2 reviews both rested on it.
 - Review finding 7 — `input=$(cat)` plus `printf | jq` is a two-process detour
   for a value with one consumer, on the very metric this change exists to
   reduce. In scope by subject, but it changes stdin handling on the
@@ -302,12 +303,72 @@ confirmed the CRLF behaviour, the jq `// "" | tostring` precedence, that a raw
 **Still open after round 2, and each needs a decision rather than typing** —
 carried unchanged from round 1, and round 2 re-raised the first of them:
 
-- **Finding 4 / round 2's third finding** — nothing executable pins the field
+- ~~**Finding 4 / round 2's third finding** — nothing executable pins the field
   order, the separator byte, or the splitter, for either jq array. Reordering
   one array (say `.maxBytes` ahead of `.thresholdTokens`) installs the byte cap
   as the token threshold; every value is a positive integer, so it passes
   validation, the guard fires at 10,000 tokens instead of 650,000, and all 163
-  tests stay green. The seed forbids adding tests and fixes the suite size.
+  tests stay green.~~ **CLOSED — the last sentence is false, and Phase 9 below
+  gives the measurement. `.maxBytes` ahead of `.thresholdTokens` is the
+  reviewer's own example, and it turns five named tests red.** Struck rather
+  than deleted: two review rounds rested on this claim and the record of that
+  should survive its correction.
+- **Finding 7** — `input=$(cat)` plus `printf | jq` is a two-process detour for
+  a value with one consumer, on the very metric this change exists to reduce.
+  In scope by subject, but it changes stdin handling on the jq-missing path.
+- **Finding 8** — the transcript path still spends three jq calls and a `grep`,
+  and is the larger half of the available win. Out of scope for this seed.
+
+---
+
+## Phase 9: Finding 4 is closed by falsification, not by a test
+
+The owner approved adding a test to close review finding 4. Building it
+falsified the finding, so **no test was added and the suite stays at 163.**
+
+- [X] T029 Write the candidate tripwire (two tests, one per jq array, in a NEW
+      file so `context-guard.bats` stays unedited) and confirm it green against
+      the real hook. Done; the file is preserved, unused, at
+      `docs/tools/context-guard-field-order.bats.candidate`.
+- [X] T030 Prove it by mutation before trusting it — the whole point being that
+      a test which cannot go red is worth nothing. Built a rig covering **every
+      transposition of both jq arrays**, twelve in total, run inside a detached
+      git worktree so the real working tree is never touched.
+- [X] T031 **The finding is false.** The existing 58-test suite goes RED on all
+      twelve. Hand-verified twice, because an aggregate is not proof:
+
+      | Reorder | What the EXISTING suite does |
+      |---|---|
+      | `.thresholdTokens` <-> `.maxBytes` — the reviewer's own example | 5 red: tests 21, 32, 33, 35, 58 — exactly the right ones |
+      | `.session_id` <-> `.cwd` — the subtlest, and the one this change created | **46 of 58 red**, including test 24 |
+
+      The positional coupling is pinned **emergently**: every configuration
+      setting and every payload field already has a dedicated behavioural test
+      asserting its observable effect, so a reorder cannot move a value without
+      moving an assertion. That is stronger evidence than the candidate test
+      would have added, and it costs no seed override.
+- [X] T032 Record the result and delete nothing. The rig, its output table and
+      the unused candidate test live in `docs/tools/` (git-excluded, so they
+      survive the session without reaching the public repository), and the two
+      copies of the falsified claim above are struck in place rather than
+      removed.
+
+**Two rig defects worth carrying forward, both of which produced false
+evidence before they were found:**
+
+1. **The first rig edited the real hook in place, and its 10-minute timeout
+   orphaned it.** The wrapper was killed; the script kept running and
+   re-mutated the tracked file twice, unnoticed. Found by hashing the hook,
+   killed by PID, restored from a saved copy — never `git checkout --`.
+   **A mutation rig belongs in a worktree.**
+2. **It also dropped the newline when splicing the replacement line**, fusing
+   it with the next one. Every "mutant" was a syntactically broken script, so
+   every suite failed and the table read as a clean sweep of catches. **Gate
+   every mutant on `bash -n` before running anything**, or a broken script
+   reads as a working tripwire.
+
+**Still open, deferred by the owner to a later phase:**
+
 - **Finding 7** — `input=$(cat)` plus `printf | jq` is a two-process detour for
   a value with one consumer, on the very metric this change exists to reduce.
   In scope by subject, but it changes stdin handling on the jq-missing path.
