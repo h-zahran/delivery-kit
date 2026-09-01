@@ -73,8 +73,14 @@ None. The change is two local rewrites inside one existing file.
 
 - [X] T005 [US1] Edit `handoff/hooks/context-guard.sh`: after the availability
       check, add ONE jq invocation extracting all four payload fields, joined by
-      the unit separator written as a jq escape, captured with `$()` and split
-      with `IFS=$'\037' read -r`. Preserve every default exactly, including the
+      the unit separator ~~written as a jq escape~~, captured with `$()` and
+      split with ~~`IFS=$'\037' read -r`~~. **← BOTH STRUCK SPELLINGS ARE
+      SUPERSEDED BY T018 AND T020. DO NOT IMPLEMENT THEM.** The separator is
+      defined once as `US=$'\037'` and handed to jq with `--arg`, so no escape
+      appears in the jq source; the split is parameter expansion, because `read`
+      stops at the first newline and silently drops every field after it.
+      `contracts/extraction.md` forbids `read` here by name.
+      Preserve every default exactly, including the
       `unknown` placeholder for the session identifier, which moves into the jq
       program. Place it BEFORE the subagent check, which now reads the extracted
       variable. Add a comment stating why the separator is not a tab, naming the
@@ -86,8 +92,10 @@ None. The change is two local rewrites inside one existing file.
       precedence, not extraction, and moving it would lose its context. Same
       file as T005, so strictly sequential after it.
 - [X] T007 [US1] In the same file, replace `read_config`'s four per-file jq
-      calls with one, split the same way, applying `tostring` after the empty
-      default so numbers join predictably on a jq older than this machine's.
+      calls with one, split the same way — which, per T005's superseded note, is
+      **parameter expansion and never `read`** — applying `tostring` after the
+      empty default so numbers join predictably on a jq older than this
+      machine's.
       Keep the early return for a missing file as the function's first act.
       Sequential after T006.
 - [X] T008 [US1] Re-run the counting rig. Expect 5 / 6 / 7 whole-run, and 2 / 3
@@ -103,7 +111,7 @@ None. The change is two local rewrites inside one existing file.
 **Independent test**: the hook's own suite passes with an empty diff.
 
 - [X] T009 [US2] Run `handoff/tests/context-guard.bats` and confirm green, then
-      run `git diff --stat -- handoff/tests/context-guard.bats` and confirm it
+      run `git diff --stat 45e6b12 -- handoff/tests/context-guard.bats` and confirm it
       is EMPTY. A test that needed editing is proof the behaviour changed —
       stop, do not edit the test.
 - [X] T010 [US2] Build the equivalence matrix required by SC-004: for each of
@@ -123,7 +131,12 @@ None. The change is two local rewrites inside one existing file.
 
 - [X] T012 [US3] Compare the comment inventory against T003, and read every
       removed comment line:
-      `git diff -- handoff/hooks/context-guard.sh | grep -E '^-[[:space:]]*#'`.
+      `git diff 45e6b12 -- handoff/hooks/context-guard.sh | grep -E '^-[[:space:]]*#'`.
+      **Pin the baseline to that commit id.** A bare `git diff` compares the
+      WORKING TREE, so once this work is committed the diff is empty and the
+      check reports a comfortable zero having scanned nothing — measured after
+      `640e99d`: 0 lines of diff, count 0. Against `45e6b12` the diff is 120
+      lines and the count is still 0, which is the real answer.
       The `[[:space:]]*` is load-bearing — an `^-#` anchor misses every indented
       comment and reports a comfortable zero. Comments may move; the record must
       not shrink. Justify any removal line by line, or restore it.
@@ -226,7 +239,9 @@ turned on them: `jq` emits `\r\n`, and `$()` under MSYS2 bash strips **both**
 trailing bytes — so the original CR claim was right about the trailing case and
 wrong as a general guarantee, since a newline *inside* a value arrives as `\r\n`
 in that field. Both re-measured 2026-09-01.
-- [ ] T024 Commit and push the fix, then continue phase M. NOT YET DONE.
+- [X] T024 Commit and push the fix. **Done** — `640e99d`, pushed to PR #37,
+      CI 5/5 green (version agreement, tests on ubuntu/macos/windows, shell
+      analysis). Phase M then continued into round 2; see Phase 8.
 
 **Not addressed, and each needs a decision rather than typing:**
 
@@ -242,6 +257,62 @@ in that field. Both re-measured 2026-09-01.
 - Review finding 8 — the transcript path still spends three jq calls and a
   `grep`, and is the larger half of the available win. Out of scope for this
   seed; a good next phase.
+
+---
+
+## Phase 8: Convergence — review round 2 found no code defect, three doc defects
+
+`/code-review` at high effort, round 2 of the `maxReviewRounds` 3 cap, against
+`640e99d`. **No correctness bug in the hook.** The reviewer built its own
+29-shape differential independently of ours and reached the same verdict — all
+identical in stdout and exit code, including the firing path — and separately
+confirmed the CRLF behaviour, the jq `// "" | tostring` precedence, that a raw
+`0x1F` survives MSYS2 argv conversion to the native `jq.exe`, and that no raw
+`0x1F` byte has leaked into any tracked file.
+
+- [X] T025 Correct the one copy of the forbidden spelling that T023's sweep
+      missed: **this file's own task text.** T005 prescribed
+      `IFS=$'\037' read -r` and T007 said "split the same way", both still
+      marked `[X]`. This repo drives implementation from task lists, so a
+      resumed `speckit-implement` or `speckit-converge` reading T005 as the
+      specification would re-emit `read` and rebuild the newline-truncation
+      defect, with all 163 tests staying green. Struck inline with an explicit
+      "DO NOT IMPLEMENT" marker rather than deleted, so the record survives.
+- [X] T026 Correct `quickstart.md` sections 2 and 3, whose "candidate" blocks
+      demonstrated `IFS="$US" read` and the `join("\u001f")` source escape as
+      **correct** — both removed from the hook by T018 and T020. Neither fixture
+      contains a newline, so both blocks passed and endorsed the construct the
+      contract now forbids: a positive control proving only the direction that
+      flatters it. Rewritten to the shipped spelling (`--arg US`, parameter
+      expansion), and **executed, not merely edited** — every bash block in the
+      file was extracted and run.
+- [X] T027 Fix a false green found while executing those blocks, which review
+      did not flag. Sections 7 and 5, and T012 and T009 here, ran
+      `git diff -- <path>` with no baseline. That compares the WORKING TREE, so
+      the moment this work was committed the diff became empty and the
+      comment-survival check reported a comfortable **0 of 0** — scanning
+      nothing and finding nothing print the same number. Measured at `640e99d`:
+      unpinned diff 0 lines, count 0; pinned to `45e6b12`, diff 120 lines, count
+      still 0, which is the real answer. Positive control: the reversed diff
+      finds **62** removed comment lines, so the check can go red. All four
+      sites now pin `45e6b12`. A branch name would not have fixed it — once this
+      merges, `main` is where the change ARRIVED and the diff empties again.
+- [X] T028 Re-verify and re-commit after T025–T027.
+
+**Still open after round 2, and each needs a decision rather than typing** —
+carried unchanged from round 1, and round 2 re-raised the first of them:
+
+- **Finding 4 / round 2's third finding** — nothing executable pins the field
+  order, the separator byte, or the splitter, for either jq array. Reordering
+  one array (say `.maxBytes` ahead of `.thresholdTokens`) installs the byte cap
+  as the token threshold; every value is a positive integer, so it passes
+  validation, the guard fires at 10,000 tokens instead of 650,000, and all 163
+  tests stay green. The seed forbids adding tests and fixes the suite size.
+- **Finding 7** — `input=$(cat)` plus `printf | jq` is a two-process detour for
+  a value with one consumer, on the very metric this change exists to reduce.
+  In scope by subject, but it changes stdin handling on the jq-missing path.
+- **Finding 8** — the transcript path still spends three jq calls and a `grep`,
+  and is the larger half of the available win. Out of scope for this seed.
 
 ## Dependencies
 
