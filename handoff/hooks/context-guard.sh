@@ -62,6 +62,16 @@ if ! jq --version >/dev/null 2>&1; then
   exit 0
 fi
 
+# The separator, defined ONCE and used everywhere: handed to jq with --arg and
+# used again below to split. It was previously spelled two ways in four places —
+# a jq \u escape inside the programs and $'\037' in the shell — which a merge or a
+# careless edit could desynchronise, leaving jq joining on one byte and the shell
+# splitting on another. One definition removes that class. It also keeps the
+# escape out of the jq source, which matters more than it sounds: while this
+# change was written, an editor, GNU sed (whose \u is a case operator) and
+# GitHub each silently decoded that escape and left a raw control byte behind.
+US=$'\037'
+
 # Every field this hook needs from the payload, in ONE jq call rather than one
 # call per field. This hook runs on PostToolUse after EVERY tool call, and
 # process spawn dominates on Windows under Git Bash, which is a supported
@@ -71,22 +81,35 @@ fi
 # more, on the emission at the bottom of this file, which is the output itself.
 #
 # THE SEPARATOR IS NOT A TAB, AND THAT IS LOAD BEARING. Tab is an IFS-whitespace
-# character, so `read` collapses runs of it and strips leading ones — an empty
+# character, so a split on it collapses runs and strips leading ones — an empty
 # field does not survive. agent_id is EMPTY in every main-session payload, which
 # is the ordinary case, so with a tab the fields shift left and agent_id reads
 # as the transcript path. That is non-empty, so the check below would exit 0 and
 # THE GUARD WOULD NEVER FIRE IN THE MAIN SESSION AGAIN, silently. Measured, both
-# ways, before this was written. The unit separator is not IFS-whitespace, so
-# empty fields keep their position.
+# ways, before this was written.
 #
-# ONE line, not four, and that is load bearing too. jq emits CRLF on this
-# platform; command substitution strips the trailing carriage return, `read`
-# does not. Four lines read individually would carry a stray CR on three values.
+# SPLIT WITH PARAMETER EXPANSION, NOT `read`, AND THAT IS LOAD BEARING TOO.
+# `read` stops at the first newline, while the per-field $() it replaced captured
+# all of them. A JSON string value may contain a newline, so `read` would keep a
+# prefix and silently drop every field after it — measured: a config whose
+# windowTokens is "5\n999999" lost its threshold, its token cap and its byte cap
+# entirely, and on a platform where jq emits no carriage return the truncated
+# "5" PASSES validation and installs a five-token window. Parameter expansion
+# splits on the separator alone and leaves embedded newlines inside their field,
+# which is exactly what the old code did.
+#
+# map(tostring) so one field of an unexpected type cannot abort the whole
+# extraction. join() on a non-string errors, and an erroring jq yields an empty
+# payload, an empty transcript, and a guard that exits silently — the one
+# direction this hook must never fail in. Measured with a cwd that is an object.
 #
 # The defaults are the ones this hook has always applied, moved into the jq
 # program unchanged — empty for three fields, "unknown" for the session.
-payload=$(printf '%s' "$input" | jq -r '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | join("\u001f")')
-IFS=$'\037' read -r agent_id transcript session cwd <<< "$payload"
+payload=$(printf '%s' "$input" | jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)')
+agent_id=${payload%%"$US"*};  rest=${payload#*"$US"}
+transcript=${rest%%"$US"*};   rest=${rest#*"$US"}
+session=${rest%%"$US"*}
+cwd=${rest#*"$US"}
 
 # Inside a subagent this hook is handed the PARENT's transcript_path and the
 # PARENT's session_id — measured on 2026-08-18 by logging the hook's stdin and
@@ -168,8 +191,17 @@ read_config() {
   # joins numbers without help, but CI runs a different one, and this project
   # has already been bitten by an analyser version gap of exactly that shape.
   # One token of jq buys out the question.
-  cfg=$(jq -r '.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join("\u001f")' "$1" 2>/dev/null)
-  IFS=$'\037' read -r cfg_window cfg_threshold cfg_tokens cfg_max_bytes <<< "$cfg"
+  #
+  # Split with parameter expansion for the reason the payload block gives at
+  # length: `read` stops at the first newline, and a JSON string value may
+  # contain one. Measured here, this was not theoretical — a windowTokens of
+  # "5\n999999" truncated to "5" and took thresholdPct, thresholdTokens and
+  # maxBytes with it, all three silently reverting to their defaults.
+  cfg=$(jq -r --arg US "$US" '.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join($US)' "$1" 2>/dev/null)
+  cfg_window=${cfg%%"$US"*};      r=${cfg#*"$US"}
+  cfg_threshold=${r%%"$US"*};     r=${r#*"$US"}
+  cfg_tokens=${r%%"$US"*}
+  cfg_max_bytes=${r#*"$US"}
   is_positive_int "$cfg_window" && WINDOW=$cfg_window
   is_valid_threshold "$cfg_threshold" && THRESHOLD_PCT=$cfg_threshold
   # No upper bound, unlike the threshold above. That cap exists because a

@@ -106,26 +106,38 @@ handoff/
 **Structure Decision**: no new files, one production file touched. The change is
 two local rewrites inside a script that keeps its shape.
 
-**On the two bashisms.** `IFS=$'\037'` is not POSIX. The alternative is a
+**On the bashisms.** `$'\037'` is not POSIX. The alternative is a
 literal unit-separator byte in the source, which is worse: invisible in a diff,
 easy for an editor to eat, and it trips tooling that rejects control characters
 in input. That hazard is not theoretical — it happened three times while writing
 this change, once into the hook itself, because both the editor and GNU `sed`
 (whose `\u` is a case operator) silently consumed the escape.
 
-The second is the here-string `<<<`, which replaces a three-line here-document
-at each of the two sites. It is free: `$'…'` on the same line already requires
-bash, so no portability is spent that was not spent already. Equivalence was
-measured across six input shapes, including a path containing a tab, before the
-substitution was made.
+The shipped code goes one step further and defines the separator **once**, as
+`US=$'\037'`, handing it to jq with `--arg` rather than spelling it a second
+time as a `\u` escape inside each jq program. One definition cannot
+desynchronise, and no escape appears in the jq source at all.
 
-Both are stated here so the choices read as deliberate rather than as drift.
+The second bashism is the `${var%%…}` / `${var#…}` parameter expansion that
+splits the joined line. It is free: `$'…'` on the same line already requires
+bash, so no portability is spent that was not spent already.
+
+**This plan originally specified `IFS=$'\037' read -r` for that split, and
+phase M's review proved that wrong.** `read` stops at the first newline; a JSON
+string value may contain one, so `read` kept a prefix and silently dropped every
+field after it. Parameter expansion splits on the separator byte alone and
+leaves an embedded newline inside its own field, which is what the per-field
+`$()` did. The full account is in
+[contracts/extraction.md](./contracts/extraction.md), "Two hazards the join
+creates". Do not reintroduce `read` here.
+
+These are stated so the choices read as deliberate rather than as drift.
 
 ### Exact insertion points, measured 2026-09-01
 
 | File | Where | What |
 |---|---|---|
-| `context-guard.sh` | after `input=$(cat)` at `:47`, and after the availability check at `:55` | one `jq` call extracting all four payload fields, joined by the unit separator, captured with `$()` and split with `IFS=$'\037' read -r` |
+| `context-guard.sh` | after `input=$(cat)` at `:47`, and after the availability check at `:55` | `US=$'\037'` defined once, then one `jq` call extracting all four payload fields through `map(tostring)`, joined by `$US` via `--arg`, captured with `$()` and split with parameter expansion — never `read` |
 | `context-guard.sh` | `:89` | the `if` now tests the already-extracted variable instead of calling `jq` |
 | `context-guard.sh` | `:93`, `:94` | assignments removed; the variables are already set |
 | `context-guard.sh` | `:104` | assignment removed; the configuration-precedence comment above it **stays where it is** — it explains precedence, not extraction |

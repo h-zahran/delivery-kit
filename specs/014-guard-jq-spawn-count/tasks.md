@@ -155,6 +155,94 @@ None. The change is two local rewrites inside one existing file.
 
 ---
 
+---
+
+## Phase 7: Convergence — review round 1 found two real regressions
+
+Added during phase M. `/code-review` at high effort built a differential harness
+and found that the change as first committed (`765ce87`) was **not** behaviour-
+preserving, in two ways the suite could not see. Both were reproduced
+independently before being acted on.
+
+- [X] T018 Fix the truncation. `read` consumes only the FIRST line, while the
+      per-field `$()` it replaced captured all of them, so a JSON string value
+      containing a newline truncated the result and silently dropped every field
+      after it. Measured: `windowTokens` of `"5\n999999"` lost the threshold, the
+      token cap and the byte cap; the committed hook reported the default 45%
+      where the pre-change hook reported the configured 50%. Replaced `read`
+      with parameter expansion, which splits on the separator alone and leaves
+      embedded newlines inside their field, exactly as `$()` did.
+- [X] T019 Fix the abort. The payload jq program lacked the `map(tostring)` the
+      configuration program already had, so a field of an unexpected type made
+      jq exit 5, leaving the payload empty, the transcript empty and the guard
+      silent — the one direction this hook must never fail in. Measured with a
+      `cwd` that is an object. Added `map(tostring)`.
+- [X] T020 Collapse the separator to ONE definition. It had been hard-coded in
+      four places in two spellings; a merge resolving one hunk and not the other
+      would leave jq joining on one byte and the shell splitting on another.
+      Now `US=$'\037'` once, handed to jq with `--arg`. This also removes the
+      `\u` escape from the source, which six separate tools had by then silently
+      decoded into a raw control byte.
+- [X] T021 Re-prove behaviour is unchanged with a purpose-built differential:
+      the PRE-CHANGE hook from `origin/main` against the fixed hook, over 26
+      payload and configuration shapes including both regression cases, nulls,
+      leading zeros, out-of-range values, string numbers, booleans, an object
+      `cwd`, a missing transcript and an empty payload, comparing stdout and
+      exit code. **26 identical, 0 different.**
+- [X] T022 Re-run the counting rig, the hook suite, the full house suite and the
+      analyser against the fixed hook. **Done 2026-09-01.** Hook suite `1..58`,
+      0 failures, and `git diff --stat` on `handoff/tests/context-guard.bats`
+      empty. House suite `1..163`, 0 failures. `shellcheck --norc` 0.11.0 clean
+      over all 5 tracked shell files, the hook among them. Counting rig from
+      `quickstart.md` step 1: **5 / 6 / 7** jq invocations for zero, one and two
+      configuration files — the target, unchanged by the fix.
+- [X] T023 Correct the documents review findings 3 and 5 called out: the
+      changelog's unqualified "behaviour is unchanged" claim, and the
+      data-model / contract wording that states a single-line, no-carriage-return
+      guarantee the implementation does not enforce. **Done 2026-09-01**, and
+      the scope was extended — see below.
+
+**T023's scope was extended, deliberately and on evidence.** Findings 3 and 5
+named three files. A grep for every copy of the claims found that T018's fix had
+*also* falsified `plan.md`, `research.md` and `quickstart.md`, which still
+specified `IFS=$'\037' read -r` as the splitter. The reviewer could not have
+flagged those — they were accurate when the review ran, and the fix is what made
+them stale. Leaving them would have had the next reader rebuild the regression
+from the plan. The eight files and what changed:
+
+| File | Change |
+|---|---|
+| `handoff/CHANGELOG.md` | the flat "behaviour is unchanged" claim replaced by what was measured (the 26-shape differential), plus the two regressions it caught |
+| `specs/…/data-model.md` | split described as parameter expansion, not `read`; the carriage-return "guarantee" narrowed to what the capture enforces; a new rule for `map(tostring)` |
+| `specs/…/contracts/extraction.md` | "One behaviour difference" → "Two hazards the join creates"; the newline hazard named, and `read` forbidden as the splitter |
+| `specs/…/plan.md` | insertion-point table corrected; the here-string paragraph replaced (no here-string ships); `read` named as superseded |
+| `specs/…/research.md` | dated "Amended"/"Superseded in part" notes under Decisions 1 and 2 and Finding C — appended, never rewritten, because they are dated decision records |
+| `specs/…/quickstart.md` | §4 retitled and narrowed; a runnable block added that pins the embedded-newline case. **Extracted and executed**, not just written: field 1 keeps `p \r \n q`, field 2 keeps `z` |
+| `specs/…/tasks.md` | this record |
+| `handoff/hooks/context-guard.sh` | T018–T020's fix, unchanged since |
+
+Two measurements were taken here rather than inherited, because the old wording
+turned on them: `jq` emits `\r\n`, and `$()` under MSYS2 bash strips **both**
+trailing bytes — so the original CR claim was right about the trailing case and
+wrong as a general guarantee, since a newline *inside* a value arrives as `\r\n`
+in that field. Both re-measured 2026-09-01.
+- [ ] T024 Commit and push the fix, then continue phase M. NOT YET DONE.
+
+**Not addressed, and each needs a decision rather than typing:**
+
+- Review finding 4 — nothing pins the positional parsing, so changing the
+  separator or reordering either jq array leaves the whole suite green while
+  installing the wrong setting. A test would close it, and the seed forbids
+  adding tests. This is the same shape as Phase 13's cap-breach question and
+  belongs to the owner.
+- Review finding 7 — `input=$(cat)` plus `printf | jq` is a two-process detour
+  for a value with one consumer, on the very metric this change exists to
+  reduce. In scope by subject, but it changes stdin handling on the
+  jq-missing path, which a behaviour-preserving refactor should not do casually.
+- Review finding 8 — the transcript path still spends three jq calls and a
+  `grep`, and is the larger half of the available win. Out of scope for this
+  seed; a good next phase.
+
 ## Dependencies
 
 ```text
