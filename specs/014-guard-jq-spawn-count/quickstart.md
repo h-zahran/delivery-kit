@@ -82,13 +82,15 @@ MAIN='{"transcript_path":"/t","session_id":"s","cwd":"/c"}'
 SUB='{"agent_id":"a1","transcript_path":"/t","session_id":"s","cwd":"/c"}'
 US=$'\037'
 naive() { printf '%s' "$1" | jq -r '[.agent_id, .transcript_path, .session_id, .cwd] | @tsv'; }
-cand()  { printf '%s' "$1" | jq -r '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | join("\u001f")'; }
+# `cand` is the SHIPPED spelling: separator via --arg (no escape in the jq
+# source), and the split done with parameter expansion, never `read`.
+cand()  { printf '%s' "$1" | jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)'; }
 verdict() { if [ -n "$1" ]; then echo "EXIT 0 (treated as subagent)"; else echo "continue (main session)"; fi; }
 for label in MAIN SUB; do
   eval "J=\$$label"
   today=$(printf '%s' "$J" | jq -r '.agent_id // empty')
   IFS=$'\t' read -r na _ _ _ <<< "$(naive "$J")"
-  IFS="$US"  read -r ca _ _ _ <<< "$(cand  "$J")"
+  ca=$(cand "$J"); ca=${ca%%"$US"*}
   echo "$label  today: $(verdict "$today")"
   echo "$label  naive: $(verdict "$na")"
   echo "$label  cand : $(verdict "$ca")"
@@ -121,7 +123,11 @@ printf '  window=[%s] pct=[%s] tokens=[%s] maxBytes=[%s]\n' \
   "$(jq -r '.contextGuard.maxBytes // empty' "$d/gap.json")"
 IFS=$'\t' read -r w p t m <<< "$(jq -r '.contextGuard // {} | [.windowTokens,.thresholdPct,.thresholdTokens,.maxBytes] | @tsv' "$d/gap.json")"
 echo "naive:"; printf '  window=[%s] pct=[%s] tokens=[%s] maxBytes=[%s]\n' "$w" "$p" "$t" "$m"
-IFS="$US" read -r w p t m <<< "$(jq -r '.contextGuard // {} | [.windowTokens,.thresholdPct,.thresholdTokens,.maxBytes] | map(. // "" | tostring) | join("\u001f")' "$d/gap.json")"
+# The SHIPPED spelling: the separator handed to jq with --arg, so no escape
+# appears in the jq source, and the split done with parameter expansion, never
+# `read`. See section 4 for why `read` is forbidden here.
+c=$(jq -r --arg US "$US" '.contextGuard // {} | [.windowTokens,.thresholdPct,.thresholdTokens,.maxBytes] | map(. // "" | tostring) | join($US)' "$d/gap.json")
+w=${c%%"$US"*}; r=${c#*"$US"}; p=${r%%"$US"*}; r=${r#*"$US"}; t=${r%%"$US"*}; m=${r#*"$US"}
 echo "candidate:"; printf '  window=[%s] pct=[%s] tokens=[%s] maxBytes=[%s]\n' "$w" "$p" "$t" "$m"
 rm -rf "$d"
 EOF
@@ -167,7 +173,7 @@ vanishes — that is the regression this quickstart now pins.
 ```bash
 bash "$HOME/bats/bin/bats" --print-output-on-failure handoff/tests/context-guard.bats
 echo "--- was it edited? ---"
-git diff --stat -- handoff/tests/context-guard.bats
+git diff --stat 45e6b12 -- handoff/tests/context-guard.bats
 ```
 
 Expected: green, and an **empty** diff. A test that needed changing is proof the
@@ -191,7 +197,15 @@ command's status, always `0`, and cuts the plan line bats prints first.
 ## 7. The comments survived
 
 ```bash
-git diff -- handoff/hooks/context-guard.sh | grep -cE '^-[[:space:]]*#'
+# PIN the baseline to a commit id. `git diff` with no argument compares the
+# WORKING TREE, so the moment this work is committed the diff is empty and the
+# check reports a comfortable zero having scanned nothing. Measured: after
+# commit, the unpinned diff is 0 lines long and the count is 0; against 45e6b12
+# the diff is 120 lines and the count is still 0, which is the real answer. A
+# branch name is no better than the working tree here — once this merges, `main`
+# is where the change ARRIVED and the diff empties again.
+BASE=45e6b12   # the last commit before this change
+git diff "$BASE" -- handoff/hooks/context-guard.sh | grep -cE '^-[[:space:]]*#'
 ```
 
 Note both details of that pattern, each of which a simpler one gets wrong:
@@ -205,8 +219,16 @@ Note both details of that pattern, each of which a simpler one gets wrong:
 
 Expected: this counts **removed comment lines**. A non-zero result needs
 justifying line by line — comments may move, but the record must not shrink.
-Read them rather than trusting the number:
+Measured at `640e99d`: the diff is 120 lines and the count is **0**.
+
+Read the exit code correctly: `grep -c` exits **1** when it matches nothing, so
+a clean run prints `0` and exits `1`. That is the SUCCESS case here. Never wrap
+it as `n=$(grep -c … || echo 0)` — that yields the two-line string `0\n0` and
+every comparison against `0` then fails.
+
+Read the lines rather than trusting the number:
 
 ```bash
-git diff -- handoff/hooks/context-guard.sh | grep -E '^-[[:space:]]*#'
+BASE=45e6b12   # the pre-change commit; see the note above
+git diff "$BASE" -- handoff/hooks/context-guard.sh | grep -E '^-[[:space:]]*#'
 ```
