@@ -25,18 +25,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spends one more `jq`, on the emission that writes the instruction.
 
   **What was measured, rather than a claim that behaviour is unchanged.** The
-  differential harness ran the pre-change hook against this one over 43
-  payload, configuration and transcript shapes and reported 43 identical, 0
-  different. Thirteen of those shapes are new and vary the transcript itself:
-  empty, one reading, fourteen, fifteen and sixteen readings, an unparseable
-  line among good ones, a non-numeric token value, a non-numeric cache field,
-  sidechain entries, a negative reading, a median-window shape, and two that
-  starve the byte cap to force the uncapped re-read. Fourteen and sixteen sit
-  either side of the floor of fifteen, which is where the fallback is decided.
-  Two deliberately broken controls were run first and both were caught — the
-  fallback floor set to zero, and the median taken over the first fifteen
-  readings rather than the last. The full suite reports the same 163 tests,
-  zero failures, before and after.
+  differential harness ran the pre-change hook against this one over the whole
+  shape set and reported every shape as expected, with two of them ASSERTED to
+  differ (below). Fifteen shapes are new and vary the transcript itself: empty,
+  one reading, fourteen, fifteen and sixteen readings, an unparseable line among
+  good ones, a non-numeric token value, a non-numeric cache field, a record whose
+  three token fields are all strings, another whose three strings concatenate
+  into numeric text, sidechain entries, a negative reading, a median-window
+  shape, and two that starve the byte cap to force the uncapped re-read. Fourteen
+  and sixteen sit either side of the floor of fifteen, though only the byte-cap
+  variants actually exercise the fallback — without a cap the capped read already
+  holds the whole file. Three deliberately broken controls were run first: the
+  fallback floor set to zero, caught by three shapes; the median taken over the
+  first fifteen readings, caught by one; and the counting rule replaced by a
+  plain `length`, caught by NONE, which is itself the finding — see below. A
+  pre-existing shape that had been silent on both sides, and was the only one
+  touching the fallback, was corrected. The full suite reports the same 163
+  tests, zero failures, before and after.
+
+  Exact figures are deliberately left to `scripts/context-guard/README.md`, whose
+  dated table records one run rather than making a claim about the current file.
+  A total written into prose here went stale twice in a single session, and both
+  times the shape it omitted was one asserted to differ.
 
   **Two things are load bearing and are commented as such in the hook.** The
   per-line pipeline is wrapped in jq's error-tolerant form: streaming jq
@@ -54,15 +64,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and one negative, the shipped guard spends five `jq` processes and a `length`
   mutant spends four, while both emit an identical 556 bytes.
 
-  **One behaviour DOES change, it was measured, and it is not repaired.** On a
-  usage record whose three token fields are all strings, `jq`'s `+` concatenates
-  rather than erroring. The old code emitted that concatenation as a reading, its
-  separate median call then failed to parse it, and the whole read collapsed: the
-  guard said **nothing**. The new code drops the junk and answers from the
-  readings around it — measured, 0 bytes against 556. The only route back to
-  byte-identical output here is back to that silence, which is the one direction
-  this hook may not fail in. The differential now carries the shape and ASSERTS
-  the difference, so quietly removing it goes red.
+  **TWO behaviours change, both measured, neither repaired.** `jq`'s `+`
+  concatenates strings rather than erroring, so a usage record whose three token
+  fields are all strings produces a string reading. What happened next depended
+  on whether that string parsed as a number, and the two cases fail in opposite
+  directions:
+
+  - **Not parseable** (`"abc"`): the old code emitted it as a reading, its
+    separate median call then failed to parse the whole stream, and the read
+    collapsed — the guard said **nothing**. The new code drops the junk and
+    answers from the readings around it. Measured: 0 bytes against 556.
+  - **Parseable** (`"180000"` from three string fields): the old code re-parsed
+    it into a genuine reading and **inflated the median**; the new code drops
+    it. Measured, on two readings of 80000 and three such records: the old guard
+    fires at 90% on a median of 180000, the new one stays silent at the true
+    40%.
+
+  Both are corrections, and the second is the more important one: an inflated
+  median driven by junk is the 2026-08-07 fault itself. Restoring either
+  byte-for-byte means restoring a defect. The differential carries both shapes
+  and ASSERTS each difference, so quietly removing one goes red.
+
+  The claim above said **one** behaviour for one commit. It was written from the
+  first case before the second was found, which is the argument for a harness
+  that asserts a divergence rather than a sentence that describes it.
 
   The per-line rule gained a `select(type == "number")` for the same reason.
   Without it such a string sorts after every number, lands inside the

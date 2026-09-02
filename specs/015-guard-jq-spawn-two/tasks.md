@@ -90,7 +90,15 @@ inventory on every entry.
 ## Phase 6: Polish and cross-cutting concerns
 
 - [X] T025 Measure the after process counts by executing section 1 of `specs/015-guard-jq-spawn-two/quickstart.md` into `.delivery-kit/runs/015-guard-jq-spawn-two/proc-count-after.txt`, on both transcript shapes and all three configuration counts
-- [X] T026 Prove `handoff/tests/context-guard.bats` was not edited by running `git diff --stat 168edc1 -- handoff/tests/context-guard.bats` and requiring empty output
+- [X] ~~T026 Prove `handoff/tests/context-guard.bats` was not edited by running
+  `git diff --stat 168edc1 -- handoff/tests/context-guard.bats` and requiring empty
+  output~~ **STRUCK.** The owner approved editing that file at the implementer
+  gate; T031 records the decision and spec FR-011 carries it. Left visible rather
+  than deleted, because this list is what a resumed implementation follows: a task
+  still reading "require empty output" instructs the next run to revert an
+  approved change. The check that replaces it is T044's — the diff is expected
+  to be non-empty, and what matters is that the test was not weakened, which is
+  proven by mutation rather than by a diff being empty.
 - [X] T027 Run the full house suite from the repository root and require the same plan line as the baseline in T004, with zero failures
 - [X] T028 [P] Record the new shapes and both measured process-count columns in `scripts/context-guard/README.md`, stating what was measured and when
 - [X] T029 [P] Add the entry to `handoff/CHANGELOG.md` under the existing unreleased heading, in its changed subsection, naming the reduction and stating what was measured rather than asserting behaviour is unchanged

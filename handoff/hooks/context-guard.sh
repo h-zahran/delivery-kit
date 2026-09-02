@@ -53,9 +53,10 @@ is_valid_threshold() {
 if ! jq --version >/dev/null 2>&1; then
   flagdir="${TMPDIR:-${TEMP:-/tmp}}"
   hint_flag="$flagdir/dk-jq-hint"
-  # CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. Every other path
-  # out of this hook ends with jq having read the payload to end of input; this
-  # one does not run jq at all. A reader that exits without reading leaves the
+  # CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. Every other path out
+  # of this hook ends with the payload consumed — by jq when it parses, and by
+  # the `|| cat` beside that call when it does not; this one does not run jq at
+  # all. A reader that exits without reading leaves the
   # caller writing into a closed pipe. Measured 2026-09-02, a ~200KB payload:
   # a reader that never reads leaves the writer at exit 141 — killed by the
   # broken pipe — while a reader that consumes it leaves the writer at 0.
@@ -120,10 +121,22 @@ US=$'\037'
 #
 # jq READS STDIN ITSELF. The payload used to be copied into a shell variable at
 # the top of this file and written back out here through a pipe — a `cat` and a
-# `printf` subshell, on every run, for a value with exactly ONE consumer. jq
-# reads to end of input, so the copy bought nothing except draining stdin on
-# the jq-missing path above, which that path now does for itself.
-payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)')
+# `printf` subshell, on every run, for a value with exactly ONE consumer.
+#
+# THE `|| cat` IS NOT BELT AND BRACES. jq reads to end of input only while the
+# input keeps parsing: hand it something malformed at its FIRST token and it
+# aborts at once, having read a buffer's worth and no more. The caller is then
+# writing into a pipe nobody is reading, and takes the same broken-pipe death
+# the branch above exists to prevent — measured, 3 runs of 3, a 300KB payload
+# beginning `{not json`: writer exit 141 without this, 0 with it, and 0 on the
+# hook that copied stdin. This is the mirror image of the fault the copy's
+# removal closed, and it was found by review rather than by the harness, which
+# compares the hook's own stdout and never the writer's status.
+#
+# It costs NOTHING on the path that matters. `||` fires only when jq exits
+# non-zero, which for a well-formed payload it never does, so the ordinary run
+# still spends the two processes this change removed and no more.
+payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)') || cat > /dev/null 2>&1
 agent_id=${payload%%"$US"*};  rest=${payload#*"$US"}
 transcript=${rest%%"$US"*};   rest=${rest#*"$US"}
 session=${rest%%"$US"*}
@@ -309,13 +322,26 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # entries report a median of 300 where the true one is 200. An inflated median
 # is the 2026-08-07 failure exactly, arrived at from a new direction.
 #
-# It also records a divergence from the pre-refactor hook, in the fail-loud
-# direction and deliberately not repaired. On that same all-strings record the
-# OLD code emitted the concatenation as a line, and the separate median call
-# then failed to parse it, so the whole read collapsed and THE GUARD SAID
-# NOTHING — measured: 0 bytes against 556. Restoring that byte-for-byte would
-# mean restoring a silence, which is the one direction this hook may not fail
-# in. The differential pins the difference rather than hiding it.
+# It also records TWO divergences from the pre-refactor hook, not one. The
+# singular was written here first and was wrong; both are measured, both are
+# kept, and the differential asserts each rather than hiding it.
+#
+#   1. The concatenation is NOT parseable as a number — "abc". The old code
+#      emitted it as a line, the separate median call then failed to parse the
+#      whole stream, and THE GUARD SAID NOTHING. The new code drops it and
+#      answers from the readings around it. Measured: 0 bytes against 556.
+#
+#   2. The concatenation IS parseable as a number — "180000" from three string
+#      fields. The old code's raw output was re-parsed into a genuine reading
+#      of 180000 and inflated the median; the new code drops it. Measured, on
+#      two readings of 80000 and three such records: old median 180000 and the
+#      guard fires at 90%, new median 80000 and it stays silent at 40%.
+#
+# The two point in OPPOSITE directions — the first turns silence into speech,
+# the second turns speech into silence — and both are corrections. In the
+# second the old guard was speaking because junk had inflated its median, which
+# is the 2026-08-07 fault itself. Restoring either byte-for-byte means
+# restoring a defect.
 #
 # handoff/skills/setup/SKILL.md carries the same program so it can
 # claim to measure the way this guard measures, and the suite pins the two
@@ -355,6 +381,19 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 # line carries a string where a token count belongs: without the `?`, no output
 # and exit 5; with it, the same two numbers streaming gives.
 #
+# NO REGEX, AND THAT IS DELIBERATE. This was `test("^[0-9]")` for one commit.
+# `test` needs a jq built with its regular-expression library, this is the only
+# regex in any program the hook ships, and the availability probe at the top
+# cannot detect a missing FEATURE — a compile error would yield an empty summary,
+# a count of zero, a fallback, and a guard that says nothing. Every number's text
+# form begins with a digit or a minus sign, so refusing the minus sign is the
+# same test with no dependency.
+#
+# `select(. >= 0)` was proposed and is NOT equivalent: -0.0 is >= 0 but its text
+# form is "-0", which the old `grep -c '^[0-9]'` did not count. Measured, on
+# 100, 0, -5, -0.5, 1e30, 123.4, 1e-7 and -0.0: the regex and `startswith` agree
+# on all eight, `. >= 0` disagrees on the last.
+#
 # THE COUNT IS NOT `length`, AND THAT IS LOAD BEARING TOO. The `grep -c` it
 # replaces counted lines BEGINNING WITH A DIGIT, so a negative reading was
 # excluded from the count and included in the median — the two look at
@@ -369,7 +408,7 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 # finds no separator byte, and the whole string lands in the count. All three
 # of -R, -r and -n are required.
 SUMMARY_JQ="[ inputs | ( $READINGS_JQ )? ]
-| [ (map(select(tostring | test(\"^[0-9]\"))) | length)
+| [ (map(select(tostring | startswith(\"-\") | not)) | length)
   , ( $MEDIAN_JQ )
   ]
 | map(tostring) | join(\$US)"
