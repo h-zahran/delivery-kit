@@ -1731,13 +1731,18 @@ median. `:323` spends a `grep -c` besides, and `:47` and `:108` spend a
   plus the `grep` and both `printf`/`cat` processes gone.
 - Behaviour is proven identical by DIFFERENTIAL, not asserted: run the
   pre-change hook against the new one over the payload and configuration
-  shapes, comparing stdout and exit code. A harness is already written at
-  `docs/tools/context-guard-differential.sh` — read its header first, it
-  records that **HOME, TMPDIR, TEMP and TMP must all be isolated per side
-  per shape**, or the old hook's once-per-bucket flag silences the new
-  one and the harness reports false differences. Extend it with
-  transcript shapes: empty, one reading, fourteen, fifteen, sixteen,
-  a malformed line among good ones, and sidechain entries.
+  shapes, comparing stdout and exit code. **The harness is committed at
+  `scripts/context-guard/differential.sh`** — read
+  `scripts/context-guard/README.md` first; it records the traps, chiefly
+  that HOME, TMPDIR, TEMP and TMP must all be isolated per side per
+  shape, or the old hook's once-per-bucket flag silences the new one and
+  the harness reports false differences on a correct hook. Pass the
+  baseline as a commit id, never a branch. Run its `NEWHOOK` positive
+  control before believing a zero. Extend it with the transcript shapes
+  this phase actually touches: empty, one reading, fourteen, fifteen,
+  sixteen, a malformed line among good ones, and sidechain entries —
+  fourteen and sixteen matter most, because they sit either side of the
+  fallback's floor.
 - The counting shim's directory must have **no drive letter**. A
   `C:/...` entry in `PATH` splits on its own colon under Git Bash, the
   shim is never found, and the count file prints `0` — indistinguishable
