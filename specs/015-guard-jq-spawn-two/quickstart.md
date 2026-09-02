@@ -188,17 +188,23 @@ printf 'transcript shapes: %s\n' \
   "$(grep -c '^run_shape "transcript:' scripts/context-guard/differential.sh)"
 ```
 
-Expected: thirteen transcript shapes, including empty, one reading, fourteen,
-fifteen, sixteen, an unparseable line among good ones, a non-numeric token value
-among good ones, sidechain entries, and a negative reading. Fourteen and sixteen
-matter most — they sit either side of the floor.
+Expected: the printed list includes empty, one reading, fourteen, fifteen,
+sixteen, an unparseable line among good ones, a non-numeric token value, a
+non-numeric cache field, a record whose three token fields are all strings,
+another whose three strings concatenate into numeric text, sidechain entries, and
+a negative reading.
+
+The block prints the count rather than asserting one, and this paragraph gives no
+total on purpose: the figure moved twice in a single session, and each time a
+written total went stale it was a shape asserted to DIFFER that had been left out
+of the list.
 
 **Two of them leave the window at its default, and that is load bearing.** The
 byte-cap shapes first set a window of a million tokens, which put the readings
 at 18% and left the guard below its threshold — so both sides said nothing, two
 silences compared equal, and the shapes reported `ok` against a hook whose
 fallback had been disabled outright. Measured: the floor-to-zero control passed
-43 of 43 until that was fixed. A shape that cannot make the guard SPEAK cannot
+every shape until that was fixed. A shape that cannot make the guard SPEAK cannot
 tell you it has stopped speaking.
 
 ## 4. Prove the stdin hazard is closed by construction
@@ -259,8 +265,37 @@ echo "--- was it edited? ---"
 git diff --stat 168edc1 -- handoff/tests/context-guard.bats
 ```
 
-Expected: green, and an **empty** diff. A test that needed changing is proof the
-behaviour changed; the answer is to stop, not to change the test.
+Expected: green. **The diff is NOT empty, and that is approved** — see spec
+FR-011. This section said "expect an empty diff; a test that needed changing is
+proof the behaviour changed, so stop rather than change the test" until the
+owner decided otherwise at the implementer gate, and it is corrected here rather
+than left standing: a resumed run follows this page, and following the old
+sentence means reverting an approved change.
+
+The rule it stated is still right in general. It did not fit this case, where
+the test required the median to appear as a SEPARATE parser call in two files —
+a fact about how many processes the guard starts, not about which reading it
+believes, and removing that call is the entire change. What replaces "the diff
+is empty" is a stronger check, because an empty diff never proved the test was
+strong, only that it was untouched:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+# Every quantity duplicated between the hook and the setup skill, mutated one
+# at a time, each mutation echoed, each file restored and the restore verified.
+git diff --stat 168edc1 -- handoff/tests/context-guard.bats
+grep -c '^READINGS_JQ=' handoff/hooks/context-guard.sh handoff/skills/setup/SKILL.md
+grep -c '^MEDIAN_JQ='   handoff/hooks/context-guard.sh handoff/skills/setup/SKILL.md
+grep -ohE 'tail -n [0-9]+ [|"]' handoff/hooks/context-guard.sh handoff/skills/setup/SKILL.md | sort -u
+grep -cF 'jq -Rrn "[ inputs | ( $READINGS_JQ )? ] | $MEDIAN_JQ"' handoff/skills/setup/SKILL.md
+```
+
+Expected: a non-empty diff on the test file; one `READINGS_JQ` and one
+`MEDIAN_JQ` declaration in each of the two files; a single distinct `tail -n`
+budget across all three sites; and exactly one skill invocation spending both
+declared programs. The last of those is the part that was missing when the
+anchors first moved, and a skill with matching declarations and a five-wide
+window inlined at its call site passed everything else.
 
 ## 6. The full house suite, from the repository root
 

@@ -60,20 +60,31 @@ Measured 2026-09-01, working copy against `45e6b12`:
 The 30 shapes above vary the payload and the configuration. The transcript was a
 fixed six readings hardcoded inside `run_shape`, which was enough while the
 reading count, the median and the fallback lived in three separate calls that no
-refactor was touching. Thirteen shapes now vary the file being read: empty, one
-reading, fourteen, fifteen, sixteen, an unparseable line among good ones, a
-non-numeric token value, a non-numeric cache field, sidechain entries, a negative
-reading, a median-window shape, and two byte-cap shapes that force the uncapped
-re-read. Fourteen and sixteen matter most — they sit either side of the floor of
+refactor was touching. Shapes now vary the file being read: empty, one reading,
+fourteen, fifteen, sixteen, an unparseable line among good ones, a non-numeric
+token value, a non-numeric cache field, a record whose three token fields are ALL
+strings, another whose three strings concatenate into NUMERIC text, sidechain
+entries, a negative reading, a median-window shape, and two byte-cap shapes that
+force the uncapped re-read.
+
+**This paragraph carries no total, on purpose.** Count it:
+`grep -c '^run_shape "transcript:' scripts/context-guard/differential.sh`. It said
+thirteen when there were fourteen, was corrected to fourteen, and was wrong again
+within the hour when a fifteenth arrived — and the shape it omitted both times
+was an asserted difference, which is the whole evidentiary basis for a divergence
+recorded below. A number in prose is a claim that goes stale silently; the exact
+figures live in the dated table below, which is a record of one run rather than a
+statement about the current file. Fourteen and sixteen matter most — they sit either side of the floor of
 fifteen, which is where the fallback is decided.
 
 Measured 2026-09-02, working copy against `168edc1`:
 
 | Run | Result |
 |---|---|
-| the hook with the one-pass reading change | **43 shapes, 43 identical, 0 different** |
-| a control with the fallback floor set to 0 | **41 identical, 2 different** — both byte-cap shapes |
-| a control taking the FIRST fifteen readings rather than the last | **42 identical, 1 different** — the median-window shape |
+| the hook with the one-pass reading change | **45 shapes, 45 as expected, 0 unexpected**, 2 of them asserted to differ |
+| a control with the fallback floor set to 0 | **42 as expected, 3 unexpected** — both transcript byte-cap shapes and `config: maxBytes tiny` |
+| a control taking the FIRST fifteen readings rather than the last | **44 as expected, 1 unexpected** — the median-window shape |
+| a control replacing the count rule with a plain `length` | **45 as expected, 0 unexpected** — the harness cannot see it at all, by construction |
 
 ### What this harness cannot see, and why that is structural
 
@@ -85,7 +96,7 @@ rather than reasoned:
   capped read is a byte suffix, so a suffix holding fifteen or more readings has
   the same last fifteen as the file, and one holding fewer falls back under
   either counting rule. Mutating the count rule to a plain `length` reports
-  **43 of 43 identical**. On a straddle of fourteen positive readings and one
+  **every shape as expected**. On a straddle of fourteen positive readings and one
   negative — fifteen by `length`, fourteen by the digit rule — the shipped hook
   spends 5 jq processes, the mutant spends 4, and both emit an identical 556
   bytes. That rule is pinned by the spawn-counting rig in
@@ -96,7 +107,27 @@ rather than reasoned:
 
 A third limit is worth knowing before you trust a single clean run: one spurious
 `DIFF` on the `agent_id null` shape was observed once and did not reproduce in
-five further runs. A `43 of 43` is one sample, not a proof.
+five further runs. A single clean run is one sample, not a proof.
+
+### Expectations: a shape may assert that the two sides DIFFER
+
+`run_shape` takes an optional fifth argument, `same` (the default) or `diff`.
+A `diff` shape fails when the two sides agree. It exists for a divergence that
+has been examined and kept: without it the only options are to leave the shape
+out, which lies by omission, or to leave the harness permanently red, which
+trains a reader to skim past the one line that matters. An asserted difference
+goes red if the divergence is ever quietly repaired — the direction nobody
+watches.
+
+One shape uses it today: `transcript: all three fields strings`. On a usage
+record whose three token fields are all strings, jq's `+` concatenates instead
+of erroring; the pre-refactor hook emitted that concatenation as a reading, its
+separate median call then failed to parse it, and the whole read collapsed to
+silence. Measured, 0 bytes against 556.
+
+The summary line says **AS EXPECTED**, not IDENTICAL, and counts the asserted
+differences out separately. It said IDENTICAL for one commit, which reported a
+run where a shape differed by design as a run where nothing did.
 
 ### Run it only on a branch you have read
 
@@ -113,7 +144,7 @@ exactly like success. The byte-cap shapes were written with a window of a millio
 tokens. That puts the readings at 18% of the window, below the guard's threshold,
 so the guard says **nothing** — and two silences compare equal. Both shapes
 reported `ok` against a control whose uncapped re-read had been disabled
-outright: the floor-to-zero control passed 43 of 43. Leaving the window at its
+outright: the floor-to-zero control passed every shape. Leaving the window at its
 default makes the same readings 90%, the guard speaks, and the control is caught.
 
 A shape that cannot make the guard SPEAK cannot tell you it has stopped speaking.
@@ -121,10 +152,11 @@ A shape that cannot make the guard SPEAK cannot tell you it has stopped speaking
 The same defect was then found in a shape that predates all of this: `config:
 maxBytes tiny` carried the same million-token window, and it was the only
 pre-existing shape that touched the fallback at all. It is now left at the
-default window too. Measured on the shipped hook, **12 of the 13 transcript
-shapes make the guard speak**; only `empty file` is silent, which is that
-shape's correct behaviour and means it can catch a guard that starts speaking,
-never one that stops.
+default window too. Measured on the shipped hook, every transcript shape makes
+the guard speak except two: `empty file`, and `strings that parse as a number`
+whose whole point is that the new hook is correctly silent where the old one was
+loud. A silent shape can catch a guard that starts speaking, never one that
+stops — which is why the rest were built to make it speak.
 
 One more claim was corrected rather than defended: the fourteen and fifteen and
 sixteen shapes do NOT exercise the fallback on their own. Without a byte cap

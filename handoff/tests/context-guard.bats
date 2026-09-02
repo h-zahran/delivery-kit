@@ -998,7 +998,7 @@ load ../../tests/helper
   # which reading it believes. When the hook stopped spending that process —
   # the count and the median now come from one pass — the site count fell to
   # one and this part failed while the two files still agreed perfectly on the
-  # rule. Measured: the differential reported 43 of 43 shapes identical on the
+  # rule. Measured: the differential reported every shape as expected on the
   # run that reddened this line. The coupling is unchanged and still pinned by
   # mutation; what moved is that the pin no longer also dictates the shape of
   # the caller.

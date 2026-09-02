@@ -312,7 +312,7 @@ is still present after it.
   pins the two character for character — so it could not stay behind while
   the guard moved. It gains the same one-pass form and the same two named
   programs, and its reading was verified identical to the old two-call form
-  across thirteen transcript shapes.
+  across every transcript shape the comparison set carries.
 - The comparison harness must isolate the home directory and all three
   temporary-directory settings separately for each side of each shape, or it
   reports false differences.

@@ -59,6 +59,7 @@ fi
 n=0
 same=0
 diffn=0
+asserted=0
 
 # run_shape <label> <payload-json> <config-json-or-empty>
 #
@@ -134,6 +135,20 @@ write_transcript() {
     string-all-three)
       printf '%s\n' "$READING" '{"message":{"usage":{"input_tokens":"a","cache_read_input_tokens":"b","cache_creation_input_tokens":"c"}}}' "$READING"
       return 0 ;;
+    # The mirror of string-all-three: three string fields whose concatenation IS
+    # parseable as a number. The old hook re-parsed it into a genuine reading and
+    # inflated the median; the new one drops it. Where string-all-three turns a
+    # silence into speech, this turns speech into silence — and both are
+    # corrections. Two readings of 80000 make the true median 80000, at 40% of
+    # the default window; the junk pushed it to 180000, at 90%.
+    string-numeric)
+      printf '%s\n' \
+        '{"message":{"usage":{"input_tokens":80000}}}' \
+        '{"message":{"usage":{"input_tokens":80000}}}' \
+        '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}' \
+        '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}' \
+        '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}'
+      return 0 ;;
     sidechain)
       printf '%s\n' '{"isSidechain":true,"message":{"usage":{"input_tokens":999999}}}' "$READING" '{"isSidechain":true,"message":{"usage":{"input_tokens":999999}}}'
       return 0 ;;
@@ -152,7 +167,7 @@ write_transcript() {
     # Measured on a straddle of fourteen positive readings and one negative,
     # which is fifteen by `length` and fourteen by the digit rule: the shipped
     # hook spends 5 jq processes and a `length` mutant spends 4, and both emit an
-    # IDENTICAL 556 bytes. Mutating the count reports 43 of 43 identical here.
+    # IDENTICAL 556 bytes. Mutating the count leaves every shape here as expected.
     # The rule is pinned by the spawn-counting rig in
     # specs/015-guard-jq-spawn-two/quickstart.md, not by this harness.
     negative)
@@ -233,6 +248,7 @@ run_shape() {
   if [ "$actual" = "$expect" ]; then
     same=$((same + 1))
     if [ "$expect" = diff ]; then
+      asserted=$((asserted + 1))
       printf '  ok   %-44s DIFFERS, as asserted (old %s bytes, new %s bytes)\n' \
         "$label" "$(wc -c < "$o/out" | tr -d ' ')" "$(wc -c < "$w/out" | tr -d ' ')"
     else
@@ -295,7 +311,7 @@ run_shape "config: thresholdTokens only" "$P_MAIN" '{"contextGuard":{"thresholdT
 # the threshold — so both sides said nothing, and two silences compare equal.
 # It was the only shape here touching the fallback, and it could not have seen
 # a fallback that stopped working. Same defect as the two transcript byte-cap
-# shapes below, found when a floor-to-zero control passed 43 of 43.
+# shapes below, found when a floor-to-zero control passed every shape.
 run_shape "config: maxBytes tiny" "$P_MAIN" '{"contextGuard":{"maxBytes":1}}'
 run_shape "config: negative window" "$P_MAIN" '{"contextGuard":{"windowTokens":-5}}'
 
@@ -316,6 +332,9 @@ run_shape "transcript: sidechain entries"      "$P_MAIN" "" sidechain
 # readings around it. Measured: 0 bytes against 556. Not repaired, because the
 # only way back to byte-identical here is back to a silent guard.
 run_shape "transcript: all three fields strings" "$P_MAIN" "" string-all-three diff
+# The mirror case, also asserted. Old fires at 90% on an inflated median, new
+# stays silent at the true 40%.
+run_shape "transcript: strings that parse as a number" "$P_MAIN" "" string-numeric diff
 run_shape "transcript: negative reading"       "$P_MAIN" "" negative
 run_shape "transcript: median window matters"  "$P_MAIN" "" window
 # The byte cap starves the capped read, so the uncapped re-read decides. This is
@@ -327,11 +346,16 @@ run_shape "transcript: median window matters"  "$P_MAIN" "" window
 # 18% and the guard below its threshold. Both sides then said NOTHING, and two
 # silences compare equal — so the shapes reported ok against a hook whose
 # fallback had been disabled outright. Measured: the floor-to-zero control
-# passed 43 of 43 until this line changed. A shape that cannot make the guard
+# passed every shape until this line changed. A shape that cannot make the guard
 # SPEAK cannot tell you it has stopped speaking.
 run_shape "transcript: sixteen, byte cap of 1"  "$P_MAIN" '{"contextGuard":{"maxBytes":1}}' sixteen
 run_shape "transcript: fourteen, byte cap of 1" "$P_MAIN" '{"contextGuard":{"maxBytes":1}}' fourteen
 
 printf '\nbaseline: %s\n' "$BASE"
-printf 'SHAPES: %s   IDENTICAL: %s   DIFFERENT: %s\n' "$n" "$same" "$diffn"
+# AS EXPECTED, not IDENTICAL. The counter includes shapes asserted to DIFFER, so
+# labelling it `IDENTICAL` reported a run in which one shape differed by design
+# as a run in which nothing did — which is the single line a reader takes away.
+# The asserted differences are counted out separately for the same reason.
+printf 'SHAPES: %s   AS EXPECTED: %s   UNEXPECTED: %s   (of those, %s asserted to differ)\n' \
+  "$n" "$same" "$diffn" "$asserted"
 [ "$diffn" -eq 0 ]
