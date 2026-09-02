@@ -183,6 +183,29 @@ Nothing in this change moves that floor.
 
 ---
 
+## Corrections, added 2026-09-02 after review
+
+This document records what was measured BEFORE implementation, and the dated
+findings above are left exactly as they were taken — a measurement is not made
+wrong by a later one. Two of them were superseded, and a reader who stops at R8
+will draw the wrong conclusion, so the corrections are recorded here rather than
+written over them.
+
+- **R3 and R8 both name `test("^[0-9]")`, which the shipped hook no longer uses.**
+  R8 concluded "no version floor is at risk" and listed `test` among the builtins
+  available since jq 1.5. That reasoning was about a VERSION, and review pointed
+  out the real exposure is a FEATURE: `test` needs a jq built with its regular
+  expression library, and the availability probe runs `jq --version`, which cannot
+  detect a missing feature. A compile error there yields an empty summary, a count
+  of zero, a fallback, and a silent guard. The rule shipped is
+  `tostring | startswith("-") | not`, which needs nothing. R3's conclusion — that
+  the count must reproduce the old digit-prefix rule — is unchanged and still
+  correct; only its spelling moved.
+- **R6's thirteen-shape table was the block-level comparison, not the shipped
+  harness.** The harness has since grown and diverged deliberately on three
+  shapes. Its current state is the thing to read; this table is the state of the
+  argument on the day it was made.
+
 ## Adopted design
 
 One string, defined once, used by both calls so they cannot drift:

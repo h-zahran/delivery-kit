@@ -149,6 +149,27 @@ write_transcript() {
         '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}' \
         '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}'
       return 0 ;;
+    # Twenty real readings of 30000, then fifteen junk records whose three string
+    # fields concatenate to "180000". Paired with a byte cap of 1650 — fifteen
+    # junk lines at 110 bytes each — the capped read is junk and nothing else.
+    #
+    # This pins the COUNT, which the median shapes cannot. The old code counted
+    # fifteen string readings, cleared the floor, skipped the fallback and
+    # answered 180000; this counts none of them, falls back, and answers the true
+    # 30000. If that record's byte length ever changes, the cap must change with
+    # it or the shape silently stops starving the read.
+    string-numeric-capped)
+      i=0
+      while [ "$i" -lt 20 ]; do
+        printf '{"message":{"usage":{"input_tokens":30000}}}\n'
+        i=$((i + 1))
+      done
+      i=0
+      while [ "$i" -lt 15 ]; do
+        printf '{"message":{"usage":{"input_tokens":"180000","cache_read_input_tokens":"","cache_creation_input_tokens":""}}}\n'
+        i=$((i + 1))
+      done
+      return 0 ;;
     sidechain)
       printf '%s\n' '{"isSidechain":true,"message":{"usage":{"input_tokens":999999}}}' "$READING" '{"isSidechain":true,"message":{"usage":{"input_tokens":999999}}}'
       return 0 ;;
@@ -168,6 +189,8 @@ write_transcript() {
     # which is fifteen by `length` and fourteen by the digit rule: the shipped
     # hook spends 5 jq processes and a `length` mutant spends 4, and both emit an
     # IDENTICAL 556 bytes. Mutating the count leaves every shape here as expected.
+    # (The `junk alone under the byte cap` shape below is the one place the count
+    # DOES reach the answer, and it reaches it through the fallback decision.)
     # The rule is pinned by the spawn-counting rig in
     # specs/015-guard-jq-spawn-two/quickstart.md, not by this harness.
     negative)
@@ -335,6 +358,9 @@ run_shape "transcript: all three fields strings" "$P_MAIN" "" string-all-three d
 # The mirror case, also asserted. Old fires at 90% on an inflated median, new
 # stays silent at the true 40%.
 run_shape "transcript: strings that parse as a number" "$P_MAIN" "" string-numeric diff
+# The same junk, starved to it by the byte cap, which moves the FALLBACK
+# DECISION rather than the median.
+run_shape "transcript: junk alone under the byte cap" "$P_MAIN" '{"contextGuard":{"maxBytes":1650}}' string-numeric-capped diff
 run_shape "transcript: negative reading"       "$P_MAIN" "" negative
 run_shape "transcript: median window matters"  "$P_MAIN" "" window
 # The byte cap starves the capped read, so the uncapped re-read decides. This is
@@ -355,7 +381,10 @@ printf '\nbaseline: %s\n' "$BASE"
 # AS EXPECTED, not IDENTICAL. The counter includes shapes asserted to DIFFER, so
 # labelling it `IDENTICAL` reported a run in which one shape differed by design
 # as a run in which nothing did — which is the single line a reader takes away.
-# The asserted differences are counted out separately for the same reason.
-printf 'SHAPES: %s   AS EXPECTED: %s   UNEXPECTED: %s   (of those, %s asserted to differ)\n' \
+# The asserted differences are counted out separately for the same reason, and
+# the phrase reads `of the expected` rather than `of those`: the figure is a
+# subset of AS EXPECTED, but printing straight after UNEXPECTED made it read as
+# a subset of that instead.
+printf 'SHAPES: %s   AS EXPECTED: %s   UNEXPECTED: %s   (of the expected, %s asserted to differ)\n' \
   "$n" "$same" "$diffn" "$asserted"
 [ "$diffn" -eq 0 ]

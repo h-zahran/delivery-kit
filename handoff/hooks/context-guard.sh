@@ -322,9 +322,14 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # entries report a median of 300 where the true one is 200. An inflated median
 # is the 2026-08-07 failure exactly, arrived at from a new direction.
 #
-# It also records TWO divergences from the pre-refactor hook, not one. The
-# singular was written here first and was wrong; both are measured, both are
-# kept, and the differential asserts each rather than hiding it.
+# It also records divergences from the pre-refactor hook. The count went one,
+# then two, then three as successive rounds of review measured further; all are
+# kept, and the differential asserts each rather than hiding it. TAKE THE NUMBER
+# FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong twice:
+# `grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`. The
+# anchor is not decoration: a bare ` diff$` also matches a comment about the
+# diff command and answered four where the truth was three, in the same breath
+# as telling the reader to count rather than trust prose.
 #
 #   1. The concatenation is NOT parseable as a number — "abc". The old code
 #      emitted it as a line, the separate median call then failed to parse the
@@ -337,11 +342,17 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 #      two readings of 80000 and three such records: old median 180000 and the
 #      guard fires at 90%, new median 80000 and it stays silent at 40%.
 #
-# The two point in OPPOSITE directions — the first turns silence into speech,
-# the second turns speech into silence — and both are corrections. In the
-# second the old guard was speaking because junk had inflated its median, which
-# is the 2026-08-07 fault itself. Restoring either byte-for-byte means
-# restoring a defect.
+#   3. The junk is STARVED DOWN TO by the byte cap. It no longer counts toward
+#      the floor of fifteen, so where the old code cleared the floor on fifteen
+#      string readings and skipped the re-read, this one falls back and answers
+#      from the real readings. Old fires at 90% on 180000, new is silent at the
+#      true 15%. This one moves the FALLBACK DECISION, not just the median.
+#
+# They point in OPPOSITE directions — the first turns silence into speech, the
+# other two turn speech into silence — and all three are corrections. In the
+# last two the old guard was speaking because junk had inflated its median or
+# padded its count, which is the 2026-08-07 fault itself. Restoring any of them
+# byte-for-byte means restoring a defect.
 #
 # handoff/skills/setup/SKILL.md carries the same program so it can
 # claim to measure the way this guard measures, and the suite pins the two
@@ -385,9 +396,24 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 # `test` needs a jq built with its regular-expression library, this is the only
 # regex in any program the hook ships, and the availability probe at the top
 # cannot detect a missing FEATURE — a compile error would yield an empty summary,
-# a count of zero, a fallback, and a guard that says nothing. Every number's text
-# form begins with a digit or a minus sign, so refusing the minus sign is the
-# same test with no dependency.
+# a count of zero, a fallback, and a guard that says nothing. Every FINITE
+# number's text form begins with a digit or a minus sign, so refusing the minus
+# sign is the same test with no dependency.
+#
+# FINITE is the honest word, and this said "every number" until it was measured.
+# jq calls a NaN a number and renders it "null", which begins with neither — so
+# `startswith` counts it where the regex and the original grep did not. Measured
+# on 0, -0.0, -0, 1e30, 1e-7, 0.1+0.2, 2^53+1, a thirty-digit literal, 1e400,
+# -1e400, 100, -5, -0.5 and 123.4: identical on every one. NaN is the sole
+# disagreement.
+#
+# It is left standing rather than closed, and the direction is why. A NaN can
+# only make the count LARGER, and a larger count can only skip the uncapped
+# re-read — which returns the same last fifteen readings whenever the capped
+# read holds fifteen at all, because the capped read is a byte suffix of the
+# same file. To reach the answer a transcript would need a NaN AND a starved
+# cap; a token count is a sum of integers and has no route to one. Named here
+# so the next reader inherits the exception rather than the belief.
 #
 # `select(. >= 0)` was proposed and is NOT equivalent: -0.0 is >= 0 but its text
 # form is "-0", which the old `grep -c '^[0-9]'` did not count. Measured, on
@@ -402,6 +428,17 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 # old count says 2, `length` says 3, and the median is 100 either way. The cap
 # may never change the answer, so this reproduces the rule rather than
 # improving it.
+#
+# ONE PLACE WHERE THAT IS NOT QUITE TRUE, named rather than glossed. The
+# `select(type == "number")` in the per-line rule removes junk from the array,
+# and the count is taken over that array — so junk no longer counts toward the
+# floor of fifteen either. Under a byte cap that starves the read to junk
+# alone, the old code counted fifteen string readings, cleared the floor,
+# skipped the fallback and answered from them; this counts none, falls back,
+# and answers from the real readings. Measured: twenty readings of 30000 then
+# fifteen junk records, cap set to the junk's byte length — old fires at 90%
+# on a median of 180000, new is silent at 15% on the true 30000. Fail-safe, and
+# the differential carries it as a third asserted difference.
 #
 # -R is raw INPUT and says nothing about output. Without -r the join comes back
 # as a JSON string with the separator spelled as an escape, the split below

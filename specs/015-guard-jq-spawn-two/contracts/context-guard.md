@@ -27,11 +27,24 @@ A single JSON object. Every field is optional; see
 [data-model.md](../data-model.md) for the four fields read and their defaults.
 
 **New guarantee, and the only change to this side of the contract**: the hook
-consumes its whole standard input on **every** path it can take, including the
-path where the parser is unavailable and the hook exits early. It relied on this
-before by accident — the copy step read everything. It now does so on purpose,
-because a path that stops reading costs the caller a broken-pipe signal.
-Measured: a reader that exits without reading leaves the writer at exit 141.
+consumes its whole standard input on **every** path it can take. It relied on
+that before by accident — the copy step read everything — and now does it on
+purpose, because a path that stops reading costs the caller a broken-pipe
+signal. Measured: a reader that exits without reading leaves the writer at exit
+141, one that consumes leaves it at 0.
+
+**Every path means two, and the second was found by review after the first
+shipped.** The obvious one is the parser being unavailable, where the hook
+never runs it at all. The other is the parser running and FAILING: jq reads to
+end of input only while the input keeps parsing, so a payload malformed at its
+first token makes it abort having read one buffer, and the caller writing the
+rest is killed. Measured on a 300KB payload beginning `{not json`: writer exit
+141 with the guard as first shipped, 0 with the pre-change hook, 0 now.
+
+Neither rig could see it. The comparison harness compares the hook's own stdout
+and exit status, never the writer's, and its malformed-payload shape is nine
+bytes — small enough to sit in the pipe buffer, where a reader that never reads
+costs nothing. The check that covers it is section 4 of the quickstart.
 
 ---
 
@@ -47,8 +60,19 @@ Either nothing, or exactly one line of JSON.
 | Parser unavailable, first time on this machine | one JSON object carrying the install hint |
 | Parser unavailable, hint already shown | nothing |
 
-**Byte-identical before and after this change, for every input.** That is the
-contract this feature is measured against, not a summary of it.
+**Byte-identical before and after this change, for every input that carries no
+junk reading.** That is the contract this feature is measured against, not a
+summary of it.
+
+This paragraph read "for every input" until three inputs were measured that
+prove otherwise, and this file was the last record to be corrected — it was not
+touched by the sweep that fixed the others, which is how a contract ends up the
+most confident and least accurate document in a change. The three are named at
+spec FR-001. All arise from one root: jq's `+` concatenates strings, so a usage
+record whose three token fields are all strings yields a string reading, and the
+old code either collapsed on it, re-parsed it into an inflated median, or
+counted it toward the fifteen-reading floor. Each divergence is a correction,
+and the comparison harness ASSERTS each rather than excusing it.
 
 ---
 

@@ -45,9 +45,11 @@ process, on both the ordinary path and the starved fallback path.
    **When** the guard runs, **Then** it re-reads the transcript uncapped exactly
    as before, starts four parser processes where it previously started five, and
    reports the same percentage.
-3. **Given** any transcript, **When** the guard runs before and after the
-   change with identical inputs, **Then** stdout and exit status are
-   byte-identical.
+3. **Given** any transcript that carries no junk reading, **When** the guard
+   runs before and after the change with identical inputs, **Then** stdout and
+   exit status are byte-identical. The exception is named at FR-001 and pinned
+   by three shapes the harness asserts to differ; "any transcript" stood here
+   unqualified until those were measured.
 
 ---
 
@@ -137,15 +139,33 @@ is still present after it.
 - **FR-001**: The guard MUST produce byte-identical output and an identical
   exit status, for every payload shape, configuration shape and transcript
   shape, before and after this change.
-  **ONE MEASURED EXCEPTION, which cannot be closed without reintroducing a
-  defect.** On a usage record whose three token fields are ALL strings, the old
-  code concatenated them into a string reading, its separate median call then
-  failed to parse that reading, and the whole read collapsed: the guard said
-  NOTHING. The new code drops the junk and answers from the readings around it.
-  Measured: 0 bytes against 556. The divergence is in the fail-loud direction
-  and it repairs a silence; the only route back to byte-identical output here
-  is back to that silence. The comparison harness now carries the shape and
-  ASSERTS the difference, so a later change that quietly removes it goes red.
+  **MEASURED EXCEPTIONS, none closable without reintroducing a defect.** This
+  requirement said "one exception" and then "two" before it said three, each
+  time because another round of review measured further, so take the number from
+  the harness rather than from this paragraph:
+  `grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`.
+
+  jq's `+` concatenates strings rather than erroring, so a usage record whose
+  three token fields are all strings yields a string reading. What follows
+  depends on whether that string parses as a number, and the cases fail in
+  OPPOSITE directions:
+
+  - **Not parseable** (`"abc"`): the old separate median call failed to parse
+    the whole stream and the read collapsed — the guard said NOTHING. The new
+    code answers from the readings around it. Measured: 0 bytes against 556.
+  - **Parseable** (`"180000"`): the old code re-parsed it into a genuine reading
+    and INFLATED the median, firing at 90%; the new code drops it and is
+    correctly silent at the true 40%. Measured: 556 bytes against 0.
+  - **Parseable, and starved to by the byte cap**: the same junk cleared the
+    fifteen-reading floor for the old code, which skipped the uncapped re-read
+    and answered from junk. The new code counts none of it, falls back, and
+    answers the true reading. This one moves the FALLBACK DECISION rather than
+    the median. Measured: 556 bytes against 0.
+
+  All three are corrections — in the last two the old guard was speaking because
+  junk had inflated its median or padded its count, which is the 2026-08-07
+  fault itself. The harness carries each shape and ASSERTS its difference, so a
+  later change that quietly repairs one goes red.
 - **FR-002**: The guard MUST obtain the reading count and the median from a
   single parser pass over the capped transcript read, replacing the separate
   count pass, the separate median pass and the separate line-counting process.
@@ -281,16 +301,23 @@ is still present after it.
   lines, both before and after the change.
 - **SC-005**: The guard's own test file shows an empty difference against the
   pinned baseline commit. **NOT MET, by the owner's decision recorded at
-  FR-011.** Measured: 35 insertions and 3 deletions against `168edc1`, all of
-  them in the two extraction anchors of one test and the comments explaining
-  why they moved. The criterion is reported as unmet rather than restated to
+  FR-011.** Measured with `git diff --numstat 168edc1 -- handoff/tests/context-guard.bats`,
+  which is the command to trust rather than this sentence: it read 35 insertions
+  and 3 deletions when first written and grew as review added a fourth part to
+  the test. The changes are confined to that one test's extraction anchors, the
+  new part pinning the setup skill's invocation, and the comments explaining
+  both. The criterion is reported as unmet rather than restated to
   fit, so a later reader sees the exception instead of inheriting a clean
   sheet that was never earned.
-- **SC-006**: The side-by-side comparison reports zero differing shapes across
+- **SC-006**: The side-by-side comparison reports zero UNEXPECTED shapes across
   the full extended set — which includes a negative-reading shape and the
   fourteen, fifteen and sixteen reading shapes either side of the fallback
-  floor — and the comparison harness is shown capable of reporting a difference
-  by running it against a deliberately altered guard first.
+  floor — and the harness is shown capable of reporting a difference by running
+  it against a deliberately altered guard first.
+  **Reworded from "zero differing shapes" once shapes existed that are asserted
+  TO differ.** The original wording would have been satisfied only by a harness
+  that hid them. Three shapes differ on purpose and the harness fails if any of
+  them agrees; what must be zero is the count of differences nobody chose.
 - **SC-007**: Every incident date and named failure mode present in the file
   before the change is present after it.
 
@@ -312,7 +339,9 @@ is still present after it.
   pins the two character for character — so it could not stay behind while
   the guard moved. It gains the same one-pass form and the same two named
   programs, and its reading was verified identical to the old two-call form
-  across every transcript shape the comparison set carries.
+  across every transcript shape that carries no junk reading. On the three that
+  do, the skill's reading changes exactly as the guard's does, which is the point
+  of their being pinned together.
 - The comparison harness must isolate the home directory and all three
   temporary-directory settings separately for each side of each shape, or it
   reports false differences.

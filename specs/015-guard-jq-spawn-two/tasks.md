@@ -35,7 +35,11 @@ kind of change each makes. Extending it afterwards would mean the harness was
 shaped by the change it is meant to judge.
 
 - [X] T006 Extend `scripts/context-guard/differential.sh` with transcript shapes: empty, one reading, fourteen, fifteen, sixteen, an unparseable line among good ones, a non-numeric token value among good ones, a non-numeric cache field among good ones, sidechain entries present, and a negative reading
-- [X] T007 Confirm the extended `scripts/context-guard/differential.sh` reports every shape identical when run against `168edc1` with the hook still unchanged, and that its shape count grew by the number added in T006
+- [X] T007 Confirm the extended `scripts/context-guard/differential.sh` reports
+  **no UNEXPECTED shape** when run against `168edc1`, and that its shape count grew
+  by the number added in T006. *Reworded from "every shape identical": shapes now
+  exist that are ASSERTED to differ, and a resumed run following the old wording
+  would read those passes as failures — the same defect T026 was struck for.*
 - [X] T008 Fire the positive control on the extended harness — point `NEWHOOK` at a deliberately altered copy of `handoff/hooks/context-guard.sh` and require a non-zero exit and at least one differing shape, per section 2 of `specs/015-guard-jq-spawn-two/quickstart.md`
 
 ## Phase 3: User Story 1 — the transcript is read once, not three times (P1)
@@ -45,15 +49,16 @@ replacing two parser passes and a text-count process. The starved path keeps its
 single conditional re-read.
 
 **Independent test**: process counts fall by one parser and one text counter on
-both transcript shapes, and the side-by-side comparison reports every shape
-identical.
+both transcript shapes, and the side-by-side comparison reports no UNEXPECTED
+shape *(reworded, see T007)*.
 
 - [X] T009 [US1] Replace the transcript-reading block in `handoff/hooks/context-guard.sh` — one program string used by both calls, wrapped per line in the error-tolerant form, emitting the count and the median joined by the separator already defined once in the file, invoked with all three of raw-input, raw-output and null-input
 - [X] T010 [US1] Split that joined result in `handoff/hooks/context-guard.sh` with parameter expansion, never a line-reading builtin, and force a count that is not a run of digits to zero so a broken count means starved rather than satisfied
 - [X] T011 [US1] Reproduce the old count's digit-prefix rule in the same program in `handoff/hooks/context-guard.sh`, so a negative reading stays out of the count and inside the median
 - [X] T012 [US1] Carry every comment in the changed region of `handoff/hooks/context-guard.sh` — the three budgets, both incident dates, the floor-equals-window rule, the measured fallback cost — and add one comment naming why the error-tolerant form is load-bearing
 - [X] T013 [US1] Verify with `bash -n handoff/hooks/context-guard.sh` and `shellcheck handoff/hooks/context-guard.sh`
-- [X] T014 [US1] Run `scripts/context-guard/differential.sh 168edc1` and require every shape identical with exit zero
+- [X] T014 [US1] Run `scripts/context-guard/differential.sh 168edc1` and require
+  `UNEXPECTED: 0` with exit zero *(reworded, see T007)*
 - [X] T015 [US1] Run `bash "$HOME/bats/bin/bats" --print-output-on-failure handoff/tests/context-guard.bats` and require green
 
 ## Phase 4: User Story 2 — stdin reaches the parser without a detour (P2)
@@ -73,7 +78,8 @@ changes are independent in substance; they are serialised so no two edits race.
 - [X] T018 [US2] Remove the standard-input copy in `handoff/hooks/context-guard.sh` and let the payload extraction read standard input directly, keeping the field list, their order, their defaults and their string coercion exactly as they are
 - [X] T019 [US2] Verify with `bash -n handoff/hooks/context-guard.sh` and `shellcheck handoff/hooks/context-guard.sh`
 - [X] T020 [US2] Run section 4 of `specs/015-guard-jq-spawn-two/quickstart.md` and require the writer's exit status to be zero on the parser-unavailable path
-- [X] T021 [US2] Run `scripts/context-guard/differential.sh 168edc1` and require every shape identical with exit zero
+- [X] T021 [US2] Run `scripts/context-guard/differential.sh 168edc1` and require
+  `UNEXPECTED: 0` with exit zero *(reworded, see T007)*
 - [X] T022 [US2] Run `bash "$HOME/bats/bin/bats" --print-output-on-failure handoff/tests/context-guard.bats` and require green
 
 ## Phase 5: User Story 3 — the record survives the refactor (P3)
@@ -155,8 +161,10 @@ not a defect in the work.
 
 - [X] T031 Record in `specs/015-guard-jq-spawn-two/spec.md` that the owner
   authorised editing `handoff/tests/context-guard.bats`, and what the edit was,
-  per FR-011 and SC-005 (contradicts). The file carries 35 insertions and 3
-  deletions against `168edc1`, while the requirement forbids any edit. The
+  per FR-011 and SC-005 (contradicts). The file carries a non-empty diff against
+  `168edc1` — read it with `git diff --numstat`, which is the command to trust;
+  the figure written here was 35 and 3 and went stale the moment review added a
+  fourth part to the test — while the requirement forbids any edit. The
   requirement stays as written and gains the decision beside it: a requirement
   silently rewritten to match what happened records nothing.
 - [X] T032 Add `handoff/skills/setup/SKILL.md` to the touched files in

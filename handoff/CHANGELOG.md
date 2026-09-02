@@ -96,6 +96,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   300 where the true one is 200. An inflated median is the 2026-08-07 failure,
   reached from a new direction.
 
+  **Standard input is consumed on every path out of the hook, which took two
+  goes.** The copy this change removes was also what drained stdin, so both
+  paths that skip the parse had to take that up for themselves. The obvious one
+  is `jq` being unavailable. The other, found by review after the first version
+  shipped, is `jq` running and FAILING: it reads to end of input only while the
+  input keeps parsing, so a payload malformed at its first token makes it abort
+  after one buffer and the caller writing the rest is killed by the broken pipe.
+  Measured on a 300KB payload beginning `{not json`: writer exit 141 with the
+  first version, 0 with the pre-change hook, 0 now. Closed with a fallback drain
+  that fires only when `jq` exits non-zero, so the ordinary path still spends
+  the two processes this change removes and no more — confirmed by counting.
+
   On the path where `jq` cannot run, the hook now consumes standard input
   before exiting. It used to do so by accident, through the copy this change
   removes. Measured with a payload of roughly 200KB: a reader that exits

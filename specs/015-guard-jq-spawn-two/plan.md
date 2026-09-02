@@ -54,7 +54,10 @@ the ordinary path. Target columns, to be confirmed by measurement:
 ordinary 4/5/6 → 3/4/5, starved 5/6/7 → 4/5/6, for zero, one and two
 configuration files.
 
-**Constraints**: byte-identical stdout and exit status on every shape.
+**Constraints**: byte-identical stdout and exit status on every shape that
+carries no junk reading. Three shapes diverge on purpose, are named at spec
+FR-001, and are asserted by the harness rather than excused — the constraint
+was written unqualified and review measured otherwise.
 `handoff/tests/context-guard.bats` may not be edited — a constraint the owner
 lifted during implementation, for one test whose anchors pinned the shape of the
 caller rather than the program; spec FR-011 carries the decision and what was
