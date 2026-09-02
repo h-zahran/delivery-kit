@@ -104,7 +104,9 @@ scripts/context-guard/differential.sh 168edc1
 echo "exit: $?"
 ```
 
-Expected: every shape identical, exit `0`.
+Expected: `UNEXPECTED: 0` and exit `0`. Some shapes are ASSERTED to differ and
+print `DIFFERS, as asserted` with the two byte counts — those are passes. What
+must be zero is the count of differences nobody chose.
 
 **Fire the positive control before believing that zero.** A harness that has
 only ever printed zero has not been shown capable of printing anything else.
@@ -257,6 +259,42 @@ there and is filed once per machine. Share one and the second side finds the
 flag already set, says nothing, and the comparison reports a difference that is
 an artefact of the rig.
 
+### 4b. The other path that skips the parse
+
+`jq` reads to end of input only while the input keeps parsing. Hand it something
+malformed at its FIRST token and it aborts after one buffer, and the caller
+writing the rest is killed. This is the case the first version of the change
+missed, and neither rig could see it: the comparison harness compares the hook's
+stdout and never the writer's status, and its malformed-payload shape is nine
+bytes, which fits in the pipe buffer where not reading costs nothing.
+
+```bash
+set -e
+cd "$(git rev-parse --show-toplevel)"
+d=$(mktemp -d)
+# Malformed at byte one, and far larger than any pipe buffer.
+{ printf '{not json'; head -c 300000 /dev/zero | tr '\0' 'x'; } > "$d/bad.in"
+git show 168edc1:handoff/hooks/context-guard.sh > "$d/base.sh"
+
+probe() {
+  ( cat "$d/bad.in"; echo "  $2 writer exit: $?" >&2 ) 2>"$d/err" \
+    | bash "$1" > /dev/null 2>&1
+  cat "$d/err"
+}
+probe handoff/hooks/context-guard.sh 'changed '
+probe "$d/base.sh"                   'baseline'
+rm -rf "$d"
+```
+
+Expected: `writer exit: 0` from both. A `141` from the changed hook means the
+fallback drain beside the payload call has been removed or has stopped firing.
+
+The baseline is the control, and it is the half that makes this mean anything:
+it drains through the copy this change deletes, so it must read 0. If both read
+141, suspect the rig before the hook — an earlier version of section 4 built a
+directory of symbolic links Windows does not create, and reported 141 from both
+sides on hooks that were fine.
+
 ## 5. The hook's own suite, unedited
 
 ```bash
@@ -344,20 +382,30 @@ Expected: exit `0`. Note that continuous integration has historically run an
 **older** analyser than a developer machine, and the older one reported more.
 A local pass does not predict the remote one; check the remote run too.
 
-## 9. Pin the counting rule, which the comparison harness cannot see
+## 9. Pin the counting rule, which the comparison harness mostly cannot see
 
-The reading count decides whether the uncapped re-read RUNS. It never decides
-the answer: the capped read is a byte suffix, so whenever it holds fifteen
-readings its last fifteen are the file's last fifteen, and whenever it holds
-fewer under either counting rule, both rules fall back. Mutating the rule to a
-plain count therefore reports every shape identical in section 2.
+The reading count decides whether the uncapped re-read RUNS. Except under a byte
+cap starved to junk (the `junk alone under the byte cap` shape), it never
+decides the answer: the capped read is a byte suffix, so whenever it holds
+fifteen readings its last fifteen are the file's last fifteen, and whenever it
+holds fewer under either counting rule, both rules fall back. Mutating the rule
+therefore reports every shape as expected in section 2.
 
-The straddle below is fourteen positive readings and one negative: fifteen
-under a plain count, fourteen under the digit rule. The two disagree about the
+The straddle below is fourteen positive readings and one negative: fifteen under
+a plain count, fourteen under the shipped rule. The two disagree about the
 fallback and agree about everything a reader can see, so the only instrument
 that can tell them apart is a process count.
 
+**`set -e` is not optional here.** The first version of this block had none, and
+when the shipped rule changed spelling its mutation stopped matching. The
+assertion refused, the block carried on regardless, and it measured an
+UNMUTATED copy against itself — printing `shipped jq=5 / mutant jq=5` and so
+reporting the counting rule as unobservable, which is the exact opposite of what
+this section exists to prove. That is the same defect section 2's old control
+had, reintroduced by the commit that fixed section 2.
+
 ```bash
+set -e
 cd "$(git rev-parse --show-toplevel)"
 root=/tmp/fr016; rm -rf "$root"; mkdir -p "$root/shim"
 case "$root" in *:*) echo "REFUSING: the shim path holds a colon" >&2; exit 2 ;; esac
@@ -370,16 +418,21 @@ SHIM
 chmod +x "$root/shim/jq"
 
 cp handoff/hooks/context-guard.sh "$root/mutant.sh"
-python - "$root/mutant.sh" <<'PY'
-import io, sys
-p = sys.argv[1]
-s = io.open(p, encoding='utf-8', newline='').read()
-old = 'map(select(tostring | test(' + chr(92) + '"^[0-9]' + chr(92) + '"))) | length'
-assert s.count(old) == 1, 'count rule found %d times, refusing' % s.count(old)
-m = s.replace(old, 'length', 1)
-assert m != s, 'MUTATION WAS A NO-OP'
-io.open(p, 'w', encoding='utf-8', newline='').write(m)
-print('  mutant: ' + [l.strip() for l in m.split(chr(10)) if '| [ (length)' in l][0])
+# The pattern is read OUT OF THE HOOK, not written here, so it cannot go stale
+# the way a copied spelling did. Whatever the count rule is, this mutates it.
+python - "$root/mutant.sh" handoff/hooks/context-guard.sh <<'PY'
+import io, re, sys
+target, source = sys.argv[1], sys.argv[2]
+src = io.open(source, encoding='utf-8', newline='').read()
+m = re.search(r'\| \[ \((map\(select\(.*?\)\) \| length)\)', src)
+assert m, 'no count rule found in ' + source
+rule = m.group(1)
+s = io.open(target, encoding='utf-8', newline='').read()
+assert s.count(rule) == 1, 'count rule found %d times, refusing' % s.count(rule)
+out = s.replace(rule, 'length', 1)
+assert out != s, 'MUTATION WAS A NO-OP'
+io.open(target, 'w', encoding='utf-8', newline='').write(out)
+print('  mutated: ' + rule + '  ->  length')
 PY
 
 run() {
@@ -403,9 +456,11 @@ run "$root/mutant.sh"             mutant
 rm -rf "$root"
 ```
 
-Expected: `shipped jq=5` and `mutant jq=4`, with **identical** stdout byte
-counts. The differing process count is the rule being observed; the identical
-output is why section 2 cannot observe it.
+Expected: the mutated rule echoed, then `shipped jq=5` and `mutant jq=4`, with
+**identical** stdout byte counts. The differing process count is the rule being
+observed; the identical output is why section 2 cannot observe it.
 
 If both counts are `0`, the shim was never found — check the search path for a
-drive letter, which splits on its own colon under Git Bash.
+drive letter, which splits on its own colon under Git Bash. If both counts are
+equal and non-zero, the mutation did not land, and with `set -e` you will not
+reach this line to be fooled by it.

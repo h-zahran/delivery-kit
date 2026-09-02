@@ -119,11 +119,20 @@ trains a reader to skim past the one line that matters. An asserted difference
 goes red if the divergence is ever quietly repaired — the direction nobody
 watches.
 
-One shape uses it today: `transcript: all three fields strings`. On a usage
-record whose three token fields are all strings, jq's `+` concatenates instead
-of erroring; the pre-refactor hook emitted that concatenation as a reading, its
-separate median call then failed to parse it, and the whole read collapsed to
-silence. Measured, 0 bytes against 556.
+Three shapes use it today, and the count is best taken from the file:
+`grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`. This
+paragraph said "one shape" while the table twelve lines above already said two.
+
+All three come from the same root: jq's `+` concatenates strings instead of
+erroring, so a usage record whose three token fields are all strings yields a
+string reading. `all three fields strings` covers the case where that string does
+not parse as a number — the old hook's separate median call failed on the whole
+stream and collapsed to silence, 0 bytes against 556. `strings that parse as a
+number` covers the case where it does — the old hook re-parsed it into a genuine
+reading and inflated the median, 556 against 0. `junk alone under the byte cap`
+starves the capped read to that junk, so the old hook cleared the fifteen-reading
+floor on it and skipped the re-read entirely, 556 against 0 — the only one of
+the three that moves the FALLBACK DECISION rather than the median.
 
 The summary line says **AS EXPECTED**, not IDENTICAL, and counts the asserted
 differences out separately. It said IDENTICAL for one commit, which reported a
