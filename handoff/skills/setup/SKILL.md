@@ -42,14 +42,30 @@ Compute observed context the same way the guard does, so this number is derived
 by the guard's own rule rather than by a second method that could drift from it:
 
 ```bash
-tail -n 5000 "$TRANSCRIPT" \
-  | jq -Rr 'fromjson?
+READINGS_JQ='fromjson?
   | select(.isSidechain != true)
   | select(.message.usage.input_tokens != null)
   | .message.usage
-  | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))' \
-  | jq -rs '.[-15:] | sort | .[(length/2|floor)] // 0'
+  | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))
+  | select(type == "number")'
+MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
+
+tail -n 5000 "$TRANSCRIPT" \
+  | jq -Rrn "[ inputs | ( $READINGS_JQ )? ] | $MEDIAN_JQ"
 ```
+
+The two programs are named variables here, and in `hooks/context-guard.sh`, so
+the suite can compare them character for character. They were once written out
+inline in both files with nothing coupling them: editing either left every
+other test green, while this skill went on claiming to measure the way the
+guard measures.
+
+One `jq` reads the transcript, not two. The reading program used to stream one
+number per line into a second `jq` that took the median; collecting the
+readings first lets one pass do both. The `?` after the per-line pipeline is
+what makes that safe: streaming `jq` reports an error on one line and carries
+on, while an error inside an array escapes it and kills the whole program,
+which would return nothing at all rather than a number.
 
 The `tail` is the hook's line budget, taken from `hooks/context-guard.sh` so this
 reading is bounded the way the guard's is. Treat it as headroom rather than a

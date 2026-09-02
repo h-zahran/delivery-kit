@@ -55,6 +55,85 @@ Measured 2026-09-01, working copy against `45e6b12`:
 | the shipped hook | **30 shapes, 30 identical, 0 different** |
 | a control with the config split reverted to `read` | **29 identical, 1 different** — and the one flagged is the newline shape |
 
+### Transcript shapes, added 2026-09-02
+
+The 30 shapes above vary the payload and the configuration. The transcript was a
+fixed six readings hardcoded inside `run_shape`, which was enough while the
+reading count, the median and the fallback lived in three separate calls that no
+refactor was touching. Thirteen shapes now vary the file being read: empty, one
+reading, fourteen, fifteen, sixteen, an unparseable line among good ones, a
+non-numeric token value, a non-numeric cache field, sidechain entries, a negative
+reading, a median-window shape, and two byte-cap shapes that force the uncapped
+re-read. Fourteen and sixteen matter most — they sit either side of the floor of
+fifteen, which is where the fallback is decided.
+
+Measured 2026-09-02, working copy against `168edc1`:
+
+| Run | Result |
+|---|---|
+| the hook with the one-pass reading change | **43 shapes, 43 identical, 0 different** |
+| a control with the fallback floor set to 0 | **41 identical, 2 different** — both byte-cap shapes |
+| a control taking the FIRST fifteen readings rather than the last | **42 identical, 1 different** — the median-window shape |
+
+### What this harness cannot see, and why that is structural
+
+It compares **stdout and exit status only**. Two consequences, both measured
+rather than reasoned:
+
+- **A change that only costs a process is invisible.** The guard's reading count
+  decides whether the uncapped re-read runs; it never decides the answer. The
+  capped read is a byte suffix, so a suffix holding fifteen or more readings has
+  the same last fifteen as the file, and one holding fewer falls back under
+  either counting rule. Mutating the count rule to a plain `length` reports
+  **43 of 43 identical**. On a straddle of fourteen positive readings and one
+  negative — fifteen by `length`, fourteen by the digit rule — the shipped hook
+  spends 5 jq processes, the mutant spends 4, and both emit an identical 556
+  bytes. That rule is pinned by the spawn-counting rig in
+  `specs/015-guard-jq-spawn-two/quickstart.md`, and nothing here can pin it.
+- **A change that only moves stderr is invisible.** `run_shape` captures stderr
+  per side and never compares it. Deliberate — the guard's contract is its
+  stdout — but it means this harness cannot settle a question about diagnostics.
+
+A third limit is worth knowing before you trust a single clean run: one spurious
+`DIFF` on the `agent_id null` shape was observed once and did not reproduce in
+five further runs. A `43 of 43` is one sample, not a proof.
+
+### Run it only on a branch you have read
+
+The script copies `handoff/hooks/context-guard.sh` out of the **working tree**
+and executes it. Isolating `HOME` and the three temporary-directory settings
+bounds where the hook writes its flags; it does not sandbox anything. Running
+this against a branch you have not read is running that branch's shell script
+as yourself.
+
+### Two shapes that reported ok on a hook with its fallback switched off
+
+Worth reading before adding a shape of your own, because the failure looked
+exactly like success. The byte-cap shapes were written with a window of a million
+tokens. That puts the readings at 18% of the window, below the guard's threshold,
+so the guard says **nothing** — and two silences compare equal. Both shapes
+reported `ok` against a control whose uncapped re-read had been disabled
+outright: the floor-to-zero control passed 43 of 43. Leaving the window at its
+default makes the same readings 90%, the guard speaks, and the control is caught.
+
+A shape that cannot make the guard SPEAK cannot tell you it has stopped speaking.
+
+The same defect was then found in a shape that predates all of this: `config:
+maxBytes tiny` carried the same million-token window, and it was the only
+pre-existing shape that touched the fallback at all. It is now left at the
+default window too. Measured on the shipped hook, **12 of the 13 transcript
+shapes make the guard speak**; only `empty file` is silent, which is that
+shape's correct behaviour and means it can catch a guard that starts speaking,
+never one that stops.
+
+One more claim was corrected rather than defended: the fourteen and fifteen and
+sixteen shapes do NOT exercise the fallback on their own. Without a byte cap
+the capped read already holds the whole file, so the re-read returns the same
+median and the floor never matters. The floor-to-zero control differs on the
+byte-cap shapes and on neither plain one. The plain counts still guard against
+a crash and against a shape-table slip; they were simply credited with more
+than they do.
+
 ### The trap it took two goes to find
 
 Each side gets its own `HOME`, `TMPDIR`, `TEMP` **and** `TMP`. The guard writes

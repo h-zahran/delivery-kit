@@ -8,6 +8,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The context guard reads the transcript in **one** `jq` call instead of two
+  plus a `grep` — that count is the transcript block alone, not the whole hook,
+  whose per-run totals are in the table below — and lets `jq` read the payload
+  from standard input instead of copying it through a shell variable. The reading count and the median come
+  from the same pass, because they always came from the same list of numbers.
+
+  **Measured, on one non-firing run — the case that follows almost every tool
+  call — for zero, one and two configuration files present.** `jq` processes
+  fall from 4, 5 and 6 to **3, 4 and 5** on an ordinary transcript, and from
+  5, 6 and 7 to **4, 5 and 6** on one starved enough to need the uncapped
+  re-read. The `grep` falls from 1 to **0**. Processes of the input-copying
+  kind fall from 2 to **1**: this change removes the copy of standard input,
+  and the one that remains reads the warning flag further down, which is out
+  of scope and is reported rather than rounded away. A run that fires still
+  spends one more `jq`, on the emission that writes the instruction.
+
+  **What was measured, rather than a claim that behaviour is unchanged.** The
+  differential harness ran the pre-change hook against this one over 43
+  payload, configuration and transcript shapes and reported 43 identical, 0
+  different. Thirteen of those shapes are new and vary the transcript itself:
+  empty, one reading, fourteen, fifteen and sixteen readings, an unparseable
+  line among good ones, a non-numeric token value, a non-numeric cache field,
+  sidechain entries, a negative reading, a median-window shape, and two that
+  starve the byte cap to force the uncapped re-read. Fourteen and sixteen sit
+  either side of the floor of fifteen, which is where the fallback is decided.
+  Two deliberately broken controls were run first and both were caught — the
+  fallback floor set to zero, and the median taken over the first fifteen
+  readings rather than the last. The full suite reports the same 163 tests,
+  zero failures, before and after.
+
+  **Two things are load bearing and are commented as such in the hook.** The
+  per-line pipeline is wrapped in jq's error-tolerant form: streaming jq
+  reports a bad line and carries on, while an error inside an array escapes it
+  and kills the whole program — no readings at all, and a guard that says
+  nothing. And the count is not `length`: the `grep` it replaces counted
+  entries beginning with a digit, so a negative reading is excluded from the
+  count and included in the median. Measured on readings 100, -5 and 300, the
+  old count says 2 and `length` says 3. That moves the fallback decision and
+  nothing else: the count decides whether the uncapped re-read RUNS, never what
+  the guard answers, because the capped read is a byte suffix whose last fifteen
+  readings are the file's last fifteen whenever it holds fifteen at all. The
+  differential reports every shape identical for that mutation, so the rule is
+  pinned by process count instead: on a straddle of fourteen positive readings
+  and one negative, the shipped guard spends five `jq` processes and a `length`
+  mutant spends four, while both emit an identical 556 bytes.
+
+  **One behaviour DOES change, it was measured, and it is not repaired.** On a
+  usage record whose three token fields are all strings, `jq`'s `+` concatenates
+  rather than erroring. The old code emitted that concatenation as a reading, its
+  separate median call then failed to parse it, and the whole read collapsed: the
+  guard said **nothing**. The new code drops the junk and answers from the
+  readings around it — measured, 0 bytes against 556. The only route back to
+  byte-identical output here is back to that silence, which is the one direction
+  this hook may not fail in. The differential now carries the shape and ASSERTS
+  the difference, so quietly removing it goes red.
+
+  The per-line rule gained a `select(type == "number")` for the same reason.
+  Without it such a string sorts after every number, lands inside the
+  fifteen-wide window and pushes the middle index onto a larger reading:
+  measured, readings 100, 200 and 300 plus two such entries report a median of
+  300 where the true one is 200. An inflated median is the 2026-08-07 failure,
+  reached from a new direction.
+
+  On the path where `jq` cannot run, the hook now consumes standard input
+  before exiting. It used to do so by accident, through the copy this change
+  removes. Measured with a payload of roughly 200KB: a reader that exits
+  without reading leaves the writer killed by a broken pipe at exit 141, while
+  one that consumes it leaves the writer at 0.
+
+  `handoff/skills/setup/SKILL.md` measures context by the same rule and now
+  uses the same one-pass form, so the number it proposes a window from is
+  still derived the way the guard derives its own.
+
 - The context guard reads the payload and each configuration file in **one**
   `jq` call instead of one per field. It runs after every tool call, and process
   spawn dominates on Windows under Git Bash, so the cost was paid constantly.
