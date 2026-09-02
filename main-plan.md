@@ -1557,6 +1557,10 @@ D7c; `handoff/CHANGELOG.md` for D3 and D7a.
 
 ## Phase 16: release pipeline 1.2.0 and handoff 2.1.1
 
+**RUN PHASE 17 FIRST.** It changes `handoff/hooks/context-guard.sh` and
+therefore belongs inside the handoff 2.1.1 this phase stamps. Released
+after, it needs a release of its own. Phase 15 may run in either order.
+
 Both plugins have carried an open `## [Unreleased]` heading since the
 2026-08-25 documentation PRs. This phase folds both, in one run.
 
@@ -1647,3 +1651,108 @@ Watch both tag CI runs. Campaign 2 is complete when both are green.
 - **The crash-resume lock carve-out** — carried forward from Campaign 1.
   Still needs an owner design ruling.
 - iOS runtime verification, monorepos, other harnesses — still Not in v1.
+
+---
+
+## Phase 17: the guard stops counting jq, part two
+
+**RUN THIS BEFORE PHASE 16.** It changes `handoff/hooks/context-guard.sh`,
+so it belongs in the handoff 2.1.1 that Phase 16 releases. Released after,
+it needs a release of its own.
+
+Phase 14 closed the extraction half and left two findings on the table,
+both raised by review and both deferred by the owner on 2026-09-01.
+Phase 14's own record is in `specs/014-guard-jq-spawn-count/tasks.md`,
+Phase 9.
+
+Measured 2026-09-01 at `main` = `168edc1`, jq invocations per NON-FIRING
+run, for 0 / 1 / 2 configuration files present:
+
+| Transcript | jq spawns |
+|---|---|
+| 20 readings — an ordinary session | **4 / 5 / 6** |
+| 6 readings — the under-fifteen fallback fires | **5 / 6 / 7** |
+
+A firing run spends one more, on the emission. The calls are
+`:55` the availability probe, `:108` the payload, `:200` the
+configuration (once per file), `:289` the readings, `:324` the readings
+re-read when the capped slice holds fewer than fifteen, and `:327` the
+median. `:323` spends a `grep -c` besides, and `:47` and `:108` spend a
+`cat` and a `printf`.
+
+**Requirements:**
+
+1. **F7 — stop the two-process detour on stdin.** `input=$(cat)` at
+   `:47` is consumed once, at `:108`, by `printf '%s' "$input" | jq`.
+   That is a `cat` and a `printf` for a value with one consumer. Let jq
+   read stdin directly instead. **This saves no jq call — say so; it
+   removes two other processes.** The hazard is named rather than
+   discovered: the availability probe at `:55` runs BETWEEN the two, and
+   on the jq-missing path the payload is never parsed, so today stdin is
+   drained by `cat` and after this change it may not be. Prove what the
+   caller does with an undrained stdin before landing it, and record the
+   measurement. If it cannot be proven safe, **land F8 alone and say
+   why** — a broken hook costs more than two processes.
+
+2. **F8 — one jq for the transcript, not three plus a grep.** `:289`
+   reads the capped slice, `:323` counts the readings with `grep -c`,
+   `:324` re-reads uncapped when that count is under fifteen, and `:327`
+   takes the median. One jq program can emit the count and the median
+   together, which removes `:327` and the `grep` outright and leaves the
+   re-read as the only conditional second call.
+
+3. **THE FALLBACK ARITHMETIC MAY NOT CHANGE, AND THIS IS THE WHOLE
+   RISK.** The floor of fifteen, the median-of-last-fifteen window and
+   the uncapped re-read exist because of the 2026-08-07 and 2026-08-15
+   incidents, both recorded in the comments at `:283–325`. A cap that
+   can answer from a starved window buys latency with the exact failure
+   this arithmetic prevents. Same inputs must give the same median, the
+   same fallback decision, and the same answer.
+
+4. **Carry the comments, do not compress them.** `handoff/hooks/` is a
+   registered STRICT-vocabulary surface. The refactor moves code, not
+   the record, and any "simplification" that turns a named failure into
+   silence is a regression even with tests green.
+
+**Acceptance criteria:**
+
+- Full house suite from the repo root: **`1..163`**, 0 not ok, 0
+  non-TAP — UNCHANGED. This phase adds no tests and must break none.
+  Run it green before and after, and show both.
+- `handoff/tests/context-guard.bats` is not edited. Prove it with
+  `git diff --stat 168edc1 -- handoff/tests/context-guard.bats`, which
+  must be empty. **Pin the baseline to that commit id, never to `main`:**
+  this repository rebase-merges, so once the branch lands, a bare
+  `git diff` compares an empty range and the check reports zero having
+  scanned nothing.
+- The spawn count is MEASURED on both transcript shapes and both
+  columns recorded in the commit message. Target, to be confirmed rather
+  than assumed: ordinary **4/5/6 → 3/4/5**, fallback **5/6/7 → 4/5/6**,
+  plus the `grep` and both `printf`/`cat` processes gone.
+- Behaviour is proven identical by DIFFERENTIAL, not asserted: run the
+  pre-change hook against the new one over the payload and configuration
+  shapes, comparing stdout and exit code. A harness is already written at
+  `docs/tools/context-guard-differential.sh` — read its header first, it
+  records that **HOME, TMPDIR, TEMP and TMP must all be isolated per side
+  per shape**, or the old hook's once-per-bucket flag silences the new
+  one and the harness reports false differences. Extend it with
+  transcript shapes: empty, one reading, fourteen, fifteen, sixteen,
+  a malformed line among good ones, and sidechain entries.
+- The counting shim's directory must have **no drive letter**. A
+  `C:/...` entry in `PATH` splits on its own colon under Git Bash, the
+  shim is never found, and the count file prints `0` — indistinguishable
+  from a real zero.
+
+**Constraints:** Campaign 2 Global Constraints apply — including the full
+house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. **Changelog routing: `handoff/CHANGELOG.md` under
+the existing `## [Unreleased]`, a `### Changed` entry** naming the
+reduction and stating what was measured rather than asserting behaviour
+is unchanged — Phase 14 shipped that flat claim and review falsified it.
+
+**Invocation:**
+
+```
+/pipeline Phase 17: the guard stops counting jq, part two --auto --implementer claude
+```
