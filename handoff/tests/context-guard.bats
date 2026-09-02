@@ -769,8 +769,9 @@ load ../../tests/helper
   # promise in handoff/docs/configuration.md cuts both ways: the hook must tolerate
   # keys it does not know, and so must this.
   #
-  # `jq -s ` is what distinguishes the merge from the skill's two measurement
-  # invocations, `jq -Rr ` and `jq -rs `, which this must not pick up.
+  # `jq -s ` is what distinguishes the merge from the skill's measurement
+  # invocation, `jq -Rrn `, which this must not pick up. There were two of those
+  # until the reading and the median came from one pass.
   # `|| true` is load-bearing, not defensive habit. bats runs tests under
   # `set -e`, so a grep that matches nothing aborts the assignment itself and
   # the check below never executes — verified by running it: the guard was
@@ -912,16 +913,27 @@ load ../../tests/helper
 
 @test "the hook and the setup skill measure context by one identical rule" {
   # Issue #7. The measurement is written TWICE — handoff/hooks/context-guard.sh
-  # holds it as READINGS_JQ, handoff/skills/setup/SKILL.md holds it inline — and
-  # nothing coupled them. Editing either one left every other test in the suite
+  # and handoff/skills/setup/SKILL.md each hold it as READINGS_JQ, and each
+  # hold the median as MEDIAN_JQ — and nothing coupled them. The skill held
+  # both inline until the guard stopped spending a separate process on the
+  # median; naming them was what let one anchor find them in both files. Editing either one left every other test in the suite
   # green. That matters because the skill's whole claim is that it measures "the
   # same way the guard does": the window it recommends is only meaningful while
   # that stays true, and when it stops being true nothing anywhere says so.
   #
   # Three quantities are pinned, because all three are duplicated: the jq
   # program, the `tail -n` line budget, and the median program. Each is verified
-  # by MUTATION, not asserted — edit any one of the six sites alone and this
-  # test alone goes red.
+  # by MUTATION, not asserted — edit any one of the SEVEN sites alone and this
+  # test alone goes red. Seven, counted rather than remembered: two READINGS_JQ,
+  # three `tail -n`, two MEDIAN_JQ. The number said six for as long as it was
+  # wrong, which is the argument for counting it in the rig instead of here.
+  # A fourth part below pins the skill's USE of the two it declares.
+  #
+  # Two of the three are matched through a named variable that exists in both
+  # files for this test's benefit as much as for the code's. That is deliberate:
+  # an anchor written against a call site pins the caller's shape as well as the
+  # program, and this test has already once forbidden a change to the caller
+  # that left both programs identical.
   SKILL="$HANDOFF/skills/setup/SKILL.md"
   q="'"
 
@@ -931,10 +943,19 @@ load ../../tests/helper
   # Delimiters are then stripped with parameter expansion rather than another
   # sed script, so that no quote has to be escaped through a second layer —
   # macos-latest runs bash 3.2 and nothing here can exercise it locally.
+  #
+  # ONE ANCHOR SERVES BOTH FILES NOW, and that is the point of the change that
+  # brought it about. The skill's anchor used to be the literal text
+  # `jq -Rr 'fromjson?`, which pinned the program's SPELLING AT ITS CALL SITE
+  # rather than the program: the day the hook stopped piping one number per
+  # line into a second jq, no edit to the skill could satisfy both this
+  # extraction and the comparison below it. The rule is a named variable in
+  # both files now, so the same anchor finds it in both and a rename in either
+  # reddens the emptiness guard rather than passing quietly.
   hook_block="$(sed -n "/^READINGS_JQ=/,/$q/p" "$HOOK" || true)"
-  skill_block="$(sed -n "/jq -Rr ${q}fromjson?/,/$q/p" "$SKILL" || true)"
+  skill_block="$(sed -n "/^READINGS_JQ=/,/$q/p" "$SKILL" || true)"
   [ -n "$hook_block" ] || { echo "no READINGS_JQ in handoff/hooks/context-guard.sh"; false; }
-  [ -n "$skill_block" ] || { echo "no 'jq -Rr' reading program in handoff/skills/setup/SKILL.md"; false; }
+  [ -n "$skill_block" ] || { echo "no READINGS_JQ in handoff/skills/setup/SKILL.md"; false; }
 
   hook_prog="${hook_block#*$q}";   hook_prog="${hook_prog%$q*}"
   skill_prog="${skill_block#*$q}"; skill_prog="${skill_prog%$q*}"
@@ -970,12 +991,57 @@ load ../../tests/helper
 
   # --- 3. the median program. Same line in both files, and the one that decides
   # which reading is believed; 1.0.2 already had to widen it once.
-  medians="$(grep -ohE "jq -rs ${q}[^${q}]*${q}" "$HOOK" "$SKILL" || true)"
+  #
+  # It is matched as a NAMED VARIABLE, not as a `jq -rs` invocation. The older
+  # pattern required the median to be spent as its own process in both files,
+  # which is a fact about how many processes the hook starts and not about
+  # which reading it believes. When the hook stopped spending that process —
+  # the count and the median now come from one pass — the site count fell to
+  # one and this part failed while the two files still agreed perfectly on the
+  # rule. Measured: the differential reported 43 of 43 shapes identical on the
+  # run that reddened this line. The coupling is unchanged and still pinned by
+  # mutation; what moved is that the pin no longer also dictates the shape of
+  # the caller.
+  #
+  # The `.*` after the assignment is load bearing in the same way the quoted
+  # class was: it captures the program itself, so a drift INSIDE either
+  # variable makes the two matches differ. A pattern matching only the
+  # variable name would find two identical strings on any two files that
+  # happened to declare it, and say nothing about what either one holds.
+  medians="$(grep -ohE '^MEDIAN_JQ=.*' "$HOOK" "$SKILL" || true)"
   count="$(printf '%s\n' "$medians" | grep -c . || true)"
   [ "$count" -ge 2 ] || { echo "expected the median program in both files, found $count"; false; }
   distinct="$(printf '%s\n' "$medians" | sort -u | grep -c . || true)"
   [ "$distinct" -eq 1 ] || {
     echo "the median program disagrees:"; printf '%s\n' "$medians" | sort -u; false; }
+
+  # --- 4. the skill USES the two programs it declares.
+  #
+  # Parts 1 and 3 above compare DECLARATIONS. That is a weaker thing than it
+  # looks, and the weakness arrived with them: the skill's anchors used to BE
+  # its call sites, so there was no declaration to drift from a use. Once both
+  # anchors moved to `^NAME=`, a skill whose two declarations match the hook
+  # byte for byte could invoke something else entirely and every part above
+  # would pass.
+  #
+  # Measured, not reasoned: a SKILL.md with both declarations untouched and
+  # the `jq -Rrn` line rewritten to inline a first-fifteen median with no
+  # sidechain filter passed parts 1, 2 and 3 GREEN. Under the old call-site
+  # anchor the same edit was RED. This part is what puts that back.
+  #
+  # The `?` is inside the match on purpose. It is load bearing in the skill
+  # for the same reason it is load bearing in the hook: collecting the
+  # readings into an array makes one unparseable line abort the whole program
+  # and return nothing, where the streaming form it replaced reported that
+  # line and carried on.
+  use="$(grep -cF 'jq -Rrn "[ inputs | ( $READINGS_JQ )? ] | $MEDIAN_JQ"' "$SKILL" || true)"
+  [ "$use" -eq 1 ] || {
+    echo "handoff/skills/setup/SKILL.md must SPEND the two programs it declares,"
+    echo "as: jq -Rrn \"[ inputs | ( \$READINGS_JQ )? ] | \$MEDIAN_JQ\""
+    echo "found $use such invocations. A declaration the skill does not use"
+    echo "makes parts 1 and 3 of this test compare two decorations."
+    grep -n 'jq -Rrn' "$SKILL" || true
+    false; }
 }
 
 @test "falls back to its own working directory when the payload carries none" {

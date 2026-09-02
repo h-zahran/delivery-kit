@@ -44,8 +44,6 @@ is_valid_threshold() {
   is_positive_int "$1" && [ "$1" -le 100 ]
 }
 
-input=$(cat)
-
 # jq is a hard dependency: the hook parses the stdin payload and a JSONL
 # transcript, and reimplementing that in POSIX shell would be fragile exactly
 # where correctness matters. Without jq the guard cannot run — and a guard
@@ -55,6 +53,20 @@ input=$(cat)
 if ! jq --version >/dev/null 2>&1; then
   flagdir="${TMPDIR:-${TEMP:-/tmp}}"
   hint_flag="$flagdir/dk-jq-hint"
+  # CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. Every other path
+  # out of this hook ends with jq having read the payload to end of input; this
+  # one does not run jq at all. A reader that exits without reading leaves the
+  # caller writing into a closed pipe. Measured 2026-09-02, a ~200KB payload:
+  # a reader that never reads leaves the writer at exit 141 — killed by the
+  # broken pipe — while a reader that consumes it leaves the writer at 0.
+  #
+  # This used to happen by accident: the whole payload was copied into a shell
+  # variable at the top of the file, before this branch could be reached, and
+  # then written back out to jq further down. That cost a process on EVERY run
+  # to protect a path taken once per machine. The cost now sits on the path
+  # that needs it. Do not delete this line because the guard is exiting anyway:
+  # what it protects is the caller, not this hook.
+  cat > /dev/null 2>&1
   if [ ! -f "$hint_flag" ]; then
     : 2>/dev/null > "$hint_flag"
     printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
@@ -105,7 +117,13 @@ US=$'\037'
 #
 # The defaults are the ones this hook has always applied, moved into the jq
 # program unchanged — empty for three fields, "unknown" for the session.
-payload=$(printf '%s' "$input" | jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)')
+#
+# jq READS STDIN ITSELF. The payload used to be copied into a shell variable at
+# the top of this file and written back out here through a pipe — a `cat` and a
+# `printf` subshell, on every run, for a value with exactly ONE consumer. jq
+# reads to end of input, so the copy bought nothing except draining stdin on
+# the jq-missing path above, which that path now does for itself.
+payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)')
 agent_id=${payload%%"$US"*};  rest=${payload#*"$US"}
 transcript=${rest%%"$US"*};   rest=${rest#*"$US"}
 session=${rest%%"$US"*}
@@ -280,13 +298,83 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 #
 # Run twice on the starved path, so it is written once here rather than
 # twice below, where the two copies would drift and only one would be tested.
+#
+# READINGS_JQ IS THE PER-LINE RULE AND NOTHING ELSE.
+#
+# THE FINAL `select` IS NOT COSMETIC. jq's `+` concatenates STRINGS, so a
+# usage record whose three token fields are ALL strings does not error — it
+# yields a string, and jq sorts every string AFTER every number. Without this
+# line that junk lands inside the fifteen-wide window and pushes the middle
+# index onto a LARGER reading: measured, readings 100, 200, 300 plus two such
+# entries report a median of 300 where the true one is 200. An inflated median
+# is the 2026-08-07 failure exactly, arrived at from a new direction.
+#
+# It also records a divergence from the pre-refactor hook, in the fail-loud
+# direction and deliberately not repaired. On that same all-strings record the
+# OLD code emitted the concatenation as a line, and the separate median call
+# then failed to parse it, so the whole read collapsed and THE GUARD SAID
+# NOTHING — measured: 0 bytes against 556. Restoring that byte-for-byte would
+# mean restoring a silence, which is the one direction this hook may not fail
+# in. The differential pins the difference rather than hiding it.
+#
+# handoff/skills/setup/SKILL.md carries the same program so it can
+# claim to measure the way this guard measures, and the suite pins the two
+# character for character. Collecting the readings into this variable would
+# have broken that coupling: the two files wrap this rule DIFFERENTLY — the
+# guard needs the count as well as the median, the skill needs only the
+# median — so the rule is what they can share and the wrapper is not.
 READINGS_JQ='fromjson?
   | select(.isSidechain != true)
   | select(.message.usage.input_tokens != null)
   | .message.usage
-  | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))'
+  | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))
+  | select(type == "number")'
 
-readings=$(tail -c "$MAX_BYTES" "$transcript" | tail -n 5000 | jq -Rr "$READINGS_JQ" 2>/dev/null)
+# MEDIAN_JQ IS ALSO WRITTEN TWICE, for the same reason and with the same pin.
+# handoff/skills/setup/SKILL.md computes the number it proposes a window from,
+# and it must be THIS median or its proposal describes a rule nothing enforces.
+# It is a named variable in both files rather than an expression buried in a
+# larger program, so the suite can compare the two character for character and
+# a drift at either site goes red.
+MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
+
+# The count and the median come from ONE pass over the same list, composed here
+# ONCE and spent at both call sites below. It used to be three: this program's
+# ancestor emitted one number per line, a `grep -c` counted those lines, and a
+# third jq took the median. Measured 2026-09-02 on the NON-FIRING path, which
+# follows almost every tool call: 4/5/6 jq processes to 3/4/5 on an ordinary
+# transcript and 5/6/7 to 4/5/6 on the starved one, for zero, one and two
+# configuration files, and the grep gone.
+#
+# THE `?` AFTER THE PER-LINE PIPELINE IS LOAD BEARING. Streaming jq treats a
+# runtime error as an error on THAT INPUT: it reports it and carries on with
+# the next line. Collect the same pipeline into an array and the error escapes
+# the array construction and kills the whole program, so jq emits NOTHING —
+# every reading lost, ctx empty, and the guard silent, which is the one
+# direction this hook must never fail in. Measured on a transcript whose middle
+# line carries a string where a token count belongs: without the `?`, no output
+# and exit 5; with it, the same two numbers streaming gives.
+#
+# THE COUNT IS NOT `length`, AND THAT IS LOAD BEARING TOO. The `grep -c` it
+# replaces counted lines BEGINNING WITH A DIGIT, so a negative reading was
+# excluded from the count and included in the median — the two look at
+# different sets, and always have. `length` counts it, moving the fallback
+# decision by one on such a transcript. Measured on readings 100, -5, 300: the
+# old count says 2, `length` says 3, and the median is 100 either way. The cap
+# may never change the answer, so this reproduces the rule rather than
+# improving it.
+#
+# -R is raw INPUT and says nothing about output. Without -r the join comes back
+# as a JSON string with the separator spelled as an escape, the split below
+# finds no separator byte, and the whole string lands in the count. All three
+# of -R, -r and -n are required.
+SUMMARY_JQ="[ inputs | ( $READINGS_JQ )? ]
+| [ (map(select(tostring | test(\"^[0-9]\"))) | length)
+  , ( $MEDIAN_JQ )
+  ]
+| map(tostring) | join(\$US)"
+
+summary=$(tail -c "$MAX_BYTES" "$transcript" | tail -n 5000 | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
 
 # The byte cap is a THIRD budget that does not measure readings either, so on
 # its own it reaches the 2026-08-07 incident by exactly the route `tail -n 300`
@@ -320,11 +408,32 @@ readings=$(tail -c "$MAX_BYTES" "$transcript" | tail -n 5000 | jq -Rr "$READINGS
 # megabyte between consecutive readings. An ordinary session is nowhere near
 # that; a session whose tool results are that large pays ~1s and gets the right
 # answer, which is the trade already made above rather than a new one.
-if [ "$(printf '%s\n' "$readings" | grep -c '^[0-9]')" -lt 15 ]; then
-  readings=$(tail -n 5000 "$transcript" | jq -Rr "$READINGS_JQ" 2>/dev/null)
+# Split with parameter expansion, never `read`, for the reason spelled out at
+# the payload extraction above: `read` stops at the first newline and would
+# drop the field after it.
+count=${summary%%"$US"*}
+
+# A count that is not a run of digits means STARVED, never satisfied, and the
+# direction is the whole point. The `grep -c` this replaces could not fail —
+# it always printed a number. One field of a joined string can be empty or
+# malformed, and an unusable value would make the comparison below error out
+# and evaluate FALSE, skipping the uncapped re-read. Skipping it is precisely
+# the 2026-08-07 failure the re-read was added to close, so a broken count must
+# fall back rather than press on.
+case $count in
+  ''|*[!0-9]*) count=0 ;;
+esac
+
+if [ "$count" -lt 15 ]; then
+  summary=$(tail -n 5000 "$transcript" | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
 fi
 
-ctx=$(printf '%s\n' "$readings" | jq -rs '.[-15:] | sort | .[(length/2|floor)] // 0' 2>/dev/null)
+# Derived ONCE, after the fallback has had its say, rather than either side of
+# the branch. Both derivations would have to be kept in step with the
+# separator by hand, and the pre-fallback one would hold a value that is about
+# to be thrown away on the starved path. An empty summary yields an empty ctx
+# here exactly as it did there, and the emptiness test below still exits.
+ctx=${summary#*"$US"}
 
 [ -n "$ctx" ] && [ "$ctx" -gt 0 ] 2>/dev/null || exit 0
 
