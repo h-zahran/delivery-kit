@@ -1,7 +1,7 @@
 {
   "name": "handoff",
   "description": "Warns before a session runs out of context, then writes a handoff document the next session resumes from in a single file read.",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": {
     "name": "Haytham Zahran"
   },
