@@ -178,9 +178,24 @@ same three lines the workflow runs.
 - **FR-009**: Each new heading MUST satisfy
   `^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$`, including the
   trailing anchor, because that is the pattern the agreement gate parses.
-- **FR-010**: Exactly five files may change: the two manifests, the marketplace
-  manifest, and the two changelogs. Any other changed path is a defect of this
-  feature, not a bonus. This count is measured, not assumed — see Clarifications:
+- **FR-010**: Exactly five **stamp** files may change: the two manifests, the
+  marketplace manifest, and the two changelogs. Any other changed path *within the
+  release itself* is a defect of this feature, not a bonus.
+
+  **The boundary is stated precisely because an earlier draft was wrong about it.**
+  That draft admitted no exclusion at all, while SC-004 excluded `.specify` only,
+  so the two contradicted each other and a reviewer auditing either had to fail a
+  correct release. The branch changes **fourteen** tracked paths, in three groups:
+
+  | Group | Count | Status |
+  |---|---|---|
+  | The version stamps | 5 | **the release**; FR-001 to FR-006 |
+  | `.specify/memory/constitution.md` | 1 | its own commit, an owner-authorised named departure |
+  | `specs/016-release-two-plugins/` | 8 | this feature's own specification and evidence |
+
+  Only the first group is bounded by this requirement. The other two are named
+  here rather than excluded silently, and every check that counts files prints
+  what it excluded. This count is measured, not assumed — see Clarifications:
   the root `CHANGELOG.md` holds no version number, and no tracked file outside
   those five records a current plugin version. The two remaining matches for the
   outgoing versions are historical comments and MUST be left alone.

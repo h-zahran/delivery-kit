@@ -129,8 +129,15 @@ carry comments describing what the 1.1.0 release did. They are history.
 
 **Structure Decision**: no new directory and no new file is created under any
 shipped tree. Everything this feature produces beyond the five edits lives under
-`specs/016-release-two-plugins/` and `.delivery-kit/runs/016-release-two-plugins/`,
-neither of which ships or is scanned. The constitution written earlier in this
+`specs/016-release-two-plugins/` and `.delivery-kit/runs/016-release-two-plugins/`.
+
+**`specs/` IS tracked and IS scanned, and an earlier draft of this line claimed
+otherwise.** That false claim was the root cause of a real defect: because the
+spec tree was believed out of scope, the file-count check excluded `.specify` and
+not `specs`, and counted thirteen on a correct committed tree. `tests/portability.bats`
+enumerates `git ls-files` excluding only the root `tests/`, and its own comment
+names `specs/` as the tree whose absence from the shipped lists caused the leak
+it exists to stop. `.delivery-kit/` is genuinely out — it is gitignored. The constitution written earlier in this
 run lives at `.specify/memory/constitution.md` and is committed separately, per
 the orchestrator's rule that a governance file never rides inside a feature's
 commit.
