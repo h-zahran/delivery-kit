@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dated table records one run rather than making a claim about the current file.
   A total written into prose here went stale twice in the session that wrote it,
   and a third time before the release pass caught it — and every time, the shape
-  it omitted was one asserted to differ. This paragraph's own list carries no
+  it omitted was one asserted to differ. The list of shapes above carries no
   total now. Count them:
   `grep -c '^run_shape "transcript:' scripts/context-guard/differential.sh`.
 
@@ -92,10 +92,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the three that moves the FALLBACK DECISION rather than the median, and no
     median-shaped test can see it.
 
-  All three are corrections, and the second is the most important: an inflated
-  median driven by junk is the 2026-08-07 fault itself. Restoring any of them
-  byte-for-byte means restoring a defect. The differential carries all three
-  shapes and ASSERTS each difference, so quietly removing one goes red.
+  All three are corrections. The second and the third both end with the old
+  guard SPEAKING on junk it should have discarded, which is the 2026-08-07 fault
+  itself; they differ in how it got there, the second through the median and the
+  third through the fallback. The third is the one no median-shaped test can
+  see. Restoring any of them byte-for-byte means restoring a defect. The
+  differential carries all three shapes and ASSERTS each difference, so quietly
+  removing one goes red.
 
   The claim above said **one** behaviour for one commit, then **two** until the
   release pass. Each number was written from the cases found so far, which is
