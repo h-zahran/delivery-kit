@@ -125,10 +125,10 @@ is verified.
 | Rule | Source | How checked |
 |---|---|---|
 | Three records agree, per plugin | `scripts/check-versions.sh` | run it; exit 0 and two printed triples |
-| Heading matches the anchored pattern | same script | the script dies naming the format if not |
+| Heading matches the anchored pattern | **nothing** | The script does NOT enforce this. A non-matching heading is SKIPPED by its `grep -m1`, not rejected, so it reads an older release's heading and reports agreement. It dies naming the format only when NO heading in the file matches. Checked here by T017 instead. |
 | No `## [Unreleased]` remains | this feature only | direct search — the script CANNOT see this |
-| Content beneath each heading unchanged | FR-007 | compare the range below the heading against `HEAD` |
-| Exactly five files changed | FR-010 | count the paths in the diff |
+| Content beneath each heading unchanged | FR-007 | compare the range below the heading against the merge base `c2259d5`, never against `HEAD` — after the release commits, `HEAD` carries no `## [Unreleased]` heading and the check goes falsely red |
+| Exactly five STAMP files changed | FR-010 | count the diff against the merge base excluding BOTH `.specify` and `specs` — the branch changes fourteen tracked paths in total: five stamps, the constitution, and this feature's own eight artefacts |
 | Manifest `name` still equals its directory | `check-versions.sh` | unchanged by this feature; the script asserts it anyway |
 
 ## Out of model

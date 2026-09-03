@@ -40,7 +40,7 @@ matches nothing exits 0 and changes nothing — success and total failure print 
 same thing.
 
 - [X] T001 Confirm the working tree is clean and HEAD is on branch `016-release-two-plugins` with `git status --porcelain` and `git branch --show-current`; the only expected untracked path is `specs/016-release-two-plugins/`  (covers: setup, no requirement)
-- [X] T002 Run section 1 of `specs/016-release-two-plugins/quickstart.md` and require all six `expect_count` assertions to pass — two spaces of indent in each `plugin.json`, six in `.claude-plugin/marketplace.json`  (covers: precondition for FR-001 through FR-006)
+- [X] T002 Run section 1 of `specs/016-release-two-plugins/quickstart.md` and require all six `expect_one` assertions to pass — two spaces of indent in each `plugin.json`, six in `.claude-plugin/marketplace.json`  (covers: precondition for FR-001 through FR-006)
 - [X] T003 Run section 2 of `specs/016-release-two-plugins/quickstart.md` to record the derived `## [Unreleased]` line numbers in `pipeline/CHANGELOG.md` and `handoff/CHANGELOG.md`; do not hardcode them anywhere  (covers: precondition for FR-003, FR-006)
 
 ---
@@ -105,8 +105,8 @@ before any edit, the gate passed on the broken tree. See
 `contracts/version-agreement.md` C4.
 
 - [X] T014 [US2] Run section 7 of `specs/016-release-two-plugins/quickstart.md` and require `no_unreleased .` to report no dangling heading in `pipeline/CHANGELOG.md` or `handoff/CHANGELOG.md`  (covers: FR-008, SC-001)
-- [X] T015 [US2] Run section 7b of `specs/016-release-two-plugins/quickstart.md` — the positive control — in the same shell as T014: rebuild the pre-fold changelogs from `HEAD` into a temporary directory, assert the control input really does carry `## [Unreleased]`, then require `no_unreleased` to REPORT A FINDING against it. If the control passes, T014 proves nothing and the release stops here  (covers: FR-008 positive control, Constitution III)
-- [X] T016 [US2] Run section 5 of `specs/016-release-two-plugins/quickstart.md` against `pipeline/CHANGELOG.md` and `handoff/CHANGELOG.md`, and require both changelogs byte-identical below their heading line, with the line position derived from `HEAD` rather than assumed  (covers: FR-007)
+- [X] T015 [US2] Run section 7b of `specs/016-release-two-plugins/quickstart.md` — the positive control — in the same shell as T014: rebuild the pre-fold changelogs from the merge base `c2259d5` into a temporary directory, assert the control input really does carry `## [Unreleased]`, then require `no_unreleased` to REPORT A FINDING against it. If the control passes, T014 proves nothing and the release stops here  (covers: FR-008 positive control, Constitution III)
+- [X] T016 [US2] Run section 5 of `specs/016-release-two-plugins/quickstart.md` against `pipeline/CHANGELOG.md` and `handoff/CHANGELOG.md`, and require both changelogs byte-identical below their heading line, with the line position derived from the merge base `c2259d5` rather than assumed  (covers: FR-007)
 - [X] T017 [US2] Require both new headings to match `^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$` including the trailing anchor — the exact pattern `scripts/check-versions.sh` parses, so a heading it silently skips is caught here instead  (covers: FR-009)
 
 **Checkpoint**: US2 is complete. T015 is the task that makes T014 worth anything.
@@ -138,7 +138,7 @@ runs.
 - [X] T024 Run the shell analyser as CI runs it — discovery by `git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/'`, then `shellcheck --norc -f gcc` over the result — and require it clean, remembering the runner ships an OLDER shellcheck that reports more  (covers: SC-005)
 - [X] T025 Confirm `.specify/memory/constitution.md` is NOT among the five changed paths at commit time; it is staged as its own separate commit, because a governance file never rides inside a feature's commit  (covers: orchestrator rule, no requirement)
 - [X] T026 Re-verify the MINOR bump justification: require the section under `## [1.2.0] - 2026-09-03` in `pipeline/CHANGELOG.md` to still contain an `### Added` heading. Added capability is what makes 1.2.0 a minor rather than a patch, and that evidence was last measured at the spec-quality gate, not at implementation time  (covers: FR-013)
-- [X] T027 Re-verify the PATCH bump justification: require the section under `## [2.1.1] - 2026-09-03` in `handoff/CHANGELOG.md` to contain `### Changed` and NO `### Added` heading, and require the phrase `identical behaviour` to appear in neither changelog and in no commit or pull-request text this feature writes. That wording predates Phase 17 and is false; FR-014 forbids using it to justify the bump  (covers: FR-014)
+- [X] T027 Re-verify the PATCH bump justification: require the section under `## [2.1.1] - 2026-09-03` in `handoff/CHANGELOG.md` to contain `### Changed` and NO `### Added` heading, and require the phrase `identical behaviour` to appear in neither changelog, and to appear in commit or pull-request text only where it is explicitly disclaimed as the old and false justification. That wording predates Phase 17 and is false; FR-014 forbids using it to justify the bump  (covers: FR-014)
 
 ---
 

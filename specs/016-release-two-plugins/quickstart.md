@@ -51,9 +51,6 @@ echo "PRECONDITIONS OK"
 Note the indentation in the patterns: **two** spaces in a manifest, **six** in a
 marketplace entry. They are not interchangeable.
 
-Note the indentation in the patterns: **two** spaces in a manifest, **six** in a
-marketplace entry. They are not interchangeable.
-
 ---
 
 ## 2. Record the pre-edit heading positions
@@ -61,19 +58,25 @@ marketplace entry. They are not interchangeable.
 Derived, not hardcoded — a line number written into a document stops being true
 the moment anything is inserted above it.
 
-Read from `$BASE`, not from the working tree, so the number is the same whether
-this is run before or after section 3. The position is the thing section 5 needs,
-and it is a property of the pre-edit file.
+**What this section asserts that section 5 does not: UNIQUENESS.** Section 5
+takes the first match and compares the tail below it. If the base file had
+carried two `## [Unreleased]` headings, section 5 would silently compare from the
+first and call the second part of the frozen content. This block refuses that
+input. An earlier version only printed the positions and asserted nothing section
+5 did not already assert, which made it a section that could never say pass or
+fail.
 
 ```bash
 set -e
 cd "$(git rev-parse --show-toplevel)"
 BASE=c2259d5
 for f in pipeline/CHANGELOG.md handoff/CHANGELOG.md; do
+  c=$(git show "$BASE:$f" | grep -c '^## \[Unreleased\]$' || true)
+  [ "$c" = "1" ] || { echo "FAIL: $BASE:$f has $c Unreleased heading(s), expected exactly 1"; exit 1; }
   n=$(git show "$BASE:$f" | grep -n '^## \[Unreleased\]$' | cut -d: -f1)
-  [ -n "$n" ] || { echo "FAIL: $BASE:$f has no Unreleased heading"; exit 1; }
-  echo "$f heading was at line $n in $BASE"
+  echo "ok: $f had exactly one Unreleased heading in $BASE, at line $n"
 done
+echo "BASE HEADINGS UNIQUE"
 ```
 
 ---
@@ -104,18 +107,41 @@ echo "SIX EDITS APPLIED"
 A mutation that did not land is a silent false green. `--numstat` prints
 `<added> <removed> <path>`; one line changed reads `1 1`.
 
+**This block asserts; it does not print for a human to compare.** An earlier
+version ran a bare `git diff --numstat` with no base and no test. Once the
+release was committed that produced empty output and exit 0 — a walk over zero
+rows reporting zero problems, inside the section titled "prove every edit
+landed". The same defect was found and fixed in the 1.1.0 release; it came back
+here.
+
 ```bash
 set -e
 cd "$(git rev-parse --show-toplevel)"
-git diff --numstat -- \
-  pipeline/.claude-plugin/plugin.json \
-  handoff/.claude-plugin/plugin.json \
+BASE=c2259d5
+# Both sides go through the same sort. Comparing a hand-ordered literal against
+# sorted output fails on ORDER while the contents agree — measured, and it is the
+# kind of red that teaches a reader to stop believing the block.
+want=$(printf '%s\n' \
+  "2	2	.claude-plugin/marketplace.json" \
+  "1	1	handoff/.claude-plugin/plugin.json" \
+  "1	1	handoff/CHANGELOG.md" \
+  "1	1	pipeline/.claude-plugin/plugin.json" \
+  "1	1	pipeline/CHANGELOG.md" | sort)
+got=$(git diff --numstat "$BASE" -- \
   .claude-plugin/marketplace.json \
-  pipeline/CHANGELOG.md \
-  handoff/CHANGELOG.md
+  handoff/.claude-plugin/plugin.json \
+  handoff/CHANGELOG.md \
+  pipeline/.claude-plugin/plugin.json \
+  pipeline/CHANGELOG.md | sort)
+rows=$(printf '%s' "$got" | grep -c . || true)
+[ "$rows" = "5" ] || { echo "FAIL: $rows numstat row(s), expected 5 — a walk over fewer rows verifies less"; printf '%s\n' "$got"; exit 1; }
+[ "$got" = "$want" ] || { echo "FAIL: numstat differs — a larger row means a reformat happened"; diff <(printf '%s\n' "$want") <(printf '%s\n' "$got"); exit 1; }
+printf '%s\n' "$got"
+echo "EDIT SIZE OK: 5 rows, one changed line each except the marketplace's two entries"
 ```
 
-Expected, exactly:
+The row count is asserted before the contents are compared, because two empty
+strings are equal and an empty diff would otherwise pass. Expected, exactly:
 
 ```text
 2       2       .claude-plugin/marketplace.json
@@ -133,8 +159,8 @@ any row means a reformat happened and the edit must be undone and redone.
 ## 5. Prove the changelog CONTENT is untouched
 
 FR-007. The heading line changes; nothing below it may. Compare the range below
-the heading against the same range in `HEAD`, with the position derived from
-`HEAD` rather than assumed.
+the heading against the same range at the merge base, with the position derived
+rather than assumed.
 
 **The baseline is pinned to a commit id, never to `HEAD`.** This repository
 rebase-merges, and the moment the release commit lands, `HEAD:` carries no
@@ -206,12 +232,19 @@ violated inside the artefact that cites it.
 set -e
 cd "$(git rev-parse --show-toplevel)"
 
-# Reports every dangling heading under $1. Exit 1 if any, or if it scanned nothing.
+# Returns 0 clean, 1 when a dangling heading is found, 2 when it refuses to scan.
+# The 1-versus-2 distinction is the contract section 7b tests on.
 no_unreleased() {  # directory to check
+  # Two independent walks of the same set, pinned to each other — NOT a numeric
+  # floor. A hand-written floor is a magic number a narrowed walk slips under:
+  # retire a plugin and it reddens correct work, add one and a walk that reaches
+  # only two still clears it. Derive the expected count from the tree instead.
+  want=$(find "$1" -mindepth 2 -maxdepth 2 -name CHANGELOG.md -printf '%h\n' 2>/dev/null | sort -u | grep -c . || true)
   logs=$(find "$1" -mindepth 2 -maxdepth 2 -name CHANGELOG.md 2>/dev/null | sort)
   n=$(printf '%s' "$logs" | grep -c . || true)
-  [ "$n" -ge 2 ] || { echo "FAIL: found $n plugin changelog(s) under $1, expected at least 2 — this walk verified nothing"; return 2; }
-  echo "scanning $n changelog(s) under $1"
+  [ "$n" -ge 1 ] || { echo "FAIL: found no plugin changelog under $1 — this walk verified nothing"; return 2; }
+  [ "$n" = "$want" ] || { echo "FAIL: $n changelog(s) but $want directory/ies under $1 — the two walks disagree"; return 2; }
+  echo "scanning $n changelog(s) under $1 (one per plugin directory)"
   found=$(printf '%s\n' "$logs" | xargs grep -l '^## \[Unreleased\]$' 2>/dev/null || true)
   if [ -n "$found" ]; then
     echo "DANGLING Unreleased heading in:"; echo "$found"; return 1
@@ -280,23 +313,27 @@ the function: one implementation, two callers.
 
 FR-010 and SC-004. Derived by counting the diff, not by reading the list back.
 
-**The pathspec is part of the check, not a convenience.** Without it this block
-counts six and exits 1 — measured — because the constitution written earlier in
-this run lives under `.specify/` and rides this branch. The boundary is encoded
-here and in SC-004 rather than narrated, so the check is true in every state
-instead of in one narrow window.
+**Both pathspecs are part of the check, not a convenience.** This branch changes
+**fourteen** tracked paths: the five version stamps, the constitution under
+`.specify/`, and this feature's own eight artefacts under `specs/`. Only the five
+stamps are the release. An earlier version of this block excluded `.specify` and
+not `specs`, and counted **thirteen** on a correct committed tree — it had only
+ever passed because the spec files were still untracked when it ran, so a
+tracked-file diff could not see them. The 1.1.0 release's quickstart carried
+`':(exclude)specs/'`; it was dropped here and is restored.
 
 ```bash
 set -e
 cd "$(git rev-parse --show-toplevel)"
 BASE=c2259d5
-n=$(git diff --name-only "$BASE" -- . ':(exclude).specify' | wc -l | tr -d ' ')
-echo "feature files changed against $BASE: $n"
-git diff --name-only "$BASE" -- . ':(exclude).specify'
-[ "$n" = "5" ] || { echo "FAIL: expected 5 changed files, found $n"; exit 1; }
+STAMP=". ':(exclude).specify' ':(exclude)specs'"
+n=$(eval git diff --name-only "$BASE" -- $STAMP | wc -l | tr -d ' ')
+echo "stamp files changed against $BASE: $n"
+eval git diff --name-only "$BASE" -- $STAMP
+[ "$n" = "5" ] || { echo "FAIL: expected 5 stamp files, found $n"; exit 1; }
 echo "FILE COUNT OK"
-echo "--- and what the exclusion is hiding, named rather than hidden: ---"
-git diff --name-only "$BASE" -- .specify || true
+echo "--- and what the exclusions hide, named rather than hidden: ---"
+git diff --name-only "$BASE" -- .specify specs || true
 ```
 
 The second command is not decoration. An exclusion nobody prints is an exclusion
@@ -316,8 +353,19 @@ silently skips both plugins' suites, and reports green.
 ```bash
 set -e
 cd "$(git rev-parse --show-toplevel)"
-bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+bats_bin="${BATS:-$(command -v bats || echo "$HOME/bats/bin/bats")}"
+[ -f "$bats_bin" ] && [ -x "$bats_bin" ] \
+  || { echo "FAIL: no runnable bats at '$bats_bin' — set BATS=/path/to/bats or install per CONTRIBUTING.md"; exit 1; }
+echo "using bats: $bats_bin"
+bash "$bats_bin" -r --print-output-on-failure tests handoff/tests pipeline/tests
 ```
+
+The binary is **resolved, not hardcoded**, with a named refusal when it is
+absent. `$HOME/bats/bin/bats` is where CONTRIBUTING.md tells you to clone it, but
+it is one machine's layout: on any other reader's machine a bare hardcoded path
+exits 127 under `set -e`, so the FR-012 and SC-005 evidence could be reproduced
+by nobody but the author. The 1.1.0 release solved this and the solution was not
+carried forward.
 
 Expected: `1..163`, 163 ok, 0 not ok, exit 0.
 
