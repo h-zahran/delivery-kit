@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The 2.1.1 entry below points a reader at `scripts/context-guard/README.md` and
+  `scripts/context-guard/differential.sh` for the exact shape counts. Those are
+  paths in the **delivery-kit repository**, not in the installed plugin: the
+  marketplace installs handoff from `./handoff`, which ships `hooks/`, `skills/`,
+  `docs/`, `tests/`, a README and this changelog — and no `scripts/` directory at
+  all. A reader who installed the plugin and followed either path found nothing.
+
+  Stated here rather than corrected there, because a released entry is history
+  and is never edited to match a later state. Clone the repository to run those
+  two commands; the plugin alone does not carry the harnesses, by design — they
+  are maintainer tools, and shipping them onto every user's machine is what
+  putting them under `scripts/` at the repository root deliberately avoids.
+
+  The link test did not catch it. It resolves markdown links, and both of these
+  are backticked paths in prose, which it does not follow.
+
 ## [2.1.1] - 2026-09-03
 
 ### Changed

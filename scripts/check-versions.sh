@@ -73,6 +73,26 @@ norm_source() {
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
+# --released <plugin> additionally requires that plugin's changelog to carry NO
+# heading above its version heading. Default (no argument) behaviour is
+# unchanged: every run REPORTS the state, no run FAILS on it. Unreleased work is
+# the normal condition of this repository; only a release tag asserts otherwise,
+# and only for the plugin being released — tagging pipeline says nothing about
+# whether handoff has unreleased work.
+RELEASED=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --released)
+      [ $# -ge 2 ] || die "--released needs a plugin name"
+      RELEASED="$2"; shift 2 ;;
+    *) die "unknown argument '$1' (usage: check-versions.sh [--released <plugin>])" ;;
+  esac
+done
+# A plugin name that matches nothing would make the enforcement below run zero
+# times and the script exit 0 — the caller asking for a stricter check and
+# getting a weaker one, silently. Refuse rather than pass vacuously.
+released_seen=0
+
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
 # plugin lands, and does so silently.
@@ -167,13 +187,33 @@ for dir in */; do
   # workflow log where a forged extra line would misreport what the gate
   # found. The comparisons below read the UNSTRIPPED values, so the strip
   # cleans the report and hides nothing from the check.
-  printf '%s: plugin=%s marketplace=%s changelog=%s\n' \
-    "${p//[$'\n\r']/}" "${pv//[$'\n\r']/}" "${mv//[$'\n\r']/}" "${cv//[$'\n\r']/}"
+  # Is the version heading the FIRST heading, or does something sit above it?
+  # The three comparisons in this loop are satisfied by ANY matching heading, so
+  # an `## [Unreleased]` heading above the newest release is invisible to them —
+  # `grep -m1` skips it rather than rejecting it, and reads the release below.
+  # That blindness let both plugins carry an open heading through an entire
+  # release cycle while this gate printed agreement. Reported on every run;
+  # enforced only for the plugin named by --released, because unreleased work is
+  # normal and correct everywhere else.
+  first="$(grep -m1 '^## ' -- "./$p/CHANGELOG.md" || true)"
+  if [ "$first" = "$head" ]; then
+    released_state="released"
+  else
+    released_state="UNRELEASED-ABOVE:${first//[$'\n\r']/}"
+  fi
+  printf '%s: plugin=%s marketplace=%s changelog=%s state=%s\n' \
+    "${p//[$'\n\r']/}" "${pv//[$'\n\r']/}" "${mv//[$'\n\r']/}" "${cv//[$'\n\r']/}" "$released_state"
 
   # Name the values on failure. A bare exit status tells you the versions
   # disagree but not which file is the odd one out — and not which plugin.
   [ "$pv" = "$mv" ] || die "$p: plugin=$pv marketplace=$mv"
   [ "$pv" = "$cv" ] || die "$p: plugin=$pv changelog=$cv"
+
+  if [ "$p" = "$RELEASED" ]; then
+    released_seen=1
+    [ "$released_state" = "released" ] \
+      || die "$p: '$first' sits above the released heading '$head' — this tree is NOT released"
+  fi
 done
 
 # The loop above walks directory -> entry, so an entry whose directory is
@@ -188,6 +228,21 @@ done
 # the source of the entry it had just read — looking an entry up by a value
 # taken from that entry. The CR the note at the top of this file describes
 # lands on the LAST field of the line, so the strip moves with it.
+#
+# jq runs in its OWN statement, never in a process substitution feeding the
+# loop. A process substitution's exit status is invisible to `set -e`: the shell
+# waits for the loop, not for the producer. Measured, on a marketplace whose
+# SECOND entry has an object where a name should be — jq emits the first line,
+# errors on the second, and exits non-zero; the old shape read the one good line,
+# set entries=1, matched checked=1, and exited 0 having never validated the bad
+# entry's `source`, which pointed at a directory that did not exist. A leading
+# malformed entry died correctly, so only trailing ones escaped. Assigning first
+# puts the failure where errexit can see it.
+entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json)"
+# An empty result would make the loop below run zero times and pass vacuously.
+# The count comparison further down would not catch it either when the tree
+# holds no plugin directory — two zeroes agree.
+[ -n "$entries_tsv" ] || die "the marketplace manifest lists no plugin entries at all"
 entries=0
 while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
@@ -217,7 +272,7 @@ while IFS=$'\t' read -r en es; do
   if [ -z "$ed" ] || [ ! -f "./$ed/.claude-plugin/plugin.json" ]; then
     die "marketplace entry '$en': source '$es' names no plugin directory"
   fi
-done < <(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json)
+done <<< "$entries_tsv"
 
 [ "$entries" -eq "$checked" ] || die "marketplace lists $entries plugins, the tree holds $checked"
 
@@ -227,3 +282,11 @@ done < <(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/mar
 # The working directory is not printed here either, for the reason given at
 # the refusal above.
 [ "$checked" -ge 1 ] || die "no plugin directories found in the working directory"
+
+# The stricter check must have actually run. Without this, `--released ghost`
+# walks every plugin, matches none, enforces nothing and exits 0 — a caller
+# asking for MORE checking and receiving LESS, which is the exact shape the
+# refusal above and the count comparison before it both exist to prevent.
+if [ -n "$RELEASED" ] && [ "$released_seen" -ne 1 ]; then
+  die "--released named '$RELEASED', which is not a plugin in this tree; nothing was enforced"
+fi
