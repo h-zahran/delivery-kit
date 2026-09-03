@@ -981,7 +981,32 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
       # Counted here rather than per file, so a file that ships with only
       # external links cannot stand in for one whose relative links vanished.
       checked=$((checked + 1))
-      [ -e "$(dirname "$f")/$target" ] || broken="$broken $f->$link"
+      resolved="$(dirname "$f")/$target"
+      if [ ! -e "$resolved" ]; then
+        broken="$broken $f->$link"
+        continue
+      fi
+      # The ANCHOR half. Until 2026-09-03 this test stripped `#...` and checked
+      # only that the file existed, so a link to a real document and a heading
+      # that was never there resolved clean. Measured with a deliberately broken
+      # anchor: reported ok. A link that lands on the right page and the wrong
+      # place is the failure a reader actually meets, and it is the half that
+      # rots first, because headings get reworded and links do not.
+      #
+      # Slugged the way GitHub does it: lowercase, drop everything that is not
+      # a letter, digit, space or hyphen — which is what removes the backticks
+      # and the `@` in a heading like "Upgrading from `delivery-kit@delivery-kit`"
+      # — then spaces to hyphens.
+      anchor="${link#*#}"
+      [ "$anchor" != "$link" ] && [ -n "$anchor" ] || continue
+      [ -f "$resolved" ] || continue
+      if ! grep -E '^#{1,6} ' "$resolved" \
+          | sed -E 's/^#+ +//' \
+          | tr '[:upper:]' '[:lower:]' \
+          | sed -E 's/[^a-z0-9 -]//g; s/ +/-/g' \
+          | grep -qxF "$anchor"; then
+        broken="$broken $f->$link"
+      fi
     done < <(grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\(//; s/\)$//')
   done
   [ "$checked" -gt 0 ] || { echo "every listed file resolved, but not one relative link was examined"; false; }

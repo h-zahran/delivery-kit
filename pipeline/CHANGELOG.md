@@ -2,6 +2,37 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Changed
+
+- `README.md` gains a **What ships** section. Two skills that ship with
+  user-facing descriptions — `pipeline:spec-review` and `pipeline:device-verify`
+  — were named in no README and in no command reference, so the only way to
+  discover them was to list the plugin's directories. Both run inside a phase
+  and both stand alone, and the table says which phase and when standing alone
+  is the useful case. They are also now rows in the root command reference.
+
+- **New: [`docs/phases.md`](docs/phases.md), a phase reference.** `--until C.5`,
+  `--from H.7` and pre-flight's `Will skip: N.5` all speak an alphabet that was
+  defined only inside the orchestrator skill, which is not a document a user
+  reads. The README already drew the shape and named the gates; the gap was the
+  fractional phases and the letters that stop at nothing. Each row says what the
+  phase does and what it leaves behind, which is what you need when a run stops
+  somewhere and you are choosing a value for `--from`.
+
+- The tested spec-kit range is spelled identically in every place that states
+  it — the two READMEs, the configuration page, the orchestrator skill, and
+  `scripts/preflight.sh`, which had it as `(0.15.x-0.16.x)` while the others
+  said "through". The root README also had it broken across a line, so a search
+  for the phrase missed the site most readers meet first.
+
+  The `case` in `preflight.sh` is the authoritative definition and now says so,
+  with the command that finds the prose beside it. Widening the pattern without
+  rewording the documents would leave the tool accepting a version every
+  document still calls untested — the quieter of the two directions, and the
+  reason the coupling is written down rather than remembered.
+
 ## [1.2.0] - 2026-09-03
 
 ### Added

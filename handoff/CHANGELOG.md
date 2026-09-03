@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The setup contract is stated correctly in the three places that had it wrong.
+  Since 2.1.0 `handoff:setup` **does** write a repository's own
+  `.delivery-kit.json` — the pipeline block, offered only where `.specify/`
+  exists and only when you accept it. Two READMEs said the answers are written
+  "once per machine", and the root README's troubleshooting table said the skill
+  "will not edit a shared repository file for you". The first is true of the
+  guard's keys and not of the pipeline block; the second is true unasked and
+  true for guard keys, and was read as a flat guarantee.
+
+  The distinction matters more than a wording slip: what the skill writes into a
+  shared file is exactly the block that can pre-answer a gate, so a reader who
+  believed it never touched the repository file would not know to look there.
+
+- The upgrade-from-`delivery-kit` instructions were byte-identical in
+  `README.md` and `docs/install.md` — two copies, kept in step by nobody. The
+  canonical copy is now the install page. The README keeps a standalone summary,
+  because a plugin README has to stand on its own on a marketplace page, and
+  links onward for the reasoning about the hook race.
+
 ### Fixed
 
 - The 2.1.1 entry below points a reader at `scripts/context-guard/README.md` and

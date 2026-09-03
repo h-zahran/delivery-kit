@@ -1,5 +1,50 @@
 # Contributing
 
+## After cloning
+
+Do this before anything else, and before your first `git add`:
+
+```
+git clone <url> delivery-kit && cd delivery-kit
+printf '%s\n' '/.claude/' '/docs/' '/.delivery-kit/' >> .git/info/exclude
+git check-ignore -v docs/ .claude/ .delivery-kit/
+git check-ignore -v pipeline/docs/ handoff/docs/ || echo 'correct: plugin docs are NOT ignored'
+```
+
+**The third command must name `.git/info/exclude` for all three paths.** If it
+prints nothing, or names `.gitignore` instead, the lines did not land and you
+should not trust the tree yet.
+
+**The fourth command must print that line.** If it names an exclude rule
+instead, the patterns are not anchored and both plugins' shipped `docs/`
+directories are being ignored.
+
+**The leading slashes are load bearing.** A pattern without one matches a
+directory of that name at *any* depth, so a bare `docs/` silently ignores
+`pipeline/docs/` and `handoff/docs/` — two published surfaces — as well as the
+private archive it was aimed at. Measured on 2026-09-03: a new page added under
+`pipeline/docs/` was skipped by `git add -A` with no message at all, and the
+only symptom was a link to it failing to resolve. A leading slash anchors the
+pattern to the repository root, which is the only place these three exist.
+
+A fresh clone carries `.gitignore`, which is tracked and published. It does
+**not** carry `.git/info/exclude`, which is per-clone and travels with nobody.
+Until those lines exist, `docs/` is ignored by nothing at all — in a public
+repository — and a single `git add -A` from any tool or session publishes
+whatever is in it. That is a measured near-miss, recorded in the exclude file
+itself on 2026-08-25.
+
+These three are named here on purpose and the private tool directories are not:
+`docs/`, `.claude/` and `.delivery-kit/` are generic directory names, so writing
+them in a published file discloses nothing. The patterns live in
+`.git/info/exclude` rather than in `.gitignore` precisely because some of the
+things listed there would disclose a private toolchain by name, and this
+instruction does not defeat that.
+
+One caveat worth knowing: an exclude pattern never applies to a path that is
+already tracked. These lines stop new files appearing; they do nothing about
+anything already in the index.
+
 ## Running the tests
 
 The suites are [bats](https://github.com/bats-core/bats-core) and need `jq`.
