@@ -1527,7 +1527,7 @@ one byte-identical 31-line twin.
 
 **Acceptance criteria:**
 
-- Full house suite from the repo root: **`1..162`**, 0 not ok, 0 non-TAP
+- Full house suite from the repo root: **`1..163`**, 0 not ok, 0 non-TAP
   — UNCHANGED from P14, unless the implementer adds prose pins for the
   new documents, in which case state the new number and why.
 - Every relative link in every edited file resolves, path and anchor.
@@ -1575,9 +1575,15 @@ Both plugins have carried an open `## [Unreleased]` heading since the
 2. **Stamp handoff 2.1.1.** `handoff/.claude-plugin/plugin.json` →
    `2.1.1`; the handoff entry in `.claude-plugin/marketplace.json` →
    `2.1.1`; `handoff/CHANGELOG.md`'s `## [Unreleased]` heading becomes
-   `## [2.1.1] - <today>`. Patch, not minor: P14 is an internal
-   refactor with identical behaviour and P15 is documentation. Nothing
-   was Added.
+   `## [2.1.1] - <today>`. Patch, not minor — and the reason is **not**
+   that nothing moved. P14 was measured behaviour-preserving; P17 is
+   not. P17 changes what the guard answers on three measured transcript
+   shapes, each one a correction to a pre-existing fault in the old
+   code, and the differential ASSERTS each difference rather than
+   hiding it. Corrections are fixes. P15 is documentation. Nothing was
+   Added under either heading, so the bump is patch. Do not restate
+   this as "identical behaviour": that wording predates P17 and is
+   false.
 
 3. **Content beneath both headings is already complete.** Add nothing,
    remove nothing, reorder nothing.
@@ -1594,7 +1600,7 @@ Both plugins have carried an open `## [Unreleased]` heading since the
 - `grep -c '^## \[Unreleased\]' pipeline/CHANGELOG.md handoff/CHANGELOG.md`
   returns `0` for both.
 - Both changelog headings parse as `## [X.Y.Z] - YYYY-MM-DD`.
-- Full house suite from the repo root: **`1..162`**, 0 not ok, 0 non-TAP
+- Full house suite from the repo root: **`1..163`**, 0 not ok, 0 non-TAP
   (or P15's stated number, if it moved).
 - The CI matrix is green on all three OSes.
 

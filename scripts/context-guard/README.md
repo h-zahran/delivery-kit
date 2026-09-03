@@ -63,15 +63,18 @@ reading count, the median and the fallback lived in three separate calls that no
 refactor was touching. Shapes now vary the file being read: empty, one reading,
 fourteen, fifteen, sixteen, an unparseable line among good ones, a non-numeric
 token value, a non-numeric cache field, a record whose three token fields are ALL
-strings, another whose three strings concatenate into NUMERIC text, sidechain
+strings, another whose three strings concatenate into NUMERIC text, a byte cap
+that starves the read down to that concatenated junk ALONE, sidechain
 entries, a negative reading, a median-window shape, and two byte-cap shapes that
 force the uncapped re-read.
 
 **This paragraph carries no total, on purpose.** Count it:
 `grep -c '^run_shape "transcript:' scripts/context-guard/differential.sh`. It said
 thirteen when there were fourteen, was corrected to fourteen, and was wrong again
-within the hour when a fifteenth arrived — and the shape it omitted both times
-was an asserted difference, which is the whole evidentiary basis for a divergence
+within the hour when a fifteenth arrived. Carrying no total did not save the
+LIST: a sixteenth shape arrived and the sentence above went on naming fifteen of
+them until the release pass. All three times, the shape left out was an asserted
+difference, which is the whole evidentiary basis for a divergence
 recorded below. A number in prose is a claim that goes stale silently; the exact
 figures live in the dated table below, which is a record of one run rather than a
 statement about the current file. Fourteen and sixteen matter most — they sit either side of the floor of
@@ -85,6 +88,21 @@ Measured 2026-09-02, working copy against `168edc1`:
 | a control with the fallback floor set to 0 | **42 as expected, 3 unexpected** — both transcript byte-cap shapes and `config: maxBytes tiny` |
 | a control taking the FIRST fifteen readings rather than the last | **44 as expected, 1 unexpected** — the median-window shape |
 | a control replacing the count rule with a plain `length` | **45 as expected, 0 unexpected** — the harness cannot see it at all, by construction |
+
+That table is left exactly as it was recorded. It is a record of one run on
+2026-09-02, when the harness held 45 shapes and asserted 2 divergences; a
+sixteenth transcript shape and a third asserted divergence landed after it. It
+is not a statement about the current file, and rewriting it would destroy the
+evidence that the count moved.
+
+Measured 2026-09-03 at merged `main` = `90615c3`, against `168edc1`:
+
+| Run | Result |
+|---|---|
+| the shipped hook | **46 shapes, 46 as expected, 0 unexpected**, 3 of them asserted to differ, exit 0 |
+
+One row, because one run was made. The three control rows above were not
+re-run on this date and are not restated here as though they had been.
 
 ### What this harness cannot see, and why that is structural
 
@@ -121,7 +139,9 @@ watches.
 
 Three shapes use it today, and the count is best taken from the file:
 `grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`. This
-paragraph said "one shape" while the table twelve lines above already said two.
+paragraph said "one shape" while the 2026-09-02 table already said two, and it
+still said two after a third arrived. Name the table, never a line distance —
+the distance changed the moment a second table was added above.
 
 All three come from the same root: jq's `+` concatenates strings instead of
 erroring, so a usage record whose three token fields are all strings yields a
