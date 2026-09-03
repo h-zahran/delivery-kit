@@ -60,7 +60,7 @@ to configure the first.
 |---|---|---|
 | The context guard | a `PostToolUse` hook | Measures context after each tool call, warns past a threshold, re-warns once per 5%. |
 | `handoff:handoff` | a skill | Writes the document above, prints the resume prompt, stops. |
-| `handoff:setup` | a skill | Measures your session, asks for your real window and stopping point, writes the answers once per machine. |
+| `handoff:setup` | a skill | Measures your session, asks for your real window and stopping point, and writes those to `~/.delivery-kit.json` — machine facts, so once is enough. Where a repository has `.specify/`, it also offers to write the pipeline block into that repository's file. It asks first. |
 
 ## Install
 
@@ -79,32 +79,21 @@ Windows, are in [docs/install.md](docs/install.md).
 This plugin used to be called `delivery-kit`. Version 2.0.0 renamed it to
 `handoff`, because the marketplace is called `delivery-kit` and one name
 cannot mean both. A rename is a new plugin as far as the installer is
-concerned, so it takes two commands:
+concerned, so it takes two commands, and the order matters:
 
 ```
 /plugin uninstall delivery-kit@delivery-kit
 /plugin install handoff@delivery-kit
 ```
 
-**Uninstall first.** Both register the same `PostToolUse` hook, and the flag
-that stops the guard repeating itself is keyed by temporary directory and
-session id with nothing in it naming a plugin. The two copies therefore share
-one flag and race for it, and the winner decides which advice you get: the old
-copy tells you to run `delivery-kit:handoff`, the new one `handoff:handoff`.
-While both are installed both resolve, so at the moment a session is running
-out of room you would be handed an instruction that may name the plugin you
-are removing.
+**Uninstall first.** Both register the same `PostToolUse` hook and race for one
+shared flag, so with both installed the warning you get may name the plugin you
+are removing. No configuration moves: `.delivery-kit.json` keeps its name, its
+location and every setting.
 
-**Do not use the number of warnings to tell whether the old one is gone.**
-Because the two copies race, the count is not fixed: two installs usually
-produce one warning and sometimes two. Seeing one proves nothing. Run
-`/plugin` and read the list instead.
-
-`.delivery-kit.json` keeps its name and its location, and every setting keeps
-its name, so no configuration moves. The guard measures, decides and fires
-exactly as it did in 1.3.0; the only change is the names inside its message,
-which now say `handoff:handoff` and `handoff:setup` because a skill's
-namespace is its plugin's name.
+[The install page](docs/install.md#upgrading-from-delivery-kitdelivery-kit)
+carries the rest — why the race happens, and why counting warnings cannot tell
+you whether the old copy is gone.
 
 ## Configure
 

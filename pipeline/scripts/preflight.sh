@@ -59,10 +59,17 @@ if [ -d .specify/templates ] && [ -d .specify/scripts ]; then
     sk_version="$(jq -r '.speckit_version // empty' .specify/init-options.json 2>/dev/null || true)"
     sk_script="$(jq -r '.script // empty' .specify/init-options.json 2>/dev/null || true)"
   fi
+  # THE PATTERN AND THE PROSE MUST MOVE TOGETHER. This case is the
+  # authoritative definition of the tested range; the warning below spells the
+  # same range in words, and four documents spell it again — the two READMEs,
+  # pipeline/docs/configuration.md and the orchestrator skill. Widening the
+  # pattern here without rewording all five leaves the tool accepting a version
+  # every document still calls untested, which is the quieter direction of the
+  # two. Find them with: git grep -n '0\.15\.x through 0\.16\.x'
   case "$sk_version" in
     0.15.*|0.16.*) sk_in_range=true ;;
     "") warn "no version recorded in .specify/init-options.json" ;;
-    *)  warn "version $sk_version is outside the tested range (0.15.x-0.16.x) — continuing; untested is not known-broken" ;;
+    *)  warn "version $sk_version is outside the tested range (0.15.x through 0.16.x) — continuing; untested is not known-broken" ;;
   esac
   # `script` has exactly three legal values upstream: sh, ps, py. py is
   # legal for the tool and unusable by this pipeline, so it is reported

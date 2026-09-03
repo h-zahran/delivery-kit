@@ -40,6 +40,20 @@ preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* �
 `pipeline:status` reads a run's state file and reports where it got to, which
 gate it is waiting on, and the exact next thing to type.
 
+## What ships
+
+The orchestrator is the thing you invoke. The rest run inside a phase, and two
+of them you can also invoke directly when you want that one job without a run.
+
+| Piece | Kind | Does |
+|---|---|---|
+| `/pipeline` | a command | Starts a run. The only entry — the orchestrator never invokes itself. |
+| `pipeline:status` | a skill | Read-only. Where a run got to, which gate it waits on, what to type next. |
+| `pipeline:spec-review` | a skill | Audits an implementation against its specification with three independent lenses: contract compliance, security, and tests. Runs at the deep-review phase, and stands alone when a feature claims to be done and you want to know whether the spec agrees. |
+| `pipeline:device-verify` | a skill | Builds, installs and drives a mobile release build on one attached device, screenshots what changed, and reads the screenshots back. Runs at the runtime check on an Android project, and stands alone when a change claims to work on a device and nobody has watched it do so. |
+
+[The phase reference](docs/phases.md) names every phase these run in.
+
 ## The five gates
 
 A gate shows you the content and waits. These are the only places it asks:

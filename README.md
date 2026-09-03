@@ -133,8 +133,8 @@ to defaults rather than failing. `pipeline` is the one that stops.
 
 `pipeline` drives [spec-kit](https://github.com/github/spec-kit); it does not
 replace it. The target repository needs spec-kit initialised, or the run stops
-at pre-flight and prints the two setup commands. Tested against 0.15.x through
-0.16.x; other versions warn and continue.
+at pre-flight and prints the two setup commands.
+Tested against 0.15.x through 0.16.x; other versions warn and continue.
 
 `handoff` has no such dependency. Someone who wants only a context guard never
 acquires a spec-tool dependency.
@@ -276,6 +276,7 @@ spec tool    : 0.16.5 at .specify/ — in range
 Constitution : set
 git          : present
 Base branch  : main  (from origin/HEAD)
+Implementer  : claude  (from ~/.delivery-kit.json)
 Remote       : github  (gh present)
 Missing      : adb
 Will skip    : N.5 — no device strategy on this project type
@@ -345,9 +346,11 @@ resume.
 
 | Command | Does |
 |---|---|
-| `handoff:setup` | Measures your session, asks for your real window and stopping point, writes them. Once per machine. |
+| `handoff:setup` | Measures your session, asks for your real window and stopping point, and writes the guard's keys to `~/.delivery-kit.json` — those are facts about your machine, so once is enough. In a repository that has `.specify/`, it then *offers* to write the pipeline block into that repository's own `.delivery-kit.json`. It asks first, and declining is fine. |
 | `handoff:handoff` | Writes the handoff document, prints the resume prompt, stops. |
 | `pipeline:status` | Read-only. Where the run is, what it waits on, what to type next. |
+| `pipeline:spec-review` | Audits an implementation against its specification — contract compliance, security, tests, as three independent lenses. Runs inside a run; useful alone when a feature claims to be done. |
+| `pipeline:device-verify` | Builds, installs and drives a mobile release build on one attached device, then reads its own screenshots back. Runs inside a run; useful alone when nobody has watched the change work. |
 
 ### `/pipeline`
 
@@ -376,7 +379,16 @@ out for themselves is printed, so a wrong guess is visible rather than silent.
 When you do want to set something, it goes in one file called
 `.delivery-kit.json` — in your repository root for project facts, or at
 `~/.delivery-kit.json` for facts about your machine. **The repository file
-wins**, and for the guard's keys an environment variable beats both.
+wins**, and for the guard's keys an environment variable beats both:
+`DELIVERY_KIT_WINDOW_TOKENS`, `DELIVERY_KIT_THRESHOLD_PCT`,
+`DELIVERY_KIT_THRESHOLD_TOKENS`, `DELIVERY_KIT_MAX_BYTES` and
+`DELIVERY_KIT_HANDOFF_DIR`. Which key each one overrides is in
+[the guard's configuration page](handoff/docs/configuration.md).
+
+**The pipeline's keys have no environment overrides at all.** Not "none yet" —
+none by design, so that a value which pre-answers a gate cannot arrive from a
+shell you did not read. Those keys come from the two files and from flags, and
+pre-flight prints which layer won.
 
 ```json
 {
@@ -415,7 +427,7 @@ write. Declining is fine.
 | A percentage over 100, plus `WINDOW MISCONFIGURED` | `windowTokens` is smaller than your real window | Run `handoff:setup`. The note already names the minimum true window. |
 | The guard never fires at all | `windowTokens` set too large — nothing can detect this | Set `contextGuard.thresholdTokens` as well. It is decided from the transcript alone, so it still fires when the window is wrong. |
 | The guard is silent, and you saw a one-off note about `jq` | `jq` is missing or cannot run | Install it and restart the session. On Windows, check from Git Bash. |
-| You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there — it will not edit a shared repository file for you. |
+| You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there. It never edits a shared repository file for a guard key, and never edits one unasked — the only thing it writes there is the pipeline block, offered where `.specify/` exists and only if you accept. |
 | Two `CONTEXT GUARD` warnings, or advice naming a plugin you removed | An old `delivery-kit@delivery-kit` install is still present | See [Coming from 1.x](#coming-from-1x). Do not judge by warning count — run `/plugin` and read the list. |
 | `pipeline` stops immediately at pre-flight | No spec tool, a dirty tree, a live lock, or an illegal `implementer` value | It names which. There is no degraded mode for a missing spec tool. |
 | "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
