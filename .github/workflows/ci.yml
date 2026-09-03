@@ -23,6 +23,22 @@ on:
     # in repository settings, or confirming at release time that the tag's run
     # exists. Recorded rather than silently tolerated; verify with
     # `gh run list --limit 5` after pushing a tag.
+    #
+    # DEMONSTRATED, not theorised, on 2026-09-03. The commit that first wrote
+    # the paragraph above quoted the directive verbatim in its own message while
+    # explaining it. GitHub read the quotation as the instruction, skipped the
+    # entire run, and the pull request sat with ZERO checks and a mergeable
+    # state — the "gate that disappears" outcome, produced by the commit
+    # documenting it. Nothing was wrong with this file; `gh api .../check-runs`
+    # returned total_count 0 and no run existed for the branch at all.
+    #
+    # The operational rule that follows: **never write the directive literally
+    # into a commit message**, in any of its spellings, even inside quotes, even
+    # while explaining it. Describe it instead. A file may contain it freely —
+    # this comment does — because GitHub scans commit messages, not file
+    # contents. And a pull request whose checks never appear is not necessarily
+    # passing: an absent check and a green one look identical in a merge button,
+    # which is the whole reason this hazard is written down here.
     tags: ['**']
   pull_request:
 
