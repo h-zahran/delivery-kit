@@ -7,6 +7,22 @@ on:
     # filter pattern. The tag step below is what rejects a tag that is not
     # <plugin>-v<version>; see the reasoning there for why that check is not
     # written as a trigger filter.
+    #
+    # ONE ROUTE PAST THIS TRIGGER CANNOT BE CLOSED FROM INSIDE THE WORKFLOW.
+    # GitHub skips a push-triggered run entirely when the head commit's message
+    # carries `[skip ci]`, `[ci skip]`, `[no ci]` or `[skip actions]`. A tag
+    # pointing at such a commit runs nothing, and the release gate below never
+    # fires — the same "gate that disappears" outcome the tag step argues
+    # against for trigger filters, arriving by a different door. No `if:`, no
+    # trigger and no step can prevent it, because the skip happens before the
+    # workflow is scheduled at all.
+    #
+    # Two things bound it. Nothing here publishes, so a skipped run withholds a
+    # report rather than releasing anything unchecked. And the lever that WOULD
+    # close it is outside this file: making these checks required for the branch
+    # in repository settings, or confirming at release time that the tag's run
+    # exists. Recorded rather than silently tolerated; verify with
+    # `gh run list --limit 5` after pushing a tag.
     tags: ['**']
   pull_request:
 
@@ -197,8 +213,34 @@ jobs:
       # The script asserts for itself that its working directory holds the
       # marketplace manifest, so running it from the workspace root is checked
       # rather than assumed.
+      # On a release tag this ALSO requires the tagged plugin's changelog to
+      # carry no heading above its version heading. Until 1.2.0 / 2.1.1 nothing
+      # in the repository could tell a released tree from an unreleased one: the
+      # agreement walk reads with `grep -m1` against a date-anchored pattern, so
+      # an `## [Unreleased]` heading is SKIPPED rather than rejected and the
+      # previous release is read in its place. Both plugins carried an open
+      # heading through a whole release cycle while this step printed agreement.
+      #
+      # The argument is built into "$@" and the script is invoked ONCE. Two
+      # `bash scripts/check-versions.sh` lines — one per branch of a case — would
+      # redden the suite's "one version-agreement script, and both gates call it"
+      # test, which requires exactly one such invocation in this file and is the
+      # thing standing between these two callers and the drift that already
+      # happened once.
+      #
+      # Only the plugin being released is checked. Tagging pipeline says nothing
+      # about whether handoff has unreleased work, and unreleased work is the
+      # normal condition of this repository.
       - name: every plugin's manifest, marketplace entry and changelog agree
-        run: bash scripts/check-versions.sh
+        run: |
+          set --
+          case "${GITHUB_REF}" in
+            refs/tags/*)
+              ref="${GITHUB_REF#refs/tags/}"
+              set -- --released "${ref%-v*}"
+              ;;
+          esac
+          bash scripts/check-versions.sh "$@"
 
       - name: tag matches the manifest version
         if: startsWith(github.ref, 'refs/tags/')
@@ -227,8 +269,25 @@ jobs:
           plugin="${ref%-v*}"
           tag="${ref##*-v}"
           [ "$plugin" != "$ref" ] || { echo "tag $ref is not <plugin>-v<version>"; exit 1; }
-          [ -f "$plugin/.claude-plugin/plugin.json" ] || { echo "tag $ref names no plugin directory"; exit 1; }
-          ver=$(jq -r '.version' "$plugin/.claude-plugin/plugin.json")
+          # An EMPTY plugin name passes the test above, because the empty string
+          # differs from the ref. Measured: a tag of `-v1.2.0` yields plugin=""
+          # and the -f test below then stats /.claude-plugin/plugin.json — the
+          # filesystem ROOT, outside the workspace entirely. On a runner that
+          # file is absent so the step fails, but it fails by accident of the
+          # filesystem rather than by design, and check-versions.sh spends a
+          # paragraph explaining why an accident is not a guard. `-v1.2.0` is a
+          # legal ref: `git tag` refuses it, but `git update-ref` followed by an
+          # explicit refspec push creates it.
+          [ -n "$plugin" ] || { echo "tag $ref has an empty plugin name"; exit 1; }
+          # The ./ prefix and the -- guard, for the reason check-versions.sh
+          # gives at its own plugin loop: a tracked directory named like an
+          # option (-rf, say, which `git check-ref-format` accepts) otherwise
+          # reaches jq as an OPTION rather than as a path. The -f test currently
+          # blocks that, so this is defence in depth — but this block is, by
+          # ci.yml's own description, the only release gate the repository has
+          # and the one shell block no shellcheck job reads.
+          [ -f "./$plugin/.claude-plugin/plugin.json" ] || { echo "tag $ref names no plugin directory"; exit 1; }
+          ver=$(jq -r '.version' -- "./$plugin/.claude-plugin/plugin.json")
           [ "$tag" = "$ver" ] || { echo "tag $ref does not match $plugin $ver"; exit 1; }
 
   shell-analysis:

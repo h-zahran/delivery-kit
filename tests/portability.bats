@@ -1174,3 +1174,154 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   pin="$(grep -m1 -oE '^ *BATS_PIN: [0-9a-f]{40}$' .github/workflows/ci.yml | grep -oE '[0-9a-f]{40}' || true)"
   [ -n "$pin" ] || { echo "no 40-character BATS_PIN found in ci.yml; the release names above agree about nothing"; false; }
 }
+
+# ---------------------------------------------------------------------------
+# The three gaps this repository recorded at the 1.2.0 / 2.1.1 release and did
+# not close then. Each test below fires the break FIRST and requires the gate to
+# refuse it, because a gate that has only ever passed has not been shown capable
+# of failing.
+#
+# Every invocation here uses `run bash -c "... && bash <script> ..."`, never
+# `run bash <script>` at the start of a line. That is not cosmetic: the
+# "one version-agreement script" test above requires EXACTLY ONE
+# `run bash <path>.sh` in this file and asserts which @test owns it. A second
+# such line would redden a correct tree.
+# ---------------------------------------------------------------------------
+
+@test "--released refuses a dangling Unreleased heading, and the default run does not" {
+  cd "$ROOT"
+
+  # Build a faithful copy first and require it to PASS. Without this, a fixture
+  # broken by accident of construction makes the break below succeed for the
+  # wrong reason.
+  base="$TEST_DIR/released-base"
+  mkdir -p "$base/.claude-plugin"
+  cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+  copied=""
+  while IFS= read -r src; do
+    src="${src%$'\r'}"
+    d="${src#./}"; d="${d%/}"
+    mkdir -p "$base/$d/.claude-plugin"
+    cp "$d/.claude-plugin/plugin.json" "$base/$d/.claude-plugin/plugin.json"
+    cp "$d/CHANGELOG.md" "$base/$d/CHANGELOG.md"
+    [ -n "$copied" ] || copied="$d"
+  done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
+  [ -n "$copied" ] || { echo "the fixture copied no plugin; it proves nothing"; false; }
+
+  # NORMALISE the fixture into a known RELEASED state before asserting anything.
+  # An earlier version of this test skipped this and required the faithful copy
+  # to pass --released as it stood — which coupled the test to whether this
+  # repository happened to have unreleased work at the moment it ran. It went
+  # red the first time anyone opened an `## [Unreleased]` heading, which is the
+  # normal condition of this repository and not a defect at all. The fixture
+  # must supply its own baseline, never borrow the tree's.
+  for f in "$base"/*/CHANGELOG.md; do
+    grep -v '^## \[Unreleased\]$' "$f" > "$f.norm" && mv "$f.norm" "$f"
+  done
+  [ -z "$(grep -l '^## \[Unreleased\]$' "$base"/*/CHANGELOG.md 2>/dev/null)" ] \
+    || { echo "normalisation did not land; the fixture is not in a released state"; false; }
+
+  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "the normalised fixture already fails --released; the break below would prove nothing. output: $output"; false; }
+
+  # Plant an `## [Unreleased]` heading ABOVE the released one. Every version
+  # value still agrees; only the ordering is wrong.
+  d="$TEST_DIR/released-dangling"
+  cp -r "$base" "$d"
+  awk 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { print "## [Unreleased]"; print ""; done = 1 } { print }' \
+    "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
+  mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
+
+  # Prove the plant landed, and landed ABOVE. A mutation that did not land is a
+  # silent false green.
+  first="$(grep -m1 '^## ' "$d/$copied/CHANGELOG.md")"
+  [ "$first" = "## [Unreleased]" ] \
+    || { echo "the plant did not land first in the $copied fixture; got '$first'"; false; }
+
+  # The DEFAULT run must still pass. This is not slack — it is the documented
+  # blindness, asserted so that closing it silently would redden this test and
+  # force the change to be stated.
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -eq 0 ] \
+    || { echo "the default run rejected a dangling heading; that is a behaviour change this test exists to make visible. output: $output"; false; }
+  case "$output" in
+    *UNRELEASED-ABOVE*) ;;
+    *) echo "the default run passed but did not REPORT the dangling heading. output: $output"; false ;;
+  esac
+
+  # And --released must refuse it.
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -ne 0 ] \
+    || { echo "--released accepted $copied with an Unreleased heading above its release; the check is not running"; false; }
+  case "$output" in
+    *"is NOT released"*) ;;
+    *) echo "--released refused, but not for the planted reason. output: $output"; false ;;
+  esac
+}
+
+@test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
+  cd "$ROOT"
+  # A caller asking for a STRICTER check must never receive a weaker one. With
+  # no plugin matching the name, the enforcement runs zero times, and a walk
+  # over zero items reports zero problems.
+  run bash -c "cd \"$ROOT\" && bash \"$ROOT/scripts/check-versions.sh\" --released definitely-not-a-plugin"
+  [ "$status" -ne 0 ] \
+    || { echo "--released accepted a plugin name matching nothing and enforced nothing. output: $output"; false; }
+  case "$output" in
+    *"nothing was enforced"*) ;;
+    *) echo "it refused, but not for the vacuous-enforcement reason. output: $output"; false ;;
+  esac
+}
+
+@test "a TRAILING malformed marketplace entry cannot escape the reverse walk" {
+  cd "$ROOT"
+  # The reverse walk used to be fed by a process substitution, whose exit status
+  # `set -e` cannot see: the shell waits for the loop, not for the producer. A
+  # marketplace whose SECOND entry is malformed made jq emit the first line,
+  # error on the second and exit non-zero, while the script read the one good
+  # line, reconciled its counts and exited 0 — never validating the bad entry's
+  # `source`, which named a directory that did not exist. A LEADING malformed
+  # entry died correctly, so only trailing ones escaped.
+  t="$TEST_DIR/trailing-malformed"
+  mkdir -p "$t/.claude-plugin"
+  first_src="$(jq -r '.plugins[0].source' .claude-plugin/marketplace.json)"
+  d="${first_src#./}"; d="${d%/}"
+  mkdir -p "$t/$d/.claude-plugin"
+  cp "$d/.claude-plugin/plugin.json" "$t/$d/.claude-plugin/plugin.json"
+  cp "$d/CHANGELOG.md" "$t/$d/CHANGELOG.md"
+  jq '{name: "fixture", plugins: [ .plugins[0], {name: {obj: 1}, source: "./ghost", version: "9.9.9"} ]}' \
+    .claude-plugin/marketplace.json > "$t/.claude-plugin/marketplace.json"
+
+  # The ghost directory must NOT exist, or the entry would be legitimately valid
+  # and this fixture would prove nothing.
+  [ ! -d "$t/ghost" ] || { echo "the ghost directory exists; the fixture proves nothing"; false; }
+
+  run bash -c "cd \"$t\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -ne 0 ] \
+    || { echo "the script exited 0 on a marketplace whose trailing entry jq could not read, having never validated it. output: $output"; false; }
+}
+
+@test "only spec-kit scaffolding is tracked under .claude/" {
+  cd "$ROOT"
+  # `.git/info/exclude` lists `.claude/` and describes it as never published.
+  # That is false and cannot be made true by editing the comment: gitignore
+  # never applies to already-tracked paths, and this tree tracks files there.
+  # What IS true, and what this test pins, is that everything tracked under
+  # .claude/ is public spec-kit scaffolding.
+  #
+  # Matched by PATTERN, never against a list of names. A list goes stale the day
+  # spec-kit adds a command, and it goes stale in the direction that stops the
+  # check noticing the file nobody meant to commit.
+  tracked="$(git ls-files '.claude/*')"
+  [ -n "$tracked" ] || skip "nothing is tracked under .claude/ in this checkout"
+  bad=""
+  while IFS= read -r f; do
+    f="${f%$'\r'}"
+    case "$f" in
+      .claude/skills/speckit-*/SKILL.md) ;;
+      *) bad="$bad$f"$'\n' ;;
+    esac
+  done <<< "$tracked"
+  [ -z "$bad" ] || { echo "unexpected tracked path(s) under .claude/ — only spec-kit SKILL.md files belong there:"; printf '%s' "$bad"; false; }
+}

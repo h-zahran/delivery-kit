@@ -1527,7 +1527,7 @@ one byte-identical 31-line twin.
 
 **Acceptance criteria:**
 
-- Full house suite from the repo root: **`1..163`**, 0 not ok, 0 non-TAP
+- Full house suite from the repo root: **`1..167`**, 0 not ok, 0 non-TAP
   — UNCHANGED from P14, unless the implementer adds prose pins for the
   new documents, in which case state the new number and why.
 - Every relative link in every edited file resolves, path and anchor.
