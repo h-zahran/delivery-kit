@@ -104,6 +104,61 @@ Measured 2026-09-03 at merged `main` = `90615c3`, against `168edc1`:
 One row, because one run was made. The three control rows above were not
 re-run on this date and are not restated here as though they had been.
 
+Measured 2026-09-04, working copy against `2658b62`, for the threshold-boundary
+change (feature 017):
+
+| Run | Result |
+|---|---|
+| the hook with the threshold boundary moved to `-lt 100` | **49 shapes, 49 as expected, 0 unexpected**, 1 asserted to differ, **3 auto-relaxed to same**, exit 0 |
+| a control with the baseline set to `f495823~1`, before the one-pass reading change | **49 as expected, 0 unexpected**, **4** asserted to differ, **0 auto-relaxed**, exit 0 |
+| a control asserting a settled divergence on a shape that does differ | **48 as expected, 1 unexpected**, exit 1 — the shape reported that its divergence is already in the baseline and the sides should agree |
+| three controls on the anchor hard stops: an unresolvable id, a pre-rebase orphan, an unknown expectation | **exit 9 on each**, naming the anchor and the reason |
+
+Four rows, because four runs were made (the last row is three runs of the same
+shape, one per hard stop). Earlier control rows are not restated.
+
+The count moved from 46 to 49 because this feature added the three
+`thresholdPct` boundary shapes. Only one of them is asserted to differ: with
+the readings at 50% of a 360000-token window, a threshold of 100 goes from
+**silent** on the baseline to firing on the candidate — 0 bytes against 556 —
+while 99 and 101 are asserted the *same*, which is how the change is shown to
+be bounded rather than merely present.
+
+### An asserted difference is relative to a baseline, and now says so
+
+The 2026-09-03 row above was measured against `168edc1`, and its three asserted
+divergences were correct against it. Run the same harness against any baseline
+that already contains `f495823` — which merged `main` now does — and all three
+reported "expected a DIFFERENCE and found none" on a hook nobody had touched.
+Measured 2026-09-04: three UNEXPECTED on a correct tree.
+
+Nothing was wrong with the hook, or with the shapes. The assertions had outlived
+their baseline and the harness had no way to know, because `diff` says *these two
+disagree* without saying *since when*. Left alone that is permanent red — the
+failure the `diff` expectation exists to prevent, reached from the other side.
+
+An assertion may therefore name the commit that introduced its divergence:
+
+```
+run_shape "<label>" "$PAYLOAD" "<config>" "<transcript-shape>" diff@<commit>
+```
+
+If the baseline already contains that commit, the divergence is settled history,
+the two sides *should* agree, and the expectation becomes `same` — reported as
+`agrees; its asserted divergence (<commit>) is already in the baseline`. If the
+baseline does not contain it, `diff` stands unchanged. One assertion, correct on
+both sides of its own merge, needing no edit on the day it lands.
+
+The commit must be an id, not a branch or tag: this repository rebase-merges, and
+only a post-landing id is reachable from `main` at all. Take the anchor from
+`origin/main` AFTER the branch lands, never from the branch: measured 2026-09-04,
+`9148066` and `f495823` have identical trees and only the second is an ancestor
+of `main`. The harness refuses an unreachable anchor by name.
+
+Both directions were controlled, not assumed — see the second and third rows of
+the 2026-09-04 table. A settled divergence that *does* still differ is a real
+finding and goes red with its own message, rather than being quietly absorbed.
+
 ### What this harness cannot see, and why that is structural
 
 It compares **stdout and exit status only**. Two consequences, both measured
@@ -137,8 +192,8 @@ trains a reader to skim past the one line that matters. An asserted difference
 goes red if the divergence is ever quietly repaired — the direction nobody
 watches.
 
-Three shapes use it today, and the count is best taken from the file:
-`grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`. This
+Four shapes use it today, and the count is best taken from the file:
+`grep -cE '^run_shape .* diff(@[0-9a-f]+)?$' scripts/context-guard/differential.sh`. This
 paragraph said "one shape" while the 2026-09-02 table already said two, and it
 still said two after a third arrived. Name the table, never a line distance —
 the distance changed the moment a second table was added above.

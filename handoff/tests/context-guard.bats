@@ -456,7 +456,7 @@ load ../../tests/helper
   echo "$output" | jq -e '.reason | test("at 3% of")'
 }
 
-@test "a threshold above 100 is rejected rather than silencing the guard" {
+@test "a threshold far above 100 is rejected rather than silencing the guard" {
   # 450 is a plausible typo for 45. It is valid JSON and a valid positive
   # integer, so nothing else rejects it — and a threshold that can never be
   # reached means the guard never fires again. Nothing downstream can catch
@@ -467,6 +467,64 @@ load ../../tests/helper
   run_hook "$t"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.reason | test("threshold 45%")'
+}
+
+@test "a threshold of exactly 100 is rejected, the first refused value" {
+  # The boundary itself, on the dangerous side. The test above exercises 450,
+  # which is obviously wrong; 100 is the value that looks reasonable and is not.
+  # A percentage only reaches 100 once context has already filled the window, so
+  # a guard set to 100 cannot warn while there is still room to act on the
+  # warning — the exact property the comment above is_valid_threshold forbids.
+  # Nothing downstream catches it either: the window-misconfiguration report
+  # rides an emission that, in this configuration, never happens.
+  #
+  # MEASURED 2026-09-04 against the hook as it stood BEFORE this rule: with this
+  # exact configuration the guard emitted NOTHING AT ALL at half the window.
+  # This test is the change-prover for that reason — it moves the guard from
+  # silent to speaking — and it was run and seen RED before the comparison in
+  # is_valid_threshold was changed. A green here on an unchanged hook would mean
+  # the test is not exercising the defect.
+  # THE USER-LEVEL THRESHOLD IS UNCONTESTED, AND THAT IS THE POINT — the same
+  # reasoning as "the environment overrides both files" above. Assert only
+  # `threshold 45%` and this test survives the deletion of the configuration
+  # layer entirely, because 45 is also the shipped default. Measured 2026-09-04:
+  # with both read_config calls commented out, the original form of this test
+  # stayed GREEN at 250% of a default window, still printing "threshold 45%".
+  #
+  # 30 can only have come from the user file, and the 1000000-token window can
+  # only have come from the repository file, so the two assertions together say
+  # exactly what this test means: both layers WERE read, the repository's 100
+  # was refused, and the previously resolved value stood. That last clause is
+  # also the first coverage of a refusal falling back to a user-level value
+  # rather than to the default.
+  write_config "$HOME/.delivery-kit.json" '{"thresholdPct":30}'
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":100}'
+  t="$(transcript_with 500000 500000 500000 500000 500000)"   # 50% of the window
+  run_hook "$t" pct100
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("of the 1000000-token window")'
+  echo "$output" | jq -e '.reason | test("threshold 30%")'
+}
+
+@test "a threshold of 99 is accepted, the last admissible value" {
+  # The other side of the boundary, and a REGRESSION PIN rather than a proof of
+  # the change: 99 was accepted before the rule moved and is accepted after, so
+  # this test passes on both sides and CANNOT be shown red by the change itself.
+  # Claiming otherwise would be fabricated evidence. Its control is a deliberate
+  # mutation of the comparison to `-lt 99`, which must turn this red — run that
+  # mutation, confirm it landed, and do not assume either half.
+  #
+  # The assertion names the exact threshold rather than merely checking that
+  # something fired: were 99 refused, the value would fall back to the default
+  # and the message would read "threshold 45%". So this discriminates on the
+  # value, not on the firing.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":99}'
+  t="$(transcript_with 995000 995000 995000 995000 995000)"   # 99% by integer division
+  run_hook "$t" pct99
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("threshold 99%")'
 }
 
 @test "fires on thresholdTokens with no valid window configured" {
@@ -482,9 +540,24 @@ load ../../tests/helper
 }
 
 @test "the absolute tripwire fires with the relative one unreachable" {
-  # Proving the OR rather than assuming it: threshold 100% is not reachable
-  # here, so only the absolute one can be responsible for the emission.
-  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":100,"thresholdTokens":400000}'
+  # Proving the OR rather than assuming it: a threshold of 99% is not reachable
+  # by this transcript, which sits at 40%, so only the absolute tripwire can be
+  # responsible for the emission.
+  #
+  # THIS TEST USED TO SAY 100, AND THAT IS THE INTERESTING PART. When
+  # is_valid_threshold began refusing 100, the value here became invalid and
+  # fell back to the default 45 — and 40% is under 45% too, so the assertion
+  # went on passing while the sentence above it had become false. A green test
+  # explaining itself with a mechanism that no longer exists is precisely the
+  # silence this hook is written to prevent, so the value is now 99: the
+  # highest the validator admits, which makes "not reachable" true again and
+  # keeps this test's meaning independent of what the default happens to be.
+  #
+  # Do not try to prove this comment load-bearing by putting 100 back. Measured
+  # 2026-09-04: it cannot go red, for the reason just given. The change itself
+  # is proved by the boundary tests above, which move the guard from silent to
+  # speaking.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdPct":99,"thresholdTokens":400000}'
   t="$(transcript_with 405000 405000 405000 405000 405000)"
   run_hook "$t" absonly
   [ "$status" -eq 0 ]
@@ -1392,4 +1465,76 @@ load ../../tests/helper
   echo "$output" | jq -e '.decision == "block"'
   echo "$output" | jq -e '.reason | test("at 90000 tokens, past the 50000-token limit")'
   echo "$output" | jq -e '.reason | test("90% of the 100000-token window")'
+}
+
+@test "the threshold rule reads the same everywhere it is stated" {
+  # There was no check behind the WORDING of this rule, and that absence is how
+  # the code and the prose drifted apart. The hook enforced one rule while three
+  # separate places described another: they said a threshold "above 100" is
+  # refused, which reads as though 100 itself were allowed. That is precisely
+  # the inference the defect came from, so the wording is now pinned.
+  #
+  # THE SURFACE IS TWO GLOBS, AND THAT IS A LIMIT, NOT A BOAST. It is derived
+  # WITHIN handoff/docs and handoff/hooks — a new file in either is covered on
+  # the day it lands — but the directories themselves are named here, so
+  # handoff/README.md, handoff/CHANGELOG.md and handoff/skills/**/SKILL.md are
+  # NOT scanned. handoff/skills/setup/SKILL.md already mentions thresholdPct and
+  # is the likeliest fourth site. Widening is not free: handoff/CHANGELOG.md
+  # quotes the superseded wording ON PURPOSE, as the history of this very
+  # change, and would need an exemption before it could join.
+  #
+  # THE PATTERN IS LINE-LOCAL, AND THE FIRST VERSION OF IT WAS TOO NARROW. It
+  # required the word "threshold" within 40 characters of "above 100", which
+  # reads fine and missed one of the three sites this change repaired: the hook
+  # comment whose "threshold" sat on the PREVIOUS line, where a line-scoped grep
+  # can never reach it. Measured 2026-09-04, restoring the pre-fix wording at
+  # that site left the pin GREEN. Matching the phrase and EXCLUDING the one
+  # legitimate use is what works; requiring proximity is what fails.
+  #
+  # The legitimate use is an OBSERVED percentage over 100, which the
+  # misconfiguration note reports and the install guide describes. Those lines
+  # say "reports a percentage", and that is the exclusion. It is load-bearing:
+  # remove it and the check false-reds on correct documentation.
+  local -a surface
+  # nullglob, so an empty directory yields an empty array rather than the
+  # literal pattern. Without it the emptiness guard below could never run —
+  # measured, the assignment itself aborted first under bats' errexit and the
+  # failure named `ls` instead of the reason.
+  shopt -s nullglob
+  surface=( "$ROOT"/handoff/docs/*.md "$ROOT"/handoff/hooks/*.sh )
+  shopt -u nullglob
+  [ "${#surface[@]}" -gt 0 ] || {
+    echo "the rule surface enumerated to NOTHING — this check would pass having read no files"
+    false
+  }
+
+  # grep's rc is captured rather than swallowed. 0 is matches, 1 is no match,
+  # and 2 is an ERROR — an unreadable file, or a path that word-split because it
+  # contained a space. Folding 2 into "no match" is exactly how a scan that read
+  # nothing reports clean, so 2 fails here instead.
+  local rc=0 stale=""
+  grep -inE '(above|over) 100([^0-9%]|$)' "${surface[@]}" > "$TEST_DIR/rulehits.txt" 2>/dev/null || rc=$?
+  [ "$rc" -le 1 ] || {
+    echo "the ban scan ERRORED with rc $rc — it did not read the surface, so its silence means nothing"
+    false
+  }
+  stale="$(grep -viE 'reports a percentage' "$TEST_DIR/rulehits.txt" || true)"
+  [ -z "$stale" ] || {
+    echo "the superseded threshold wording survives — the rule is 100 OR ABOVE:"
+    echo "$stale"
+    false
+  }
+
+  # And the canonical wording must be PRESENT somewhere on the surface, or the
+  # ban above passes on a surface that has stopped describing the rule at all.
+  # Case-insensitive: the hook states it in capitals. This guards against the
+  # rule vanishing wholesale, not against any single file dropping it — one
+  # remaining statement satisfies it.
+  local canonical
+  canonical="$(grep -inE '100 or above' "${surface[@]}" || true)"
+  [ -n "$canonical" ] || {
+    echo "no statement of the threshold rule was found anywhere on the surface;"
+    echo "the ban above would then pass having proven nothing"
+    false
+  }
 }

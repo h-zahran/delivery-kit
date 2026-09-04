@@ -44,14 +44,17 @@ value is kept — whatever the layer beneath it in that order had already
 resolved to. A bad environment variable leaves the repository file's value
 standing; a bad value in the repository file leaves the user-level file's; a bad
 value in the user-level file leaves the default. The same applies to a
-`thresholdPct` above 100. Such a threshold is not unreachable — context above
-100% of the configured window is exactly what the misconfiguration note below
-reports — but it can only be reached once context has already overflowed the
-window, which is far too late to be useful. In practice the guard would never
-fire in time, silently, which is the one thing a settings file must not be able
-to do. A malformed config file is ignored entirely. No invalid value can
-disable the guard. A value that is valid but wrong is a different matter, and
-the next section is about the one case that bites.
+`thresholdPct` of **100 or above**. Such a threshold is not unreachable —
+context at or above 100% of the configured window is exactly what the
+misconfiguration note below reports — but it can only be reached once context
+has already filled the window, which is far too late to be useful. In practice
+the guard would never fire in time, silently, which is the one thing a settings
+file must not be able to do. **100 is included in that rule and is the value it
+exists for**: 450 is plainly a typo for 45, while "warn me at 100%" reads like a
+deliberate choice and disarms the guard just as completely. The highest
+threshold accepted is therefore 99. A malformed config file is ignored entirely.
+No invalid value can disable the guard. A value that is valid but wrong is a
+different matter, and the next section is about the one case that bites.
 
 ## Setting the window correctly
 
