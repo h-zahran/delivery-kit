@@ -1767,3 +1767,193 @@ is unchanged — Phase 14 shipped that flat claim and review falsified it.
 ```
 /pipeline Phase 17: the guard stops counting jq, part two --auto --implementer claude
 ```
+
+---
+
+## Phase 18: the guard's own configuration cannot silence it
+
+Phase 17 closed the jq half and left T045 on the table: two ways a
+configuration file can stop the context guard firing in time, silently.
+Both are pre-existing, and both are behaviour changes, so neither belonged
+in a phase whose entire proof was that behaviour did not change. The
+deferral and its reason are recorded at
+`specs/015-guard-jq-spawn-two/tasks.md:220-226`.
+
+Both were re-verified against `main` = `63eab9a` while this seed was
+written. **They are not symmetric.** G1 has a correct answer and a
+one-character fix. G2 has no obviously correct answer, reverses a
+documented position, and is an owner ruling — see requirement 2, which
+deliberately does not pre-answer it.
+
+**Requirements:**
+
+1. **G1 — a threshold of exactly 100 must be rejected.**
+   `handoff/hooks/context-guard.sh:43-45`:
+
+   ```sh
+   is_valid_threshold() {
+     is_positive_int "$1" && [ "$1" -le 100 ]
+   }
+   ```
+
+   The comment directly above it, at `:37-42`, states the rule the
+   function does not enforce: a threshold reachable only once context has
+   already exceeded the window is "far too late to be useful", so in
+   practice the guard never fires again, silently, "which is the one thing
+   configuration must not be able to do" — and nothing downstream can
+   catch it, because the window-misconfiguration report runs only once the
+   guard has already decided to fire. **100 has exactly that property and
+   `-le` admits it.** The change is `-le` to `-lt`, and it covers all three
+   layers at once — repository file, user-level file (`:237`) and
+   environment (`:265`) — because every layer calls this one function.
+
+   Three things move with it, and none of them is optional:
+
+   - **The invariant comment at `:620-623` goes stale.** It reads "The
+     threshold gate cannot block that, because `is_valid_threshold` caps
+     `THRESHOLD_PCT` at 100." The cap becomes 99, and the invariant
+     STRENGTHENS: `pct >= 100` now exceeds every admissible threshold
+     rather than merely equalling the maximum. Say that. `handoff/hooks/`
+     is a STRICT surface and the reasoning is the record — carry it, do
+     not compress it.
+   - **`handoff/tests/context-guard.bats:484-493` currently DEPENDS on 100
+     being accepted, and after the fix it stays green while its comment
+     becomes false.** "The absolute tripwire fires with the relative one
+     unreachable" sets `thresholdPct` to 100 at `:487` on purpose, so that
+     only the absolute tripwire can be responsible for the emission. Once
+     100 is rejected, `THRESHOLD_PCT` reverts to the default 45, and
+     405000 of a 1000000 window is 40% — still under 45, so the assertion
+     still holds and the stated mechanism no longer exists. **That silent
+     green is the class of failure this phase exists to prevent, not
+     housekeeping to do afterwards.** Rewrite it to the highest still-valid
+     threshold and prove the rewrite is load-bearing.
+   - **The boundary itself is untested in both directions.**
+     `:459` is named "a threshold above 100 is rejected" and exercises 450.
+     Add 100 rejected and 99 accepted.
+
+2. **G2 — decide what a too-large `windowTokens` should mean. THIS SEED
+   DOES NOT ANSWER IT, AND THAT IS DELIBERATE.**
+
+   Two sites read the window and neither bounds it:
+
+   ```sh
+   :236  is_positive_int "$cfg_window" && WINDOW=$cfg_window
+   :264  is_positive_int "$DELIVERY_KIT_WINDOW_TOKENS" && WINDOW=$DELIVERY_KIT_WINDOW_TOKENS
+   ```
+
+   The comment at `:238-244` explains why `thresholdTokens` has no
+   ceiling — it is a number about the user's model, and any positive value
+   is one somebody could legitimately mean. That reasoning is sound for a
+   threshold and is never applied to `windowTokens` itself. A large enough
+   window puts every real reading under the threshold for ever, and the
+   misconfiguration report cannot catch it for the same reason as G1.
+
+   **Route this to the clarify gate.** What the gate needs in front of it,
+   all verified while writing this seed:
+
+   - **The hazard is already documented, with a measurement, and the
+     current stance is education rather than a cap.**
+     `handoff/docs/configuration.md:133-139` records it: against a
+     100,000,000-token window with `thresholdTokens` at 400,000, the guard
+     fires at 400,000 and then stays silent at 900,000 and at 4,000,000,
+     because all three are under 5% of that window. **A cap therefore
+     REVERSES a documented position.** That is a ruling, not a fix.
+   - **Issue #1 forecloses two neighbouring answers and not this one.** It
+     is closed, and it records as explicitly out of scope both raising the
+     default and any model-ID-based detection, with the evidence: a live
+     1M-context transcript records `.message.model` with no variant marker,
+     so a lookup table would return 200000 for a 1M session confidently and
+     with no signal that it had guessed. **Bounding a value the user typed
+     is a different question and is not foreclosed.** Put that distinction
+     in front of the gate so it does not re-decide the closed one.
+   - **The two sites carry different risk.** `:264` is the user's own
+     environment on their own machine. `:236` reads the repository's
+     `.delivery-kit.json`, which is shared — a value one person commits
+     disarms the guard for everyone who clones. Bounding the shared layer
+     alone is a legitimate option, and it is not the same as bounding all
+     three.
+   - **Candidate shapes, none endorsed here:** a hard cap with a documented
+     figure; a warning on an implausible value that is still applied; a
+     report that fires independently of an emission, which is the only
+     shape that also fixes the "nothing downstream can catch it" property
+     G1 and G2 share; or a ruling that the documented education at
+     `configuration.md:133-139` is already the right answer and G2 closes
+     as a considered non-change.
+   - **If the gate rules G2 a non-change, land G1 alone and record the
+     ruling** under the phase's `specs/` directory. A phase that ships one
+     of two findings and says why is a complete phase, not a partial one.
+
+3. **The documentation moves with the code, and the suite will not catch
+   it.** After G1 the rule is "100 or above", not "above 100". Two sites
+   say the old thing: `handoff/docs/configuration.md:46-53`, whose
+   paragraph restates the whole reasoning, and the hook comment at
+   `:37-42`. Both are STRICT surfaces. **Nothing in
+   `pipeline/tests/prose.bats` pins either wording — checked — so a green
+   suite proves nothing here.** Grep every copy of the claim.
+
+4. **Prove the behaviour change by differential, and assert WHICH shapes
+   differ.** Phase 17 already used this mechanism — its shipped run recorded
+   46 shapes, 0 unexpected, **3 of them asserted to differ**
+   (`scripts/context-guard/README.md:102`) — but there the differing shapes
+   were incidental to a refactor whose whole proof was "identical". **Here
+   the differing shapes ARE the deliverable**, which inverts what a zero
+   means. The harness
+   already supports that: `scripts/context-guard/differential.sh` takes an
+   expectation as its fifth argument, defaulting to `same`, and its summary
+   prints AS EXPECTED and UNEXPECTED with the asserted-to-differ count
+   (`:231`, `:275`, `:388`). Read `scripts/context-guard/README.md` first;
+   it records the traps, chiefly that HOME, TMPDIR, TEMP and TMP must all
+   be isolated per side per shape, or the old hook's once-per-bucket flag
+   silences the new one and the harness reports false differences on a
+   correct hook. Pass the baseline as a commit id, never a branch — this
+   repository rebase-merges, so a bare branch name compares an empty range
+   once the work lands. Run the `NEWHOOK` positive control before believing
+   any zero. **Add `thresholdPct` 99, 100 and 101 as shapes, each asserted
+   deliberately: 100 is the only one that must differ.**
+
+**Acceptance criteria:**
+
+- Full house suite from the repo root: **`1..167` before, `1..167+N`
+  after**, 0 not ok, 0 non-TAP. State N and name every added test in the
+  commit message. Do not write "unchanged" — this phase adds tests by
+  design, and a count that did not move is a finding.
+- The differential reports **0 unexpected**, with the shapes asserted to
+  differ named in the commit message. **A run reporting no differences at
+  all is a FAILED run here, not a clean one** — G1 changes behaviour, and a
+  harness that cannot see the change is not evidence.
+- `handoff/tests/context-guard.bats:484-493` no longer passes for a reason
+  its own comment does not state. Prove the rewrite is load-bearing: put
+  the old threshold value back on its own and show the test goes red.
+- The boundary is pinned in both directions — 100 rejected, 99 accepted —
+  and each new test is shown failing against the unchanged hook before it
+  is shown passing against the changed one.
+- `shellcheck --norc -f gcc` clean over the discovered files, as CI runs
+  it. CI's shellcheck is OLDER than a typical local one and reports MORE;
+  a local green does not predict CI.
+- Every documentation site for the threshold rule agrees with the code,
+  verified by grep over each copy of the claim rather than by the suite.
+- G2's outcome is recorded either way: if it lands, the option chosen and
+  the ones rejected; if it does not, the ruling and its reason.
+- **Flag at the release gate that G1 changes what an existing
+  configuration does** — a `thresholdPct` of exactly 100 was accepted
+  before and now reverts to the default 45. Whether that makes the next
+  `handoff` stamp a patch or a minor is the release phase's call, not this
+  one's, but it must not be discovered there.
+
+**Constraints:** Campaign 2 Global Constraints apply — including the full
+house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `handoff/hooks/` and `handoff/docs/` are STRICT
+surfaces. **Changelog routing: `handoff/CHANGELOG.md` ONLY, under the
+existing `## [Unreleased]`, a `### Fixed` entry for G1** naming the
+boundary and what a threshold of 100 used to do; G2's heading follows its
+ruling. This phase touches no file under `pipeline/`, so nothing routes to
+`pipeline/CHANGELOG.md` — **both plugins currently have an open
+`## [Unreleased]` heading, which makes filing under the wrong one easy and
+silent.**
+
+**Invocation:**
+
+```
+/pipeline Phase 18: the guard's own configuration cannot silence it --auto --implementer claude
+```
