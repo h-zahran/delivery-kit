@@ -497,20 +497,17 @@ run_shape "config: negative window" "$P_MAIN" '{"contextGuard":{"windowTokens":-
 # be BOUNDED rather than merely present: one value moved and its neighbours did
 # not. Both must produce OUTPUT to mean anything — a `same` between two silences
 # asserts nothing at all.
-# NOTE: plain `diff`, not `diff@`, and it cannot be otherwise yet — the commit
-# introducing this divergence does not exist; it is the one being written.
-#
-# CONVERT IT AFTER THE BRANCH LANDS, TAKING THE ID FROM `origin/main`. Not from
-# this branch. This repository rebase-merges, so the id here is not the id that
-# lands: measured 2026-09-04, `9148066` and `f495823` have identical trees, and
-# only the second is an ancestor of `main`. An anchor written on the branch it
-# describes therefore never matches, and the guard in `run_shape` now refuses it
-# by name rather than letting it degrade quietly.
-#
-# Until that follow-up, this assertion carries the exact staleness the `diff@`
-# form was added to cure: the next feature to pin a baseline containing it will
-# see one false red on a correct tree.
-run_shape "config: thresholdPct exactly 100" "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":100}}' "" diff
+# ANCHORED AFTER THE FACT, and the delay was structural rather than an
+# oversight: when this shape was written, the commit introducing its divergence
+# did not exist — it was the commit being written. The anchor was taken from
+# `origin/main` once the branch landed, which is the only place it could come
+# from. Measured 2026-09-05, and it is the whole reason the guard in run_shape
+# refuses an unreachable id: the pre-rebase ids the branch actually carried,
+# 2b24438 and 987c9c5, are NOT ancestors of main. This repository rebase-merges,
+# so the branch's own ids were replaced by 5ff33c6 and 1494f5b on landing, and
+# an anchor copied off the branch would have named a commit reachable from
+# nothing and asserted a difference for ever.
+run_shape "config: thresholdPct exactly 100" "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":100}}' "" diff@5ff33c6
 run_shape "config: thresholdPct 99"          "$P_MAIN" '{"contextGuard":{"windowTokens":181000,"thresholdPct":99}}'
 run_shape "config: thresholdPct 101"         "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":101}}'
 

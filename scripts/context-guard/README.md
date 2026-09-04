@@ -114,6 +114,23 @@ change (feature 017):
 | a control asserting a settled divergence on a shape that does differ | **48 as expected, 1 unexpected**, exit 1 — the shape reported that its divergence is already in the baseline and the sides should agree |
 | three controls on the anchor hard stops: an unresolvable id, a pre-rebase orphan, an unknown expectation | **exit 9 on each**, naming the anchor and the reason |
 
+
+Measured 2026-09-05, after the feature landed on `main`, anchoring its own shape:
+
+| Run | Result |
+|---|---|
+| baseline `2658b62`, before the divergence | **49 as expected, 0 unexpected**, 1 asserted to differ, 3 auto-relaxed, exit 0 |
+| baseline `5ff33c6`, at the divergence | **49 as expected, 0 unexpected**, 0 asserted to differ, **4** auto-relaxed, exit 0 |
+
+Two rows, two runs. The same assertion, correct on both sides of its own merge
+with no edit between them — which is the whole point of the `diff@` form.
+
+**The rebase prediction held.** The anchor is `5ff33c6`, read off `origin/main`
+after the merge. The ids the branch itself carried, `2b24438` and `987c9c5`, are
+**not** ancestors of `main`: the rebase-merge replaced them. An anchor copied
+from the branch would have named a commit reachable from nothing, and
+`run_shape` would have refused it by name.
+
 Four rows, because four runs were made (the last row is three runs of the same
 shape, one per hard stop). Earlier control rows are not restated.
 
