@@ -1474,51 +1474,70 @@ load ../../tests/helper
   # refused, which reads as though 100 itself were allowed. That is precisely
   # the inference the defect came from, so the wording is now pinned.
   #
-  # THE SURFACE IS TWO GLOBS, AND THAT IS A LIMIT, NOT A BOAST. It is derived
-  # WITHIN handoff/docs and handoff/hooks — a new file in either is covered on
-  # the day it lands — but the directories themselves are named here, so
-  # handoff/README.md, handoff/CHANGELOG.md and handoff/skills/**/SKILL.md are
-  # NOT scanned. handoff/skills/setup/SKILL.md already mentions thresholdPct and
-  # is the likeliest fourth site. Widening is not free: handoff/CHANGELOG.md
+  # THE SURFACE IS TWO DIRECTORIES, AND THAT IS A LIMIT, NOT A BOAST. It is
+  # derived WITHIN handoff/docs and handoff/hooks — a new file in either is
+  # covered on the day it lands — but the directories themselves are named here,
+  # so handoff/README.md, handoff/CHANGELOG.md and handoff/skills/**/SKILL.md
+  # are NOT scanned. handoff/skills/setup/SKILL.md already mentions thresholdPct
+  # and is the likeliest fourth site. Widening is not free: handoff/CHANGELOG.md
   # quotes the superseded wording ON PURPOSE, as the history of this very
-  # change, and would need an exemption before it could join.
+  # change, and would need naming as an exemption before it could join.
   #
-  # THE PATTERN IS LINE-LOCAL, AND THE FIRST VERSION OF IT WAS TOO NARROW. It
-  # required the word "threshold" within 40 characters of "above 100", which
-  # reads fine and missed one of the three sites this change repaired: the hook
-  # comment whose "threshold" sat on the PREVIOUS line, where a line-scoped grep
-  # can never reach it. Measured 2026-09-04, restoring the pre-fix wording at
-  # that site left the pin GREEN. Matching the phrase and EXCLUDING the one
-  # legitimate use is what works; requiring proximity is what fails.
+  # THE BAN WENT THROUGH TWO WRONG SHAPES BEFORE THIS ONE, and both are worth
+  # recording because both looked right.
   #
-  # The legitimate use is an OBSERVED percentage over 100, which the
-  # misconfiguration note reports and the install guide describes. Those lines
-  # say "reports a percentage", and that is the exclusion. It is load-bearing:
-  # remove it and the check false-reds on correct documentation.
-  local -a surface
-  # nullglob, so an empty directory yields an empty array rather than the
-  # literal pattern. Without it the emptiness guard below could never run —
-  # measured, the assignment itself aborted first under bats' errexit and the
-  # failure named `ls` instead of the reason.
+  #   1. Requiring the word "threshold" within 40 characters of "above 100" on
+  #      the SAME line. It missed one of the three sites this change repaired —
+  #      the hook comment whose "threshold" sits on the PREVIOUS line, where a
+  #      line-scoped grep can never reach it. Measured: restoring the pre-fix
+  #      wording there left the pin GREEN.
+  #   2. Matching "(above|over) 100([^0-9%]|$)". The character class was added
+  #      to spare the legitimate prose about an OBSERVED percentage — and it
+  #      spared "a thresholdPct above 100% is refused" too, which is the single
+  #      most natural way to reintroduce the defect. Measured: NO MATCH. It also
+  #      missed every synonym: "greater than", "exceeds", "more than".
+  #
+  # What works is banning the phrase BROADLY — all the synonyms, with or without
+  # a percent sign, in any case — and EXEMPTING the three legitimate
+  # constructions by name. Those three describe an observed percentage, which is
+  # what the misconfiguration note reports and the install guide explains; they
+  # are not statements of this rule. The exemption is load-bearing: remove it and
+  # the check false-reds on correct documentation.
+  local -a docs hooks surface
+  # nullglob so an empty directory yields an empty array rather than the literal
+  # pattern — without it the guards below could never run, because the
+  # assignment itself aborts under bats' errexit first. Saved and restored
+  # rather than forced off, so this test cannot change the option for whatever
+  # runs after it.
+  # `shopt -p` EXITS 1 when the option is unset — it reports state through its
+  # status as well as its output — so under bats' errexit this assignment aborts
+  # the whole test without a guard. Measured: it did, on the first attempt here.
+  local nullglob_was; nullglob_was="$(shopt -p nullglob || true)"
   shopt -s nullglob
-  surface=( "$ROOT"/handoff/docs/*.md "$ROOT"/handoff/hooks/*.sh )
-  shopt -u nullglob
-  [ "${#surface[@]}" -gt 0 ] || {
-    echo "the rule surface enumerated to NOTHING — this check would pass having read no files"
-    false
-  }
+  docs=( "$HANDOFF"/docs/*.md )
+  hooks=( "$HANDOFF"/hooks/*.sh )
+  eval "$nullglob_was"
+  # EACH HALF IS ASSERTED SEPARATELY. Testing only the combined array lets one
+  # directory go silently unscanned while the other keeps the count above zero —
+  # "scanned nothing" and "found nothing" printing the same green, which is the
+  # failure every error string in this test is written against.
+  [ "${#docs[@]}" -gt 0 ]  || { echo "handoff/docs matched no .md file — half the rule surface went unscanned"; false; }
+  [ "${#hooks[@]}" -gt 0 ] || { echo "handoff/hooks matched no .sh file — half the rule surface went unscanned"; false; }
+  surface=( "${docs[@]}" "${hooks[@]}" )
 
   # grep's rc is captured rather than swallowed. 0 is matches, 1 is no match,
   # and 2 is an ERROR — an unreadable file, or a path that word-split because it
   # contained a space. Folding 2 into "no match" is exactly how a scan that read
   # nothing reports clean, so 2 fails here instead.
   local rc=0 stale=""
-  grep -inE '(above|over) 100([^0-9%]|$)' "${surface[@]}" > "$TEST_DIR/rulehits.txt" 2>/dev/null || rc=$?
+  grep -inE '(above|over|greater than|more than|exceeds|past) 100' "${surface[@]}" \
+    > "$TEST_DIR/rulehits.txt" 2>/dev/null || rc=$?
   [ "$rc" -le 1 ] || {
     echo "the ban scan ERRORED with rc $rc — it did not read the surface, so its silence means nothing"
     false
   }
-  stale="$(grep -viE 'reports a percentage' "$TEST_DIR/rulehits.txt" || true)"
+  stale="$(grep -viE 'reports a percentage|at or above 100%|percentage of 100 or above' \
+           "$TEST_DIR/rulehits.txt" || true)"
   [ -z "$stale" ] || {
     echo "the superseded threshold wording survives — the rule is 100 OR ABOVE:"
     echo "$stale"

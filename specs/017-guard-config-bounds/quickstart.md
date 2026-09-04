@@ -48,7 +48,10 @@ bash "$HOME/bats/bin/bats" --print-output-on-failure handoff/tests/context-guard
 
 Expected: green, including
 
-- 100 refused: the guard now **speaks** where it was silent, naming `threshold 45%`
+- 100 refused: the guard now **speaks** where it was silent, naming the window
+  from the repository layer and the threshold from the user layer — asserting
+  both, so the test cannot pass with the configuration unread (the default is
+  also 45, which is what made the first version of this assertion weak)
 - 99 accepted: the emission names `threshold 99%` — not `45%`, which is what
   a refusal would produce, so the assertion discriminates on the exact value
 - 101 refused: unchanged, already covered
@@ -100,11 +103,25 @@ Do this by derivation, not against a list of two files — a hand list is how th
 wording drifted out of step originally.
 
 ```bash
-grep -rn "above 100" handoff/ README.md
+grep -rnE '(above|over|greater than|more than|exceeds|past) 100' handoff/ README.md \
+  | grep -viE 'reports a percentage|at or above 100%|percentage of 100 or above'
 ```
 
-Expected: no hit that states the rule. The rule reads "100 or above" everywhere
-it appears. The canonical sentence lives in
+**Every surviving hit must be a deliberate one, and there are exactly three
+classes.** The bare `grep -rn "above 100"` this step used to name returns five
+hits with no way to tell pass from fail, which is worse than no check:
+
+1. `handoff/CHANGELOG.md` — quotes the superseded wording ON PURPOSE, as the
+   history of this change. Legitimate, and outside the pin's surface.
+2. `handoff/tests/context-guard.bats` — the pin's own comment quoting what it
+   bans, and a test name. Legitimate.
+3. Anything under `handoff/docs/` or `handoff/hooks/` — **not** legitimate.
+   That is the pin's surface, and the shipped test fails on it.
+
+So the executable form of this step is the bats pin itself; the command above is
+for reading, and it is written with the same exemptions so that its output can
+actually be judged. The rule reads "100 or above" everywhere it states the rule.
+The canonical sentence lives in
 [contracts/threshold-validation.md](./contracts/threshold-validation.md).
 
 ## 7. Static analysis, the way the automation runs it

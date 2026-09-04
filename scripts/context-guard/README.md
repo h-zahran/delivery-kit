@@ -192,8 +192,8 @@ trains a reader to skim past the one line that matters. An asserted difference
 goes red if the divergence is ever quietly repaired — the direction nobody
 watches.
 
-Four shapes use it today, and the count is best taken from the file:
-`grep -cE '^run_shape .* diff(@[0-9a-f]+)?$' scripts/context-guard/differential.sh`. This
+Three anchored shapes use it today, and the count is best taken from the file:
+`grep -cE '^run_shape .* diff@[0-9a-f]+$' scripts/context-guard/differential.sh` — scoped to ANCHORED assertions, because an unscoped count also picks up the threshold divergence, which belongs to a different rule. This
 paragraph said "one shape" while the 2026-09-02 table already said two, and it
 still said two after a third arrived. Name the table, never a line distance —
 the distance changed the moment a second table was added above.

@@ -1849,7 +1849,9 @@ deliberately does not pre-answer it.
      housekeeping to do afterwards.** Rewrite it to the highest still-valid
      threshold and prove the rewrite is load-bearing.
    - **The boundary itself is untested in both directions.**
-     `:459` is named "a threshold above 100 is rejected" and exercises 450.
+     `:459` exercises 450 only. (That test was later renamed to "a threshold FAR
+     above 100 is rejected...", so its old title no longer resolves in the
+     suite — the boundary is now covered by two neighbouring tests.)
      Add 100 rejected and 99 accepted.
 
 2. **G2 — decide what a too-large `windowTokens` should mean. THIS SEED

@@ -62,7 +62,10 @@ diffn=0
 asserted=0
 settled_n=0
 
-# run_shape <label> <payload-json> <config-json-or-empty>
+# The signature lives with the function, not here — this block is about the
+# per-side isolation below. A second copy of it sat here and went two arguments
+# out of date, so a reader scrolling from the top met the THREE-argument form
+# first and would write a call with no expectation at all.
 #
 # Each side gets its own HOME, TMPDIR, TEMP and TMP, and that is load bearing
 # rather than tidy. The guard writes a once-per-5%-bucket flag to
@@ -323,7 +326,19 @@ run_shape() {
       # SO: WRITE THE ANCHOR AFTER THE BRANCH LANDS, reading the id off
       # `origin/main`. An anchor written on the branch it describes is the
       # wrong id by construction.
-      [ -n "$(git branch -a --contains "$since" 2>/dev/null)" ] || {
+      # git's status is captured, not discarded. An EMPTY answer and a FAILED
+      # command look identical once stderr is thrown away, and they mean
+      # opposite things: a shallow clone, a single-branch clone or pruned remote
+      # refs all print nothing, and diagnosing those as "a pre-rebase id" is a
+      # confident wrong answer on an anchor that is correct. The --is-ancestor
+      # arm below already makes this distinction for rc 128; so does this one.
+      contains=""; crc=0
+      contains="$(git branch -a --contains "$since" 2>/dev/null)" || crc=$?
+      [ "$crc" -le 1 ] || {
+        printf 'differential: could not test reachability of %s (git rc %s); this is not a verdict on the anchor\n' "$since" "$crc" >&2
+        exit 9
+      }
+      [ -n "$contains" ] || {
         printf 'differential: anchor %s is reachable from no branch, so it looks like a PRE-REBASE id;\n' "$since" >&2
         printf 'differential: take the anchor from origin/main AFTER the branch lands\n' >&2
         exit 9
@@ -459,23 +474,29 @@ run_shape "config: negative window" "$P_MAIN" '{"contextGuard":{"windowTokens":-
 # is_valid_threshold from `-le 100` to `-lt 100`, so a threshold of exactly 100
 # is now refused and falls back to the previously resolved value.
 #
-# windowTokens is 360000 on all three so they are directly comparable: the
-# default six readings are 180000 each, which is 50% of that window. 50 sits
-# ABOVE the 45 fallback and BELOW 99, which is what makes exactly one of these
-# three move:
+# The default six readings are 180000 each. Two of the three shapes use a window
+# of 360000, which puts them at 50% — ABOVE the 45 fallback and BELOW 99, which
+# is what makes exactly one of them move:
 #
-#   thresholdPct 100 -> old: accepted, 50 < 100, SILENT
-#                       new: refused, falls back to 45, 50 >= 45, FIRES     DIFF
-#   thresholdPct  99 -> accepted by both, 50 < 99, silent both sides        same
-#   thresholdPct 101 -> refused by both, falls back to 45, fires both sides same
+#   thresholdPct 100 @ 360000 -> old: accepted, 50 < 100, SILENT
+#                                new: refused, falls back to 45, 50 >= 45, FIRES   DIFF
+#   thresholdPct 101 @ 360000 -> refused by both, falls back to 45, fires both     same
+#
+# THE 99 SHAPE NEEDS A DIFFERENT WINDOW, and the first version of it did not have
+# one. At 360000 a threshold of 99 is never met, so BOTH sides said nothing and
+# the shape compared two silences — the exact defect recorded in the comment
+# above `config: maxBytes tiny`, reintroduced here while a comment claimed this
+# window avoided it. Measured 2026-09-04: 0 bytes on both sides. At 181000 the
+# same readings are 99%, so both sides FIRE and the emission names the threshold
+# it applied; a regression that refused 99 would print `threshold 45%` instead
+# and the shape would go DIFF. Measured: 554 bytes, naming `threshold 99%`.
+#
+#   thresholdPct  99 @ 181000 -> accepted by both, 99 >= 99, fires both            same
 #
 # The two `same` assertions are not padding. They are how the change is shown to
 # be BOUNDED rather than merely present: one value moved and its neighbours did
-# not. Do not delete them to tidy the table.
-#
-# Picking 1000000 here instead would put the readings at 18%, below every
-# threshold, and all three shapes would compare two silences — the exact defect
-# recorded in the comment above `config: maxBytes tiny`.
+# not. Both must produce OUTPUT to mean anything — a `same` between two silences
+# asserts nothing at all.
 # NOTE: plain `diff`, not `diff@`, and it cannot be otherwise yet — the commit
 # introducing this divergence does not exist; it is the one being written.
 #
@@ -490,7 +511,7 @@ run_shape "config: negative window" "$P_MAIN" '{"contextGuard":{"windowTokens":-
 # form was added to cure: the next feature to pin a baseline containing it will
 # see one false red on a correct tree.
 run_shape "config: thresholdPct exactly 100" "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":100}}' "" diff
-run_shape "config: thresholdPct 99"          "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":99}}'
+run_shape "config: thresholdPct 99"          "$P_MAIN" '{"contextGuard":{"windowTokens":181000,"thresholdPct":99}}'
 run_shape "config: thresholdPct 101"         "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":101}}'
 
 printf '== transcript shapes ==\n'

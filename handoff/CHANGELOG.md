@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because a plugin README has to stand on its own on a marketplace page, and
   links onward for the reasoning about the hook race.
 
+- **A `thresholdPct` of exactly 100 is no longer honoured** — see the first
+  entry under **Fixed** below for why, and for what to do about it. Cross-listed
+  here on purpose: it is filed as a fix because it closes a defect, but it also
+  changes what an existing configuration file does, and anyone upgrading who
+  reads only this section would otherwise miss it. A guard configured with 100
+  starts warning at the previously resolved threshold instead of never warning
+  in time. The refusal is silent by contract, so there is no in-product signal.
+
 ### Fixed
 
 - **A `thresholdPct` of exactly 100 no longer silences the guard.**

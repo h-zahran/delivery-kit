@@ -2,9 +2,16 @@
 
 **Status**: authoritative for feature 017. This file states the rule **once**.
 Everything that describes the rule elsewhere — the hook's own comments, the
-user documentation, the changelog entry — restates *this* sentence, and the
-prose pin required by Principle I checks against it rather than against a list
-of file paths.
+user documentation, the changelog entry — restates *this* sentence.
+
+The prose pin required by Principle I does **not** read this file. It bans the
+superseded phrasings directly, over `handoff/docs` and `handoff/hooks`, with the
+three legitimate observed-percentage constructions exempted by name. Stated
+plainly because an earlier draft of this paragraph claimed the pin checks
+against this contract "rather than against a list of file paths", and that was
+never true of what shipped — the canonical sentence is duplicated into the test,
+not read from here. Whoever makes the pin derive from this file should delete
+this paragraph; until then it is the honest description.
 
 ---
 

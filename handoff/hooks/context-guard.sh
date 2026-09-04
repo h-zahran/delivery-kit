@@ -334,7 +334,10 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # then two, then three as successive rounds of review measured further; all are
 # kept, and the differential asserts each rather than hiding it. TAKE THE NUMBER
 # FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong twice:
-# `grep -cE '^run_shape .* diff(@[0-9a-f]+)?$' scripts/context-guard/differential.sh`. The
+# `grep -cE '^run_shape .* diff@[0-9a-f]+$' scripts/context-guard/differential.sh`.
+# The anchor is scoped to ANCHORED assertions on purpose: a later feature added
+# a threshold divergence that is asserted the same way but belongs to a
+# different rule, and an unscoped count answers 4 for a list of 3. The
 # anchor is not decoration: a bare ` diff$` also matches a comment about the
 # diff command and answered four where the truth was three, in the same breath
 # as telling the reader to count rather than trust prose.
