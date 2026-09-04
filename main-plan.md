@@ -598,12 +598,29 @@ config — ruling 3's original half is unchanged.
   own spot-checks, not to the suite: a pattern written inside a `.bats`
   file never crosses an argv boundary and is unaffected.
 
-- **⚠️ This plan file must never contain a joined banned literal.**
-  It is tracked, it sits inside the new scan's scope, and it is the file
-  that defines the scan. Every banned shape is named descriptively here,
-  or assembled from parts in a command. Writing one joined would make
-  the plan a hit on its own guard — measured: three such literals were
-  written into this section on the first draft and removed on review.
+- **⚠️ This plan file must never contain a joined banned literal, and NO
+  TEST WILL CATCH ONE.** It is tracked, and it is the file that defines
+  the scan — but it appears in none of the `SHIPPED` lists
+  (`tests/portability.bats:170-172`), so no vocabulary scan ever reads
+  it. **Measured 2026-09-04, by mutation rather than by reading:** a
+  banned term appended to this file left the test "no
+  originating-project vocabulary in the shipped surface" GREEN at exit
+  0; the file was then restored and `cmp` proved it byte-identical. The
+  exclusion is deliberate and correct — a plan that specifies a detector
+  has to name what the detector detects, which is why the working record
+  is held outside those lists (`tests/portability.bats:194`). The
+  tree-wide scan at `:302` does read this file, but it looks for machine
+  paths, not vocabulary, so it cannot stand in. **An earlier form of
+  this constraint claimed the file "sits inside the new scan's scope"
+  and that writing a literal "would make the plan a hit on its own
+  guard". Both were false, and a green suite was the evidence for
+  neither.** So the rule here is discipline, not a gate: name every
+  banned shape descriptively, or assemble it from parts in a command,
+  and grep for it yourself — with a positive control, because an
+  alternation that loses one level of backslash escaping reports zero
+  over a tree holding thirty-six. Measured on the first draft of this
+  section: three such literals were written into it and removed on
+  review.
 
 - **Pinned strings — add near, never reword.** The LIVING registry is
   `pipeline/tests/prose.bats` plus each feature's `contracts/*.md`.
