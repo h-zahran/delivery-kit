@@ -185,7 +185,7 @@ was expected to fail.
 Two items the plan could not have contained, because both were discovered by
 running the work rather than by reading it.
 
-- [ ] T027 **Convert this feature's own differential assertion to `diff@`, in a
+- [X] T027 **DONE 2026-09-05.** Convert this feature's own differential assertion to `diff@`, in a
   follow-up commit on this branch.** `scripts/context-guard/differential.sh`
   asserts `config: thresholdPct exactly 100` with a plain `diff`, because at the
   time it was written the commit introducing that divergence did not exist — it
@@ -211,3 +211,19 @@ running the work rather than by reading it.
   (`diff@<commit>`); when the baseline already contains it the expectation
   becomes `same`. Controlled in three directions and recorded in
   `scripts/context-guard/README.md`. Approved at the H gate before implementing.
+
+  **Closed 2026-09-05, and the prediction held exactly.** The anchor is
+  `diff@5ff33c6`, taken from `origin/main` after the merge. The branch's own
+  ids — `2b24438` and `987c9c5` — are **not** ancestors of `main`; the
+  rebase-merge replaced them with `5ff33c6` and `1494f5b`. An anchor copied off
+  the branch would have named a commit reachable from nothing, and the guard
+  added in T028 would have refused it by name rather than letting it degrade.
+
+  Verified on both sides of its own merge:
+
+  | Baseline | Result |
+  |---|---|
+  | `2658b62`, before the divergence | `DIFFERS, as asserted` — 1 asserted to differ, 3 auto-relaxed, exit 0 |
+  | `5ff33c6`, at the divergence | `agrees; its asserted divergence (5ff33c6) is already in the baseline` — 0 asserted, 4 auto-relaxed, exit 0 |
+
+  No plain `diff` assertion remains in the harness; all four are anchored.
