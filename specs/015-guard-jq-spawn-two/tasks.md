@@ -224,3 +224,46 @@ re-measurement before it was acted on.
   configuration file can also silence the guard with a very large window. Both
   are pre-existing and both are behaviour changes, so neither belongs in a phase
   whose entire proof is that behaviour did not change. They need their own seed.
+
+  **RESOLVED 2026-09-04 by feature 017** (`specs/017-guard-config-bounds/`),
+  which ran as Phase 18. The two halves resolved differently, and the second
+  one is a ruling rather than a fix — read it before reopening the question.
+
+  - **The threshold half is FIXED.** `is_valid_threshold` now compares with
+    `-lt 100`, so a threshold of exactly 100 is refused at all three
+    configuration layers. Pinned in both directions:
+    `handoff/tests/context-guard.bats` gains "a threshold of exactly 100 is
+    rejected, the first refused value" and "a threshold of 99 is accepted, the
+    last admissible value". The first was run RED before the operator changed —
+    measured 2026-09-04, with `thresholdPct` 100 and observed context at half
+    the window, the guard emitted **nothing at all**.
+
+  - **The window half is a RULED NON-CHANGE.** Decided by the owner at feature
+    017's clarify gate, 2026-09-04: `windowTokens` stays unbounded at
+    BOTH sites — the repository-file read and the environment override. Named by
+    description rather than by line number, because this very change shifted
+    them, and the struck-candidate note below already applied that discipline.
+    The reasoning, so that reopening this is a
+    deliberate act rather than a rediscovery — any ceiling or warning needs a
+    number, and that number catches the wrong cases. A limit refusing
+    100,000,000 still admits 2,000,000, and 2,000,000 on a 200,000-token model
+    disarms the guard just as completely. So it would block absurd values while
+    admitting the plausible-but-wrong ones people actually type, and would buy
+    that false assurance by reversing a position this project has already taken
+    twice: in issue #1, which ruled the too-large window undetectable from
+    inside, and in `handoff/docs/configuration.md`, which records the hazard
+    with a measurement.
+
+  - **One candidate was STRUCK on evidence, not opinion.** The Phase 18 seed
+    offered "make the existing misconfiguration report fire independently of an
+    emission" as the strongest answer, because it would also remove the shared
+    root cause. It cannot work: that report is gated on observed context
+    *exceeding* the window (`handoff/hooks/context-guard.sh`, the
+    `ctx -gt WINDOW` test), which a too-large window makes permanently false.
+    The report can never see the case it was proposed to catch. Detecting a
+    too-large window would need an entirely new detector, not a change to this
+    one. Do not re-propose it without reading this.
+
+  Full reasoning, alternatives and measurements:
+  `specs/017-guard-config-bounds/spec.md` (Clarifications) and
+  `specs/017-guard-config-bounds/research.md`.

@@ -34,14 +34,22 @@ is_positive_int() {
   esac
 }
 
-# A threshold over 100 could only be reached once context has already
-# exceeded the window, which is far too late to be useful — so in practice
-# the guard would never fire again, silently, which is the one thing
+# A threshold of 100 OR ABOVE could only be reached once context has already
+# reached the window, which is far too late to be useful — so in practice the
+# guard would never fire in time again, silently, which is the one thing
 # configuration must not be able to do. Nothing downstream can catch it:
 # the window-misconfiguration report runs only once the guard has already
 # decided to fire.
+#
+# 100 is the value this rule exists for, and the reason the comparison is
+# `-lt` rather than `-le`. 450 is obviously a typo for 45 and looks wrong on
+# sight; "warn me at 100%" reads like a deliberate choice and disarms the
+# guard just as completely. MEASURED 2026-09-04 against the previous `-le`:
+# with thresholdPct 100 and observed context at half the window, the guard
+# emitted nothing at all. Pinned in both directions by the boundary tests in
+# handoff/tests/context-guard.bats — 100 refused, 99 accepted.
 is_valid_threshold() {
-  is_positive_int "$1" && [ "$1" -le 100 ]
+  is_positive_int "$1" && [ "$1" -lt 100 ]
 }
 
 # jq is a hard dependency: the hook parses the stdin payload and a JSONL
@@ -236,7 +244,7 @@ read_config() {
   is_positive_int "$cfg_window" && WINDOW=$cfg_window
   is_valid_threshold "$cfg_threshold" && THRESHOLD_PCT=$cfg_threshold
   # No upper bound, unlike the threshold above. That cap exists because a
-  # percentage over 100 can only be reached once context has already overflowed
+  # percentage of 100 or above can only be reached once context has already filled
   # the window, so it is unreachable by construction; a token count has no such
   # ceiling — it is a number about the user's model, and any positive value is a
   # setting somebody could legitimately mean. The arithmetic ceiling documented
@@ -326,7 +334,7 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # then two, then three as successive rounds of review measured further; all are
 # kept, and the differential asserts each rather than hiding it. TAKE THE NUMBER
 # FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong twice:
-# `grep -c '^run_shape .* diff$' scripts/context-guard/differential.sh`. The
+# `grep -cE '^run_shape .* diff(@[0-9a-f]+)?$' scripts/context-guard/differential.sh`. The
 # anchor is not decoration: a bare ` diff$` also matches a comment about the
 # diff command and answered four where the truth was three, in the same breath
 # as telling the reader to count rather than trust prose.
@@ -618,9 +626,12 @@ find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-
 # had guessed. Verified against a live 1M transcript. See issue #1.
 #
 # INVARIANT: ctx > WINDOW implies pct >= 100, which implies bucket >= 20. The
-# threshold gate cannot block that, because is_valid_threshold caps
-# THRESHOLD_PCT at 100. So the note rides an emission rather than needing one
-# of its own.
+# threshold gate cannot block that, because is_valid_threshold admits no
+# threshold of 100 or above — the highest it accepts is 99. So pct here does
+# not merely MEET the highest admissible threshold, it strictly EXCEEDS it.
+# The invariant held by equality while the cap was 100 and now holds with a
+# margin; tightening the rule made this argument stronger, never weaker. So
+# the note rides an emission rather than needing one of its own.
 #
 # One exception, and it is deliberate: a reading landing exactly on WINDOW
 # records bucket 20 without the note, because the test below is strict and

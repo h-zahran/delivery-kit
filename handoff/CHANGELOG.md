@@ -29,6 +29,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `thresholdPct` of exactly 100 no longer silences the guard.**
+  `is_valid_threshold` compared with `-le 100`, so 100 was accepted — and a
+  percentage only reaches 100 once context has already filled the window, far
+  too late for a warning to be useful. In practice the guard never fired in
+  time again, and said nothing about it. Nothing downstream could catch it
+  either: the window-misconfiguration note rides an emission that, in that
+  configuration, never happens.
+
+  The comparison is now `-lt 100`. The highest threshold accepted is 99, and
+  the refusal behaves like every other invalid value — the offending value is
+  ignored, the previously resolved value stands, and the guard is never
+  disabled.
+
+  Measured 2026-09-04 against the previous behaviour: with `thresholdPct` 100
+  and observed context at half the configured window, the guard emitted
+  **nothing at all**; it now warns. The behavioural differential reports that
+  shape as the one that changed, with 99 and 101 asserted unchanged either side
+  of it. The boundary is pinned in both directions in
+  `handoff/tests/context-guard.bats`, and the first of those tests was run and
+  seen red before the operator moved.
+
+  One rule statement travelled with the change, in three places that said a
+  threshold "above 100" was refused — wording that reads as though 100 itself
+  were permitted, which is the inference the defect came from. They now say
+  "100 or above", and a test pins the wording so it cannot drift back
+  unnoticed. That pin reads `handoff/docs/` and `handoff/hooks/`, which is where
+  the rule is stated today — not the whole plugin. The limit is written beside
+  the test rather than implied by its name.
+
+  **Note for whoever cuts the next release**: this changes what an existing
+  configuration does. A file setting `thresholdPct` to exactly 100 was honoured
+  before and is now ignored in favour of the default. Decide the version stamp
+  deliberately rather than discovering this at the tag.
+
+- **`windowTokens` deliberately still has no upper bound.** Recorded here
+  because it was raised alongside the above and ruled on, not overlooked: a
+  window set far too large silences the guard just as effectively, and the
+  answer is that no ceiling is imposed. Any limit needs a number, and that
+  number catches the wrong cases — refusing 100,000,000 while still admitting
+  2,000,000, which disarms a 200,000-token window just as completely. The
+  reasoning is recorded in the delivery-kit REPOSITORY, under
+  `specs/017-guard-config-bounds/`, beside the deferral that raised it. That is
+  a repository path and not one this plugin ships — the marketplace installs
+  handoff from `./handoff`, which carries no `specs/` directory. Clone the
+  repository to read it. Said explicitly because the entry above this one exists
+  because an earlier changelog sent installed readers down exactly such a path.
+
 - The 2.1.1 entry below points a reader at `scripts/context-guard/README.md` and
   `scripts/context-guard/differential.sh` for the exact shape counts. Those are
   paths in the **delivery-kit repository**, not in the installed plugin: the
