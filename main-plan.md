@@ -601,20 +601,24 @@ config — ruling 3's original half is unchanged.
 - **⚠️ This plan file must never contain a joined banned literal, and NO
   TEST WILL CATCH ONE.** It is tracked, and it is the file that defines
   the scan — but it appears in none of the `SHIPPED` lists
-  (`tests/portability.bats:170-172`), so no vocabulary scan ever reads
-  it. **Measured 2026-09-04, by mutation rather than by reading:** a
-  banned term appended to this file left the test "no
-  originating-project vocabulary in the shipped surface" GREEN at exit
-  0; the file was then restored and `cmp` proved it byte-identical. The
-  exclusion is deliberate and correct — a plan that specifies a detector
-  has to name what the detector detects, which is why the working record
-  is held outside those lists (`tests/portability.bats:194`). The
-  tree-wide scan at `:302` does read this file, but it looks for machine
-  paths, not vocabulary, so it cannot stand in. **An earlier form of
-  this constraint claimed the file "sits inside the new scan's scope"
-  and that writing a literal "would make the plan a hit on its own
-  guard". Both were false, and a green suite was the evidence for
-  neither.** So the rule here is discipline, not a gate: name every
+  (`tests/portability.bats:169-172`), so no vocabulary scan ever reads
+  it. **Measured 2026-09-04 by mutation, and against the WHOLE suite
+  rather than against the one test that looked most likely:** a banned
+  term was appended to this file, the append was confirmed with `tail`
+  rather than assumed, and every test stayed green — `1..167`, 167 ok,
+  0 not ok, exit 0. The file was then restored and `cmp` proved it
+  byte-identical. The exclusion is deliberate and correct: the working
+  record is held outside those lists (`:196`) because a plan that
+  specifies a detector has to name what the detector detects (`:198`).
+  The tree-wide scan at `:302` DOES read this file, but it looks for
+  machine paths, not vocabulary, so it cannot stand in — "some scan
+  reads this file" and "the scan this rule needs reads this file" are
+  different sentences, and conflating them is how the error below
+  lasted. **An earlier form of this constraint claimed the file "sits
+  inside the new scan's scope", and that writing a literal "would make
+  the plan a hit on its own guard". Both were false, and both survived
+  because every check of them was a reading of the lists rather than a
+  measurement.** So the rule here is discipline, not a gate: name every
   banned shape descriptively, or assemble it from parts in a command,
   and grep for it yourself — with a positive control, because an
   alternation that loses one level of backslash escaping reports zero
