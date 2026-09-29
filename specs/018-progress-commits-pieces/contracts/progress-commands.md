@@ -28,6 +28,7 @@ phrase, when:
 | sha empty | `needs a commit id` (worded `the entry needs a commit id`, so it never contains the argument-count fragment) |
 | an empty path in the file list | `empty path` |
 | an empty task id in the task list | `empty task id` |
+| the state file's `commits` is not a list | `commits must be a list` |
 | sha not 40 lowercase hex | `not a full commit id` |
 | sha recorded with different details | `already recorded with different details` |
 | sha claimed by an old-style entry | `already recorded by an old-style entry` |
@@ -65,6 +66,10 @@ an argument that looks like an absolute POSIX path before a native jq sees it.
 | tasks file missing | `tasks file not found` |
 | no piece in the tasks file | `no piece` |
 | the next piece's heading holds U+001F, a NUL, or a CR left after its one trailing CR is removed | `heading holds a control character` |
+| the state file's `commits` is not a list (read as empty, it would offer every piece again) | `commits must be a list` |
+
+stdout is checked as ZERO BYTES from a file in every test, never as bats'
+`$output`, which strips trailing newlines and so cannot see a stray one.
 
 `piece-next` never writes a file.
 

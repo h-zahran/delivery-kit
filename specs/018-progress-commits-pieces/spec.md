@@ -224,6 +224,9 @@ both new commands.
   task id (`T001,,T002`, a leading or a trailing comma) — an empty item is
   what an unset variable expands to, so it is the shape a broken caller
   produces (added at deep review, finding M-2).
+  (l) the state file's `commits` is present but not a list — refused rather
+  than read as empty (added at pull-request review, finding D). `piece-next`
+  refuses the same state (FR-010).
   An empty old-style entry (`""`) has no first word and so claims nothing;
   it must never stop a record (added at deep review, finding I-1: it made
   every call fail with jq's own error and exit 5). When an identical object
