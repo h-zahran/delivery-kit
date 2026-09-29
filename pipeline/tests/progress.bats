@@ -366,14 +366,27 @@ seed_legacy() {
 # nothing: before commit-add and piece-next existed, the helper already exited
 # 1 on either, with a usage line — so every check here names the fragment the
 # contract promises, and the state file must come through byte-identical.
+#
+# stdout goes to a FILE and must be zero bytes: bats strips trailing newlines
+# from $output, so [ -z "$output" ] passes on a one-byte newline (the comment
+# on the read test above says so, and a reviewer measured a refusal that also
+# printed "\n" passing every refusal test that way). Plain cmp, not cmp -s,
+# for the reason given on the read test.
 refuses_via() {
-  local sub="$1" frag="$2"; shift 2
+  local sub="$1" frag="$2" rc=0; shift 2
   cp "$SF" before.json
-  run --separate-stderr bash "$PROG" "$sub" "$@"
-  [ "$status" -ne 0 ] || { echo "exit 0, expected a refusal naming: $frag"; return 1; }
+  bash "$PROG" "$sub" "$@" > out.txt 2> err.txt || rc=$?
+  [ "$rc" -ne 0 ] || { echo "exit 0, expected a refusal naming: $frag"; return 1; }
+  stderr="$(cat err.txt)"
   [[ "$stderr" == *"$frag"* ]] || { echo "stderr lacks '$frag': $stderr"; return 1; }
-  [ -z "$output" ] || { echo "a refusal printed on stdout: $output"; return 1; }
-  cmp -s before.json "$SF" || { echo "a refusal changed the state file"; return 1; }
+  [ ! -s out.txt ] || { echo "a refusal printed on stdout: $(od -c out.txt)"; return 1; }
+  cmp before.json "$SF" || { echo "a refusal changed the state file"; return 1; }
+}
+
+# no_stdout <subcommand> <arguments...> — succeeds, and prints zero bytes.
+no_stdout() {
+  bash "$PROG" "$@" > out.txt
+  [ ! -s out.txt ] || { echo "stdout was not empty: $(od -c out.txt)"; return 1; }
 }
 refuses() { refuses_via commit-add "$@"; }
 
@@ -388,11 +401,9 @@ CONTRACT_KINDS=(spec piece converge simplify review tests constitution other)
 @test "commit-add records one piece entry with its fields in order and arrays typed" {
   ca_init
   # Unsorted on purpose: sorted input would pass a write that sorted it.
-  run --separate-stderr bash "$PROG" commit-add 001-demo piece "$SHA_A" "Phase 1: Setup" T002,T001 z.sh "b c.md"
-  [ "$status" -eq 0 ]
-  # commit-add prints nothing on stdout: the orchestrator reads stdout, and a
-  # stray path there would be taken for an answer.
-  [ -z "$output" ]
+  # commit-add prints nothing on stdout — zero bytes, measured from a file: the
+  # orchestrator reads stdout, and a stray line there would be taken for an answer.
+  no_stdout commit-add 001-demo piece "$SHA_A" "Phase 1: Setup" T002,T001 z.sh "b c.md"
   [ "$(jq -c '.commits[0] | keys_unsorted' "$SF")" = '["sha","kind","piece","tasks","files"]' ]
   jq -e '.commits[0].tasks | type == "array"' "$SF" > /dev/null
   jq -e '.commits[0].files | type == "array"' "$SF" > /dev/null
@@ -435,9 +446,7 @@ CONTRACT_KINDS=(spec piece converge simplify review tests constitution other)
   # A re-run after a crash between recording and the next step repeats the call
   # exactly. It must succeed, or re-entering the phase would fail on work that
   # is already done.
-  run --separate-stderr bash "$PROG" commit-add 001-demo piece "$SHA_A" "Phase 1: Setup" T001,T002 a.sh
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  no_stdout commit-add 001-demo piece "$SHA_A" "Phase 1: Setup" T001,T002 a.sh
   cmp before.json "$SF"
 }
 
@@ -711,9 +720,9 @@ $(fixture_heading 'Phase 9b: ')|T007"
   for d in T900 T901 T902 T903 T904 T905; do
     [[ "$all" != *"$d"* ]] || { echo "decoy $d was printed"; false; }
   done
-  run --separate-stderr bash "$PROG" piece-next 001-demo
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  # "Nothing left" is zero bytes, not a blank line: a caller reading one line
+  # would take a blank for a piece with an empty name.
+  no_stdout piece-next 001-demo
 }
 
 @test "piece-next prints both real headings byte for byte" {
@@ -829,9 +838,10 @@ $(fixture_heading 'Phase 9b: ')|T007"
 
 @test "piece-next ignores old-style entries, even one equal to a heading" {
   pn_init
-  # 14 of the 17 real state files hold bare strings. One equal to a heading
-  # names no kind, so it is not a recorded piece — and reading a bare string
-  # as an entry with a kind would crash the walk on all 14.
+  # Most state files written before commit-add existed hold bare strings (the
+  # dated count is in the feature's spec). One equal to a heading names no
+  # kind, so it is not a recorded piece — and reading a bare string as an
+  # entry with a kind would crash the walk on every one of those files.
   jq '.commits = ["abc1234", "Phase 1: Setup"]' "$SF" > t.json
   mv t.json "$SF"
   run --separate-stderr bash "$PROG" piece-next 001-demo
@@ -867,4 +877,21 @@ $(fixture_heading 'Phase 9b: ')|T007"
   record "Phase 1" T001,T002
   run --separate-stderr bash "$PROG" piece-next 001-demo
   [ "${lines[0]}" = "Phase 1: Setup" ]
+}
+
+# --- added at the pull-request review ------------------------------------------
+
+@test "commit-add refuses a state file whose commits is not a list" {
+  ca_init
+  jq '.commits = "abc"' "$SF" > t.json
+  mv t.json "$SF"
+  refuses "commits must be a list" 001-demo other "$SHA_A" "" "" a.txt
+}
+
+@test "piece-next refuses a state file whose commits is not a list" {
+  pn_init
+  jq '.commits = "abc"' "$SF" > t.json
+  mv t.json "$SF"
+  # Read as "nothing recorded", it would offer every piece again.
+  pn_refuses "commits must be a list"
 }

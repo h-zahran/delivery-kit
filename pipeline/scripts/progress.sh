@@ -204,7 +204,11 @@ cmd_commit_add() {
   # compared, and only when it is long enough to be an id git prints. This
   # branch can go once no state file anywhere still holds a bare string.
   # shellcheck disable=SC2016 # a jq program: $sha, $mine and $w are jq's
+  # A commits value that is not a list is refused, never read as empty: `[]?`
+  # would otherwise swallow the type error and answer "new".
   verdict="$(jq -r "${jqargs[@]}" "$ENTRY_JQ"'
+    if ((.commits // []) | type) != "array" then "notlist"
+    else
     [.commits[]? | objects | select(.sha == $sha)] as $mine
     | if ($mine | length) > 0 then
         (if any($mine[]; {kind, piece, tasks, files} == (entry | {kind, piece, tasks, files}))
@@ -213,14 +217,16 @@ cmd_commit_add() {
                (split(" ")[0] // "") as $w
                | ($w | test("^[0-9a-f]{7,40}$")) and ($sha | startswith($w)))
       then "legacy"
-      else "new" end' "$sf" --args -- "$@")"
+      else "new" end
+    end' "$sf" --args -- "$@")"
   case "$verdict" in
     new) ;;
+    notlist) die "$sf: commits must be a list — not recording into it" ;;
     # A re-run after a crash repeats the call exactly; the work is done.
     same) return 0 ;;
     conflict) die "commit $sha is already recorded with different details in $sf — not recording it twice" ;;
     legacy) die "commit $sha is already recorded by an old-style entry in $sf" ;;
-    *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict or legacy — nothing written" ;;
+    *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict, legacy or notlist — nothing written" ;;
   esac
 
   tmp="$sf.tmp"
@@ -255,7 +261,10 @@ cmd_piece_next() {
   # A line that is not a task captures nothing, and appending nothing is a
   # no-op. The last slot is written as .[length-1], not .[-1]: assigning
   # through a negative index is not dependable across the jq versions CI runs.
+  # A commits value that is not a list is refused, never read as "nothing
+  # recorded": that reading would offer every piece again.
   r="$(jq -r --rawfile t "$tf" '
+    if ((.commits // []) | type) != "array" then "notlist" else
     [.commits[]? | objects | select(.kind == "piece" or .kind == "converge") | .piece] as $done
     | (reduce ($t | split("\n")[] | rtrimstr("\r")) as $l ([];
         if ($l | startswith("## ")) then
@@ -271,15 +280,17 @@ cmd_piece_next() {
         | if $next == null then "done"
           elif ($next.h | explode | any(. == 0 or . == 13 or . == 31)) then "bad"
           else "next\u001f" + $next.h + "\u001f" + ($next.ids | join(",")) end
-      end' "$sf")"
+      end
+    end' "$sf")"
   case "${r%%$'\x1f'*}" in
     done) return 0 ;;
+    notlist) die "$sf: commits must be a list — cannot tell which pieces are recorded" ;;
     none) die "no piece in $tf: no '## Phase <N>:' heading with a task line under it" ;;
     bad)  die "the next piece's heading holds a control character (a CR, NUL or U+001F) that its output cannot carry, in $tf" ;;
     next)
       rest="${r#*$'\x1f'}"
       printf '%s\n%s\n' "${rest%%$'\x1f'*}" "${rest#*$'\x1f'}" ;;
-    *) die "piece-next: the walk answered '$r', which is none of next, done, none or bad" ;;
+    *) die "piece-next: the walk answered '$r', which is none of next, done, none, bad or notlist" ;;
   esac
 }
 
