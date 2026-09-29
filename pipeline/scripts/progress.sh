@@ -4,7 +4,8 @@
 # Contract, shared with preflight.sh and inherited from the spec tool's own
 # scripts: PURE JSON (or a bare path, or nothing) on stdout, every
 # diagnostic on stderr. A warning printed into a JSON stream is a parse
-# failure that reads like a missing feature.
+# failure that reads like a missing feature. One exception, by design:
+# piece-next prints two plain lines, a heading and its task ids.
 #
 # Everything this file writes lives under .delivery-kit/. The state
 # directory is the user's to ignore; the skill (never this script) offers
@@ -20,7 +21,7 @@ STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -36,7 +37,23 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # The full phase alphabet. DONE is the terminal marker, not a phase a run
 # works in — but phase-start accepts it so a finishing run can record it.
 PHASES=" preflight A B C C.5 D E F F.5 G H H.5 H.7 I J K L M N N.5 O DONE "
+# KNOWN HOLE, recorded rather than fixed here: this substring match accepts a
+# run of adjacent names — "A B" and "C C.5" were measured to pass. The fix is
+# the word-by-word loop kind_known uses below; it changes what phase-start and
+# validate accept, so it belongs to its own change.
 phase_known() { case "$PHASES" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# What a recorded commit holds. One list, read by the check and by its message.
+KINDS=" spec piece converge simplify review tests constitution other "
+# Word by word, never a substring match: the substring idiom above accepts
+# "spec piece", because that string with its surrounding spaces IS a
+# substring of the list — measured. An exact comparison against each word
+# refuses it, and anything else that is not one whole name.
+kind_known() {
+  local k
+  for k in $KINDS; do [ "$k" = "$1" ] && return 0; done
+  return 1
+}
 
 cmd_validate() {
   need_feature "$1"
@@ -130,6 +147,142 @@ cmd_from_validate() {
     || die "--from $phase: not the current phase, not completed, and no artefact rule admits it"
 }
 
+# A full id only: 40 lowercase hex characters. One commit spelled two ways,
+# short and full, would be recorded twice and read twice. The digits are
+# spelled out rather than written as a range, because a range in a bracket
+# pattern follows the locale on an older bash.
+sha_ok() {
+  [ "${#1}" -eq 40 ] || return 1
+  case "$1" in *[!0123456789abcdef]*) return 1 ;; esac
+}
+
+# The entry commit-add writes, defined ONCE and used by both of its jq
+# programs. The duplicate check compares against exactly what the write would
+# append, so the two can never disagree about what "the same entry" means —
+# and that agreement is what makes a re-run after a crash safe.
+# shellcheck disable=SC2016 # a jq program: $sha, $k, $p, $t and $ARGS are jq's
+ENTRY_JQ='def entry: {sha: $sha, kind: $k, piece: $p,
+  tasks: ($t | if . == "" then [] else split(",") end),
+  files: $ARGS.positional};'
+
+# commit-add records one commit the run made: what it holds, which piece and
+# tasks it covers, and which files it changed. The orchestrator calls it after
+# every commit; piece-next reads what it wrote to know which pieces are done.
+#
+# Cheap checks come first, so a bad call never spawns jq. Nothing is printed
+# on stdout, in success or refusal: the orchestrator reads stdout, and a stray
+# line there would be taken for an answer.
+cmd_commit_add() {
+  [ $# -ge 5 ] || die "commit-add needs <feature> <kind> <sha> <piece> <tasks> [<file>...]"
+  feature="$1"; kind="$2"; sha="$3"; piece="$4"; tasks="$5"; shift 5
+  kind_known "$kind" || die "unknown kind '$kind' (legal:${KINDS% })"
+  [ -n "$sha" ] || die "the entry needs a commit id"
+  sha_ok "$sha" \
+    || die "'$sha' is not a full commit id: 40 lowercase hex characters, as git rev-parse prints them"
+  if [ "$kind" = piece ]; then
+    [ -n "$piece" ] || die "a piece entry needs a piece name"
+    [ -n "$tasks" ] || die "a piece entry needs its task ids"
+  fi
+  # A name holding one of these can never equal a heading piece-next prints,
+  # so the piece would be offered for ever.
+  case "$piece" in *$'\r'*|*$'\n'*|*$'\x1f'*)
+    die "the piece name holds a control character (CR, LF or U+001F)" ;;
+  esac
+  [ $# -gt 0 ] || [ "$kind" = tests ] \
+    || die "a $kind entry needs the files it changed; only a tests entry may have none"
+  # An empty item is what an unset variable expands to, so it is the shape a
+  # broken caller produces; a list that is merely non-empty would hide it.
+  case ",$tasks," in *,,*) [ -z "$tasks" ] || die "the task list holds an empty task id: '$tasks'" ;; esac
+  for f in "$@"; do [ -n "$f" ] || die "the file list holds an empty path"; done
+  sf="$(cmd_validate "$feature")"
+  jqargs=(--arg sha "$sha" --arg k "$kind" --arg p "$piece" --arg t "$tasks")
+
+  # One word back: new, same, conflict or legacy. The files travel after
+  # `--args --`, so a path starting with a dash is data and not an option.
+  # Old-style entries are bare strings written before this command existed —
+  # an id, or an id and the commit subject — so only their first word is
+  # compared, and only when it is long enough to be an id git prints. This
+  # branch can go once no state file anywhere still holds a bare string.
+  # shellcheck disable=SC2016 # a jq program: $sha, $mine and $w are jq's
+  verdict="$(jq -r "${jqargs[@]}" "$ENTRY_JQ"'
+    [.commits[]? | objects | select(.sha == $sha)] as $mine
+    | if ($mine | length) > 0 then
+        (if any($mine[]; {kind, piece, tasks, files} == (entry | {kind, piece, tasks, files}))
+         then "same" else "conflict" end)
+      elif any(.commits[]? | strings;
+               (split(" ")[0] // "") as $w
+               | ($w | test("^[0-9a-f]{7,40}$")) and ($sha | startswith($w)))
+      then "legacy"
+      else "new" end' "$sf" --args -- "$@")"
+  case "$verdict" in
+    new) ;;
+    # A re-run after a crash repeats the call exactly; the work is done.
+    same) return 0 ;;
+    conflict) die "commit $sha is already recorded with different details in $sf — not recording it twice" ;;
+    legacy) die "commit $sha is already recorded by an old-style entry in $sf" ;;
+    *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict or legacy — nothing written" ;;
+  esac
+
+  tmp="$sf.tmp"
+  jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" --args -- "$@" > "$tmp" && mv "$tmp" "$sf"
+}
+
+# piece-next names the next piece to build: the first `## Phase <N>:` section
+# of the run's tasks file that has a task line and is not yet recorded by a
+# piece or converge entry. It prints two lines — the heading after "## ", then
+# the task ids — or nothing when every piece is recorded. "Nothing left" and
+# "nothing to read" never look the same: the second is a refusal, by name.
+#
+# The whole walk is ONE jq program over one line of output. On Windows jq
+# ends every line with CRLF, and command substitution removes only the last
+# line ending — the CR on every earlier line survives (measured). So jq's
+# multi-line output is never printed here: jq returns one line, split on the
+# U+001F unit separator, and bash prints the two fields itself. A heading
+# printed with a stray CR would be recorded with it, never match again, and be
+# offered for ever. For the same reason a heading that still holds a CR after
+# its line ending is removed, or holds U+001F, is refused rather than printed
+# — and so is one holding a NUL, which command substitution drops silently,
+# so the name printed would never equal the heading in the file (measured).
+cmd_piece_next() {
+  feature="$1"
+  sf="$(cmd_validate "$feature")"
+  tf="$(jq -r '.artifacts.tasks // empty' "$sf")"
+  [ -n "$tf" ] || die "$sf records no tasks file (artifacts.tasks) — the tasks phase has not run"
+  [ -f "$tf" ] || die "tasks file not found: $tf (recorded in $sf)"
+  # Every "## " heading opens a slot in the array: a piece for a Phase
+  # heading, null for any other, so a task line under a non-piece heading has
+  # nowhere to go. A "### " line does not start with "## " and opens nothing.
+  # A line that is not a task captures nothing, and appending nothing is a
+  # no-op. The last slot is written as .[length-1], not .[-1]: assigning
+  # through a negative index is not dependable across the jq versions CI runs.
+  r="$(jq -r --rawfile t "$tf" '
+    [.commits[]? | objects | select(.kind == "piece" or .kind == "converge") | .piece] as $done
+    | (reduce ($t | split("\n")[] | rtrimstr("\r")) as $l ([];
+        if ($l | startswith("## ")) then
+          . + [if ($l | test("^## Phase [0-9]+[a-z]*:"))
+               then {h: ($l | ltrimstr("## ")), ids: []} else null end]
+        elif length > 0 and .[length-1] != null then
+          .[length-1].ids += [$l | capture("^- \\[[ xX]\\] (?<id>T[0-9]+)").id]
+        else . end))
+    | [.[] | select(. != null and (.ids | length > 0))] as $pieces
+    | if ($pieces | length) == 0 then "none"
+      else
+        ([$pieces[] | select(.h as $h | any($done[]; . == $h) | not)] | first) as $next
+        | if $next == null then "done"
+          elif ($next.h | explode | any(. == 0 or . == 13 or . == 31)) then "bad"
+          else "next\u001f" + $next.h + "\u001f" + ($next.ids | join(",")) end
+      end' "$sf")"
+  case "${r%%$'\x1f'*}" in
+    done) return 0 ;;
+    none) die "no piece in $tf: no '## Phase <N>:' heading with a task line under it" ;;
+    bad)  die "the next piece's heading holds a control character (a CR, NUL or U+001F) that its output cannot carry, in $tf" ;;
+    next)
+      rest="${r#*$'\x1f'}"
+      printf '%s\n%s\n' "${rest%%$'\x1f'*}" "${rest#*$'\x1f'}" ;;
+    *) die "piece-next: the walk answered '$r', which is none of next, done, none or bad" ;;
+  esac
+}
+
 cmd_lock_take() {
   feature="$1"; session="${2:-}"
   [ -n "$session" ] || die "lock-take needs a session id"
@@ -182,5 +335,7 @@ case "$cmd" in
   from-validate) cmd_from_validate "$feature_arg" "${3:-}" ;;
   lock-take)     cmd_lock_take "$feature_arg" "${3:-}" ;;
   lock-release)  cmd_lock_release "$feature_arg" ;;
+  commit-add)    shift 2; cmd_commit_add "$feature_arg" "$@" ;;
+  piece-next)    cmd_piece_next "$feature_arg" ;;
   *) usage ;;
 esac
