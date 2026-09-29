@@ -1980,3 +1980,518 @@ silent.**
 ```
 /pipeline Phase 18: the guard's own configuration cannot silence it --auto --implementer claude
 ```
+
+---
+
+# Campaign 3 — review in pieces (pipeline 1.3.0)
+
+> **For agentic workers:** same contract as Campaigns 1 and 2 above. Each
+> `## Phase <N>:` section below is a SEED for one `/pipeline` run. Seeds
+> are written so the clarify gate has nothing left to ask.
+
+**Goal:** a developer can review what a pipeline run built in small,
+ordered pieces instead of one diff. Developers reported that after phase
+H every task lands at once, K makes one commit, and the change is too
+large to open and read by hand.
+
+**The cause, read at `main` = `dacf58e`:** H implements every task in one
+pass (`pipeline/skills/pipeline/SKILL.md:497-501`); H.5, H.7, I and J then
+edit across all of it; K commits the whole tree as one commit
+(`:546-551`). Nothing records which task produced which change, so no
+reviewer can walk the work in order.
+
+**Architecture:** five pipeline runs (P19–P23), strictly sequential, each
+branching off `main`, each ending at a pull request the owner merges.
+P19 gives `progress.sh` the two commands the orchestrator needs; P20
+and P21 change the orchestrator, front half then back half; P22 is the
+documentation truth-pass for both; P23 stamps and ships pipeline 1.3.0.
+Only P20 and P21 write changelog entries: P20 opens `## [Unreleased]` in
+`pipeline/CHANGELOG.md`, P21 adds to it, and P23 folds it. P19 and P22
+route none. The handoff plugin does not change.
+
+**Tech Stack:** unchanged from Campaign 2 — bash + jq + bats 1.11.0;
+spec-kit 0.16.x (pinned); `gh` (PowerShell-only on this machine);
+shellcheck as CI runs it.
+
+**Spec:** this section. The design was agreed with the owner on
+2026-09-29, in conversation, one decision at a time; every ruling below
+records one of those answers. Nothing here depends on an untracked file.
+
+## Campaign 3 decisions (rulings — each one edit to undo)
+
+15. **The developer picks the review mode at G, on every run.** Two
+    modes: **commits** (the run finishes as today, but the branch holds
+    one commit per piece, read after the run) and **pauses** (the run
+    stops after each piece, the developer reviews it, then answers).
+    The question is never pre-answered: no configuration key and no flag
+    in this campaign, and `--auto` never collapses it. **Consequence,
+    stated on purpose:** G now stops on every run whose implementer is
+    `claude`, so the documented floor — "a run CAN reach DONE without a
+    single gate stopping it" — is no longer true and must be rewritten
+    everywhere it is stated. A `reviewMode` key is recorded under "Not in
+    this plan".
+16. **One piece is one `## Phase <N>:` section of `tasks.md`.** Setup,
+    Foundational, each user story, Polish. Not one task: that is 20–50
+    pieces, and in pause mode 20–50 stops. Headings that are not
+    `## Phase <N>:` (Format, Dependencies, Parallel opportunities,
+    Implementation strategy, rule blocks) are not pieces. Every piece
+    commits, because every piece at least marks its tasks `[X]` in
+    `tasks.md`. A piece whose only change is those marks — a ruled
+    non-change, for example — still gets its own commit, and the message
+    says it changed no other file. One commit per piece, always, so the
+    review guide has no gaps.
+17. **The spec commits first, alone.** The spec artefacts are
+    uncommitted from B through F. Before piece 1, H commits them as one
+    commit (`docs(spec): <feature>`). It is the first thing a reviewer
+    reads, and without it piece 1 would sweep them in.
+18. **Late phases get their own commits; nothing is folded back.** H.5,
+    H.7, I and J each end with one commit of their own, when they changed
+    a file: converge, simplify, review fixes, test fixes. Piece commits
+    stay exactly as built. No rebase, no fixup, no history rewrite — a
+    rewrite would also be impossible for a piece already reviewed in
+    pause mode.
+19. **Piece commits are local and ungated.** In commits mode a piece
+    commits without a stop; in pauses mode the pause IS the yes. Nothing
+    leaves the machine before the L gate, exactly as today. K stops once
+    and shows the whole commit list. Precedent: N already commits without
+    a gate (`SKILL.md:564-569`).
+20. **Every commit names every path.** The never-bend rule against
+    `git add -A` and wildcards now binds each commit, not only K's.
+21. **A commit hook that rejects a piece is a hard stop.** A project
+    whose pre-commit hook runs its tests can reject a Setup or
+    Foundational piece that is not green on its own. `--no-verify` stays
+    forbidden. The piece stays uncommitted, the run parks per "When a
+    phase fails", and the failure entry in the state file names the piece
+    and the hook's output (redacted like every other carried failure).
+    A parked piece has no sha, so `commit-add` never records it — which is
+    exactly why `piece-next` returns it again, and `--resume` shows that
+    piece first.
+22. **The handoff implementer path is out of scope.** The package's
+    forbidden list says no commit, so a cheaper model cannot make piece
+    commits. When G's answer is `handoff`, G does not ask the review
+    question, says in one line that review pieces are not available on
+    that path, and the run keeps today's single-commit flow. Recorded
+    under "Not in this plan".
+23. **A J red the owner waved through, with no file J changed, is carried
+    by an empty commit.** J's carry duty names "the commit message". J's
+    own test-fixes commit carries it; where J changed nothing, J makes a
+    `git commit --allow-empty` whose message is the record — hooks run,
+    `--no-verify` is never used. An empty commit is visible in the commit
+    list and in the review guide, which is the point of the duty.
+24. **A state file from before this change runs the old way.** No
+    `reviewMode` under `gates.G` means the run started on an older
+    pipeline. It continues with one commit at K, and says so. It is never
+    migrated mid-run.
+
+## Campaign 3 Global Constraints (every Campaign 3 seed includes these)
+
+- **Campaign 2's Global Constraints all still bind** — the house suite
+  from the repo root, positive controls for every ad-hoc grep, no joined
+  banned literal in this file, pinned strings (add near, never reword
+  silently), the vocabulary surfaces, count-free shipped prose,
+  `git add` by name, the changelog heading shape, three-place version
+  agreement, and the owner merges. Seeds travel alone, so each restates
+  the house suite.
+
+- **House test suite baseline, measured 2026-09-29 at `main` =
+  `dacf58e`: `1..170`, 170 ok, 0 not ok, 0 non-TAP, exit 0.** Each phase states its required delta.
+
+- **A pin changed on purpose is proven twice.** Several sentences this
+  campaign must change are pinned word for word in
+  `pipeline/tests/prose.bats` (the G pre-answer contract at `:205`, the
+  phase J span at `:609`, the gate rows at `:21`, the never-bend rows at
+  `:27`). Change the pin in the same commit as the prose. Then prove the
+  new pin with an INVERTED mutant — a sentence asserting the opposite —
+  not only a deleted one, and confirm the mutation landed before
+  trusting the red.
+
+- **The pipeline running these seeds is the RELEASED one.** P19–P22 run
+  on the installed pipeline 1.2.1, which has none of this campaign's
+  behaviour. Do not expect a review question at G during this campaign.
+
+## Phase 19: progress.sh learns commits and pieces
+
+The orchestrator needs two things the state helper cannot do today:
+record each commit a run makes, and name the next piece to build.
+
+The state file already carries a top-level `commits: []`, created by
+`init` at `pipeline/scripts/progress.sh:72` and read by nothing. This
+phase gives it a shape and a writer. `validate` (`:41-55`) does not
+reject unknown keys and needs no change for that reason.
+
+**Requirements:**
+
+1. **`progress.sh commit-add <feature> <kind> <sha> <piece> <tasks> <files...>`**
+   appends one entry to `commits`: `sha`, `kind`, `piece`, `tasks` (an
+   array of task IDs, passed as one comma-separated argument) and
+   `files` (an array of paths, the remaining arguments). Legal kinds:
+   `spec`, `piece`, `converge`, `simplify`, `review`, `tests`,
+   `constitution`, `other`. It refuses, by name and with a non-zero
+   exit: an unknown kind; an empty sha; a sha that is not 7–40
+   lowercase hex digits; a sha already recorded; an unknown feature.
+   `piece` and `tasks` may be empty for kinds other than `piece`; for
+   `piece` both are required. `files` may be empty only for `tests`
+   (ruling 23's empty commit). Written through a temp file and `mv`,
+   like every other writer here.
+
+2. **`progress.sh piece-next <feature>`** reads the tasks file named in
+   `artifacts.tasks`, lists its `## Phase <N>:` headings in file order,
+   and prints the first one with no `piece` or `converge` entry in
+   `commits` (a converge-appended phase is committed by H.5, and must not
+   come back as a piece). It prints the heading text after `## `,
+   verbatim, on the first line, and the task IDs under it on the second,
+   comma-separated (`T` followed by digits, on `- [ ]` and `- [X]` lines
+   up to the next `## ` heading). When every piece is recorded it prints
+   nothing and exits 0. It refuses, by name: no `artifacts.tasks`; a
+   tasks file that does not exist; a tasks file with no `## Phase <N>:`
+   heading at all.
+
+3. **Match headings as fixed strings, not one clever regex.** Real
+   headings carry an em dash, emoji and parentheses — e.g.
+   `specs/017-guard-config-bounds/tasks.md:61` and `:99`. Use them as
+   fixtures. Compare a recorded `piece` to a heading byte for byte.
+
+4. **Update the usage line at `:23`** to name both new commands.
+
+**Acceptance criteria:**
+
+- Every refusal in requirements 1 and 2 has its own bats test in
+  `pipeline/tests/progress.bats`, plus a test for each good case: one
+  entry written with the right JSON types (`tasks` and `files` are
+  arrays, asserted with `type == "array"`, never by value alone); an
+  entry appended, not replacing; `piece-next` skipping a recorded piece;
+  `piece-next` skipping a converge-recorded phase; `piece-next` printing
+  nothing when all are done; the heading shapes of requirement 3.
+- Each new test is shown RED against the unchanged script before it is
+  shown green.
+- Full house suite from the repo root: **the baseline before, baseline
+  + N after**, 0 not ok, 0 non-TAP, and the plan line equals the ok
+  count. Name every added test in the commit message.
+- `shellcheck --norc -f gcc` clean, as CI runs it.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `pipeline/scripts/` is a RELAXED surface.
+**Changelog routing: none.** These commands are called only by the
+orchestrator; P20 and P21 write the user-visible entries. The orchestrator prose
+does not change in this phase.
+
+**Invocation:**
+
+```
+/pipeline Phase 19: progress.sh learns commits and pieces --auto --implementer claude
+```
+
+---
+
+## Phase 20: the orchestrator builds in pieces
+
+**RUN PHASE 19 FIRST.** This phase calls `commit-add` and `piece-next`.
+
+Campaign 3 splits the orchestrator change in two, on the owner's ruling
+of 2026-09-29: a campaign about changes too large to review should not
+ship one. This phase is the front half: G, H, pauses, resume. Phase 21
+is the back half: the late commits, K and the review guide.
+
+All line numbers below are `pipeline/skills/pipeline/SKILL.md` at
+`main` = `dacf58e`. Rulings 15–24 are the design; this phase writes
+rulings 15–17, 19–22 and 24 into the orchestrator.
+
+**Between this phase and the next, K keeps working unchanged.** H.5, H.7,
+I and J do not commit yet, so their changes are still uncommitted when K
+runs, and K's existing "show the exact file list and commit it" handles
+them as it does today. Do not touch K, L, DONE or the late phases here.
+
+**Requirements:**
+
+1. **G asks the review question** (ruling 15). After the implementer
+   answer resolves to `claude` — asked or pre-answered — G asks:
+   commits or pauses. Record it as `gates.G.reviewMode`. It is asked on
+   every run, never pre-answered, and `--auto` never collapses it. When
+   the implementer answer is `handoff`, G does not ask it and says so in
+   one line (ruling 22). **The pinned sentence "When `implementer`
+   resolves to `claude` or `handoff` (config or flag), G records that
+   answer in `gates` and does not stop — the choice was typed on
+   purpose." (`:396-398`, pinned at `prose.bats:205`) becomes false for
+   `claude`.** Rewrite it so the implementer question is still not
+   re-asked but G still stops for the review question, and change the
+   pin with it (Global Constraints: proven twice).
+
+2. **H commits the spec, then builds piece by piece** (rulings 16, 17,
+   19, 20). Rewrite H (`:497-501`): first the spec commit; then loop
+   `piece-next` → implement that piece's tasks (the existing fan-out
+   rules apply within the piece) → take the exact list of files the
+   piece changed, from `git status` before and after → commit exactly
+   those paths plus `tasks.md` with the piece's `[X]` marks →
+   `commit-add`. Commit message in `commitStyle`, naming the piece and
+   its task range, e.g. `feat(<feature>): User Story 1 (T005–T012)`.
+   `last_task` keeps its current meaning.
+
+3. **Pause mode** (ruling 15). After a piece is built and before it is
+   committed, stop and show: the piece name, its task IDs, the exact
+   file list, `git diff --stat` for those files, and the piece's
+   checkpoint result where the tasks file names one. Three answers:
+   **go on** (commit, continue); **fix this** (the developer says what;
+   the run changes it and shows the piece again); **stop here** (the
+   `--until` rule binds: state intact, lock released, resumable). Files
+   the developer edited during the pause go into that piece's commit and
+   are listed in the message as edited by the owner. A pause is a safe
+   handoff point, like every gate. `--auto` never collapses a pause.
+
+4. **Hook failure** (ruling 21). Name it where commits are made: a hook
+   that rejects a piece commit is a hard stop; never `--no-verify`.
+
+5. **Resume and `--from H`** (ruling 24). Resume enters the piece
+   `piece-next` names; a recorded piece is never rebuilt; a parked or
+   rejected piece is shown again first. A state file without
+   `gates.G.reviewMode` continues the old single-commit flow and says so.
+   A re-entry — `--resume` or `--from G` — that finds
+   `gates.G.reviewMode` already recorded never re-asks it: the recorded
+   answer stands, the same rule the implementer answer follows at
+   `:412-421`. There is no flag to replace it in this campaign, so it
+   holds for the life of the run.
+
+6. **Every copy of the gate floor and of piece commits, in this file.**
+   The "Up to five stops" paragraph (`:611-617`) and the floor paragraph
+   (`:619-624`), both false once G always stops for `claude`; the
+   never-bend row's reason for `git add -A` (`:672`, "Phase K names every
+   path it stages" — the left column is pinned at `prose.bats:27`, the
+   reason column is free to change), which now binds every commit
+   (ruling 20); the MAY-do paragraph (`:678-683`), which must now list
+   local piece commits; and the Parallel agents paragraph (`:651-659`),
+   which must say fan-out stays within one piece. The five gates stay
+   five: the review question lives inside G, and a pause is a stop the
+   developer chose, listed beside the conditional stops.
+
+**Acceptance criteria:**
+
+- New pins in `pipeline/tests/prose.bats` for: the review question is
+  asked every run and never collapsed by `--auto`; a recorded review
+  answer is never re-asked on re-entry; a pause is never collapsed by
+  `--auto`; the handoff path's one-line notice; the hook hard stop with
+  `--no-verify` forbidden; every commit names every path; the legacy
+  state-file rule. Each new pin is proven by an INVERTED mutant, with the
+  mutated line echoed before the red is trusted.
+- The G sentence changed on purpose (requirement 1) is named in the
+  commit message, old sentence and new.
+- Full house suite from the repo root: P19's count before, that + N
+  after, 0 not ok, 0 non-TAP, plan line equal to ok count.
+- A dry read of the new H against a real tasks file
+  (`specs/017-guard-config-bounds/tasks.md`) is written into the run's
+  `specs/` directory: which pieces `piece-next` yields, in order, and
+  which of them would change only `tasks.md`. Measured with
+  `piece-next`, not predicted.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `pipeline/skills/` is a RELAXED surface.
+**Changelog routing: `pipeline/CHANGELOG.md` has no `## [Unreleased]`
+heading at `dacf58e`; open one above `## [1.2.1]`**, with an `### Added`
+entry for piece commits and pause mode, and a `### Changed` entry
+stating plainly that G now stops on every run whose implementer is
+`claude`. The documents outside the orchestrator are P22's; do not
+touch them here.
+
+**Invocation:**
+
+```
+/pipeline Phase 20: the orchestrator builds in pieces --auto --implementer claude
+```
+
+---
+
+## Phase 21: the orchestrator commits late fixes and guides the reviewer
+
+**RUN PHASE 20 FIRST.** This phase builds on its piece commits.
+
+The back half of the orchestrator change: every phase after H commits
+its own work, K shows the whole commit list, and the pull request tells
+the reviewer how to read it. Line numbers are `SKILL.md` at `main` =
+`dacf58e`; P20 will have moved them, so find each section by its bold
+heading, not by the number. This phase writes ruling 18, K's half of
+ruling 19, and ruling 23 into the orchestrator.
+
+**Requirements:**
+
+1. **Late commits** (ruling 18). H.5 (`:503-505`), H.7 (`:507-509`),
+   I (`:511-513`) and J (`:515-521`) each end with one commit of their
+   own when they changed a file, recorded with `commit-add` under kinds
+   `converge`, `simplify`, `review`, `tests`. H.5 records the heading
+   of the phase converge appended to the tasks file as the entry's
+   `piece`, so `piece-next` never offers it as a piece. **J's carry duty
+   (`:523-538`, span-pinned at `prose.bats:609`) names "the commit
+   message"; say which commit — J's own — and apply ruling 23 when J
+   changed nothing.** The span pin will go red on any insertion into
+   that region: change it on purpose, in the same commit.
+
+2. **K reviews the commit list** (ruling 19). Rewrite K (`:546-551`):
+   show `git log --reverse <base>..HEAD` with each commit's files, plus
+   any file still uncommitted with its exact proposed message; commit
+   the remainder only after the answer. The constitution's separate
+   commit is unchanged. K's gate-table row keeps the name `Commit`
+   (pinned at `prose.bats:21`); its "Shown before you answer" column
+   changes.
+
+3. **The review guide** — the actual fix for the complaint. L's pull
+   request body (`:553-557`) and the DONE summary (`:605-607`) carry a
+   table built from `commits`, in commit order: commit, kind, piece,
+   task IDs, files — headed with one line telling the reviewer to read
+   commit by commit, top to bottom. It is shown in full at L, like the
+   rest of the body.
+
+4. **The K row of the gate table** (`:637-643`) shows the commit list,
+   not one file list. The row name stays `Commit`.
+
+**Acceptance criteria:**
+
+- New pins in `pipeline/tests/prose.bats` for: each late phase commits
+  its own work; J's carry lands in J's own commit, or in an empty commit
+  when J changed nothing; K shows the commit list; the review guide in
+  both the PR body and the DONE summary. Each new pin is proven by an
+  INVERTED mutant, with the mutated line echoed before the red is
+  trusted.
+- The phase J span pin changed on purpose (requirement 1) is named in
+  the commit message, old text and new.
+- Full house suite from the repo root: P20's count before, that + N
+  after, 0 not ok, 0 non-TAP, plan line equal to ok count.
+- A dry read of the new K and L against
+  `specs/017-guard-config-bounds/tasks.md` is written into the run's
+  `specs/` directory: the review guide table the run would print for
+  it, built from `piece-next` output and the late phases, not predicted.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `pipeline/skills/` is a RELAXED surface.
+**Changelog routing: `pipeline/CHANGELOG.md`, under the `## [Unreleased]`
+heading P20 opened** — add to its `### Added` (the review guide) and its
+`### Changed` (late phases commit their own work; K shows the commit
+list). The documents outside the orchestrator are P22's.
+
+**Invocation:**
+
+```
+/pipeline Phase 21: the orchestrator commits late fixes and guides the reviewer --auto --implementer claude
+```
+
+---
+
+## Phase 22: the documentation says pieces
+
+**RUN PHASES 20 AND 21 FIRST.** This phase documents what they shipped.
+
+Every site below states a claim P20 or P21 made false, verified at `main` =
+`dacf58e`. Records go stale one shape at a time: grep for every copy of
+each claim, do not trust this list to be complete.
+
+**Requirements:**
+
+1. `pipeline/docs/phases.md` — G's row (the review question), H's row
+   (spec commit, piece commits, pause mode), H.5/H.7/I/J rows (own
+   commits), K's row (the commit list, not one commit), L's row (the
+   review guide in the body).
+2. `pipeline/docs/configuration.md:79-115` — the paragraphs on what
+   `implementer` pre-answers and on a run that "reaches the end with no
+   gate stopping it". Both are now false for `claude`.
+3. `pipeline/README.md` — "The five gates" (`:57`) and anything under it
+   describing G, K or the floor. Add a short section on reviewing a run
+   commit by commit.
+4. `README.md:56` and `:288` — the root summary and its gate list.
+5. `pipeline/CHANGELOG.md` — nothing new unless P20's and P21's entries are now
+   incomplete; history already stamped is never edited.
+
+**Acceptance criteria:**
+
+- For each claim — "five stops", "no gate stopping", "K commits",
+  "one commit", "pre-answers the implementer gate" — the grep command
+  and its hit list are in the commit message, each grep fired first
+  against a known hit as a positive control.
+- The link checker is green.
+- Full house suite from the repo root: P21's count, UNCHANGED — this
+  phase adds no tests — 0 not ok, 0 non-TAP.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `pipeline/README.md`, `pipeline/docs/` and the
+root documents are STRICT surfaces. **Changelog routing: none**, unless
+requirement 5 applies.
+
+**Invocation:**
+
+```
+/pipeline Phase 22: the documentation says pieces --auto --implementer claude
+```
+
+---
+
+## Phase 23: release pipeline 1.3.0
+
+**RUN PHASES 19, 20, 21 AND 22 FIRST.** Campaign 2 released before its last
+phases landed, and the fix sat unreleased for a cycle.
+
+**Requirements:**
+
+1. **Stamp pipeline 1.3.0.** `pipeline/.claude-plugin/plugin.json` →
+   `1.3.0`; the pipeline entry in `.claude-plugin/marketplace.json` →
+   `1.3.0` (edit with `sed`, not `jq` — `jq` reformats the file);
+   `pipeline/CHANGELOG.md`'s `## [Unreleased]` heading becomes
+   `## [1.3.0] - <today>`. Minor, not patch: G gains a question and a
+   stop, and H, K and L change what they commit and show.
+2. **Content beneath the heading is already complete.** Add nothing,
+   remove nothing, reorder nothing.
+3. **The `## [Unreleased]` heading must be GONE** when this phase ends.
+4. **The handoff plugin is not stamped.** Nothing under `handoff/`
+   changed this campaign.
+
+**Acceptance criteria:**
+
+- `jq -r '.plugins[] | "\(.name) \(.version)"' .claude-plugin/marketplace.json`
+  prints `handoff 2.2.0` and `pipeline 1.3.0`; `plugin.json` and the
+  changelog heading agree.
+- `grep -c '^## \[Unreleased\]' pipeline/CHANGELOG.md` returns `0`.
+- Full house suite from the repo root: P22's count, 0 not ok, 0 non-TAP.
+- The CI matrix is green on all three OSes, read as a STEP conclusion,
+  and a run is confirmed to EXIST before green is believed.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. This phase changes three version strings and
+one heading. Nothing else.
+
+**Invocation:**
+
+```
+/pipeline Phase 23: release pipeline 1.3.0 --auto --implementer claude
+```
+
+**After the merge (owner + assistant):**
+
+```
+git checkout main && git pull
+git tag pipeline-v1.3.0 && git push origin pipeline-v1.3.0
+```
+
+Watch the tag CI run. Then refresh the installed plugin (marketplace
+first, qualified id, local scope) and restart, or the next run still
+uses 1.2.1.
+
+## Campaign 3: not in this plan (recorded, deliberately excluded)
+
+- **A `reviewMode` configuration key or flag.** The owner asked for the
+  choice on every run. A pre-answer mirroring `implementer` is the
+  natural follow-up if the stop proves tiresome.
+- **Review pieces on the handoff implementer path** (ruling 22). The
+  shape that works is one package per piece, which makes the owner relay
+  every piece by hand. Revisit if people ask.
+- **Folding late fixes back into their piece** (ruling 18). Cleanest
+  history, but it rewrites commits and cannot apply to a piece already
+  reviewed in pause mode.
+- **Stacked pull requests, one per piece.** Easiest to read on GitHub,
+  hardest to build and to merge. The ordered commit list and the review
+  guide deliver most of the value first.
+- **Running simplify, review and the suite once per piece.** Each piece
+  would be complete and green alone, at several times the cost.
