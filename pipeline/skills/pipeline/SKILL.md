@@ -92,7 +92,7 @@ item 10 anchors that rule; this is where it fires.
 | `codeRoots` | from project type | Where implementation lives; H.7's scope |
 | `baseBranch` | worked out | See "Base branch" under Pre-flight |
 | `projectType` | detected | `web`, `mobile-android`, `other` |
-| `commitStyle` | `conventional` | Phase K's message shape |
+| `commitStyle` | `conventional` | The message shape of every commit the run makes |
 | `maxClarifyPasses` | 3 | Phase C cap |
 | `maxAnalyzeIters` | 5 | Phase F cap |
 | `maxReviewRounds` | 3 | Phase M cap |
@@ -101,7 +101,7 @@ item 10 anchors that rule; this is where it fires.
 | `verifyCommand` | unset | N.5's fallback strategy |
 | `releaseCommand` | unset | Phase O's exact command |
 | `devCommand` | unset | N.5 web strategy's server |
-| `implementer` | unset | Pre-answers the G gate: `claude` or `handoff`; `ask` restores the stop |
+| `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
 | `maxVerifyIters` | 5 | Phase J cap |
 
 `null` means *work it out* — of the MERGED result, not of a layer, where
@@ -116,12 +116,12 @@ rather than silent.
 |---|---|
 | `--config <path>` | Merge a JSON file over the resolved configuration. Beats both config files. |
 | `--dry-run` | Run the spec phases A–F.5 normally, then print what H–O would do and stop. Releases the lock on the way out. |
-| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops unless `implementer` pre-answered it. |
+| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause. |
 | `--auto-release` | Collapse O as well. Typed on purpose, never implied by `--auto`. |
 | `--until <phase>` | Stop cleanly after the named phase: state file intact, lock released, resumable. |
 | `--from <phase>` | Offered by the resume prompt; validated by `progress.sh from-validate` against which artefacts exist. |
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
-| `--implementer <claude\|handoff\|ask>` | Pre-answers the G gate, or restores it with `ask`; beats the config key. |
+| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. When it resolves to `claude`, the review question is still asked. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -235,7 +235,9 @@ through 10 keep the numbers they have always had.
    already carries a D entry in `timestamps` does not offer at all: D
    consumed whatever constitution existed, so print the line and move
    on. The offer is a conditional stop that `--auto` does not
-   collapse — like C, and like G whenever `implementer` is unset or `ask`,
+   collapse — like C, and like G, which asks its review question on
+   every fresh `claude` run and its implementer question whenever
+   `implementer` is unset or `ask`,
    it needs an answer only the owner can give,
    and no answer is ever invented for it. An accepted write is staged
    by K as its own separate commit, named like every other path — a
@@ -392,10 +394,14 @@ the fixed rules (no commit, no push, no branch operations, no pull
 request) plus whatever `releaseCommand` and `verifyCommand` name, plus
 any deploy or migration verb found in the tasks file. `--auto` never
 collapses this gate: it spends money.
+When the implementer answer is `claude`, G then asks the review question
+below, which nothing pre-answers.
 
 When `implementer` resolves to `claude` or `handoff` (config or flag), G
-records that answer in `gates` and does not stop — the choice was typed
-on purpose. `ask` pre-answers nothing: G stops, asks, and records the
+records that answer in `gates` and does not ask it — the choice was
+typed on purpose. With `claude`, G still stops for the review question
+below; with `handoff`, G does not stop. `ask` pre-answers nothing: G
+stops, asks, and records the
 owner's answer in `gates` like any asked gate. It is how a command line
 takes back a stop a configuration file gave away. Everything else about G
 is unchanged, and a pre-answered `implementer` silences nothing else: cap
@@ -408,6 +414,10 @@ Record the answer under `gates.G`, and treat that entry as its only
 authoritative record — the re-ask suppression every gate relies on reads
 `gates`. The state file also carries a top-level `implementer` field,
 created empty by `init` and read by nothing: write nothing there.
+`gates.G` is an object: `answer` holds the implementer answer and
+`reviewMode` the review answer. A state file whose `gates.G` is a plain
+string holds the implementer answer alone and has no review answer; read
+it that way, never as an error.
 
 A re-entry that finds an answer already under `gates.G` — a `--resume`,
 or `--from G` — takes the recorded answer over the CONFIGURATION KEY: an
@@ -419,6 +429,24 @@ disagrees with the record is never applied silently — say which answer
 now stands and which it replaced. Where the replaced answer was
 "handoff", the package written for it is superseded: stamp it VOID per
 the G rule below before going on.
+
+Once the implementer answer is `claude`, asked or pre-answered, G asks
+the review question — commits or pauses — and records the answer as
+`gates.G.reviewMode`, `commits` or `pauses`. The review question is
+asked on every fresh run: no configuration key or flag pre-answers it,
+and `--auto` never collapses it. When the implementer answer is
+`handoff`, G does not ask the review question and says so in one line:
+review pieces are not available on the handoff path, and the run keeps
+the single-commit flow. A re-entry that finds `gates.G.reviewMode`
+recorded never asks it again, and no flag replaces it. If a
+`--implementer handoff` typed on a re-entry replaces a recorded
+`claude`, the recorded review answer stays in the state file unused,
+commits already made stand, and the rest of the run follows the
+single-commit flow, saying so in that one line. A re-entry into G whose
+state file already lists G as completed without `gates.G.reviewMode`
+does not ask it: that run started before the review question existed, or
+on the handoff path, and it keeps the single-commit flow for its life —
+it is never migrated mid-run.
 
 The package carries seven parts, each present by name — the handoff
 plugin's field-tested shape, adapted into a brief for another model:
@@ -494,11 +522,103 @@ idempotency rule's two shapes govern artefact writes, not that cleanup.
 Prefer the VOID stamp — it is a plain write and keeps the audit trail;
 delete only on the owner's explicit instruction.
 
-**H — implement.** Invoke `/speckit-implement`. Fan independent tasks of
-the same phase out across agents, capped by `maxParallelAgents`; two
-agents never edit the same file in one batch — conflicting work is
-serialised. One board item per task, updated live. Record `last_task`
-after each completion so resume re-enters mid-phase.
+**H — implement.** Which flow H runs is read from `gates.G`: with
+`claude` recorded as G's answer and a review answer recorded beside it,
+H builds in pieces as below; otherwise H runs the single-commit flow,
+and says which flow it runs and why. A run that enters H with
+implementer `claude` and no `gates.G.reviewMode` — it started on an
+older pipeline, or it began on the handoff path — keeps the
+single-commit flow and says so.
+
+The single-commit flow: invoke `/speckit-implement`.
+
+The piece flow. H builds a piece by invoking `/speckit-implement`
+limited to that piece's task IDs — never unscoped, which would build
+every piece at once. Before the first piece, H commits the feature's
+spec directory alone, every path named, as `docs(spec): <feature>`, and
+records it with `commit-add` as kind `spec`. A spec commit already
+recorded is never made again; one already in `<base>..HEAD` with that
+subject but not recorded is recorded from that commit, not made again.
+Then H loops: `piece-next` names the next piece; H builds that piece's
+tasks; H commits exactly the paths the piece changed, plus `tasks.md`
+with the piece's `[X]` marks; and H records the commit with `commit-add`
+as kind `piece`, with the piece's name, task IDs and files. The loop
+ends when `piece-next` prints nothing. A `piece-next` refusal is a hard
+failure: H stops per "When a phase fails" and never falls back to the
+single-commit flow.
+
+When a piece starts — unless `measurements.pieceBefore` already names
+that piece, whose saved list then stands — H saves every path
+`git status --porcelain=v1 -z --untracked-files=all --no-renames` lists
+under `measurements.pieceBefore`, with the piece's heading; the piece's
+paths are the ones that command lists after the piece and that are
+absent from the saved list, plus `tasks.md`, and a resumed piece is
+compared against the saved list, never against the tree as it stands. A
+path under `.delivery-kit/` is never a piece's path, even where that
+directory is not ignored. Read that output as NUL-separated records,
+never through `$( )`, which drops NUL bytes and runs the paths together:
+take each path after its three-character status prefix, and refuse a
+path that holds a carriage return or a line feed.
+
+Every commit H makes names every path it stages — no `git add -A`, no
+wildcards, no directory: write the paths NUL-separated to a file under
+`.delivery-kit/runs/<feature>/`, stage with
+`git --literal-pathspecs add --pathspec-from-file=<file> --pathspec-file-nul`
+and commit with
+`git --literal-pathspecs commit -F <message file> --pathspec-from-file=<file> --pathspec-file-nul`,
+so git reads no path as a pattern, no path is typed into a command, and
+nothing else staged rides along. The message follows `commitStyle`,
+names the piece and its task range, says so where the piece changed no
+file but `tasks.md`, and carries, on a line of its own,
+`Piece: <heading>`. The heading travels as data: in the same shell call
+that commits and records, run `piece-next` again, split its output with
+parameter expansion, write the `Piece:` line into the message file with
+`printf '%s'`, and pass the heading quoted to `commit-add` — never
+retype it into a command, since shell state does not survive from one
+call to the next.
+
+In pause mode, after a piece is built and before it is committed, H
+stops and shows the piece name, its task IDs, the exact file list,
+`git diff --stat` for those files with each untracked file listed as
+new, and the piece's checkpoint result where the tasks file names one.
+Three answers: go on (commit it and continue); fix this (the developer
+says what, the run changes it and shows the piece again); stop here (the
+`--until` rule binds: state file intact, lock released, resumable).
+Files the developer edited during the pause go into that piece's commit,
+and its message lists them as edited by the owner: a path new to the
+list, or one whose content changed since the pause showed it — never a
+path in the saved list, which stays for K. When the list has changed
+since the pause showed it, the piece is shown again before it is
+committed. A pause is a safe handoff point, like every gate, and
+`--auto` never collapses a pause. Each pause answer is recorded under
+`gates.H.pauses`, with the `git hash-object` of each listed path (or
+`deleted`) as the pause showed it; a recorded answer never stops a
+built, uncommitted piece from being shown again.
+
+A commit hook that rejects a piece commit is a hard stop: the piece
+stays uncommitted, `gates.H` records a failure entry naming the piece
+and the hook's output, redacted as J's carry is — the fact and its
+location, never the value — and the run stops per "When a phase fails".
+`--no-verify` is never used, for a piece commit or any other.
+
+If a commit in `<base>..HEAD` that `commits` does not record carries, as
+a whole line, `Piece: <heading>` for the piece `piece-next` names, the
+piece was committed before a crash: record it from that commit with
+`commit-add` and move on — never rebuild it. A recorded piece is never
+rebuilt. A piece is built when every task ID `piece-next` names for it
+is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet
+committed is handled first and never rebuilt: a piece a hook rejected is
+shown first with its failure entry, in either mode, and then committed
+again (commits mode) or paused (pause mode), its failure entry cleared
+once the commit lands; any other built piece is shown again in pause
+mode and committed in commits mode.
+
+Fan independent tasks of the same phase out across agents, capped by
+`maxParallelAgents`; two agents never edit the same file in one batch —
+conflicting work is serialised. One board item per task, updated live.
+Record `last_task` after each completion so resume re-enters mid-phase.
+In the piece flow, fan-out stays within one piece: it never crosses a
+piece boundary.
 
 **H.5 — converge.** Invoke `/speckit-converge` where the install ships
 it; where it does not, skip like any other missing capability, saying
@@ -608,25 +728,29 @@ what shipped, what was skipped and why, where the artefacts are.
 
 ## Gates
 
-Up to five stops on a fresh run — a gate with nothing to ask (no clarify
-questions at C; a pre-answered `implementer` at G; `releaseCommand`
+Up to five gates stop a fresh run — a gate with nothing to ask (no
+clarify questions at C; a pre-answered `handoff` at G; `releaseCommand`
 unset at O) records that and moves on. C, G and O can each have nothing
 to ask; K and L always have content, and stop unless `--auto` collapsed
 them or a degradation named at pre-flight (no remote, no `gh`) already
-reduced them. G's pre-answer is the configured answer recorded rather
-than asked — and with `handoff` the run still parks at H per the G text.
+reduced them. A pre-answered `implementer` removes the implementer
+question, never the review question, so G stops on every fresh `claude`
+run.
 
-State the floor honestly, because it is lower than it reads: with
-`implementer` set to `claude`, `--auto`, no clarify questions and
-`releaseCommand` unset, a run CAN reach DONE without a single gate
-stopping it. Nothing outside the gate table is silenced — the pre-flight
-constitution offer, every cap breach, a missing required tool, any hard
-failure and a failed runtime check all still stop — but no gate does.
+State the floor honestly. No fresh run reaches DONE without a stop: on a
+`claude` run G stops for the review question, and on a `handoff` run the
+run parks at H. A re-entry past G asks nothing there and so can reach
+DONE with no gate stopping it — for example a run resumed from an older
+pipeline that had completed G (see G), or a run re-entered with
+`--from H` or later. Nothing outside the gate table is silenced by
+`--auto` — the pre-flight constitution offer, every cap breach, a
+missing required tool, any hard failure and a failed runtime check all
+still stop.
 
-That combination is never a default, and it is not necessarily this
-operator's choice either. `--auto` is typed here and now; the key can
-arrive from a tracked `.delivery-kit.json` somebody else wrote, in a
-repository just cloned. That gap is exactly why pre-flight prints the
+The `implementer` key can arrive from a tracked `.delivery-kit.json`
+somebody else wrote, in a repository just cloned, and it removes the
+implementer question without anyone at the keyboard choosing that. That
+gap is exactly why pre-flight prints the
 Implementer line and names the layer it came from. `--auto-release` is
 still required before anything publishes unasked.
 
@@ -637,7 +761,7 @@ file already records which gate.
 | Gate | Phase | Shown before you answer |
 |---|---|---|
 | Clarify | C | Every question the tool raises, one at a time |
-| Implementer | G | Claude, or a handoff package for a cheaper model |
+| Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
 | Commit | K | The exact file list and the exact commit message |
 | Push and pull request | L | Branch name, title, full body |
 | Release | O | The exact command, and where it publishes |
@@ -648,11 +772,15 @@ The pre-flight constitution offer (decision item 9) is one of them,
 and `--auto` does not collapse it. Record every gate's answer in
 the state file's `gates` key.
 
+A pause (H, pause mode) is a stop the developer chose, not a sixth gate,
+and `--auto` never collapses it.
+
 ## Parallel agents
 
 Fan out wherever the work is independent, capped by
 `maxParallelAgents`. Units: F — one agent per finding, grouped by target
-artefact; H — independent tasks in the same phase; H.5 — independent gap
+artefact; H — independent tasks within one piece; fan-out never crosses
+a piece boundary; H.5 — independent gap
 tasks; I — the three reviewers in one message; J — independent test
 failures; M — independent review findings. Two agents never edit the
 same file in the same batch; conflicting work is serialised. Agents run
@@ -669,18 +797,21 @@ a resume, and including a failure.
 | `git reset --hard`, `git clean`, `git checkout --` on tracked files | Each silently discards work the pipeline did not write and cannot restore. |
 | Delete a branch | The branch is the only handle on everything the run produced. |
 | `--no-verify`, or skipping a hook | The hooks are the project's own gate. A tool that routes around them is lying about what passed. |
-| `git add -A`, or staging by wildcard | Phase K names every path it stages. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
+| `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
 | Merge a pull request | The pipeline opens one and stops. Merging is a human decision about shared history. |
 | Push before the L gate is answered | Pushing is outward-facing and hard to undo. |
 | Amend or rewrite a commit that has been pushed | Same reason as force-push, arrived at by a different route. |
 | Continue past a hard failure "to be helpful" | The state file and a clear stop are worth more than partial progress nobody asked for. |
 
 What the pipeline MAY do without asking, so the table above does not
-read as paralysis: create and check out the feature branch, write and
-rewrite files under the feature's spec directory and `codeRoots`, run
-the test and analyse commands, dispatch agents, and write under
-`.delivery-kit/`. Everything that leaves the machine, or that cannot be
-undone by editing a file, is behind a gate.
+read as paralysis: create and check out the feature branch, make the
+local spec and piece commits H makes once G's review question is
+answered, every path named and nothing pushed, write and rewrite files
+under the feature's spec directory and `codeRoots`, run the test and
+analyse commands, dispatch agents, and write under `.delivery-kit/`.
+Everything that leaves the machine, or that cannot be undone by editing
+a file, is behind a gate — H's local commits included: the review
+question at G is their consent, and in pause mode each pause is the yes.
 
 ## Red flags — findings are fixed or surfaced, never waved through
 
@@ -722,6 +853,10 @@ it consumes re-runs work that has nothing to work on); or abandon
 handoff plugin is installed, a live run also appears in its handoff
 document; if it is absent, the state file alone is the memory — say
 which of the two you are working from.
+
+Re-entering H in the piece flow — `--resume` or `--from H` — enters the
+piece `piece-next` names, under H's rules: a recorded piece is never
+rebuilt, and a built piece not yet committed is handled first.
 
 ## Not in v1
 
