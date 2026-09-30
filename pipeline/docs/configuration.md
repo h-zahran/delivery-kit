@@ -50,7 +50,7 @@ before it spends it.
 | `planFile` | Where `Phase <N>: <title>` seeds are read from. |
 | `testCommand` | The full test suite; phases F.5, J and N run it. |
 | `analyzeCommand` | Static analysis; phases J and N run it. |
-| `codeRoots` | Where implementation lives; the simplify phase's scope. |
+| `codeRoots` | Where implementation lives: the simplify phase's scope, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |
 | `commitStyle` | The commit-message shape the commit gate shows. |

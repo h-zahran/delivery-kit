@@ -283,10 +283,11 @@ misbehave in a real case.
 - **FR-015**: On a resume into an unfinished G whose `gates.G` is a plain
   string, recording the review answer MUST turn `gates.G` into an object
   holding the implementer answer and the review answer.
-- **FR-019**: When every file under the spec directory is tracked and none is
-  uncommitted before the first piece, and no spec commit is recorded or found
-  by its subject, H MUST make no spec commit and MUST say so; a spec file git
-  ignores MUST be a hard failure that names it.
+- **FR-019**: When no untracked file sits in the spec directory, at least one
+  file there is tracked, none is uncommitted, and no spec commit is recorded or
+  found by its subject, H MUST make no spec commit and MUST say so; a spec
+  artefact recorded in `artifacts` that git ignores MUST be a hard failure
+  that names it, and any other ignored file there is left alone (from M).
 
 **Tests and records**
 
@@ -300,9 +301,12 @@ misbehave in a real case.
   `### Added` (the review guide) and to `### Changed` (late phases commit
   their own work; K shows the commit list).
 - **FR-018**: No file outside `SKILL.md`, `prose.bats`,
-  `pipeline/CHANGELOG.md` and this feature's spec directory changes. The
-  documents outside the orchestrator, including the status skill, are
-  Phase 22's.
+  `pipeline/CHANGELOG.md` and this feature's spec directory changes, except
+  the five user-facing lines the owner had corrected at M (the K and J rows of
+  `pipeline/docs/phases.md`, the Commit rows of `README.md` and
+  `pipeline/README.md`, and the `codeRoots` row of
+  `pipeline/docs/configuration.md`). The rest of the documents, including the
+  status skill, are Phase 22's.
 
 ### Key Entities
 

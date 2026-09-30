@@ -62,7 +62,7 @@ A gate shows you the content and waits. These are the only places it asks:
 |---|---|---|---|
 | Clarify | C | Every question, one at a time | nothing — only you know the answers |
 | Implementer | G | Build it here, or write a package for a cheaper model | the `implementer` setting |
-| Commit | K | The exact file list and the exact commit message | `--auto` |
+| Commit | K | The commit list, each commit with its message and files; then what is left and the exact commit message | `--auto`, unless a path lies outside the feature or there is a commit it cannot show |
 | Push & PR | L | Branch name, PR title, the full body | `--auto` |
 | Release | O | The exact command, and where it publishes | `--auto-release` only |
 

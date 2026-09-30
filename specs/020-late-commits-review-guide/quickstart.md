@@ -77,9 +77,12 @@ measurement; nothing in it is predicted.
 ## 5. Tracked-state detection (research R5)
 
 In a scratch repository, create `.delivery-kit/runs/f/progress.json` and run
-`git --literal-pathspecs ls-files --error-unmatch -- <path>` untracked (with
-and without `.delivery-kit/` ignored), after `git add -f`, and outside any
-repository. Expected exits: 1, 1, 0, 128.
+`git ls-files --error-unmatch -- ':(literal,icase)<path>'` untracked (with
+and without `.delivery-kit/` ignored), after `git add -f`, with the file
+tracked as `.Delivery-Kit/...` on a file system that ignores case, and outside
+any repository. Expected exits: 1, 1, 0, 0, 128. The old form
+`git --literal-pathspecs ls-files --error-unmatch -- <path>` exits 1 on the
+case variant — the gap research R5 records.
 
 ## 6. Scope (SC-005)
 
