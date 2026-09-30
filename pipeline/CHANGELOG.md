@@ -27,7 +27,8 @@ All notable changes to the `pipeline` plugin.
   Resume never rebuilds a recorded piece, and a piece committed just before a
   crash is recognised from its commit and recorded, not built again.
 - **A review guide in the pull request.** L's pull-request body and the DONE
-  summary now carry a table of every commit on the branch, oldest first —
+  summary now carry a table of every commit the run made on the branch (a
+  merged-in branch shows only as its merge), oldest first —
   commit, kind, piece, task IDs and files — headed with one line telling the
   reviewer to read the branch commit by commit, top to bottom. The body is
   shown in full at L before anything is pushed.
@@ -55,8 +56,9 @@ All notable changes to the `pipeline` plugin.
   every one of them with its message and files, then what is left and the
   message it will use, and commits the remainder only after the answer. K now
   stops even under `--auto` for a path outside the code roots, the feature's
-  spec directory and the tasks file, or for a commit it cannot show, such as a
-  merge.
+  spec directory and the tasks file, or for a commit it cannot show: an empty
+  commit that no phase explains. A merge is shown with the files it brought
+  in.
 - **A tracked state file stops the run.** When the run's state file is
   tracked in git, a re-entry stops, shows every recorded answer, and waits for
   the developer to confirm them.
