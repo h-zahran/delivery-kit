@@ -246,7 +246,7 @@ through 10 keep the numbers they have always had.
    it needs an answer only the owner can give,
    and no answer is ever invented for it. An accepted write is staged
    by K as its own separate commit, named like every other path — a
-   governance file never rides silently inside the feature's commit.
+   governance file never rides silently inside the feature's commits.
    An accepted write orphaned before B exists (the session dies at
    pre-flight) leaves dirt no artefact claims; the next run's item 5
    rightly stops there, and clearing it is the owner's call — the

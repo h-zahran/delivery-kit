@@ -175,7 +175,7 @@ PARTS
   cflat="$(tr '\n' ' ' < "$changelog" | tr -s ' ')"
   grep -qxF '## The implementer key' "$docs" \
     || { echo 'the configuration page lost its implementer section heading'; false; }
-  grep -qF '| `implementer` | Pre-answers the implementer gate: `claude` or `handoff`; `ask` restores the stop; unset means ask. |' "$docs" \
+  grep -qF '| `implementer` | Pre-answers G'\''s implementer question: `claude` or `handoff`; `ask` restores the stop; unset means ask. A `claude` run still stops at G for the review question. |' "$docs" \
     || { echo 'the docs key-table row altered'; false; }
   grep -qF 'With `ask` the gate simply asks, as it does when the key is unset' <<<"$dflat" \
     || { echo 'the docs ask sentence altered'; false; }
@@ -200,11 +200,23 @@ PARTS
     || { echo 'the changelog --auto claim altered — it must stay scoped to GATES'; false; }
   grep -qF 'Cap breaches, a missing required tool, hard failures and a failed runtime check still stop it, but the gates do not' <<<"$cflat" \
     || { echo 'the changelog cap-breach caveat altered'; false; }
-  # The docs page carried the correct range all along and was the ONE unpinned
-  # copy of it; the changelog was corrected against this sentence, so the two
-  # shipped surfaces agree verbatim rather than approximately.
-  grep -qF 'Cap breaches, a missing required tool, hard failures and a failed runtime check still stop it, but the gates do not.' <<<"$dflat" \
-    || { echo 'the docs cap-breach caveat altered'; false; }
+  # The docs page states the range as it stands now (feature 021): no fresh
+  # run reaches the end without a stop, and this sentence lists what stops a
+  # run whatever `--auto` collapsed. The changelog pin above keeps the
+  # released 1.1.0 wording; the two no longer agree verbatim, by design.
+  grep -qF 'Cap breaches, a missing required tool, hard failures, a failed runtime check, a state file tracked in git, a pause, and the commit and push phases'\'' own stops — a path outside the feature once the branch holds commits, a commit they cannot show, a record of a commit that is not on the branch — still stop a run, whatever `--auto` collapsed.' <<<"$dflat" \
+    || { echo 'the docs stop-list sentence altered'; false; }
+  # Feature 021, phase I: the floor itself, and the old claims it replaced.
+  # A mutant re-inserting "does not stop — an --auto run then touches the
+  # human at clarify only" beside the new text passed every pin above.
+  grep -qF 'No fresh run reaches the end without a stop: a `claude` run stops at the implementer gate for the review question, and a `handoff` run parks at the implement phase.' <<<"$dflat" \
+    || { echo 'the docs floor sentence altered'; false; }
+  absent_in "$dflat" <<'ABSENT' || return 1
+records the typed answer and does not stop
+touches the human at clarify only
+no gate stopping it
+pre-answers the implementer gate
+ABSENT
 
   # The FIRST json block only. Reading every fence let a later illustrative
   # block mask a canonical one that had lost the key entirely.

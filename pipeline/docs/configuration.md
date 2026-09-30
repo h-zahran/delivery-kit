@@ -53,7 +53,7 @@ before it spends it.
 | `codeRoots` | Where implementation lives: the simplify phase's scope, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |
-| `commitStyle` | The commit-message shape the commit gate shows. |
+| `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
 | `maxAnalyzeIters` | Analysis auto-fix loop cap; a breach stops and asks. |
 | `maxReviewRounds` | Pull-request review loop cap; a breach stops and asks. |
@@ -62,7 +62,7 @@ before it spends it.
 | `verifyCommand` | The runtime check's fallback strategy; it must produce an artefact. |
 | `releaseCommand` | What the release gate runs, shown exactly before it runs. Unset means there is nothing to publish — the release gate records that and moves on; no command is ever detected or invented for this key. |
 | `devCommand` | The web runtime check's server command; without it the project manifest's script table is tried: `dev`, then `start`, then `serve`. |
-| `implementer` | Pre-answers the implementer gate: `claude` or `handoff`; `ask` restores the stop; unset means ask. |
+| `implementer` | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop; unset means ask. A `claude` run still stops at G for the review question. |
 | `maxVerifyIters` | Verification fix-loop cap; a breach stops and asks, and a breach waved through is recorded in the commit message and the pull request. |
 
 ## Base branch
@@ -76,17 +76,19 @@ default; everywhere else it is documentation of intent, not an override.
 
 ## The implementer key
 
-`implementer` pre-answers the implementer gate — the choice between
-implementing here and writing a handoff package for a cheaper model.
-Unset means the gate asks. With `claude`, the gate records the typed
-answer and does not stop — an `--auto` run then touches the human at
-clarify only. With `handoff`, the gate stops asking and the run parks
-at the implement phase with the package written, waiting for the
-external implementer's report. With `ask` the gate simply asks, as it
-does when the key is unset — the difference is that `ask` can be written
-in a later layer to take back a stop an earlier one gave away. An
-illegal value stops pre-flight by name: never coerced, never treated as
-unset.
+`implementer` answers the first of the implementer gate's two questions
+in advance — the choice between implementing here and writing a
+handoff package for a cheaper model. Unset means the gate asks it. With
+`claude`, the gate records the typed answer and goes on to its second
+question, commits or pauses — how you want to review the build. No key
+or flag answers that question in advance, and `--auto` does not collapse
+it, so a fresh `claude` run always stops there. With `handoff`, the gate
+stops asking and the run parks at the implement phase with the package
+written, waiting for the external implementer's report. With `ask` the
+gate simply asks, as it does when the key is unset — the difference is
+that `ask` can be written in a later layer to take back a stop an
+earlier one gave away. An illegal value stops pre-flight by name: never
+coerced, never treated as unset.
 
 Layers merge by silence, not by erasure, and that holds for every key on
 this page: writing `null` in a later layer leaves the earlier layer's
@@ -94,30 +96,36 @@ value standing, exactly as leaving the key out would. `implementer` is
 the one key with a value that overrides the other way. For
 `verifyCommand`, `releaseCommand` and `devCommand` there is no such
 value, so a command an earlier layer set can be replaced by a later one
-but never returned to unset. If a repository's tracked `.delivery-kit.json` pre-answers the
-gate and you want the stop back for one run, pass `--implementer ask`;
-if you want it back for good, write `"implementer": "ask"` in the layer
-that should win.
+but never returned to unset. If a repository's tracked
+`.delivery-kit.json` answers the implementer question and you want that
+question back for one run, pass `--implementer ask`; if you want it back
+for good, write `"implementer": "ask"` in the layer that should win.
 
-Read "at clarify only" as neither a floor nor a ceiling — it is one
-point on a range, and both ends of that range are worth knowing. Above
-it, two things still stop a run: the release gate, whenever
-`releaseCommand` is set and `--auto-release` was not also typed, and the
-pre-flight constitution offer, whenever the constitution is unset. Below
-it, everything can fall away at once: with `--auto`, no clarify
-questions, `releaseCommand` unset, the constitution already set and a
-remote to push to, such a run reaches the end with no gate stopping it
-at all. Cap breaches, a missing required tool, hard failures and a failed
-runtime check still stop it, but the gates do not. Without `--auto` the
-commit and push gates stop as they always do — or fewer of them, where
-pre-flight has already named a degradation: a repository with no remote
-stops after the commit gate and never reaches a push gate at all. Set
-this key knowing the whole range.
+What stops a run is a range, and both ends of it are worth knowing. No
+fresh run reaches the end without a stop: a `claude` run stops at the
+implementer gate for the review question, and a `handoff` run parks at
+the implement phase. Above that floor, the clarify gate stops whenever
+the spec tool has a question, the release gate whenever `releaseCommand`
+is set and `--auto-release` was not also typed, and the pre-flight
+constitution offer whenever the constitution is unset. Without `--auto`
+the commit and push gates stop as they always do — or fewer of them,
+where pre-flight has already named a degradation: a repository with no
+remote stops after the commit gate and never reaches a push gate at all.
+Below the floor sits a re-entry: a run resumed or re-entered past the
+implementer gate asks nothing there, so with `--auto`, no clarify
+questions, `releaseCommand` unset and the constitution set, it can reach
+the end without any gate asking. Cap breaches, a missing required tool,
+hard failures, a failed runtime check, a state file tracked in git, a
+pause, and the commit and push phases' own stops — a path outside the
+feature once the branch holds commits, a commit they cannot show, a
+record of a commit that is not on the branch — still stop a run,
+whatever `--auto` collapsed. Set this key knowing the whole range.
 
 Pre-flight discloses the resolved key: where it holds a value, the probe
 block prints an `Implementer` line naming the value and the layer it
 came from, and where it is unset that line is omitted. A key that
-pre-answers a gate belongs in the operator's output, not only in a file.
+answers a gate's question in advance belongs in the operator's output,
+not only in a file.
 
 ## The state directory
 
@@ -126,8 +134,8 @@ directory per feature, plus a lock file. On the first run in a
 repository, pre-flight checks whether `.delivery-kit/` is ignored and,
 if not, offers to append the one line to `.gitignore`, showing exactly
 what it will write. Declining is fine; the files show up as untracked.
-The pipeline never edits `.gitignore` silently, and never stages
-anything outside the commit gate.
+The pipeline never edits `.gitignore` silently, and stages only paths it
+names, in every commit it makes.
 
 ## The spec tool
 
@@ -147,7 +155,7 @@ run.
 
 Accepting has a consequence past the write. The commit phase stages
 that constitution as its own separate commit, named like every other
-path and never riding inside the feature's commit — and wherever the run
+path and never riding inside the feature's commits — and wherever the run
 goes on to push, that commit travels with the branch, and into the pull
 request wherever the run opens one. How far it travels depends on the
 run: the commit and push gates can be declined; a repository with no
