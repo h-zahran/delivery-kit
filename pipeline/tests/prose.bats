@@ -63,7 +63,10 @@ RULES
     || { echo 'the auto-never-collapses-O sentence altered'; false; }
   grep -qF '`--auto-release` is still required before anything publishes unasked.' <<<"$flat" \
     || { echo 'the auto-release assurance altered — check its SUBJECT, not just its tail'; false; }
-  grep -qF '| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops unless `implementer` pre-answered it. |' "$ORCH" \
+  # Changed on purpose by feature 019 (FR-020). The old row ended "and G
+  # stops unless `implementer` pre-answered it." — false once G asks the
+  # review question on every fresh `claude` run.
+  grep -qxF '| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause. |' "$ORCH" \
     || { echo 'the --auto flags row altered'; false; }
 }
 
@@ -215,8 +218,14 @@ PARTS
 
   grep -qF '**G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered it: implement with Claude here, or produce a handoff package for a cheaper model.' <<<"$flat" \
     || { echo "the G lead's pre-answer qualifier altered"; false; }
-  grep -qF 'When `implementer` resolves to `claude` or `handoff` (config or flag), G records that answer in `gates` and does not stop — the choice was typed on purpose.' <<<"$flat" \
+  # Changed on purpose by feature 019 (FR-005): "does not stop" became false
+  # for `claude` once G asks the review question. The old sentence was:
+  # "... G records that answer in `gates` and does not stop — the choice was
+  # typed on purpose."
+  grep -qF 'When `implementer` resolves to `claude` or `handoff` (config or flag), G records that answer in `gates` and does not ask it — the choice was typed on purpose.' <<<"$flat" \
     || { echo "the G pre-answer sentence altered"; false; }
+  grep -qF 'With `claude`, G still stops for the review question below; with `handoff`, G does not stop.' <<<"$flat" \
+    || { echo "the G stop-for-the-review-question sentence altered"; false; }
   grep -qF '`ask` pre-answers nothing: G stops, asks, and records the owner'"'"'s answer in `gates` like any asked gate.' <<<"$flat" \
     || { echo "the ask re-arm sentence altered"; false; }
   grep -qF 'It is how a command line takes back a stop a configuration file gave away.' <<<"$flat" \
@@ -902,4 +911,222 @@ ROWS
     || { echo 'the not-read rule lost its precision carve-out and may over-mark again'; false; }
   grep -qF 'the name came from a configuration file and IS established' <<<"$notread" \
     || { echo 'the configured-base-branch carve-out was removed from the not-read rule'; false; }
+}
+
+# ---------------------------------------------------------------------------
+# Feature 019: the orchestrator builds in pieces.
+#
+# Every pinned sentence is copied byte for byte from
+# specs/019-orchestrator-builds-in-pieces/contracts/orchestrator-prose.md and
+# searched in the FLATTENED slice of the section that governs it, so a rewrap
+# never reddens a pin and a sentence moved out of its section does. The pins
+# sit in quoted heredocs because nearly every one holds backticks or an
+# apostrophe: no escaping, so nothing is retyped. `read -r` keeps a
+# backslash (the --implementer row holds `\|`).
+#
+# The helpers match with a bash pattern, not grep: no process per pin (about
+# 30 ms each on Windows), and a pin that starts with a dash is data, never a
+# flag. Each returns 1 EXPLICITLY — errexit does nothing inside a function
+# whose caller sits in an `if` or an `||`, so a bare `false` could be inert.
+#
+# Each pin was proven by an INVERTED mutant when it landed: the sentence
+# rewritten to assert the opposite, the mutated text echoed, the test red.
+# Those mutants REPLACE text in place. A reversal APPENDED after a pin that
+# ends in a full stop, or an old wording restored in another letter case,
+# passes; pins that stop mid-clause are extended through their punctuation
+# so a word cannot be added at either end.
+#
+# Each helper refuses to pass having checked nothing: an emptied heredoc or
+# an empty haystack is a red, never a vacuous green.
+
+# pins_in <haystack> <label>: every non-empty line on stdin occurs in
+# <haystack> as a fixed string.
+pins_in() {
+  local hay="$1" what="$2" pin n=0
+  [ -n "$hay" ] || { echo "$what: the haystack is empty"; return 1; }
+  while IFS= read -r pin; do
+    [ -n "$pin" ] || continue
+    n=$((n + 1))
+    [[ $hay == *"$pin"* ]] || { echo "$what pin missing: $pin"; return 1; }
+  done
+  [ "$n" -gt 0 ] || { echo "$what: no pins were read"; return 1; }
+}
+
+# rows_in <text> <label>: every non-empty line on stdin is a WHOLE line of
+# <text>. Table rows are one line each, so they are pinned raw, not
+# flattened, against the RAW slice of the table's own section.
+rows_in() {
+  local raw="$1" what="$2" row n=0
+  [ -n "$raw" ] || { echo "$what: the section is empty"; return 1; }
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    n=$((n + 1))
+    [[ $'\n'"$raw"$'\n' == *$'\n'"$row"$'\n'* ]] || { echo "$what row missing: $row"; return 1; }
+  done
+  [ "$n" -gt 0 ] || { echo "$what: no rows were read"; return 1; }
+}
+
+# absent_in <haystack>: no non-empty line on stdin occurs in <haystack>.
+absent_in() {
+  local hay="$1" old n=0
+  [ -n "$hay" ] || { echo "absent check: the haystack is empty"; return 1; }
+  while IFS= read -r old; do
+    [ -n "$old" ] || continue
+    n=$((n + 1))
+    if [[ $hay == *"$old"* ]]; then echo "old wording is back: $old"; return 1; fi
+  done
+  [ "$n" -gt 0 ] || { echo "absent check: no strings were read"; return 1; }
+}
+
+@test "G asks the review question on every run and never lets --auto collapse it" {
+  # FR-001 to FR-004, and the shape of gates.G. G7 (never migrated) is pinned
+  # with the legacy rule further down.
+  local flat
+  flat="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
+  pins_in "$flat" 'G review-question' <<'PINS'
+When the implementer answer is `claude`, G then asks the review question below, which nothing pre-answers.
+Once the implementer answer is `claude`, asked or pre-answered, G asks the review question — commits or pauses — and records the answer as `gates.G.reviewMode`, `commits` or `pauses`.
+The review question is asked on every fresh run: no configuration key or flag pre-answers it, and `--auto` never collapses it.
+When the implementer answer is `handoff`, G does not ask the review question and says so in one line: review pieces are not available on the handoff path, and the run keeps the single-commit flow.
+A re-entry that finds `gates.G.reviewMode` recorded never asks it again, and no flag replaces it.
+If a `--implementer handoff` typed on a re-entry replaces a recorded `claude`, the recorded review answer stays in the state file unused, commits already made stand, and the rest of the run follows the single-commit flow, saying so in that one line.
+`gates.G` is an object: `answer` holds the implementer answer and `reviewMode` the review answer. A state file whose `gates.G` is a plain string holds the implementer answer alone and has no review answer; read it that way, never as an error.
+PINS
+}
+
+@test "H commits the spec, then one commit per piece, every path named" {
+  # FR-006 to FR-011 and FR-017. H22 is today's last_task sentence, kept
+  # and now pinned: resume re-enters mid-piece by it.
+  local flat
+  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  pins_in "$flat" 'phase H' <<'PINS'
+The single-commit flow: invoke `/speckit-implement`.
+Which flow H runs is read from `gates.G`: with `claude` recorded as G's answer and a review answer recorded beside it, H builds in pieces as below; otherwise H runs the single-commit flow, and says which flow it runs and why.
+H builds a piece by invoking `/speckit-implement` limited to that piece's task IDs — never unscoped, which would build every piece at once.
+Before the first piece, H commits the feature's spec directory alone, every path named, as `docs(spec): <feature>`, and records it with `commit-add` as kind `spec`.
+A spec commit already recorded is never made again; one already in `<base>..HEAD` with that subject but not recorded is recorded from that commit, not made again.
+Then H loops: `piece-next` names the next piece; H builds that piece's tasks; H commits exactly the paths the piece changed, plus `tasks.md` with the piece's `[X]` marks; and H records the commit with `commit-add` as kind `piece`, with the piece's name, task IDs and files. The loop ends when `piece-next` prints nothing.
+A `piece-next` refusal is a hard failure: H stops per "When a phase fails" and never falls back to the single-commit flow.
+When a piece starts — unless `measurements.pieceBefore` already names that piece, whose saved list then stands — H saves every path `git status --porcelain=v1 -z --untracked-files=all --no-renames` lists under `measurements.pieceBefore`, with the piece's heading; the piece's paths are the ones that command lists after the piece and that are absent from the saved list, plus `tasks.md`, and a resumed piece is compared against the saved list, never against the tree as it stands. A path under `.delivery-kit/` is never a piece's path, even where that directory is not ignored.
+Read that output as NUL-separated records, never through `$( )`, which drops NUL bytes and runs the paths together: take each path after its three-character status prefix, and refuse a path that holds a carriage return or a line feed.
+Every commit H makes names every path it stages — no `git add -A`, no wildcards, no directory: write the paths NUL-separated to a file under `.delivery-kit/runs/<feature>/`, stage with `git --literal-pathspecs add --pathspec-from-file=<file> --pathspec-file-nul` and commit with `git --literal-pathspecs commit -F <message file> --pathspec-from-file=<file> --pathspec-file-nul`, so git reads no path as a pattern, no path is typed into a command, and nothing else staged rides along.
+The message follows `commitStyle`, names the piece and its task range, says so where the piece changed no file but `tasks.md`, and carries, on a line of its own, `Piece: <heading>`.
+The heading travels as data: in the same shell call that commits and records, run `piece-next` again, split its output with parameter expansion, write the `Piece:` line into the message file with `printf '%s'`, and pass the heading quoted to `commit-add` — never retype it into a command, since shell state does not survive from one call to the next.
+If a commit in `<base>..HEAD` that `commits` does not record carries, as a whole line, `Piece: <heading>` for the piece `piece-next` names, the piece was committed before a crash: record it from that commit with `commit-add` and move on — never rebuild it.
+A recorded piece is never rebuilt.
+In the piece flow, fan-out stays within one piece: it never crosses a piece boundary.
+Record `last_task` after each completion so resume re-enters mid-phase.
+PINS
+}
+
+@test "a pause shows the piece, takes three answers, and --auto never collapses it" {
+  # FR-012 to FR-014 and FR-016: pause mode, the owner's edits, and what a
+  # resumed run does with a built piece that is not yet committed.
+  local flat
+  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  pins_in "$flat" 'pause' <<'PINS'
+In pause mode, after a piece is built and before it is committed, H stops and shows the piece name, its task IDs, the exact file list, `git diff --stat` for those files with each untracked file listed as new, and the piece's checkpoint result where the tasks file names one.
+Three answers: go on (commit it and continue); fix this (the developer says what, the run changes it and shows the piece again); stop here (the `--until` rule binds: state file intact, lock released, resumable).
+Files the developer edited during the pause go into that piece's commit, and its message lists them as edited by the owner: a path new to the list, or one whose content changed since the pause showed it — never a path in the saved list, which stays for K.
+When the list has changed since the pause showed it, the piece is shown again before it is committed.
+A pause is a safe handoff point, like every gate, and `--auto` never collapses a pause.
+A piece is built when every task ID `piece-next` names for it is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet committed is handled first and never rebuilt: a piece a hook rejected is shown first with its failure entry, in either mode, and then committed again (commits mode) or paused (pause mode), its failure entry cleared once the commit lands; any other built piece is shown again in pause mode and committed in commits mode.
+Each pause answer is recorded under `gates.H.pauses`, with the `git hash-object` of each listed path (or `deleted`) as the pause showed it; a recorded answer never stops a built, uncommitted piece from being shown again.
+PINS
+}
+
+@test "a hook that rejects a piece commit is a hard stop, never --no-verify" {
+  # FR-015. The rule lives in H, not in "When a phase fails": that region
+  # carries a byte-exact span, and H points at it instead.
+  local flat
+  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  pins_in "$flat" 'hook stop' <<'PINS'
+A commit hook that rejects a piece commit is a hard stop: the piece stays uncommitted, `gates.H` records a failure entry naming the piece and the hook's output, redacted as J's carry is — the fact and its location, never the value — and the run stops per "When a phase fails".
+`--no-verify` is never used, for a piece commit or any other.
+PINS
+}
+
+@test "a state file without a review answer keeps the single-commit flow" {
+  # FR-004b, FR-016 and FR-018: a run from an older pipeline, or one begun
+  # on the handoff path, is never migrated mid-run (ruling 24); a piece-flow
+  # resume enters the piece piece-next names.
+  local flat
+  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  pins_in "$flat" 'legacy (H)' <<'PINS'
+A run that enters H with implementer `claude` and no `gates.G.reviewMode` — it started on an older pipeline, or it began on the handoff path — keeps the single-commit flow and says so.
+PINS
+  flat="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
+  pins_in "$flat" 'legacy (G)' <<'PINS'
+A re-entry into G whose state file already lists G as completed without `gates.G.reviewMode` does not ask it: that run started before the review question existed, or on the handoff path, and it keeps the single-commit flow for its life — it is never migrated mid-run.
+PINS
+  flat="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
+  pins_in "$flat" 'resume' <<'PINS'
+Re-entering H in the piece flow — `--resume` or `--from H` — enters the piece `piece-next` names, under H's rules: a recorded piece is never rebuilt, and a built piece not yet committed is handled first.
+PINS
+}
+
+@test "the gate floor counts the review question, and every commit names every path" {
+  # FR-019 to FR-023: every sentence the change made false elsewhere in the
+  # orchestrator, rewritten, and the old wording pinned ABSENT.
+  local flat walk
+  flat="$(prose_slice '^## Gates$' '^## Parallel agents$' flat 'gates')" || return 1
+  pins_in "$flat" 'gates' <<'PINS'
+A pre-answered `implementer` removes the implementer question, never the review question, so G stops on every fresh `claude` run.
+No fresh run reaches DONE without a stop: on a `claude` run G stops for the review question, and on a `handoff` run the run parks at H.
+A re-entry past G asks nothing there and so can reach DONE with no gate stopping it — for example a run resumed from an older pipeline that had completed G (see G), or a run re-entered with `--from H` or later.
+A pause (H, pause mode) is a stop the developer chose, not a sixth gate, and `--auto` never collapses it.
+Nothing outside the gate table is silenced by `--auto` — the pre-flight constitution offer, every cap breach, a missing required tool, any hard failure and a failed runtime check all still stop.
+The `implementer` key can arrive from a tracked `.delivery-kit.json` somebody else wrote, in a repository just cloned, and it removes the implementer question without anyone at the keyboard choosing that.
+PINS
+  flat="$(prose_slice '^## Parallel agents$' '^## The rules that never bend$' flat 'parallel')" || return 1
+  pins_in "$flat" 'parallel' <<'PINS'
+grouped by target artefact; H — independent tasks within one piece; fan-out never crosses a piece boundary; H.5
+PINS
+  flat="$(prose_slice '^## The rules that never bend$' '^## Red flags' flat 'never-bend')" || return 1
+  pins_in "$flat" 'never-bend' <<'PINS'
+Every commit names every path it stages, not only K's.
+read as paralysis: create and check out the feature branch, make the local spec and piece commits H makes once G's review question is answered, every path named and nothing pushed, write
+Everything that leaves the machine, or that cannot be undone by editing a file, is behind a gate — H's local commits included: the review question at G is their consent, and in pause mode each pause is the yes.
+PINS
+  # The pre-flight walk holds a `**`-led line ("Read item 11 before item
+  # 1") that prose_slice refuses, so it keeps the awk range the tests
+  # above use. An awk range whose closer stops matching runs to end of file
+  # in silence, and PF1 would then be found anywhere below the walk: assert
+  # the close.
+  walk="$(awk '/^The script only reports; the decisions are yours/,/^\*\*Base branch:\*\*/' "$ORCH")"
+  [ -n "$walk" ] || { echo "the pre-flight walk slice is empty"; false; }
+  [[ ${walk##*$'\n'} == '**Base branch:**'* ]] \
+    || { echo "the pre-flight walk slice did not close on **Base branch:** - it ran to end of file"; false; }
+  flat="$(tr '\n' ' ' <<<"$walk" | tr -s ' ')"
+  pins_in "$flat" 'pre-flight walk' <<'PINS'
+collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
+PINS
+  # Rows are pinned in their own table's section, raw.
+  flat="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  rows_in "$flat" 'configuration' <<'ROWS'
+| `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
+| `commitStyle` | `conventional` | The message shape of every commit the run makes |
+ROWS
+  flat="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flat" 'flags' <<'ROWS'
+| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. When it resolves to `claude`, the review question is still asked. |
+ROWS
+  flat="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  rows_in "$flat" 'gate table' <<'ROWS'
+| Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
+ROWS
+  flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
+  absent_in "$flat" <<'ABSENT'
+a run CAN reach DONE without a single gate stopping it
+a pre-answered `implementer` at G;
+but no gate does
+like G whenever `implementer` is unset or `ask`
+Pre-answers the G gate
+Phase K's message shape
+G stops unless `implementer` pre-answered it
+G records that answer in `gates` and does not stop
+That combination is never a default
+| Implementer | G | Claude, or a handoff package for a cheaper model |
+cannot be undone by editing a file, is behind a gate.
+ABSENT
 }

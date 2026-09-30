@@ -2,6 +2,44 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- **The run builds and commits in pieces.** A piece is one `## Phase <N>:`
+  section of the run's tasks file. Phase H now commits the spec directory on
+  its own first, then builds one piece at a time — asking the state helper for
+  the next piece, building only that piece's tasks with the spec tool's
+  implement command, and committing exactly the files the piece changed plus
+  the tasks file with its marks. Every commit names every path, and each is
+  recorded in the state file. A reviewer reads the branch in order: the spec,
+  then each piece. A piece that changed nothing but its marks still gets its
+  own commit, and says so.
+- **Pause mode.** At G the developer now chooses how to review: **commits**
+  (the run finishes, with one commit per piece to read afterwards) or
+  **pauses** (the run stops after each piece is built, before it is
+  committed, and shows the piece, its files and its diff). A pause takes three
+  answers: go on, fix this, or stop here. Files the developer edits during a
+  pause go into that piece's commit and are named in its message. `--auto`
+  never collapses a pause.
+- A commit hook that rejects a piece is a hard stop — the piece stays
+  uncommitted and is shown first on resume. `--no-verify` is never used.
+  Resume never rebuilds a recorded piece, and a piece committed just before a
+  crash is recognised from its commit and recorded, not built again.
+
+### Changed
+
+- **G now stops on every run whose implementer is `claude`**, even under
+  `--auto` and even when `implementer` is pre-answered: it asks the review
+  question, which no setting or flag answers in advance. A pre-answered
+  `implementer` still removes the implementer question. As a result a fresh
+  run no longer reaches the end without a stop. The handoff path is
+  unchanged: G does not ask the review question there and says so in one
+  line, and that run keeps a single commit. A run started on an earlier
+  version that has already passed G keeps the single-commit flow for its
+  whole life; one resumed before G finished is asked the review question
+  there.
+
 ## [1.2.1] - 2026-09-08
 
 ### Changed
