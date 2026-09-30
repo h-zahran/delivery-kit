@@ -26,6 +26,11 @@ All notable changes to the `pipeline` plugin.
   uncommitted and is shown first on resume. `--no-verify` is never used.
   Resume never rebuilds a recorded piece, and a piece committed just before a
   crash is recognised from its commit and recorded, not built again.
+- **A review guide in the pull request.** L's pull-request body and the DONE
+  summary now carry a table of every commit on the branch, oldest first —
+  commit, kind, piece, task IDs and files — headed with one line telling the
+  reviewer to read the branch commit by commit, top to bottom. The body is
+  shown in full at L before anything is pushed.
 
 ### Changed
 
@@ -39,6 +44,22 @@ All notable changes to the `pipeline` plugin.
   version that has already passed G keeps the single-commit flow for its
   whole life; one resumed before G finished is asked the review question
   there.
+- **The phases after H commit their own work.** In the piece flow, converge
+  (H.5), simplify (H.7), deep review (I) and the test phase (J) each end with
+  one commit of their own when they changed a file; piece commits are never
+  rewritten. A red the owner waved through at J
+  rides in J's own commit, or in an empty commit when J changed nothing.
+  Simplify and deep review now read the run's whole change, not only the
+  working tree.
+- **K shows the whole commit list.** Once the branch holds commits, K shows
+  every one of them with its message and files, then what is left and the
+  message it will use, and commits the remainder only after the answer. K now
+  stops even under `--auto` for a path outside the code roots, the feature's
+  spec directory and the tasks file, or for a commit it cannot show, such as a
+  merge.
+- **A tracked state file stops the run.** When the run's state file is
+  tracked in git, a re-entry stops, shows every recorded answer, and waits for
+  the developer to confirm them.
 
 ## [1.2.1] - 2026-09-08
 
