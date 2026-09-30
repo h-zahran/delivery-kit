@@ -11,7 +11,7 @@ pile became a plugin.
 ## Contents
 
 - [Which one do I want?](#which-one-do-i-want)
-- [What each plugin does](#what-each-plugin-does) — [handoff](#handoff--stop-before-the-wall-not-at-it) · [pipeline](#pipeline--one-feature-twenty-phases-five-stops)
+- [What each plugin does](#what-each-plugin-does) — [handoff](#handoff--stop-before-the-wall-not-at-it) · [pipeline](#pipeline--one-feature-twenty-phases-five-gates)
 - **Guide** — [Before you start](#before-you-start) · [Your first ten minutes](#your-first-ten-minutes) · [Using handoff](#using-handoff-start-to-finish) · [Using pipeline](#using-pipeline-gate-by-gate)
 - [Command reference](#command-reference)
 - [Configure](#configure)
@@ -53,7 +53,7 @@ from **one file read**.
 It never touches git. No commit, no push, no stash. It records the uncommitted
 work and prints the commands, and the choice stays yours.
 
-### pipeline — one feature, twenty phases, five stops
+### pipeline — one feature, twenty phases, five gates
 
 Give it a seed — a heading from your plan file, a GitHub issue number, or just a
 sentence — and it drives the whole job:
@@ -72,8 +72,11 @@ preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* �
 ```
 
 The five stars are the gates: **clarify** (only you know the answer), **who
-implements**, **commit**, **push and open the PR**, and **release**. Each one
-shows you the exact content before anything happens.
+implements, and how you review**, **commit**, **push and open the PR**, and
+**release**. Each one shows you the exact content before anything happens. A
+run that builds here commits in pieces — the spec, then one commit per phase of
+the task list — so the pull request can be read one commit at a time; see
+[reviewing a run commit by commit](pipeline/README.md#reviewing-a-run-commit-by-commit).
 
 Everything that leaves your machine sits behind one of those gates. And some
 things never happen at all: no force-push, no history rewrites, no
@@ -287,18 +290,24 @@ rather than discovered later.
 
 ### The five gates
 
-This is the whole of what the run asks you. Everything else runs unattended.
+These are the five gates. The stops listed under the table also wait for you,
+and so does each pause if you chose pause mode; everything else runs
+unattended.
 
 | Gate | Phase | You are shown | You answer |
 |---|---|---|---|
 | **Clarify** | C | Every question the spec tool raises, one at a time | Each one, yourself. Never skipped, never answered for you — this is the gate that needs knowledge only you have. |
-| **Implementer** | G | Build it here with Claude, or write a package for a cheaper model | One or the other. Choosing the package parks the run and hands you a brief to give the other model. |
+| **Implementer** | G | Who builds: Claude here, or a package for a cheaper model. Then, for a build here, how you review it: commits or pauses | Each question. The `implementer` setting can answer the first; nothing answers the second. Choosing the package parks the run and hands you a brief to give the other model. |
 | **Commit** | K | Every commit the run made on the branch (a merged-in branch shows only as its merge), with its message and files; then what is left, every path by name, and the exact commit message | Yes, or no. It commits only what it showed you. |
 | **Push & PR** | L | The branch name, the PR title, and the full body | Yes, or no. Nothing leaves your machine before this. |
 | **Release** | O | The exact command, and where it publishes | Yes, or no. |
 
 Other things stop a run too, and **no flag collapses them**: a loop hitting its
-cap, a required tool missing, any hard failure, and a failed runtime check.
+cap, a required tool missing, any hard failure, a failed runtime check, and a
+few stops made by the commit and push phases.
+[The configuration page](pipeline/docs/configuration.md#the-implementer-key)
+lists them. In pause mode the run also stops before each piece's commit;
+that is a stop you chose, not a gate.
 
 ### Running with fewer stops
 
@@ -310,12 +319,15 @@ cap, a required tool missing, any hard failure, and a failed runtime check.
 `--auto` never collapses release. Publishing is the least reversible thing this
 tool does, and one flag must not mean both "commit for me" and "publish for me".
 
-> **Know the floor before you automate.** With the `implementer` setting written
-> in a config file, plus `--auto`, no clarify questions and no release command, a
-> run can reach the end **without a single gate stopping it**. That is why
-> pre-flight prints an `Implementer` line naming which file or flag the value came
-> from — a setting that gives away a stop can arrive in a repository you just
-> cloned. Set `implementer` to `ask` to take the stop back.
+> **Know the floor before you automate.** No fresh run reaches the end without
+> stopping: a run that builds here stops at G for the review question, and a
+> handoff run parks at H. A run re-entered past G asks nothing there, so with
+> `--auto`, no clarify questions and no release command it can reach the end
+> **without a gate asking anything**. Pre-flight prints an `Implementer` line
+> naming which file or flag the value came from — a setting that answers a
+> question for you can arrive in a repository you just cloned. Set `implementer`
+> to `ask` to take the implementer question back. The whole range is on
+> [the configuration page](pipeline/docs/configuration.md#the-implementer-key).
 
 ### Stopping and resuming
 
@@ -364,7 +376,7 @@ resume.
 |---|---|
 | `--auto` | Collapse the commit and push gates. Not clarify, not implementer, not release. |
 | `--auto-release` | Collapse release as well. Never implied by `--auto`. |
-| `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer gate, or restore it with `ask`. |
+| `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it with `ask`. |
 | `--until <phase>` | Stop cleanly after that phase. State intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
 | `--resume` | Re-enter a live run at the phase it recorded. |
@@ -386,8 +398,8 @@ wins**, and for the guard's keys an environment variable beats both:
 [the guard's configuration page](handoff/docs/configuration.md).
 
 **The pipeline's keys have no environment overrides at all.** Not "none yet" —
-none by design, so that a value which pre-answers a gate cannot arrive from a
-shell you did not read. Those keys come from the two files and from flags, and
+none by design, so that a value which answers a gate's question in advance
+cannot arrive from a shell you did not read. Those keys come from the two files and from flags, and
 pre-flight prints which layer won.
 
 ```json
@@ -408,7 +420,7 @@ The keys worth knowing on day one:
 | `handoff.docsDir` | `docs/handoffs` | Where handoff documents go. |
 | `pipeline.planFile` | `main-plan.md` | Where `Phase <N>: <title>` seeds are read from. |
 | `pipeline.testCommand` | detected | Your full test suite. |
-| `pipeline.implementer` | unset | Pre-answers the implementer gate. Read the warning above before setting it. |
+| `pipeline.implementer` | unset | Pre-answers the implementer question. Read the warning above before setting it. |
 
 A value that is not a positive integer is ignored and the layer beneath it
 stands. **No invalid value can disable the guard.**
@@ -431,7 +443,7 @@ write. Declining is fine.
 | Two `CONTEXT GUARD` warnings, or advice naming a plugin you removed | An old `delivery-kit@delivery-kit` install is still present | See [Coming from 1.x](#coming-from-1x). Do not judge by warning count — run `/plugin` and read the list. |
 | `pipeline` stops immediately at pre-flight | No spec tool, a dirty tree, a live lock, or an illegal `implementer` value | It names which. There is no degraded mode for a missing spec tool. |
 | "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
-| A run reached the end without asking you anything | `--auto` plus an `implementer` value from a config file | Check the `Implementer` line in the pre-flight block: it names the layer. Use `--implementer ask` to take the stop back. |
+| A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`. A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`, so the commit and push gates ask. |
 | A phase was skipped | A capability is missing | Pre-flight named it, and the reason, before work started. Scroll back to the `Will skip` lines. |
 
 ### Coming from 1.x

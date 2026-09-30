@@ -33,12 +33,12 @@ preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* �
 | | Phases | What happens |
 |---|---|---|
 | **Specify & plan** | A – F.5 | The seed becomes a specification, you answer the clarifying questions, then a plan, a task list, an analysis pass, and a recorded test baseline. |
-| **Build** | G – H.7 | You choose who implements. Independent tasks run in parallel, then a convergence pass and a simplify pass. |
+| **Build** | G – H.7 | You choose who implements and, for a build here, how to review it: commits or pauses. A build here goes one piece (one phase of the task list) at a time, one commit per piece, independent tasks in parallel; then a convergence pass and a simplify pass, each committing what it changed. A handoff run builds in one pass, and K makes its feature commit. |
 | **Review** | I – J | Three independent reviewers — contract compliance, security, tests — then the analyzer and the full suite, classified against the baseline. |
-| **Ship** | K – O | Commit, push, open the pull request, act on its review, re-verify, prove it actually runs, release. |
+| **Ship** | K – O | Show what is already committed and what is left, commit the rest, push, open the pull request with its review guide, act on its review, re-verify, prove it actually runs, release. |
 
 `pipeline:status` reads a run's state file and reports where it got to, which
-gate it is waiting on, and the exact next thing to type.
+gate or pause it is waiting on, and the exact next thing to type.
 
 ## What ships
 
@@ -48,7 +48,7 @@ of them you can also invoke directly when you want that one job without a run.
 | Piece | Kind | Does |
 |---|---|---|
 | `/pipeline` | a command | Starts a run. The only entry — the orchestrator never invokes itself. |
-| `pipeline:status` | a skill | Read-only. Where a run got to, which gate it waits on, what to type next. |
+| `pipeline:status` | a skill | Read-only. Where a run got to, which gate or pause it waits on, what to type next. |
 | `pipeline:spec-review` | a skill | Audits an implementation against its specification with three independent lenses: contract compliance, security, and tests. Runs at the deep-review phase, and stands alone when a feature claims to be done and you want to know whether the spec agrees. |
 | `pipeline:device-verify` | a skill | Builds, installs and drives a mobile release build on one attached device, screenshots what changed, and reads the screenshots back. Runs at the runtime check on an Android project, and stands alone when a change claims to work on a device and nobody has watched it do so. |
 
@@ -56,33 +56,73 @@ of them you can also invoke directly when you want that one job without a run.
 
 ## The five gates
 
-A gate shows you the content and waits. These are the only places it asks:
+A gate shows you the content and waits. There are five; the other things that
+stop a run are listed under the table.
 
 | Gate | Phase | You see | Skippable by |
 |---|---|---|---|
 | Clarify | C | Every question, one at a time | nothing — only you know the answers |
-| Implementer | G | Build it here, or write a package for a cheaper model | the `implementer` setting |
+| Implementer | G | Who builds it: here, or a package for a cheaper model. Then, for a build here, how you review it: commits or pauses | the `implementer` setting answers who builds; nothing answers commits or pauses |
 | Commit | K | The commit list, each commit with its message and files; then what is left and the exact commit message | `--auto`, unless a path lies outside the feature or there is a commit it cannot show |
-| Push & PR | L | Branch name, PR title, the full body | `--auto` |
+| Push & PR | L | Branch name, PR title, the full body with its review guide | `--auto`, except for the stops L names itself, such as a commit it cannot show |
 | Release | O | The exact command, and where it publishes | `--auto-release` only |
 
 `--auto` collapses only the commit and push gates. Publishing is the least
 reversible thing this tool does, so it needs its own flag, typed on purpose —
 one flag must not mean both "commit for me" and "publish for me".
 
-Other things still stop a run and no flag collapses them: a loop hitting its
-cap, a required tool missing, any hard failure, and a failed runtime check.
+Other things still stop a run, and no flag collapses them: a loop hitting its
+cap, a required tool missing, any hard failure, a failed runtime check, and a
+few stops made by the commit and push phases. [The configuration
+page](docs/configuration.md#the-implementer-key) lists them. In pause mode
+the run also stops before each piece's commit; that is a stop you chose, not a
+gate.
 
-> **Worth knowing before you automate.** With `implementer` set in a config
-> file, `--auto`, no clarify questions and no release command, a run can reach
-> the end without a single gate stopping it. That is why pre-flight prints an
+> **Worth knowing before you automate.** No fresh run reaches the end without
+> stopping: a run that builds here stops at G to ask how you want to review,
+> and a handoff run parks at H. A run re-entered past G is different — with
+> `--auto`, no clarify questions and no release command, it can reach the end
+> without a gate asking anything. The `implementer` setting can come from a
+> config file you did not write; that is why pre-flight prints an
 > `Implementer` line naming which file or flag the value came from. Set
-> `implementer` to `ask` to take the stop back.
+> `implementer` to `ask` to take the implementer question back on a fresh run.
+> [The configuration page](docs/configuration.md#the-implementer-key) gives the
+> whole range.
+
+## Reviewing a run commit by commit
+
+A run that builds here leaves a branch meant to be read one commit at a time,
+and the pull request says how. Its body carries a review guide: a table with
+one row per commit, oldest first, giving the commit, its kind, the piece it
+built, the task IDs and the files. One line above it tells you to read it top
+to bottom.
+
+| Kind | Made by | Holds |
+|---|---|---|
+| `spec` | H, before the first piece | The spec directory — specification, plan, task list and the rest — on its own. Absent when you committed the spec yourself. |
+| `piece` | H, once per piece | One phase of the task list: its work, and the task list with that phase's tasks marked done. |
+| `converge` | H.5 | The tasks the convergence pass found missing, appended as a phase of their own, and their work. |
+| `simplify` | H.7 | What the simplify pass changed. |
+| `review` | I | The fixes from the deep review. |
+| `tests` | J (K, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. |
+| `constitution` | K | A constitution written by an accepted pre-flight offer, always on its own. |
+| `other` | K, M, N | What was left for K, and the fixes from the pull-request review and the re-verify pass. |
+
+Read the `spec` commit first: it says what the rest is meant to do. Then read
+each piece in order — [the phase reference](docs/phases.md) says what each
+phase leaves behind. The guide is rebuilt whenever the review or re-verify
+phases push, so it never lists fewer commits than the branch holds. The run's
+final summary carries it too. In pause mode you saw each piece before its
+commit; the guide is still the map of the branch.
+
+A handoff run builds in one pass, so K makes its one feature commit, plus an
+empty record commit when a failure was waved through at J. The review and
+re-verify fixes, and an accepted constitution, still get rows of their own.
 
 ## What it never does
 
 No force-push. No history rewrites. No skipped hooks. No `git add -A` or
-wildcard staging — the commit gate names every path. No branch deletion. And it
+wildcard staging — every commit names every path. No branch deletion. And it
 never merges the pull request it opens: it opens one and stops.
 
 A failed phase rolls nothing back. The working tree is the evidence, and
@@ -96,7 +136,7 @@ cleanup is your call.
 | `--until <phase>` | Stop cleanly after that phase — state intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
 | `--dry-run` | Run the spec phases for real, then print what the rest would do and stop. |
-| `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer gate, or restore it. |
+| `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it. |
 | `--config <path>` | Merge a JSON file over the resolved settings. |
 
 ## Requirements

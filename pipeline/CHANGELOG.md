@@ -62,6 +62,13 @@ All notable changes to the `pipeline` plugin.
 - **A tracked state file stops the run.** When the run's state file is
   tracked in git, a re-entry stops, shows every recorded answer, and waits for
   the developer to confirm them.
+- **L stops for what it cannot show, as K does.** Even under `--auto`, L stops
+  for a commit it cannot show and for a state-file record of a commit that is
+  not on the branch, rather than build a review guide that would mislead.
+- **`pipeline:status` reports the new stops.** It now names a run waiting at
+  G's review question, a run waiting for K's answer after K recorded its flow, a
+  handoff run most likely parked at H for the implementer's report, and a run
+  in pause mode left at H, with the pause answers recorded so far.
 
 ## [1.2.1] - 2026-09-08
 
