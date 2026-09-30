@@ -293,7 +293,7 @@ This is the whole of what the run asks you. Everything else runs unattended.
 |---|---|---|---|
 | **Clarify** | C | Every question the spec tool raises, one at a time | Each one, yourself. Never skipped, never answered for you — this is the gate that needs knowledge only you have. |
 | **Implementer** | G | Build it here with Claude, or write a package for a cheaper model | One or the other. Choosing the package parks the run and hands you a brief to give the other model. |
-| **Commit** | K | The exact file list, every path by name, and the exact commit message | Yes, or no. It commits only what it showed you. |
+| **Commit** | K | Every commit the run made on the branch (a merged-in branch shows only as its merge), with its message and files; then what is left, every path by name, and the exact commit message | Yes, or no. It commits only what it showed you. |
 | **Push & PR** | L | The branch name, the PR title, and the full body | Yes, or no. Nothing leaves your machine before this. |
 | **Release** | O | The exact command, and where it publishes | Yes, or no. |
 

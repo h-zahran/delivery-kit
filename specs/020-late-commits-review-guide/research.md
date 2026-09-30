@@ -226,7 +226,10 @@ every found commit `other`, a rebased piece would be offered again by
 `git ls-files -- <dir>` both print nothing, so a check built on them passes
 having looked at nothing. `git ls-files -o -i --exclude-standard -- <dir>`
 lists the ignored file. H23 names both commands and requires the tracked list
-to be non-empty.
+to be non-empty. (Revised at M: the check also requires
+`git ls-files -o --exclude-standard -- <spec dir>` to list nothing — no
+untracked spec file — and fails only on an ignored spec artefact, with the
+ignored listing scoped to the spec directory.)
 
 ## R14 — The tracked-state confirmation is never inherited
 
@@ -276,3 +279,16 @@ recorded answer, since a developer cannot confirm what they were not shown.
   L region and the tracked-state paragraph byte for byte, as `span_j` pins J:
   an exception appended beside an intact pin ("under `--auto` that stop is
   skipped") otherwise passes every pin.
+- **From M (PR review).** The spec-already-committed check also requires no
+  untracked file in the spec directory (plan and research files written this
+  run would otherwise miss the spec commit), and fails only on an ignored spec
+  ARTEFACT, not on a stray ignored file such as a desktop file. A late commit
+  takes every changed tracked path, and only its NEW untracked paths are held
+  to `codeRoots`, the spec directory and `tasks.md`, so J's fix to a test
+  outside `codeRoots` stays with J. A root is compared without a leading `./`
+  or trailing `/`. L's backfill leaves a commit unrecorded only when it cannot
+  be shown (a merge, an unexplained empty commit), never for a path outside
+  the feature, so a path outside the feature in M's or N's commits cannot
+  block DONE (a merge still can: a recorded departure). The shas for V6's
+  removal travel as `--args` data. A run holding old-style string entries
+  builds no guide. The PR body's guide is rebuilt whenever M or N pushes.
