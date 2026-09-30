@@ -121,7 +121,7 @@ rather than silent.
 | `--until <phase>` | Stop cleanly after the named phase: state file intact, lock released, resumable. |
 | `--from <phase>` | Offered by the resume prompt; validated by `progress.sh from-validate` against which artefacts exist. |
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
-| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. When it resolves to `claude`, the review question is still asked. |
+| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -433,13 +433,13 @@ the G rule below before going on.
 Once the implementer answer is `claude`, asked or pre-answered, G asks
 the review question — commits or pauses — and records the answer as
 `gates.G.reviewMode`, `commits` or `pauses`. The review question is
-asked on every fresh run: no configuration key or flag pre-answers it,
-and `--auto` never collapses it. When the implementer answer is
-`handoff`, G does not ask the review question and says so in one line:
-review pieces are not available on the handoff path, and the run keeps
-the single-commit flow. A re-entry that finds `gates.G.reviewMode`
-recorded never asks it again, and no flag replaces it. If a
-`--implementer handoff` typed on a re-entry replaces a recorded
+asked on every fresh `claude` run: no configuration key or flag
+pre-answers it, and `--auto` never collapses it. When the implementer
+answer is `handoff`, G does not ask the review question and says so in
+one line: review pieces are not available on the handoff path, and the
+run keeps the single-commit flow. A re-entry that finds
+`gates.G.reviewMode` recorded never asks it again, and no flag replaces
+it. If a `--implementer handoff` typed on a re-entry replaces a recorded
 `claude`, the recorded review answer stays in the state file unused,
 commits already made stand, and the rest of the run follows the
 single-commit flow, saying so in that one line. A re-entry into G whose

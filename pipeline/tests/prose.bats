@@ -65,9 +65,13 @@ RULES
     || { echo 'the auto-release assurance altered — check its SUBJECT, not just its tail'; false; }
   # Changed on purpose by feature 019 (FR-020). The old row ended "and G
   # stops unless `implementer` pre-answered it." — false once G asks the
-  # review question on every fresh `claude` run.
-  grep -qxF '| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause. |' "$ORCH" \
-    || { echo 'the --auto flags row altered'; false; }
+  # review question on every fresh `claude` run. Pinned whole, inside the
+  # Flags table: a copy moved elsewhere, or a cell appended, is not the row.
+  local flags
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --auto flags' <<'ROWS'
+| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause. |
+ROWS
 }
 
 @test "the runtime check never claims verification it did not do" {
@@ -936,8 +940,10 @@ ROWS
 # passes; pins that stop mid-clause are extended through their punctuation
 # so a word cannot be added at either end.
 #
-# Each helper refuses to pass having checked nothing: an emptied heredoc or
-# an empty haystack is a red, never a vacuous green.
+# Each helper refuses to pass having checked nothing: an emptied heredoc, a
+# line holding only whitespace (it matches any flattened text), or an empty
+# haystack is a red, never a vacuous green. The test right after them fires
+# every one of those guards, so a guard that breaks goes red too.
 
 # pins_in <haystack> <label>: every non-empty line on stdin occurs in
 # <haystack> as a fixed string.
@@ -946,6 +952,7 @@ pins_in() {
   [ -n "$hay" ] || { echo "$what: the haystack is empty"; return 1; }
   while IFS= read -r pin; do
     [ -n "$pin" ] || continue
+    [[ $pin == *[![:space:]]* ]] || { echo "$what: a pin holds only whitespace, which matches any text"; return 1; }
     n=$((n + 1))
     [[ $hay == *"$pin"* ]] || { echo "$what pin missing: $pin"; return 1; }
   done
@@ -960,6 +967,7 @@ rows_in() {
   [ -n "$raw" ] || { echo "$what: the section is empty"; return 1; }
   while IFS= read -r row; do
     [ -n "$row" ] || continue
+    [[ $row == *[![:space:]]* ]] || { echo "$what: a row holds only whitespace"; return 1; }
     n=$((n + 1))
     [[ $'\n'"$raw"$'\n' == *$'\n'"$row"$'\n'* ]] || { echo "$what row missing: $row"; return 1; }
   done
@@ -972,10 +980,35 @@ absent_in() {
   [ -n "$hay" ] || { echo "absent check: the haystack is empty"; return 1; }
   while IFS= read -r old; do
     [ -n "$old" ] || continue
+    [[ $old == *[![:space:]]* ]] || { echo "absent check: a string holds only whitespace"; return 1; }
     n=$((n + 1))
     if [[ $hay == *"$old"* ]]; then echo "old wording is back: $old"; return 1; fi
   done
   [ "$n" -gt 0 ] || { echo "absent check: no strings were read"; return 1; }
+}
+
+@test "the pin helpers refuse to pass having checked nothing" {
+  # The guards above are what stop an emptied or gutted pin list from
+  # reading as green. Unprotected, a guard can break and nothing notices, so
+  # each one is fired here, with its exact status. Each helper must exist
+  # first: `run` on a missing function returns 127, which is not 0 either.
+  declare -F pins_in rows_in absent_in > /dev/null \
+    || { echo "a pin helper is missing"; false; }
+  run pins_in "" g <<<"a";          [ "$status" -eq 1 ] || { echo "pins_in accepted an empty haystack"; false; }
+  run pins_in "a b" g < /dev/null;  [ "$status" -eq 1 ] || { echo "pins_in accepted no pins"; false; }
+  run pins_in "a b" g <<<" ";       [ "$status" -eq 1 ] || { echo "pins_in accepted a whitespace-only pin"; false; }
+  run pins_in "a b" g <<<"zz";      [ "$status" -eq 1 ] || { echo "pins_in accepted a missing pin"; false; }
+  run pins_in "a b" g <<<"a b";     [ "$status" -eq 0 ] || { echo "pins_in refused a present pin"; false; }
+  run rows_in "" g <<<"a";          [ "$status" -eq 1 ] || { echo "rows_in accepted an empty section"; false; }
+  run rows_in $'x\n| r |\ny' g < /dev/null; [ "$status" -eq 1 ] || { echo "rows_in accepted no rows"; false; }
+  run rows_in $'x\n| r |\ny' g <<<" ";      [ "$status" -eq 1 ] || { echo "rows_in accepted a whitespace-only row"; false; }
+  run rows_in $'x\n| r | s |\ny' g <<<"| r |"; [ "$status" -eq 1 ] || { echo "rows_in accepted part of a row"; false; }
+  run rows_in $'x\n| r |\ny' g <<<"| r |";  [ "$status" -eq 0 ] || { echo "rows_in refused a whole row"; false; }
+  run absent_in "" <<<"a";          [ "$status" -eq 1 ] || { echo "absent_in accepted an empty haystack"; false; }
+  run absent_in "a b" < /dev/null;  [ "$status" -eq 1 ] || { echo "absent_in accepted no strings"; false; }
+  run absent_in "a b" <<<" ";       [ "$status" -eq 1 ] || { echo "absent_in accepted a whitespace-only string"; false; }
+  run absent_in "a b" <<<"a";       [ "$status" -eq 1 ] || { echo "absent_in accepted a present string"; false; }
+  run absent_in "a b" <<<"zz";      [ "$status" -eq 0 ] || { echo "absent_in refused an absent string"; false; }
 }
 
 @test "G asks the review question on every run and never lets --auto collapse it" {
@@ -986,7 +1019,7 @@ absent_in() {
   pins_in "$flat" 'G review-question' <<'PINS'
 When the implementer answer is `claude`, G then asks the review question below, which nothing pre-answers.
 Once the implementer answer is `claude`, asked or pre-answered, G asks the review question — commits or pauses — and records the answer as `gates.G.reviewMode`, `commits` or `pauses`.
-The review question is asked on every fresh run: no configuration key or flag pre-answers it, and `--auto` never collapses it.
+The review question is asked on every fresh `claude` run: no configuration key or flag pre-answers it, and `--auto` never collapses it.
 When the implementer answer is `handoff`, G does not ask the review question and says so in one line: review pieces are not available on the handoff path, and the run keeps the single-commit flow.
 A re-entry that finds `gates.G.reviewMode` recorded never asks it again, and no flag replaces it.
 If a `--implementer handoff` typed on a re-entry replaces a recorded `claude`, the recorded review answer stays in the state file unused, commits already made stand, and the rest of the run follows the single-commit flow, saying so in that one line.
@@ -1067,9 +1100,12 @@ PINS
 
 @test "the gate floor counts the review question, and every commit names every path" {
   # FR-019 to FR-023: every sentence the change made false elsewhere in the
-  # orchestrator, rewritten, and the old wording pinned ABSENT.
-  local flat walk
-  flat="$(prose_slice '^## Gates$' '^## Parallel agents$' flat 'gates')" || return 1
+  # orchestrator, rewritten, and the old wording pinned ABSENT. Each slice
+  # is taken ONCE, raw, and flattened from that: two calls would put the
+  # boundary literals twice in one test.
+  local raw flat walk
+  raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   pins_in "$flat" 'gates' <<'PINS'
 A pre-answered `implementer` removes the implementer question, never the review question, so G stops on every fresh `claude` run.
 No fresh run reaches DONE without a stop: on a `claude` run G stops for the review question, and on a `handoff` run the run parks at H.
@@ -1078,13 +1114,22 @@ A pause (H, pause mode) is a stop the developer chose, not a sixth gate, and `--
 Nothing outside the gate table is silenced by `--auto` — the pre-flight constitution offer, every cap breach, a missing required tool, any hard failure and a failed runtime check all still stop.
 The `implementer` key can arrive from a tracked `.delivery-kit.json` somebody else wrote, in a repository just cloned, and it removes the implementer question without anyone at the keyboard choosing that.
 PINS
+  rows_in "$raw" 'gate table' <<'ROWS'
+| Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
+ROWS
   flat="$(prose_slice '^## Parallel agents$' '^## The rules that never bend$' flat 'parallel')" || return 1
   pins_in "$flat" 'parallel' <<'PINS'
 grouped by target artefact; H — independent tasks within one piece; fan-out never crosses a piece boundary; H.5
 PINS
-  flat="$(prose_slice '^## The rules that never bend$' '^## Red flags' flat 'never-bend')" || return 1
+  # Table rows are pinned WHOLE, raw, in their own section: a cell appended
+  # after a row's final pipe is on the row's own line, and a substring pin
+  # tolerates it.
+  raw="$(prose_slice '^## The rules that never bend$' '^## Red flags' raw 'never-bend')" || return 1
+  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  rows_in "$raw" 'never-bend' <<'ROWS'
+| `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
+ROWS
   pins_in "$flat" 'never-bend' <<'PINS'
-Every commit names every path it stages, not only K's.
 read as paralysis: create and check out the feature branch, make the local spec and piece commits H makes once G's review question is answered, every path named and nothing pushed, write
 Everything that leaves the machine, or that cannot be undone by editing a file, is behind a gate — H's local commits included: the review question at G is their consent, and in pause mode each pause is the yes.
 PINS
@@ -1099,21 +1144,16 @@ PINS
     || { echo "the pre-flight walk slice did not close on **Base branch:** - it ran to end of file"; false; }
   flat="$(tr '\n' ' ' <<<"$walk" | tr -s ' ')"
   pins_in "$flat" 'pre-flight walk' <<'PINS'
-collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
+The offer is a conditional stop that `--auto` does not collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
 PINS
-  # Rows are pinned in their own table's section, raw.
-  flat="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
-  rows_in "$flat" 'configuration' <<'ROWS'
+  raw="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  rows_in "$raw" 'configuration' <<'ROWS'
 | `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
 ROWS
-  flat="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
-  rows_in "$flat" 'flags' <<'ROWS'
-| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. When it resolves to `claude`, the review question is still asked. |
-ROWS
-  flat="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
-  rows_in "$flat" 'gate table' <<'ROWS'
-| Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
+  raw="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$raw" 'flags' <<'ROWS'
+| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 ROWS
   flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
   absent_in "$flat" <<'ABSENT'

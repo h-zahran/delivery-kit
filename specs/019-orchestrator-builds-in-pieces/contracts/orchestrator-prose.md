@@ -24,13 +24,13 @@ refuse) and asserts its own close:
 | Configuration | `^## Configuration$` | `^## Flags$` (rows CF1, CF3) |
 | Flags | `^## Flags$` | `^## Pre-flight$` (rows C1, CF2) |
 
-Measured at F (2026-09-29): all seven slices open and close on the current
-file, each opener is unique, and no line inside Gates or Never-bend starts
+Measured at F (2026-09-29), on the seven slices the table held then (G to
+Resume): each opened and closed on the file, each opener was unique, and no line inside Gates or Never-bend starts
 with `**`. Backticks, dashes and quotes below are exact: `—` is U+2014.
 
 ## Changed on purpose (two existing pins)
 
-**C1 — the `--auto` flags row** (`prose.bats:66`, whole row, raw file).
+**C1 — the `--auto` flags row** (`prose.bats:66`, whole row, raw, inside the Flags slice).
 
 Old:
 ```
@@ -53,7 +53,7 @@ New (two sentences, both pinned):
 
 - G1: `When the implementer answer is `claude`, G then asks the review question below, which nothing pre-answers.` (closes the lead paragraph; the lead's first sentence stays byte-identical)
 - G2: `Once the implementer answer is `claude`, asked or pre-answered, G asks the review question — commits or pauses — and records the answer as `gates.G.reviewMode`, `commits` or `pauses`.`
-- G3: `The review question is asked on every fresh run: no configuration key or flag pre-answers it, and `--auto` never collapses it.`
+- G3: `The review question is asked on every fresh `claude` run: no configuration key or flag pre-answers it, and `--auto` never collapses it.`
 - G4: `When the implementer answer is `handoff`, G does not ask the review question and says so in one line: review pieces are not available on the handoff path, and the run keeps the single-commit flow.`
 - G5: `A re-entry that finds `gates.G.reviewMode` recorded never asks it again, and no flag replaces it.`
 - G6: `If a `--implementer handoff` typed on a re-entry replaces a recorded `claude`, the recorded review answer stays in the state file unused, commits already made stand, and the rest of the run follows the single-commit flow, saying so in that one line.`
@@ -125,13 +125,13 @@ before anything publishes unasked.").
 ## New — other slices
 
 - P1 (Parallel): `grouped by target artefact; H — independent tasks within one piece; fan-out never crosses a piece boundary; H.5`
-- N1 (Never-bend, the `git add -A` row's reason; its left cell unchanged): `Every commit names every path it stages, not only K's.`
+- N1 (row, raw, Never-bend; its left cell unchanged): `| `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |`
 - N2 (Never-bend, MAY-do): `read as paralysis: create and check out the feature branch, make the local spec and piece commits H makes once G's review question is answered, every path named and nothing pushed, write`
 - N3 (Never-bend, MAY-do's closing sentence, replacing "Everything that leaves the machine, or that cannot be undone by editing a file, is behind a gate."): `Everything that leaves the machine, or that cannot be undone by editing a file, is behind a gate — H's local commits included: the review question at G is their consent, and in pause mode each pause is the yes.`
 - R1 (Resume): `Re-entering H in the piece flow — `--resume` or `--from H` — enters the piece `piece-next` names, under H's rules: a recorded piece is never rebuilt, and a built piece not yet committed is handled first.`
-- PF1 (Walk, pre-flight item 9): `collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.`
+- PF1 (Walk, pre-flight item 9): `The offer is a conditional stop that `--auto` does not collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.`
 - CF1 (row, raw, Configuration): `| `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |`
-- CF2 (row, raw, Flags): `| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. When it resolves to `claude`, the review question is still asked. |`
+- CF2 (row, raw, Flags): `| `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |`
 - CF3 (row, raw, Configuration): `| `commitStyle` | `conventional` | The message shape of every commit the run makes |`
 
 ## Absent (SC-004, negative pins)
@@ -161,7 +161,7 @@ same grep finds it in `$RUN/SKILL.md.orig`:
 | a pause shows the piece, takes three answers, and --auto never collapses it | H13–H16, H19, H21 | 012–014, 016 |
 | a hook that rejects a piece commit is a hard stop, never --no-verify | H17, H18 | 015 |
 | a state file without a review answer keeps the single-commit flow | H2 (H), G7 (G), R1 (Resume) | 016, 018 |
-| the gate floor counts the review question, and every commit names every path | C1 (in its existing test), GT1–GT6 (with GT2b), P1, N1–N3, PF1, CF1–CF3, the seven absent strings | 019–023 |
+| the gate floor counts the review question, and every commit names every path | C1 (in its existing test), GT1–GT6 (with GT2b), P1, N1–N3, PF1, CF1–CF3, the absent strings | 019–023 |
 
 The pin IDs in this file are the mutant list: the rig (tasks T003, T027) reads every ID from the bullets above, and fails unless mutants = IDs = new pins in `prose.bats`.
 
