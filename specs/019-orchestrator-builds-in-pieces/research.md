@@ -294,3 +294,21 @@ state file, and an already-committed spec directory. **Known open**
 mutation classes (stated in the suite's comment): a reversal appended after
 a pin that ends in a full stop, and an old wording restored in another
 letter case.
+
+## R16 — PR review (M), 2026-09-30
+
+Five reviewers on PR #48 (project rules, obvious bugs, git history, earlier
+PR comments, code comments); each finding scored by an independent checker.
+None scored 80 or above, so no review comment was posted. Fixed anyway,
+because each was measured: the PF1 pin now reaches back through "does not"
+(deleting "not" had stayed green); the helpers refuse a whitespace-only line
+(a pin list gutted to one space had stayed green); the `--auto` row and the
+`git add -A` never-bend row are pinned whole, inside their own tables (a moved
+row, and a cell appended after a row's final pipe, had stayed green); G3 and
+the `--implementer` row name the fresh `claude` run; the Gates slice is taken
+once; a new test fires every helper guard with its exact status; and the
+spec directory's hand-written counts and its hand-written absent list were
+replaced (the quickstart now reads the list from the contract). Low-scored
+wording and naming notes were left: the G lead sentence (kept by R3), the
+MAY-do paragraph, the `commitStyle` row, two test names, and an unstated
+repository-root working directory the whole pipeline already assumes.

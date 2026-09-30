@@ -32,26 +32,25 @@ not byte-safe):
 
 ```bash
 RUN=.delivery-kit/runs/019-orchestrator-builds-in-pieces
+C=specs/019-orchestrator-builds-in-pieces/contracts/orchestrator-prose.md
 new="$(tr '\n' ' ' < pipeline/skills/pipeline/SKILL.md | tr -s ' ')"
 old="$(tr '\n' ' ' < "$RUN/SKILL.md.orig" | tr -s ' ')"
-fail=0
-for s in 'a run CAN reach DONE without a single gate stopping it' \
-         'a pre-answered `implementer` at G;' \
-         'but no gate does' \
-         'like G whenever `implementer` is unset or `ask`' \
-         'Pre-answers the G gate' \
-         "Phase K's message shape" \
-         'G stops unless `implementer` pre-answered it'; do
-  n_new=$(grep -cF -- "$s" <<<"$new" || true)
-  n_old=$(grep -cF -- "$s" <<<"$old" || true)
-  printf '%s | new=%s old=%s\n' "$s" "$n_new" "$n_old"
-  [ "$n_new" = 0 ] && [ "$n_old" -ge 1 ] || fail=1
-done
-echo "fail=$fail"   # must be 0
+# The strings come from the contract's Absent section, never a typed copy:
+# a list written twice goes stale in one place (Principle V).
+list="$(awk '/^## Absent/{f=1;next} /^## /{f=0} f && /^- `/' "$C" \
+        | sed -E 's/^- `(.*)`( \(.*)?$/\1/')"
+fail=0 n=0
+while IFS= read -r s; do
+  [ -n "$s" ] || continue
+  n=$((n + 1))
+  if grep -qF -- "$s" <<<"$new"; then in_new=1; else in_new=0; fi
+  if grep -qF -- "$s" <<<"$old"; then in_old=1; else in_old=0; fi
+  printf '%s | new=%s old=%s\n' "$s" "$in_new" "$in_old"
+  [ "$in_new" = 0 ] && [ "$in_old" = 1 ] || fail=1
+done <<<"$list"
+[ "$n" -gt 0 ] || { echo "no strings read from the contract"; fail=1; }
+echo "strings=$n fail=$fail"   # fail must be 0
 ```
-
-`grep -c` on a flattened (one-line) text counts 1 for any number of
-occurrences; that is enough for present/absent.
 
 ## 4. The dry read (SC-003)
 
