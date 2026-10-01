@@ -217,6 +217,25 @@ touches the human at clarify only
 no gate stopping it
 pre-answers the implementer gate
 ABSENT
+  # Both READMEs carried the same false floor and gate wording (feature 021,
+  # PR review): nothing in the suite read them, so it could come back unseen.
+  local readme
+  for readme in "$ROOT/README.md" "$ROOT/pipeline/README.md"; do
+    # Blockquote markers stripped first: a phrase wrapped across two '> ' lines
+    # flattens to 'a > b' and would slip past the check.
+    absent_in "$(sed 's/^> //' "$readme" | tr '\n' ' ' | tr -s ' ')" <<'ABSENT' || { echo "in $readme"; return 1; }
+without a single gate stopping it
+Pre-answers the implementer gate
+pre-answers the implementer gate
+Pre-answer the implementer gate
+five stops
+This is the whole of what the run asks you
+These are the only places it asks
+pre-answers a gate
+take the stop back
+plus an `implementer` value from a config file
+ABSENT
+  done
 
   # The FIRST json block only. Reading every fence let a later illustrative
   # block mask a canonical one that had lost the key entirely.

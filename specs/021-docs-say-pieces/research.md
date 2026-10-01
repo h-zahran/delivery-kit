@@ -38,7 +38,11 @@ All measurements at `main` = `db2875d`, 2026-10-01.
 - **Rationale**: the seed says "this phase adds no tests" and keeps the count;
   the P20 record calls this "an edited pin, not a new test".
 - **Alternatives considered**: adding pins for the new README and phase-table
-  text — rejected by the seed. Dropping the two pins — rejected: it would
+  text — rejected by the seed. **Revised at I and M:** inside the same existing
+  test, the configuration page's floor sentence is pinned and its replaced
+  phrases are asserted absent (I), and the replaced phrases are asserted absent
+  from both READMEs (M, PR review: nothing in the suite read them). No test is
+  added; each check was shown red by inverted mutants. Dropping the two pins — rejected: it would
   unpin a STRICT surface the suite pins today.
 
 ## R3 — Pre-flight item 9 is outside every pinned span

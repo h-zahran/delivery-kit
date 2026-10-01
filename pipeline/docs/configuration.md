@@ -112,14 +112,15 @@ the commit and push gates stop as they always do — or fewer of them,
 where pre-flight has already named a degradation: a repository with no
 remote stops after the commit gate and never reaches a push gate at all.
 Below the floor sits a re-entry: a run resumed or re-entered past the
-implementer gate asks nothing there, so with `--auto`, no clarify
-questions, `releaseCommand` unset and the constitution set, it can reach
-the end without any gate asking. Cap breaches, a missing required tool,
-hard failures, a failed runtime check, a state file tracked in git, a
-pause, and the commit and push phases' own stops — a path outside the
-feature once the branch holds commits, a commit they cannot show, a
-record of a commit that is not on the branch — still stop a run,
-whatever `--auto` collapsed. Set this key knowing the whole range.
+implementer gate asks nothing there, and the clarify gate and the
+constitution offer are already behind it, so with `--auto` and
+`releaseCommand` unset it can reach the end without any gate asking. Cap
+breaches, a missing required tool, hard failures, a failed runtime
+check, a state file tracked in git, a pause, and the commit and push
+phases' own stops — a path outside the feature once the branch holds
+commits, a commit they cannot show, a record of a commit that is not on
+the branch — still stop a run, whatever `--auto` collapsed. Set this key
+knowing the whole range.
 
 Pre-flight discloses the resolved key: where it holds a value, the probe
 block prints an `Implementer` line naming the value and the layer it

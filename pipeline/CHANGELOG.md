@@ -68,7 +68,10 @@ All notable changes to the `pipeline` plugin.
 - **`pipeline:status` reports the new stops.** It now names a run waiting at
   G's review question, a run waiting for K's answer after K recorded its flow, a
   handoff run most likely parked at H for the implementer's report, and a run
-  in pause mode left at H, with the pause answers recorded so far.
+  in pause mode left at H, with the pause answers recorded so far. It reports a
+  commit a hook rejected as the stop, says when the state file is tracked in git
+  (and when that check itself failed), says when it cannot tell why a run
+  stopped, and treats every string in the state file as data.
 
 ## [1.2.1] - 2026-09-08
 

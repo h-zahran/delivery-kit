@@ -303,11 +303,12 @@ unattended.
 | **Release** | O | The exact command, and where it publishes | Yes, or no. |
 
 Other things stop a run too, and **no flag collapses them**: a loop hitting its
-cap, a required tool missing, any hard failure, a failed runtime check, and a
-few stops made by the commit and push phases.
-[The configuration page](pipeline/docs/configuration.md#the-implementer-key)
-lists them. In pause mode the run also stops before each piece's commit;
-that is a stop you chose, not a gate.
+cap, a required tool missing, any hard failure, a failed runtime check, the
+constitution offer at pre-flight, a state file tracked in git, and a few stops
+made by the commit and push phases. [The configuration
+page](pipeline/docs/configuration.md#the-implementer-key) has the whole range.
+In pause mode the run also stops before each piece's commit; that is a stop you
+chose, not a gate.
 
 ### Running with fewer stops
 
@@ -322,12 +323,13 @@ tool does, and one flag must not mean both "commit for me" and "publish for me".
 > **Know the floor before you automate.** No fresh run reaches the end without
 > stopping: a run that builds here stops at G for the review question, and a
 > handoff run parks at H. A run re-entered past G asks nothing there, so with
-> `--auto`, no clarify questions and no release command it can reach the end
-> **without a gate asking anything**. Pre-flight prints an `Implementer` line
-> naming which file or flag the value came from — a setting that answers a
-> question for you can arrive in a repository you just cloned. Set `implementer`
-> to `ask` to take the implementer question back. The whole range is on
-> [the configuration page](pipeline/docs/configuration.md#the-implementer-key).
+> `--auto` and no release command it can reach the end **without a gate asking
+> anything** (a pause, in pause mode, still stops it). Pre-flight prints an
+> `Implementer` line naming which file or flag the value came from — a setting
+> that answers a question for you can arrive in a repository you just cloned.
+> Set `implementer` to `ask` to take the implementer question back on a fresh
+> run. The whole range is on [the configuration
+> page](pipeline/docs/configuration.md#the-implementer-key).
 
 ### Stopping and resuming
 
@@ -399,8 +401,8 @@ wins**, and for the guard's keys an environment variable beats both:
 
 **The pipeline's keys have no environment overrides at all.** Not "none yet" —
 none by design, so that a value which answers a gate's question in advance
-cannot arrive from a shell you did not read. Those keys come from the two files and from flags, and
-pre-flight prints which layer won.
+cannot arrive from a shell you did not read. Those keys come from the two files
+and from flags, and pre-flight prints which layer won.
 
 ```json
 {
@@ -441,9 +443,9 @@ write. Declining is fine.
 | The guard is silent, and you saw a one-off note about `jq` | `jq` is missing or cannot run | Install it and restart the session. On Windows, check from Git Bash. |
 | You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there. It never edits a shared repository file for a guard key, and never edits one unasked — the only thing it writes there is the pipeline block, offered where `.specify/` exists and only if you accept. |
 | Two `CONTEXT GUARD` warnings, or advice naming a plugin you removed | An old `delivery-kit@delivery-kit` install is still present | See [Coming from 1.x](#coming-from-1x). Do not judge by warning count — run `/plugin` and read the list. |
-| `pipeline` stops immediately at pre-flight | No spec tool, a dirty tree, a live lock, or an illegal `implementer` value | It names which. There is no degraded mode for a missing spec tool. |
+| `pipeline` stops immediately at pre-flight | No spec tool, no `git`, a dirty tree, a live lock, an illegal `implementer` value, or — on a re-entry — a state file tracked in git, waiting for you to confirm its answers | It names which. There is no degraded mode for a missing spec tool. |
 | "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
-| A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`. A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`, so the commit and push gates ask. |
+| A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`, and no release command (or `--auto-release`). A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`: the commit and push gates then ask wherever they have no answer yet, and a commit gate that `--auto` collapsed asks again. Check the `Implementer` line in the pre-flight block: it names the layer the implementer answer came from. |
 | A phase was skipped | A capability is missing | Pre-flight named it, and the reason, before work started. Scroll back to the `Will skip` lines. |
 
 ### Coming from 1.x
