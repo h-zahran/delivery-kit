@@ -59,7 +59,7 @@ exactly one test, and it passes.
 
 ## Phase 4: Polish
 
-- [ ] T010 Run the whole of `quickstart.md` (blocks 1–6) as one extracted script with `bash`, in the background or with a timeout of at least 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red, every suite-check mutant K2–K11 red, and SC-004 read by `scripts/check-suite.sh 242`.
+- [X] T010 Run the whole of `quickstart.md` (blocks 1–6) as one extracted script with `bash`, in the background or with a timeout of at least 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red, every suite-check mutant K2–K11 red, and SC-004 read by `scripts/check-suite.sh 242`.
 
 ---
 
