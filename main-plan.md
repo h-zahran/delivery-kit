@@ -2495,3 +2495,85 @@ uses 1.2.1.
   guide deliver most of the value first.
 - **Running simplify, review and the suite once per piece.** Each piece
   would be complete and green alone, at several times the cost.
+
+---
+
+## Phase 24: the release gate reads the whole changelog, and one suite check
+
+**Campaign 3 is closed** (pipeline 1.3.0, tagged at `3f4f795`). This phase
+takes the three follow-ups the 1.3.0 release recorded and could not close
+inside its own three lines: `specs/022-release-pipeline-1-3-0/research.md`,
+R7. Nothing here is inside a plugin — `scripts/`, `tests/` and `specs/` are
+the repository's own — so **no plugin release follows this phase**.
+
+Measured 2026-10-01 at `main` = `52a40be`:
+
+- `scripts/check-versions.sh:198` reads only the FIRST `## ` heading
+  (`grep -m1`) and compares it with the version heading. An
+  `## [Unreleased]` heading lower in the file passes the default run AND
+  `--released` (proved by mutation at the 1.3.0 deep review). The 1.3.0
+  release caught that shape only with its own quickstart check, S4, which
+  CI never runs.
+- Eleven feature quickstarts under `specs/` carry a hand-written copy of
+  the house-suite result check (plan line, ok count, not ok, non-TAP).
+  The copies already differ: only `021` and `022` count skipped tests.
+- Clause C4 of `specs/016-release-two-plugins/contracts/version-agreement.md`
+  still reads "**Enforced by**: **NOTHING.**" Since 1.2.0 a tag run's
+  agreement step passes `--released`, and `tests/portability.bats:1216`
+  tests it on a fixture. The clause is dated history and stays as
+  written.
+
+**Requirements:**
+
+1. **`--released` refuses an `## [Unreleased]` heading anywhere** in the
+   named plugin's changelog, not only above the version heading. The
+   refusal names the line. The default run (no argument) keeps its
+   behaviour: it reports, and fails only on disagreement. One
+   implementation: CI's call and the suite's call stay the single script
+   they are today, and the "one version-agreement script" test at
+   `tests/portability.bats:652` stays green unchanged.
+2. **One suite-result check, `scripts/check-suite.sh <expected> <tap-file>`.**
+   It passes only when the plan line is `1..<expected>`, the `ok` count is
+   `<expected>`, and there are 0 skipped, 0 `not ok` and 0 non-TAP lines; it
+   fails, naming the reason, on each other shape, and on an empty or
+   missing file. `CONTRIBUTING.md` says that a feature quickstart calls it
+   instead of writing its own copy. The eleven existing quickstarts are
+   dated records and are NOT edited.
+3. **A forward note on clause C4.** Append — below the clause, never in it
+   — one dated note: since 1.2.0 a tag run's agreement step enforces C4
+   for the plugin being tagged, and since this phase `--released` also
+   refuses a lower heading. Every existing line of that file stays
+   byte-identical.
+
+**Acceptance criteria:**
+
+- Requirement 1's test plants `## [Unreleased]` BELOW a released heading in
+  a fixture: `--released` refuses it with its named reason, and the default
+  run still exits 0. Then a mutant that restores the first-heading-only
+  comparison makes that test go red — the mutation confirmed to have landed
+  before the red is believed.
+- Requirement 2's test drives every failure shape (a wrong plan line, an
+  ok count short of the plan, one skipped test, one `not ok`, one non-TAP
+  line, an empty file, a missing file) and one passing control; each shape
+  is shown to fail for its own named reason, not merely to exit non-zero.
+- `git diff 52a40be -- specs/016-release-two-plugins/` shows only added
+  lines.
+- Full house suite from the repo root: `1..242` (240 at `52a40be`, plus one
+  test per requirement 1 and 2), 242 ok, 0 skipped, 0 not ok, 0 non-TAP.
+- CI green on all three operating systems, a run confirmed to EXIST before
+  its result is read.
+
+**Constraints:** Campaign 3 Global Constraints apply — including the full
+house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` and `CONTRIBUTING.md` are on the
+shipped root surface: STRICT vocabulary, no machine path, no count in
+prose. **Changelog routing: none** — no plugin changes, and the root
+`CHANGELOG.md` is an index. This run uses the INSTALLED pipeline 1.3.0, so
+G asks the review question (commits or pauses).
+
+**Invocation:**
+
+```
+/pipeline Phase 24: the release gate reads the whole changelog, and one suite check --auto --implementer claude
+```
