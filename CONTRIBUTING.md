@@ -68,6 +68,13 @@ passing only `tests` runs the repository's own suite, silently skips the
 plugins', and reports green — which is the failure this project exists to
 prevent, arriving by way of its own contributing guide.
 
+A feature quickstart that has to prove the suite passed saves the run's
+output and calls `bash scripts/check-suite.sh <expected> <tap-file>` rather
+than writing its own check. The script compares the plan line with the `ok`
+count and refuses a skipped test, a `not ok` and any stray line, each by
+name. Hand-written copies of that check drifted apart — some counted skips
+and some did not — which is why there is now one.
+
 Expect all tests to pass on Linux, macOS, and Windows under Git Bash. CI runs
 all three; a change that passes on only one is not finished.
 
