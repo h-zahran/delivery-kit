@@ -54,7 +54,9 @@ gate's report; each names 1.3.0 and the gate reports the plugin released.
 
 ### User Story 2 - The maintainer can tag with confidence (Priority: P2)
 
-After the owner merges, the maintainer tags `pipeline-v1.3.0` from `main`, and
+After the owner merges, the maintainer fetches and tags `pipeline-v1.3.0` on
+the release commit (found on `origin/main` by its exact subject, research
+R6), and
 CI's tag gate confirms that the tag matches the manifest version.
 
 **Why this priority**: the tag is what the release is found by; a tag that
