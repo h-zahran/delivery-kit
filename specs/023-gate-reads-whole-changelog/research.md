@@ -11,10 +11,13 @@ All measurements at `main` = `5831822`, 2026-10-01.
   real tree on that system only.
 - **Decision**: inside the existing `if [ "$p" = "$RELEASED" ]` block of
   `scripts/check-versions.sh`, after today's first-heading comparison. One
-  `awk` pass over `./$p/CHANGELOG.md` prints the first line that begins
-  `## ` and is not exactly a dated version heading, as `<line>:<text>`; a
-  non-empty result dies with
+  `awk` pass over `./$p/CHANGELOG.md` finds the first line that begins
+  `## ` and is not exactly a dated version heading, and prints
+  `line <n> holds '<text>'` itself, every non-printable character shown as
+  `?` (the line reaches a public CI log); a non-empty result dies with
   `$p: line <n> holds '<text>', which is not a dated version heading — this tree is NOT released`.
+  Since H.7 the dated pattern is one variable, `dated_re`, shared with the
+  version read, and reaches awk through the environment.
 - **Rationale**: the block is the only place the release form acts, so the
   default run is untouched (FR-002). `awk` exits 0 whether or not it finds
   a line, which matters under `set -euo pipefail`: a `grep -v` pipeline that
@@ -32,7 +35,8 @@ All measurements at `main` = `5831822`, 2026-10-01.
 - **Decision**: `scripts/check-suite.sh <expected> <tap-file>`, one `awk`
   pass after stripping a trailing CR from each line. Rules, each with its own
   message: `<expected>` is a positive integer; the file exists and is not
-  empty; line 1 is exactly `1..<expected>` and no other line is a plan line;
+  empty; the first non-blank line is exactly `1..<expected>` and no other
+  line is a plan line;
   the count of lines beginning `ok ` equals `<expected>`; no line beginning
   `ok ` carries `# skip` (any case); no line begins `not ok `; every other
   non-blank line begins `#`. Exit 0 prints one summary line
@@ -42,7 +46,8 @@ All measurements at `main` = `5831822`, 2026-10-01.
   shellcheck CI runs (0.9.0) reports; the awk regexes spell repetitions out,
   as R1 says.
 - **Rationale**: these are exactly the rules the eleven copies apply between
-  them, plus the skip count only two had. A plan line not on line 1, or a
+  them, plus the skip count only two had. A plan line that is not the first
+  non-blank line, or a
   second plan line, is how a crashed or concatenated run looks. Blank lines
   are ignored, as the copies ignore them. No message prints the file's path:
   a caller's temp path can carry a user name, and the gate script keeps the
@@ -98,3 +103,14 @@ All measurements at `main` = `5831822`, 2026-10-01.
   one `awk` program.
 - **Rationale**: macOS CI may run the system bash 3.2; the repository has
   been bitten by the empty-array trap before.
+
+## R7 — Recorded at the deep review, left for a later feature
+
+- Headings the rule does not judge: `##` followed by a tab, a `## `
+  heading indented by one to three spaces, and a setext heading (a text
+  line underlined with `---`). CommonMark renders each as a level-2
+  heading, and each passes the release form (measured at I). The owner's
+  clarify answer was "every line beginning `## `", which none of them is,
+  so this feature keeps that boundary; widening it, and a separate rule for
+  setext headings, is a later decision. Measured at `5831822`: neither
+  changelog holds any of these shapes.

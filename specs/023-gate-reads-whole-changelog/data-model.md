@@ -12,7 +12,7 @@
 
 | Line (after a trailing CR is stripped) | Class |
 |---|---|
-| `1..N` on line 1 | plan |
+| `1..N` on the first non-blank line | plan |
 | `1..N` on any later line | second plan — refused |
 | `ok …` | pass (counted) |
 | `ok … # skip …` (any case) | skip — refused |
