@@ -93,6 +93,14 @@ done
 # getting a weaker one, silently. Refuse rather than pass vacuously.
 released_seen=0
 
+# The pinned changelog heading, written ONCE. Two readers use it: the version
+# read below (grep) and the release form's whole-file rule (awk). Two copies
+# of this pattern drifting apart is the defect this file was written to end,
+# so neither reader carries its own. Bracket forms instead of backslashes and
+# repetitions spelled out instead of {4}: the same text means the same thing
+# to grep -E and to every awk, including one without interval expressions.
+dated_re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
+
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
 # plugin lands, and does so silently.
@@ -175,7 +183,7 @@ for dir in */; do
   # heading has drifted would die with no output at all, which is exactly the
   # case the diagnostic exists for. It cannot mask a real failure: an empty head
   # is rejected on the next line.
-  head="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' -- "./$p/CHANGELOG.md" || true)"
+  head="$(grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" || true)"
   [ -n "$head" ] || die "$p: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"
   cv="$(printf '%s' "$head" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
 
@@ -225,18 +233,13 @@ for dir in */; do
     # awk, not a `grep -v` pipeline: under pipefail a `grep -v` that selects
     # nothing exits 1, and the assignment would abort this script with no
     # message on exactly the input that is correct. awk exits 0 either way.
-    # Repetitions are spelled out rather than written `{4}`, as the suite's own
-    # awk fixtures do: an awk without interval expressions would read every
-    # dated heading as undated and refuse a correct tree on that system only.
-    undated="$(awk '
-      /^## / && !/^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ {
-        print NR ":" $0; exit
-      }' "./$p/CHANGELOG.md")"
-    if [ -n "$undated" ]; then
-      ul="${undated%%:*}"
-      ut="${undated#*:}"
-      die "$p: line $ul holds '${ut//[$'\n\r']/}', which is not a dated version heading — this tree is NOT released"
-    fi
+    # The pattern reaches awk through the environment, not -v, which would
+    # process escapes in it.
+    undated="$(DATED_RE="$dated_re" awk '
+      /^## / && $0 !~ ENVIRON["DATED_RE"] { print "line " NR " holds \047" $0 "\047"; exit }
+    ' "./$p/CHANGELOG.md")"
+    [ -z "$undated" ] \
+      || die "$p: ${undated//$'\r'/}, which is not a dated version heading — this tree is NOT released"
   fi
 done
 
