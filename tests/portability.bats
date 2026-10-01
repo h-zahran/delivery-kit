@@ -1213,6 +1213,51 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # such line would redden a correct tree.
 # ---------------------------------------------------------------------------
 
+# Put every changelog under <dir> into a RELEASED state: drop each line
+# beginning `## ` that is not a dated version heading, which is exactly what
+# --released refuses (contract G1). Removing one spelling, `## [Unreleased]`,
+# was not enough once the gate judged every `## ` line: a live `## Notes`
+# would have survived into the fixture and reddened a correct tree.
+#
+# The dated pattern is the TEST's own, the one the plant steps below use
+# (here in bracket spelling, as it reaches awk as a string), and never read
+# from the gate: the fixture is the baseline the
+# gate is judged against, so it must not depend on the code under test. A
+# fixture that took the gate's pattern would agree with a wrong gate, and
+# against a gate written another way (the quickstart's first-heading-only
+# mutant) it failed as a fixture error instead of naming G1.
+#
+# Each failure echoes and returns 1 explicitly. Call this on its own line at
+# the top level of a test, never under `if`, `||` or `$(...)`: errexit is
+# inert there, and the message would be swallowed. Messages name a changelog
+# by its plugin directory, never by a full path.
+normalise_to_released() {
+  local re f name counts
+  re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
+  # The pattern must separate the two kinds before it may judge anything: one
+  # that matched every heading would remove nothing and leave the guard below
+  # green on a fixture that is not released.
+  [ "$(printf '%s\n' '## [1.2.3] - 2026-01-01' '## [Unreleased]' \
+        | DATED_RE="$re" awk '$0 ~ ENVIRON["DATED_RE"] { printf "%s;", NR }')" = "1;" ] \
+    || { echo "fixture: the dated pattern does not accept a dated heading and refuse '## [Unreleased]'"; return 1; }
+  for f in "$1"/*/CHANGELOG.md; do
+    name="${f#"$1"/}"
+    [ -f "$f" ] || { echo "fixture: no changelog in the fixture"; return 1; }
+    DATED_RE="$re" awk '/^## / && $0 !~ ENVIRON["DATED_RE"] { next } { print }' "$f" > "$f.norm" \
+      || { echo "fixture: awk could not normalise $name"; return 1; }
+    mv "$f.norm" "$f"
+    # The state, not the act: released means no undated `## ` line is left
+    # AND a dated one still is. A pattern that matched nothing would have
+    # deleted every heading; the second half catches that.
+    counts="$(DATED_RE="$re" awk '/^## / { if ($0 ~ ENVIRON["DATED_RE"]) d++; else u++ } END { print d+0 " " u+0 }' "$f")"
+    case "$counts" in
+      "0 "*) echo "fixture: $name holds no dated version heading after normalising"; return 1 ;;
+      *" 0") ;;
+      *) echo "fixture: $name still holds an undated '## ' line after normalising ($counts)"; return 1 ;;
+    esac
+  done
+}
+
 @test "--released refuses a dangling Unreleased heading, and the default run does not" {
   cd "$ROOT"
 
@@ -1239,12 +1284,10 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # repository happened to have unreleased work at the moment it ran. It went
   # red the first time anyone opened an `## [Unreleased]` heading, which is the
   # normal condition of this repository and not a defect at all. The fixture
-  # must supply its own baseline, never borrow the tree's.
-  for f in "$base"/*/CHANGELOG.md; do
-    grep -v '^## \[Unreleased\]$' "$f" > "$f.norm" && mv "$f.norm" "$f"
-  done
-  [ -z "$(grep -l '^## \[Unreleased\]$' "$base"/*/CHANGELOG.md 2>/dev/null)" ] \
-    || { echo "normalisation did not land; the fixture is not in a released state"; false; }
+  # must supply its own baseline, never borrow the tree's — and since the
+  # gate refuses EVERY undated `## ` line, the baseline removes every one, not
+  # only that spelling; the helper refuses a fixture it did not release.
+  normalise_to_released "$base"
 
   run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
   [ "$status" -eq 0 ] \
@@ -1286,7 +1329,8 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # A heading ABOVE the release keeps its own message, which names the
   # release it sits above. The whole-file rule added later refuses this
   # shape too, so without this pin the specific check could vanish and every
-  # assertion above would still pass (measured by deleting it).
+  # assertion above would still pass. Measured on 2026-10-01 against this
+  # branch's tree over 5831822, by deleting that check.
   case "$output" in
     *"sits above the released heading"*) ;;
     *) echo "G3: the heading above the release was refused without its own message. output: $output"; false ;;
@@ -1326,9 +1370,9 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
   [ -n "$copied" ] && [ -n "$other" ] \
     || { echo "fixture: two plugins are needed, one judged and one not; got '$copied' and '$other'"; false; }
-  for f in "$base"/*/CHANGELOG.md; do
-    grep -v '^## \[Unreleased\]$' "$f" > "$f.norm" && mv "$f.norm" "$f"
-  done
+  # Normalised as the test above is, by the same dated pattern, so an
+  # undated heading the live tree happens to hold cannot fail the base.
+  normalise_to_released "$base"
   run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
   [ "$status" -eq 0 ] \
     || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; false; }
@@ -1390,6 +1434,31 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
       *) echo "G2: the refusal does not quote '$plant'. output: $output"; false ;;
     esac
   done
+
+  # G2's other half: the quoted line lands in a public CI log, so every byte
+  # in it that is not printable is shown as `?`. Every plant above is
+  # printable, so without this one the replacement could be deleted and the
+  # suite stay green. ESC is the byte a terminal acts on. Appended, not
+  # inserted: the last line of the file is below the release too, and this
+  # keeps one more copy of the dated pattern out of the test.
+  esc="$(printf '\033')"
+  plant="## Notes ${esc}[31mred"
+  d="$TEST_DIR/undated-esc"
+  cp -r "$base" "$d"
+  printf '\n%s\n' "$plant" >> "$d/$copied/CHANGELOG.md"
+  [ "$(grep -c -x -F -- "$plant" "$d/$copied/CHANGELOG.md")" -eq 1 ] \
+    || { echo "fixture: the ESC plant did not land exactly once in the $copied copy"; false; }
+  line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -ne 0 ] \
+    || { echo "G1: --released accepted $copied with an ESC heading at line $line. output: $output"; false; }
+  case "$output" in
+    *"line $line holds '## Notes ?[31mred'"*) ;;
+    *) echo "G2: the refusal does not show the ESC at line $line as '?'. output, ESC written as <ESC>: ${output//$esc/<ESC>}"; false ;;
+  esac
+  case "$output" in
+    *"$esc"*) echo "G2: the refusal carries the raw ESC byte into the log"; false ;;
+  esac
 
   # Only the plugin being released is judged: an undated heading in the OTHER
   # plugin's changelog is that plugin's unreleased work, which is normal.

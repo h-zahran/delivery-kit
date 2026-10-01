@@ -25,7 +25,9 @@
 # specs/023-gate-reads-whole-changelog/contracts/check-suite.md). A tagged line
 # holds only its refusal, so the quickstart can delete one rule at a time and
 # require the suite's test of this file to go red naming that rule. Reading,
-# classifying and counting sit on untagged lines for the same reason.
+# classifying and counting sit on untagged lines for the same reason. K11 is
+# the one exception: its line is the CR strip, a reading step, because that
+# strip is the whole rule.
 #
 # Written for bash 3.2 as well as 5: macOS may run the system bash. No message
 # prints the file's path, which can carry a user name and reach a public log.
@@ -42,18 +44,23 @@ if [ ! -f "$2" ] || [ ! -r "$2" ]; then die "the TAP file does not exist or cann
 #
 # BINMODE=3 makes GNU Awk on Windows read and write bytes as they are. Left
 # in text mode it strips every CR itself, so the K11 line below did nothing
-# there and could never be shown to matter — measured on Windows: deleting
-# it left the suite's test of this file green. On Linux and macOS awk keeps
-# the CR, so there the line was always needed. Other awks treat BINMODE as an
-# unused variable. With it set, the CR strip is this script's own rule on
-# every system.
+# there and could never be shown to matter. Measured on 2026-10-01 against
+# 11c8421, before BINMODE was set, on Windows: deleting the K11 line left
+# the suite's test of this file green. On Linux and macOS awk keeps the CR,
+# so there the line was always needed. Other awks treat BINMODE as an unused
+# variable. With it set, the CR strip is this script's own rule on every
+# system.
 #
 # The file reaches awk on stdin, never as an argument: awk reads an argument
 # shaped `name=value` as a variable assignment, so a file called `e=2` would
-# be skipped and stdin judged in its place. awk's stderr is discarded: its
-# own error names the file by its full path, and this script never prints a
-# path. The redirection of stderr comes first so it also covers a failure to
-# open the file.
+# be skipped and stdin judged in its place. Reading stdin, awk never learns
+# the file's name. The shell does: when it cannot open the file for the
+# redirect, its own error names the file by its full path, and this script
+# never prints a path. That is why `2>/dev/null` comes before `< "$2"`: the
+# redirections are made in order, so stderr is already discarded when the
+# open fails. Measured on 2026-10-02 against 5943a56: with the order
+# reversed the shell printed the full path; in this order, nothing. Anything
+# awk itself prints to stderr is discarded too.
 verdict="$(awk -v BINMODE=3 -v e="$1" '
   { sub(/\r$/, "") }  # K11
   /^[[:space:]]*$/ { next }
@@ -77,7 +84,9 @@ verdict="$(awk -v BINMODE=3 -v e="$1" '
   }' 2>/dev/null < "$2")"
 
 # Only an explicit OK passes. Anything else — awk failing to start or to read,
-# and printing nothing — is a refusal, never a silent exit 0.
+# and printing nothing — is a refusal, never a silent exit 0. The last line is
+# a second K3 refusal. It carries no tag, so K3 keeps exactly one tagged line;
+# the suite's test of this file covers it with an awk that fails.
 case "$verdict" in
   "OK "*) printf '%s\n' "${verdict#OK }"; exit 0 ;;
   "FAIL "*) die "${verdict#FAIL }" ;;

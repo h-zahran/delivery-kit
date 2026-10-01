@@ -230,12 +230,14 @@ jobs:
       # marketplace manifest, so running it from the workspace root is checked
       # rather than assumed.
       # On a release tag this ALSO requires the tagged plugin's changelog to
-      # carry no heading above its version heading. Until 1.2.0 / 2.1.1 nothing
-      # in the repository could tell a released tree from an unreleased one: the
-      # agreement walk reads with `grep -m1` against a date-anchored pattern, so
-      # an `## [Unreleased]` heading is SKIPPED rather than rejected and the
-      # previous release is read in its place. Both plugins carried an open
-      # heading through a whole release cycle while this step printed agreement.
+      # carry no heading above its version heading, and no line beginning `## `
+      # anywhere in it that is not a dated version heading.
+      # Until 1.2.0 / 2.1.1 nothing in the repository could tell a released
+      # tree from an unreleased one: the agreement walk reads with `grep -m1`
+      # against a date-anchored pattern, so an `## [Unreleased]` heading is
+      # SKIPPED rather than rejected and the previous release is read in its
+      # place. Both plugins carried an open heading through a whole release
+      # cycle while this step printed agreement.
       #
       # The argument is built into "$@" and the script is invoked ONCE. Two
       # `bash scripts/check-versions.sh` lines — one per branch of a case — would

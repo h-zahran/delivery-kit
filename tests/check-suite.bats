@@ -66,11 +66,14 @@ load helper
   # K3: a file that does not exist.
   refuse K3 "does not exist" 2 "$TEST_DIR/no-such.tap"
 
-  # K3: when awk cannot read the file, the run is refused — never a silent
-  # pass — and awk's own error, which names the file by its full path, does
-  # not reach the output. A stand-in awk fails the way a real one does on an
-  # unreadable file; it is used because file permissions cannot be taken
-  # away on every system the suite runs on.
+  # K3: when awk fails, the run is refused — never a silent pass — and
+  # nothing awk prints to stderr reaches the output. A stand-in awk fails
+  # instead of a real one on an unreadable file, because file permissions
+  # cannot be taken away on every system the suite runs on. A real awk reads
+  # the file on stdin and could not name it; the stand-in's path is kept as
+  # a leak canary, so a change that lets awk's stderr through goes red here.
+  # This is also the only test of the script's untagged last line: delete it
+  # and the script exits 0 with no output, which the status check catches.
   mkdir -p "$TEST_DIR/fakebin"
   printf '#!/bin/sh\necho "awk: fatal: cannot open /secret/path/run.tap" >&2\nexit 2\n' > "$TEST_DIR/fakebin/awk"
   chmod +x "$TEST_DIR/fakebin/awk"
