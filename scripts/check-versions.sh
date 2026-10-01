@@ -28,8 +28,8 @@
 # every lookup returned empty and a clean tree failed on one platform only.
 set -euo pipefail
 
-# GREP_OPTIONS is honoured by older greps and would rewrite the three `grep -E`
-# calls below out from under them. Unset for the same reason preflight.sh and
+# GREP_OPTIONS is honoured by older greps and would rewrite every `grep` call
+# below out from under it. Unset for the same reason preflight.sh and
 # progress.sh do: a gate whose behaviour depends on the caller's environment is
 # not a gate. CDPATH needs no such guard here — this script never cd's.
 unset GREP_OPTIONS
@@ -74,11 +74,13 @@ norm_source() {
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
 # --released <plugin> additionally requires that plugin's changelog to carry NO
-# heading above its version heading. Default (no argument) behaviour is
-# unchanged: every run REPORTS the state, no run FAILS on it. Unreleased work is
-# the normal condition of this repository; only a release tag asserts otherwise,
-# and only for the plugin being released — tagging pipeline says nothing about
-# whether handoff has unreleased work.
+# heading above its version heading, and no line beginning `## ` anywhere in
+# the file that is not a dated version heading. Default (no argument)
+# behaviour is unchanged: every run REPORTS the state (the heading-above
+# part only; the rest is judged under --released alone), no run FAILS on it.
+# Unreleased work is the normal condition of this repository; only a release
+# tag asserts otherwise, and only for the plugin being released — tagging
+# pipeline says nothing about whether handoff has unreleased work.
 RELEASED=""
 while [ $# -gt 0 ]; do
   case "$1" in
