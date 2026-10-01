@@ -34,7 +34,7 @@ set -u
 die() { printf 'check-suite.sh: %s\n' "$*" >&2; exit 1; }
 
 if [ $# -ne 2 ] || ! [[ $1 =~ ^[1-9][0-9]*$ ]]; then die "usage: check-suite.sh <expected> <tap-file>, where <expected> is a positive integer"; fi  # K2
-if [ ! -f "$2" ]; then die "the TAP file does not exist"; fi  # K3
+if [ ! -f "$2" ] || [ ! -r "$2" ]; then die "the TAP file does not exist or cannot be read"; fi  # K3
 
 # One pass. The rules in END run in a fixed order and the first one broken is
 # the one reported: a `not ok`, a skip or a stray line is named before the ok
@@ -47,6 +47,13 @@ if [ ! -f "$2" ]; then die "the TAP file does not exist"; fi  # K3
 # the CR, so there the line was always needed. Other awks treat BINMODE as an
 # unused variable. With it set, the CR strip is this script's own rule on
 # every system.
+#
+# The file reaches awk on stdin, never as an argument: awk reads an argument
+# shaped `name=value` as a variable assignment, so a file called `e=2` would
+# be skipped and stdin judged in its place. awk's stderr is discarded: its
+# own error names the file by its full path, and this script never prints a
+# path. The redirection of stderr comes first so it also covers a failure to
+# open the file.
 verdict="$(awk -v BINMODE=3 -v e="$1" '
   { sub(/\r$/, "") }  # K11
   /^[[:space:]]*$/ { next }
@@ -59,7 +66,7 @@ verdict="$(awk -v BINMODE=3 -v e="$1" '
   { stray++ }
   END {
     if (msg == "" && n == 0) msg = "the TAP file is empty"  # K4
-    if (msg == "" && first != "1.." e) msg = "the first line is not the plan line 1.." e  # K5
+    if (msg == "" && first != "1.." e) msg = "the first non-blank line is not the plan line 1.." e  # K5
     if (msg == "" && plans > 1) msg = "a second plan line: the run crashed or was concatenated"  # K6
     if (msg == "" && nots > 0) msg = nots " not ok"  # K9
     if (msg == "" && skips > 0) msg = skips " skipped, and a skip is not a pass"  # K8
@@ -67,10 +74,12 @@ verdict="$(awk -v BINMODE=3 -v e="$1" '
     if (msg == "" && oks + 0 != e + 0) msg = "ok count " (oks + 0) ", expected " e  # K7
     if (msg == "") print "OK suite ok: 1.." e ", " (oks + 0) " ok, 0 skipped, 0 not ok, 0 non-TAP"
     else print "FAIL " msg
-  }' "$2")"
+  }' 2>/dev/null < "$2")"
 
+# Only an explicit OK passes. Anything else — awk failing to start or to read,
+# and printing nothing — is a refusal, never a silent exit 0.
 case "$verdict" in
-  "OK "*) printf '%s\n' "${verdict#OK }" ;;
+  "OK "*) printf '%s\n' "${verdict#OK }"; exit 0 ;;
   "FAIL "*) die "${verdict#FAIL }" ;;
-  *) die "the TAP file could not be read" ;;
 esac
+die "the TAP file cannot be read"

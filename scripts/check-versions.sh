@@ -93,8 +93,8 @@ done
 # getting a weaker one, silently. Refuse rather than pass vacuously.
 released_seen=0
 
-# The pinned changelog heading, written ONCE. Two readers use it: the version
-# read below (grep) and the release form's whole-file rule (awk). Two copies
+# The pinned changelog heading, written ONCE. Both readers below use it: the
+# version read (grep) and the release form's whole-file rule (awk). Two copies
 # of this pattern drifting apart is the defect this file was written to end,
 # so neither reader carries its own. Bracket forms instead of backslashes and
 # repetitions spelled out instead of {4}: the same text means the same thing
@@ -234,12 +234,14 @@ for dir in */; do
     # nothing exits 1, and the assignment would abort this script with no
     # message on exactly the input that is correct. awk exits 0 either way.
     # The pattern reaches awk through the environment, not -v, which would
-    # process escapes in it.
+    # process escapes in it. The quoted heading is a line from a tracked file
+    # and lands in a public CI log, so every character that is not printable —
+    # an escape sequence, a form feed, a stray CR — is shown as `?`.
     undated="$(DATED_RE="$dated_re" awk '
-      /^## / && $0 !~ ENVIRON["DATED_RE"] { print "line " NR " holds \047" $0 "\047"; exit }
+      /^## / && $0 !~ ENVIRON["DATED_RE"] { t = $0; gsub(/[^[:print:]]/, "?", t); print "line " NR " holds \047" t "\047"; exit }
     ' "./$p/CHANGELOG.md")"
     [ -z "$undated" ] \
-      || die "$p: ${undated//$'\r'/}, which is not a dated version heading — this tree is NOT released"
+      || die "$p: $undated, which is not a dated version heading — this tree is NOT released"
   fi
 done
 

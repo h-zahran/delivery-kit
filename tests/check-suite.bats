@@ -43,15 +43,47 @@ load helper
     *) echo "K1: a clean run passed without the summary line; output: $output"; false ;;
   esac
 
+  # K1: a leading blank line is not a line; the plan is the first non-blank.
+  printf '\n1..1\nok 1 a\n' > "$t"
+  run bash "$cs" 1 "$t"
+  [ "$status" -eq 0 ] || { echo "K1: a leading blank line made a clean run fail; output: $output"; false; }
+
+  # K1: the NAMED file is judged, even one whose name awk would read as a
+  # variable assignment, and never whatever arrives on stdin.
+  mkdir -p "$TEST_DIR/named"
+  printf '1..2\nok 1 a\nok 2 b\n' > "$TEST_DIR/named/e=2"
+  run bash -c 'cd "$1" && printf "1..9\n" | bash "$2" 2 e=2' _ "$TEST_DIR/named" "$cs"
+  [ "$status" -eq 0 ] || { echo "K1: a file named e=2 was not the file judged; output: $output"; false; }
+
   # K2: not exactly two arguments, or a count that is not a positive integer.
   refuse K2 usage
   refuse K2 usage 2
   refuse K2 usage abc "$t"
   refuse K2 usage 0 "$t"
   refuse K2 usage 2 "$t" extra
+  refuse K2 usage 2x "$t"
 
   # K3: a file that does not exist.
   refuse K3 "does not exist" 2 "$TEST_DIR/no-such.tap"
+
+  # K3: when awk cannot read the file, the run is refused — never a silent
+  # pass — and awk's own error, which names the file by its full path, does
+  # not reach the output. A stand-in awk fails the way a real one does on an
+  # unreadable file; it is used because file permissions cannot be taken
+  # away on every system the suite runs on.
+  mkdir -p "$TEST_DIR/fakebin"
+  printf '#!/bin/sh\necho "awk: fatal: cannot open /secret/path/run.tap" >&2\nexit 2\n' > "$TEST_DIR/fakebin/awk"
+  chmod +x "$TEST_DIR/fakebin/awk"
+  printf '1..1\nok 1 a\n' > "$t"
+  run env PATH="$TEST_DIR/fakebin:$PATH" bash "$cs" 1 "$t"
+  [ "$status" -ne 0 ] || { echo "K3: an awk that could not read the file still gave a pass; output: $output"; false; }
+  case "$output" in
+    *"cannot be read"*) ;;
+    *) echo "K3: an unreadable file was refused without saying so; output: $output"; false ;;
+  esac
+  case "$output" in
+    *"/secret/path"*) echo "K3: awk's own error, with its path, reached the output; output: $output"; false ;;
+  esac
 
   # K4: an empty file, and one holding only blank lines.
   : > "$t"
@@ -70,6 +102,9 @@ load helper
   # K7: one ok short of the plan.
   printf '1..2\nok 1 a\n' > "$t"
   refuse K7 "ok count" 2 "$t"
+  # ... and one ok too many.
+  printf '1..1\nok 1 a\nok 2 b\n' > "$t"
+  refuse K7 "ok count" 1 "$t"
 
   # K8: a skipped test counts as ok to bats, and must not count here.
   printf '1..2\nok 1 a\nok 2 b # skip not today\n' > "$t"
@@ -80,9 +115,20 @@ load helper
   # K9: a failure is named as a failure, not as the short count it causes.
   printf '1..2\nok 1 a\nnot ok 2 b\n' > "$t"
   refuse K9 "not ok" 2 "$t"
+  # A failure is named before a skip in the same run.
+  printf '1..3\nok 1 a\nnot ok 2 b\nok 3 c # skip not today\n' > "$t"
+  refuse K9 "not ok" 3 "$t"
 
   # K10: a line that is neither TAP nor a comment.
   printf '1..2\nok 1 a\nok 2 b\nstray text\n' > "$t"
+  refuse K10 non-TAP 2 "$t"
+  # Lines that only look like TAP: each is stray, not an ok, a plan or a
+  # failure.
+  printf '1..2\nok 1 a\nokay 2 b\n' > "$t"
+  refuse K10 non-TAP 2 "$t"
+  printf '1..2\nok 1 a\nok 2 b\n1..2 trailing\n' > "$t"
+  refuse K10 non-TAP 2 "$t"
+  printf '1..2\nok 1 a\nok 2 b\nnot okay\n' > "$t"
   refuse K10 non-TAP 2 "$t"
 
   # K11: CRLF line ends give the same verdicts as LF.

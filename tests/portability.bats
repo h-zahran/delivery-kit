@@ -1283,6 +1283,14 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
     *"is NOT released"*) ;;
     *) echo "--released refused, but not for the planted reason. output: $output"; false ;;
   esac
+  # A heading ABOVE the release keeps its own message, which names the
+  # release it sits above. The whole-file rule added later refuses this
+  # shape too, so without this pin the specific check could vanish and every
+  # assertion above would still pass (measured by deleting it).
+  case "$output" in
+    *"sits above the released heading"*) ;;
+    *) echo "G3: the heading above the release was refused without its own message. output: $output"; false ;;
+  esac
 }
 
 @test "--released refuses an undated heading below the release, and the default run does not" {
@@ -1325,10 +1333,13 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   [ "$status" -eq 0 ] \
     || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; false; }
 
-  # Two plants, each BELOW the first dated heading: the exact Keep a Changelog
-  # spelling, and one the old exact-text idea would have let through.
+  # Four plants, each BELOW the first dated heading: the exact Keep a
+  # Changelog spelling; one the old exact-text idea would have let through;
+  # and two that only an anchored pattern refuses — a dated heading with a
+  # trailing note (the drift the version read above was anchored against)
+  # and one with its closing bracket missing.
   n=0
-  for plant in '## [Unreleased]' '## unreleased'; do
+  for plant in '## [Unreleased]' '## unreleased' '## [9.9.9] - 2026-01-01 (yanked)' '## [9.9.9 - 2026-01-01'; do
     n=$((n + 1))
     d="$TEST_DIR/undated-$n"
     cp -r "$base" "$d"
