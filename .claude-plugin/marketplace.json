@@ -18,7 +18,7 @@
       "name": "pipeline",
       "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine.",
       "source": "./pipeline",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "category": "workflow",
       "tags": ["pipeline", "spec-driven", "orchestration"]
     }
