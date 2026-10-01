@@ -213,6 +213,30 @@ for dir in */; do
     released_seen=1
     [ "$released_state" = "released" ] \
       || die "$p: '$first' sits above the released heading '$head' — this tree is NOT released"
+
+    # The comparison above reads only the FIRST level-2 heading, so a heading
+    # left lower in the file was invisible to it: an `## [Unreleased]` below
+    # the newest release passed every gate, and the 1.3.0 release caught that
+    # shape only with a one-off quickstart check CI never runs. A released
+    # changelog holds dated version headings and nothing else at level two, so
+    # judge every line beginning `## `, wherever it sits, not one spelling of
+    # one word.
+    #
+    # awk, not a `grep -v` pipeline: under pipefail a `grep -v` that selects
+    # nothing exits 1, and the assignment would abort this script with no
+    # message on exactly the input that is correct. awk exits 0 either way.
+    # Repetitions are spelled out rather than written `{4}`, as the suite's own
+    # awk fixtures do: an awk without interval expressions would read every
+    # dated heading as undated and refuse a correct tree on that system only.
+    undated="$(awk '
+      /^## / && !/^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ {
+        print NR ":" $0; exit
+      }' "./$p/CHANGELOG.md")"
+    if [ -n "$undated" ]; then
+      ul="${undated%%:*}"
+      ut="${undated#*:}"
+      die "$p: line $ul holds '${ut//[$'\n\r']/}', which is not a dated version heading — this tree is NOT released"
+    fi
   fi
 done
 
