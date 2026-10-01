@@ -33,13 +33,12 @@ set -u
 
 die() { printf 'check-suite.sh: %s\n' "$*" >&2; exit 1; }
 
-if [ $# -ne 2 ] || ! printf '%s\n' "${1:-}" | grep -qx '[1-9][0-9]*'; then die "usage: check-suite.sh <expected> <tap-file>, where <expected> is a positive integer"; fi  # K2
+if [ $# -ne 2 ] || ! [[ $1 =~ ^[1-9][0-9]*$ ]]; then die "usage: check-suite.sh <expected> <tap-file>, where <expected> is a positive integer"; fi  # K2
 if [ ! -f "$2" ]; then die "the TAP file does not exist"; fi  # K3
 
 # One pass. The rules in END run in a fixed order and the first one broken is
 # the one reported: a `not ok`, a skip or a stray line is named before the ok
-# count it also shortens or leaves unchanged. Repetitions in the patterns are
-# spelled out, never `{n}`, for an awk without interval expressions.
+# count it also shortens or leaves unchanged.
 #
 # BINMODE=3 makes GNU Awk on Windows read and write bytes as they are. Left
 # in text mode it strips every CR itself, so the K11 line below did nothing
@@ -59,13 +58,12 @@ verdict="$(awk -v BINMODE=3 -v e="$1" '
   /^#/ { next }
   { stray++ }
   END {
-    msg = ""
     if (msg == "" && n == 0) msg = "the TAP file is empty"  # K4
     if (msg == "" && first != "1.." e) msg = "the first line is not the plan line 1.." e  # K5
     if (msg == "" && plans > 1) msg = "a second plan line: the run crashed or was concatenated"  # K6
-    if (msg == "" && nots > 0) msg = (nots + 0) " not ok"  # K9
-    if (msg == "" && skips > 0) msg = (skips + 0) " skipped, and a skip is not a pass"  # K8
-    if (msg == "" && stray > 0) msg = (stray + 0) " non-TAP line(s)"  # K10
+    if (msg == "" && nots > 0) msg = nots " not ok"  # K9
+    if (msg == "" && skips > 0) msg = skips " skipped, and a skip is not a pass"  # K8
+    if (msg == "" && stray > 0) msg = stray " non-TAP line(s)"  # K10
     if (msg == "" && oks + 0 != e + 0) msg = "ok count " (oks + 0) ", expected " e  # K7
     if (msg == "") print "OK suite ok: 1.." e ", " (oks + 0) " ok, 0 skipped, 0 not ok, 0 non-TAP"
     else print "FAIL " msg
