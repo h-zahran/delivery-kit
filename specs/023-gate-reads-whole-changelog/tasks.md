@@ -52,8 +52,8 @@ exactly one test, and it passes.
 
 **Goal**: FR-008.
 
-- [ ] T008 [US3] In `specs/016-release-two-plugins/contracts/version-agreement.md`, insert the note of research R5 after the last paragraph of clause C4 and before the `## C5` heading, separated by blank lines, as a blockquote beginning `> **Later note, 2026-10-01 (feature 023):**`. Change no existing line.
-- [ ] T009 [US3] Run quickstart blocks 1 and 5; save to `$RUN/t009.txt`: `FR-008 ok`, `FR-007 ok`, `FR-010 ok`.
+- [X] T008 [US3] In `specs/016-release-two-plugins/contracts/version-agreement.md`, insert the note of research R5 after the last paragraph of clause C4 and before the `## C5` heading, separated by blank lines, as a blockquote beginning `> **Later note, 2026-10-01 (feature 023):**`. Change no existing line.
+- [X] T009 [US3] Run quickstart blocks 1 and 5; save to `$RUN/t009.txt`: `FR-008 ok`, `FR-007 ok`, `FR-010 ok`.
 
 ---
 

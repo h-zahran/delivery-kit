@@ -81,9 +81,11 @@ All measurements at `main` = `5831822`, 2026-10-01.
 
 - **Decision**: a blockquote inserted after C4's last paragraph and before
   `## C5`, starting `> **Later note, 2026-10-01 (feature 023):**`, stating
-  that since 1.2.0 a tag run's agreement step passes `--released`, so C4 is
-  enforced for the plugin being tagged, and that since 023 the release form
-  also refuses an undated heading anywhere in the file.
+  that since `f5e4090` (2026-09-03; first released in pipeline 1.2.1 and
+  handoff 2.2.0, not 1.2.0 as the seed says) a tag run's agreement step
+  passes `--released`, so C4 is enforced for the plugin being tagged, and
+  that since 023 the release form also refuses an undated heading
+  anywhere in the file.
 - **Rationale**: the record is dated history (constitution, "Changelogs are
   history"; the same rule binds a dated record). Adding lines leaves every
   existing line byte-identical, which `git diff 5831822 -- <file>` checks

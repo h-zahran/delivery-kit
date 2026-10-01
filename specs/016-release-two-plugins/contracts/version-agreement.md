@@ -105,6 +105,16 @@ owner at the clarify gate on 2026-09-03 and the answer was to keep the seed's
 scope: five files, nothing else. The clause is written down so the next planning
 pass inherits a named gap rather than rediscovering an unnamed one.
 
+> **Later note, 2026-10-01 (feature 023):** the gap above is closed, in
+> two steps. Commit `f5e4090` (2026-09-03, first released in pipeline 1.2.1
+> and handoff 2.2.0) made a tag run's agreement step call
+> `scripts/check-versions.sh --released <plugin>`, which refuses a heading
+> above the version heading for the plugin being tagged; the suite tests it
+> on a fixture. That form still read only the first heading, so feature
+> 023 (`specs/023-gate-reads-whole-changelog/`) made it refuse every
+> level-2 heading that is not a dated version heading, wherever it sits.
+> The text above is left as it was written.
+
 ## C5 — A release tag names a plugin and its manifest version
 
 Tags are `<plugin>-v<version>`. CI strips the suffix, reads

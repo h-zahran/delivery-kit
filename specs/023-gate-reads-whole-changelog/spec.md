@@ -26,8 +26,12 @@ Measured 2026-10-01 at `main` = `5831822`:
   house-suite result check. Only the `021` and `022` copies count skipped
   tests.
 - Clause C4 of `specs/016-release-two-plugins/contracts/version-agreement.md`
-  reads "**Enforced by**: **NOTHING.**", which stopped being true at 1.2.0,
-  when a tag run's agreement step began passing `--released`.
+  reads "**Enforced by**: **NOTHING.**", which stopped being true on
+  2026-09-03, when commit `f5e4090` made a tag run's agreement step pass
+  `--released` — first released in pipeline 1.2.1 and handoff 2.2.0, after
+  the 1.2.0 tags. (The seed says "since 1.2.0"; measured at piece 3 with
+  `git log -S'set -- --released' -- .github/workflows/ci.yml` and
+  `git tag --contains`, that is one release early.)
 - Every `## ` heading in both plugin changelogs today is a dated version
   heading (`## [X.Y.Z] - YYYY-MM-DD`): 6 in `pipeline`, 12 in `handoff`.
 
@@ -123,9 +127,10 @@ lines, below clause C4.
 **Acceptance Scenarios**:
 
 1. **Given** the 016 contract, **When** this feature lands, **Then** a dated
-   note sits below clause C4 saying that since 1.2.0 a tag run's agreement
-   step enforces C4 for the plugin being tagged, and since this feature the
-   release form also refuses a lower heading.
+   note sits below clause C4 saying that since `f5e4090` (first released in
+   pipeline 1.2.1 and handoff 2.2.0) a tag run's agreement step enforces C4
+   for the plugin being tagged, and since this feature the release form
+   also refuses an undated heading anywhere in the file.
 2. **Given** the same file, **When** it is compared with `5831822`, **Then**
    every line that existed there is unchanged.
 
