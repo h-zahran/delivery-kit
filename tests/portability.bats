@@ -1285,6 +1285,113 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   esac
 }
 
+@test "--released refuses an undated heading below the release, and the default run does not" {
+  cd "$ROOT"
+
+  # The test above plants its heading ABOVE the release. That is the one place
+  # the release form used to look: it compared the FIRST level-2 heading with
+  # the version heading and read nothing below it, so a heading left lower in
+  # the file passed every gate. The 1.3.0 release caught that shape only with a
+  # one-off quickstart check that CI never runs. The release form now judges
+  # every line beginning `## `, and anything that is not a dated version
+  # heading is refused — `## [Unreleased]` and every other spelling of it.
+  #
+  # Every failure below names the contract clause it guards (G1, G2, G5, G6 in
+  # specs/023-gate-reads-whole-changelog/contracts/release-form.md), so a red
+  # says which promise broke rather than only that something did.
+
+  # A faithful, released fixture first, required to PASS, as the test above
+  # builds one: a fixture broken by construction would make every break below
+  # succeed for the wrong reason.
+  base="$TEST_DIR/undated-base"
+  mkdir -p "$base/.claude-plugin"
+  cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+  copied=""
+  other=""
+  while IFS= read -r src; do
+    src="${src%$'\r'}"
+    d="${src#./}"; d="${d%/}"
+    mkdir -p "$base/$d/.claude-plugin"
+    cp "$d/.claude-plugin/plugin.json" "$base/$d/.claude-plugin/plugin.json"
+    cp "$d/CHANGELOG.md" "$base/$d/CHANGELOG.md"
+    if [ -z "$copied" ]; then copied="$d"; elif [ -z "$other" ]; then other="$d"; fi
+  done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
+  [ -n "$copied" ] && [ -n "$other" ] \
+    || { echo "fixture: two plugins are needed, one judged and one not; got '$copied' and '$other'"; false; }
+  for f in "$base"/*/CHANGELOG.md; do
+    grep -v '^## \[Unreleased\]$' "$f" > "$f.norm" && mv "$f.norm" "$f"
+  done
+  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; false; }
+
+  # Two plants, each BELOW the first dated heading: the exact Keep a Changelog
+  # spelling, and one the old exact-text idea would have let through.
+  n=0
+  for plant in '## [Unreleased]' '## unreleased'; do
+    n=$((n + 1))
+    d="$TEST_DIR/undated-$n"
+    cp -r "$base" "$d"
+    # Insert the plant just before the SECOND dated heading. Repetitions are
+    # spelled out rather than written as {4}: an awk without interval
+    # expressions would otherwise match nothing and plant nothing.
+    awk -v plant="$plant" '
+      /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ {
+        dated++
+        if (dated == 2) { print plant; print "" }
+      }
+      { print }
+    ' "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
+    mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
+
+    # Prove the plant landed exactly once, and BELOW: the first heading is
+    # still the dated one, so the old first-heading rule sees nothing wrong.
+    [ "$(grep -c -x -F -- "$plant" "$d/$copied/CHANGELOG.md")" -eq 1 ] \
+      || { echo "fixture: '$plant' did not land exactly once in the $copied copy"; false; }
+    first="$(grep -m1 '^## ' "$d/$copied/CHANGELOG.md")"
+    case "$first" in
+      "## ["[0-9]*"] - "[0-9]*) ;;
+      *) echo "fixture: '$plant' landed above the release; the first heading is '$first'"; false ;;
+    esac
+    line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
+
+    # The default form is untouched: it reports and passes.
+    run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+    [ "$status" -eq 0 ] \
+      || { echo "G5: the default run rejected '$plant' below the release; the default form must not change. output: $output"; false; }
+    printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
+      || { echo "G5: the default run's line for $copied does not say state=released. output: $output"; false; }
+
+    # The release form refuses, and says where and what.
+    run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+    [ "$status" -ne 0 ] \
+      || { echo "G1: --released accepted $copied with '$plant' at line $line, below its release. output: $output"; false; }
+    case "$output" in
+      *"is NOT released"*) ;;
+      *) echo "G2: --released refused, but not as an unreleased tree. output: $output"; false ;;
+    esac
+    case "$output" in
+      *"line $line "*) ;;
+      *) echo "G2: the refusal does not name line $line. output: $output"; false ;;
+    esac
+    case "$output" in
+      *"$plant"*) ;;
+      *) echo "G2: the refusal does not quote '$plant'. output: $output"; false ;;
+    esac
+  done
+
+  # Only the plugin being released is judged: an undated heading in the OTHER
+  # plugin's changelog is that plugin's unreleased work, which is normal.
+  d="$TEST_DIR/undated-other"
+  cp -r "$base" "$d"
+  printf '\n## [Unreleased]\n' >> "$d/$other/CHANGELOG.md"
+  [ "$(grep -c -x -F -- '## [Unreleased]' "$d/$other/CHANGELOG.md")" -eq 1 ] \
+    || { echo "fixture: the plant did not land in the $other copy"; false; }
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "G6: --released $copied refused because of $other's changelog. output: $output"; false; }
+}
+
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
   cd "$ROOT"
   # A caller asking for a STRICTER check must never receive a weaker one. With
