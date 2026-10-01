@@ -72,18 +72,19 @@ reversible thing this tool does, so it needs its own flag, typed on purpose —
 one flag must not mean both "commit for me" and "publish for me".
 
 Other things still stop a run, and no flag collapses them: a loop hitting its
-cap, a required tool missing, any hard failure, a failed runtime check, and a
-few stops made by the commit and push phases. [The configuration
-page](docs/configuration.md#the-implementer-key) lists them. In pause mode
-the run also stops before each piece's commit; that is a stop you chose, not a
-gate.
+cap, a required tool missing, any hard failure, a failed runtime check, the
+constitution offer at pre-flight, a state file tracked in git, and a few stops
+made by the commit and push phases. [The configuration
+page](docs/configuration.md#the-implementer-key) has the whole range. In pause
+mode the run also stops before each piece's commit; that is a stop you chose,
+not a gate.
 
 > **Worth knowing before you automate.** No fresh run reaches the end without
-> stopping: a run that builds here stops at G to ask how you want to review,
-> and a handoff run parks at H. A run re-entered past G is different — with
-> `--auto`, no clarify questions and no release command, it can reach the end
-> without a gate asking anything. The `implementer` setting can come from a
-> config file you did not write; that is why pre-flight prints an
+> stopping: a run that builds here stops at G to ask how you want to review, and
+> a handoff run parks at H. A run re-entered past G is different — with `--auto`
+> and no release command, it can reach the end without a gate asking anything (a
+> pause, in pause mode, still stops it). The `implementer` setting can come from
+> a config file you did not write; that is why pre-flight prints an
 > `Implementer` line naming which file or flag the value came from. Set
 > `implementer` to `ask` to take the implementer question back on a fresh run.
 > [The configuration page](docs/configuration.md#the-implementer-key) gives the
@@ -95,7 +96,8 @@ A run that builds here leaves a branch meant to be read one commit at a time,
 and the pull request says how. Its body carries a review guide: a table with
 one row per commit, oldest first, giving the commit, its kind, the piece it
 built, the task IDs and the files. One line above it tells you to read it top
-to bottom.
+to bottom. On a feature too large for one pull-request body, the body gives
+each commit's file count, and the full guide follows as pull-request comments.
 
 | Kind | Made by | Holds |
 |---|---|---|
@@ -104,7 +106,7 @@ to bottom.
 | `converge` | H.5 | The tasks the convergence pass found missing, appended as a phase of their own, and their work. |
 | `simplify` | H.7 | What the simplify pass changed. |
 | `review` | I | The fixes from the deep review. |
-| `tests` | J (K, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. |
+| `tests` | J (or K: its empty record commit, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. In a run without pieces, J's fixes ride in K's commit, and K makes that empty record commit only when nothing is left to commit. |
 | `constitution` | K | A constitution written by an accepted pre-flight offer, always on its own. |
 | `other` | K, M, N | What was left for K, and the fixes from the pull-request review and the re-verify pass. |
 
@@ -115,9 +117,11 @@ phases push, so it never lists fewer commits than the branch holds. The run's
 final summary carries it too. In pause mode you saw each piece before its
 commit; the guide is still the map of the branch.
 
-A handoff run builds in one pass, so K makes its one feature commit, plus an
-empty record commit when a failure was waved through at J. The review and
-re-verify fixes, and an accepted constitution, still get rows of their own.
+A handoff run builds in one pass, so K makes its one feature commit, and the
+deep-review and test fixes ride in it. Its message carries any failure waved
+through at J — or, when K has nothing left to commit, an empty record commit
+of kind `tests` does. The fixes from the pull-request review and the re-verify
+pass, and an accepted constitution, still get rows of their own.
 
 ## What it never does
 
