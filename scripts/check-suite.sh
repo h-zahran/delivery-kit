@@ -40,7 +40,15 @@ if [ ! -f "$2" ]; then die "the TAP file does not exist"; fi  # K3
 # the one reported: a `not ok`, a skip or a stray line is named before the ok
 # count it also shortens or leaves unchanged. Repetitions in the patterns are
 # spelled out, never `{n}`, for an awk without interval expressions.
-verdict="$(awk -v e="$1" '
+#
+# BINMODE=3 makes GNU Awk on Windows read and write bytes as they are. Left
+# in text mode it strips every CR itself, so the K11 line below did nothing
+# there and could never be shown to matter — measured on Windows: deleting
+# it left the suite's test of this file green. On Linux and macOS awk keeps
+# the CR, so there the line was always needed. Other awks treat BINMODE as an
+# unused variable. With it set, the CR strip is this script's own rule on
+# every system.
+verdict="$(awk -v BINMODE=3 -v e="$1" '
   { sub(/\r$/, "") }  # K11
   /^[[:space:]]*$/ { next }
   { n++ }
