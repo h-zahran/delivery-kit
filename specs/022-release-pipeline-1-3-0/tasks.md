@@ -63,7 +63,7 @@ tag form is shown to fail on the unreleased base.
 
 ## Phase 4: Polish
 
-- [X] T007 Run the whole of `quickstart.md` (blocks 1–6, including the house suite from the repository root over `tests`, `handoff/tests` and `pipeline/tests`) as one extracted script with `bash`, in the background or with a timeout of at least 15 minutes (the suite takes eight to ten); save the output to `$RUN/final-quickstart.txt`. It ends with `ALL OK`, and S11 reads plan `1..240`, 240 ok, 0 skipped, 0 not ok, 0 non-TAP.
+- [X] T007 Run the whole of `quickstart.md` (blocks 1–6 at T007; block 7, S12, was added at the PR review and is run from then on — including the house suite from the repository root over `tests`, `handoff/tests` and `pipeline/tests`) as one extracted script with `bash`, in the background or with a timeout of at least 15 minutes (the suite takes eight to ten); save the output to `$RUN/final-quickstart.txt`. It ends with `ALL OK`, and S11 reads plan `1..240`, 240 ok, 0 skipped, 0 not ok, 0 non-TAP.
 
 ---
 

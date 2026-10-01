@@ -29,9 +29,12 @@ All measurements at `main` = `d9a085e`, 2026-10-01.
 
 ## R3 — How to show the gates can go red
 
-- **Decision**: run `bash scripts/check-versions.sh --released pipeline` in a
-  temporary worktree at `d9a085e`; it must exit non-zero (the open heading
-  sits above the version). Then run it on the branch; it must exit 0.
+- **Decision**: run the branch's own `scripts/check-versions.sh --released
+  pipeline` from inside a temporary worktree at `d9a085e`, so it reads the
+  base tree; it must exit non-zero with its refusal (the open heading sits
+  above the version). Then run it on the branch; it must exit 0. Using the
+  branch's copy means a release that also edits the gate proves its new
+  copy can go red.
 - **Rationale**: the no-argument form reports `state=UNRELEASED-ABOVE` but
   exits 0 on both trees, so its rc proves nothing about the release. The
   `--released` form is what the tag run calls; it is the gate the release
@@ -52,10 +55,36 @@ All measurements at `main` = `d9a085e`, 2026-10-01.
 - **Rationale**: the seed requires the heading GONE; the 1.2.1 release did not
   open one either; the next feature that changes the plugin opens it.
 
-## R7 — Gaps found at deep review, left for a later feature
+## R6 — The tag name
 
-Both change files outside the seed's three lines, so this release records
-them and does not close them.
+- **Decision**: `pipeline-v1.3.0`, after the merge, on the release commit
+  itself, found on `origin/main` (after a fetch) by
+  an exact match of its subject line, `chore(release): pipeline 1.3.0`;
+  exactly one commit must match, and the tag goes on that id — never on
+  whatever `origin/main` points to, which may already carry a later merge.
+  Before the tag is pushed, the commit's own tree must say 1.3.0 (manifest
+  and changelog heading), so a commit that carries the subject but not
+  the stamp is refused before anything is public. `quickstart.md` block 7
+  (S12) is the committed, tested copy of this check; the pull request's
+  "After the merge" section runs the same commands and then tags. The
+  subject is compared as a whole field (`awk -F'\t' '$2=="…"'` over
+  `git log --format='%H%x09%s'`), not with `git log --grep`: `--grep` also
+  matches a line in a later commit's body, follows the local
+  `grep.patternType` (under extended regex `(release)` is a group and
+  nothing matches), and with `-1` can never report a second match.
+  Measured on the branch: one match today; two matching lines count 2.
+- **Rationale**: CI derives the plugin name from the tag as
+  `<plugin>-v<version>`.
+  A bare `v1.3.0` already exists (handoff, 2026-08-18); a new bare tag would
+  fail at the agreement step first (`check-versions.sh --released v1.3.0`
+  answers that it is not a plugin in this tree), and the tag step behind it
+  would then not run. A rebase merge gives the release a new id, so the tag is
+  taken from `origin/main`, never from this branch.
+
+## R7 — Gaps found at deep review and PR review, left for a later feature
+
+All three change files outside the seed's three lines, so this release
+records them and does not close them. (The last was found at the PR review.)
 
 - `scripts/check-versions.sh --released` compares only the first heading
   with the version heading, so an `## [Unreleased]` heading lower in the
@@ -67,14 +96,8 @@ them and does not close them.
   the CI tag step passes `--released`, and `tests/portability.bats` tests it
   on a fixture. That record is dated history; it needs a forward note in a
   later feature, never a rewrite.
-
-## R6 — The tag name
-
-- **Decision**: `pipeline-v1.3.0`, after the merge, from `origin/main` after a
-  fetch.
-- **Rationale**: CI derives the plugin name from the tag as `<plugin>-v<version>`.
-  A bare `v1.3.0` already exists (handoff, 2026-08-18); a new bare tag would
-  fail at the agreement step first (`check-versions.sh --released v1.3.0`
-  answers that it is not a plugin in this tree), and the tag step behind it
-  would then not run. A rebase merge gives the release a new id, so the tag is
-  taken from `origin/main`, never from this branch.
+- The suite-result check (plan line, ok count, skips, not ok, non-TAP) is
+  copied by hand into many feature quickstarts, and the copies already
+  differ: measured, only the 021 and 022 quickstarts count skipped tests.
+  One shared script taking the expected count would end the copies
+  (Principle IV).

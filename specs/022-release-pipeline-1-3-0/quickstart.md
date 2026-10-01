@@ -12,7 +12,7 @@ about eight to ten minutes: run it in the background or with a long timeout.
 
 ```bash
 set -u
-BASE=d9a085e
+BASE=d9a085e33a52c9333131a6e37b1b778a5104e967
 SPEC_DIR=specs/022-release-pipeline-1-3-0
 fail() { echo "FAIL $*"; exit 1; }
 CLEANUP=()
@@ -57,7 +57,7 @@ proves the comparison can fail.
 want_file=$(mktemp); CLEANUP+=("$want_file")
 git show "$BASE:pipeline/CHANGELOG.md" \
   | sed 's/^## \[Unreleased\]$/## [1.3.0] - 2026-10-01/' > "$want_file"
-[ "$(grep -c '^## \[1.3.0\] - 2026-10-01$' "$want_file")" = "1" ] \
+[ "$(grep -c -F -x '## [1.3.0] - 2026-10-01' "$want_file")" = "1" ] \
   || fail "S5 rewrite of the base heading did not land exactly once"
 cmp -s "$want_file" pipeline/CHANGELOG.md || fail "S5 changelog differs beyond the heading"
 ctl=$(mktemp) && [ -n "$ctl" ] || fail "S5 control: mktemp"
@@ -72,13 +72,17 @@ echo "S5 ok (control red)"
 
 Only this feature's own spec directory is exempt — another feature's spec is
 a change like any other. `git diff` sees tracked files only, so untracked
-files outside the spec directory are checked separately.
+files outside the spec directory are checked separately. Files git
+ignores — through `.gitignore` or this clone's own `.git/info/exclude`,
+the run directory under `.delivery-kit/` among them — are left out on
+purpose: `git add` by name never stages them.
 
 ```bash
 numstat=$(git diff --numstat "$BASE" -- . ":(exclude)$SPEC_DIR/" | tr -d '\r' | sort)
 want_ns=$(printf '1\t1\t.claude-plugin/marketplace.json\n1\t1\tpipeline/.claude-plugin/plugin.json\n1\t1\tpipeline/CHANGELOG.md' | sort)
 [ "$numstat" = "$want_ns" ] || fail "S6 change set is: $numstat"
-untracked=$(git ls-files --others --exclude-standard -- . ":(exclude)$SPEC_DIR/")
+untracked=$(git ls-files --others --exclude-standard -- . ":(exclude)$SPEC_DIR/") \
+  || fail "S6 git ls-files --others failed"
 [ -z "$untracked" ] || fail "S6 untracked files outside $SPEC_DIR: $untracked"
 echo "S6 ok"
 
@@ -104,14 +108,16 @@ echo "S8 ok"
 
 # S9. The control demands the gate's own refusal text, not just a non-zero
 # rc: a failed `cd` or a missing tool would also exit non-zero and prove
-# nothing.
+# nothing. It runs the BRANCH's copy of the gate against the base tree, so
+# a release that also edits the gate proves its new copy can go red.
 bash scripts/check-versions.sh --released pipeline >/dev/null 2>&1; rc=$?
 [ "$rc" = "0" ] || fail "S9 --released pipeline on the branch: rc=$rc"
 wt_parent=$(mktemp -d) && [ -d "$wt_parent" ] || fail "S9 control: mktemp -d"
 CLEANUP+=("$wt_parent")
 git worktree add -q --detach "$wt_parent/base" "$BASE" || fail "S9 control: worktree"
 wt=$wt_parent/base
-base_out=$(cd "$wt" && bash scripts/check-versions.sh --released pipeline 2>&1); rc_base=$?
+gate=$(pwd)/scripts/check-versions.sh
+base_out=$(cd "$wt" && bash "$gate" --released pipeline 2>&1); rc_base=$?
 git worktree remove --force "$wt" || fail "S9 control: worktree not removed: $wt"
 wt=""
 [ "$rc_base" != "0" ] || fail "S9 control: --released pipeline PASSED at $BASE"
@@ -141,5 +147,26 @@ echo "S11 rc=$rc plan=$plan ok=$oks skipped=$skips not_ok=$nots non_tap=$other"
   || fail "S11 suite (TAP kept at $tap)"
 rm -f "$tap"
 echo "S11 ok"
+```
+
+## 7. The commit the tag goes on (S12)
+
+The tag recipe in the pull request runs this same check. It finds the
+release commit by an exact match of its subject, refuses unless exactly one
+commit matches, and refuses unless that commit's own tree says 1.3.0 in the
+manifest and the changelog heading. Before the merge `TAG_REF` defaults to
+`HEAD`; after it, run with `TAG_REF=origin/main` after a `git fetch`.
+
+```bash
+TAG_REF=${TAG_REF:-HEAD}
+rel=$(git log --format='%H%x09%s' "$TAG_REF" \
+  | awk -F'\t' '$2=="chore(release): pipeline 1.3.0" {print $1}')
+n=$(printf '%s\n' "$rel" | grep -c .)
+[ "$n" = "1" ] || fail "S12 $n commits on $TAG_REF match the release subject: $rel"
+v=$(git show "$rel:pipeline/.claude-plugin/plugin.json" | jq -r .version | tr -d '\r')
+[ "$v" = "1.3.0" ] || fail "S12 release commit $rel has plugin.json version $v"
+h=$(git show "$rel:pipeline/CHANGELOG.md" | grep -m1 '^## ' | tr -d '\r')
+[ "$h" = "## [1.3.0] - 2026-10-01" ] || fail "S12 release commit $rel has heading: $h"
+echo "S12 ok (the tag goes on $rel)"
 echo "ALL OK"
 ```
