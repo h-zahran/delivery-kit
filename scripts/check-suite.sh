@@ -25,9 +25,10 @@
 # specs/023-gate-reads-whole-changelog/contracts/check-suite.md). A tagged line
 # holds only its refusal, so the quickstart can delete one rule at a time and
 # require the suite's test of this file to go red naming that rule. Reading,
-# classifying and counting sit on untagged lines for the same reason. K11 is
-# the one exception: its line is the CR strip, a reading step, because that
-# strip is the whole rule.
+# classifying and counting sit on untagged lines for the same reason. Two
+# exceptions: K11's line is the CR strip, a reading step, because that strip
+# is the whole rule; and K3 has a second, untagged refusal, the last line of
+# this file (see the note there).
 #
 # Written for bash 3.2 as well as 5: macOS may run the system bash. No message
 # prints the file's path, which can carry a user name and reach a public log.
@@ -55,10 +56,10 @@ if [ ! -f "$2" ] || [ ! -r "$2" ]; then die "the TAP file does not exist or cann
 # shaped `name=value` as a variable assignment, so a file called `e=2` would
 # be skipped and stdin judged in its place. Reading stdin, awk never learns
 # the file's name. The shell does: when it cannot open the file for the
-# redirect, its own error names the file by its full path, and this script
-# never prints a path. That is why `2>/dev/null` comes before `< "$2"`: the
-# redirections are made in order, so stderr is already discarded when the
-# open fails. Measured on 2026-10-02 against 5943a56: with the order
+# redirect, its own error names the file as it was given — a full path when
+# the caller passes one — and this script never prints a path. That is why
+# `2>/dev/null` comes before `< "$2"`: the redirections are made in order,
+# so stderr is already discarded when the open fails. Measured on 2026-10-02 against 5943a56: with the order
 # reversed the shell printed the full path; in this order, nothing. Anything
 # awk itself prints to stderr is discarded too.
 verdict="$(awk -v BINMODE=3 -v e="$1" '

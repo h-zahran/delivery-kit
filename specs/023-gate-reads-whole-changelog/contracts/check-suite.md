@@ -11,7 +11,7 @@ script reads it and nothing else; it runs from any directory.
 |---|---|---|---|
 | K1 | plan `1..N` on the first non-blank line, N `ok` lines, only comments and blanks besides — read from the named file, never from stdin | 0 | `suite ok: 1..N, N ok, 0 skipped, 0 not ok, 0 non-TAP` |
 | K2 | not exactly two arguments, or `<expected>` not a positive integer | non-zero | `usage` |
-| K3 | the file does not exist, cannot be read, or awk fails while reading it (stderr from the read is discarded: the shell's error when it cannot open the file names the full path) | non-zero | `does not exist` or `cannot be read` |
+| K3 | the file does not exist, cannot be read, or awk fails while reading it (stderr from the read is discarded: the shell's error when it cannot open the file names the path as given, a full path when the caller passes one) | non-zero | `does not exist` or `cannot be read` |
 | K4 | the file is empty, or holds only blank lines | non-zero | `empty` |
 | K5 | the first non-blank line is not `1..<expected>` | non-zero | `plan line` |
 | K6 | a second plan line | non-zero | `plan line` |
