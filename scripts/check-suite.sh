@@ -59,9 +59,10 @@ if [ ! -f "$2" ] || [ ! -r "$2" ]; then die "the TAP file does not exist or cann
 # redirect, its own error names the file as it was given — a full path when
 # the caller passes one — and this script never prints a path. That is why
 # `2>/dev/null` comes before `< "$2"`: the redirections are made in order,
-# so stderr is already discarded when the open fails. Measured on 2026-10-02 against 5943a56: with the order
-# reversed the shell printed the full path; in this order, nothing. Anything
-# awk itself prints to stderr is discarded too.
+# so stderr is already discarded when the open fails. Measured on
+# 2026-10-02 against 5943a56: with the order reversed the shell printed the
+# full path; in this order, nothing. Anything awk itself prints to stderr is
+# discarded too.
 verdict="$(awk -v BINMODE=3 -v e="$1" '
   { sub(/\r$/, "") }  # K11
   /^[[:space:]]*$/ { next }
