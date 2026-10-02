@@ -1438,26 +1438,30 @@ normalise_to_released() {
   # G2's other half: the quoted line lands in a public CI log, so every byte
   # in it that is not printable is shown as `?`. Every plant above is
   # printable, so without this one the replacement could be deleted and the
-  # suite stay green. ESC is the byte a terminal acts on. Appended, not
-  # inserted: the last line of the file is below the release too, and this
-  # keeps one more copy of the dated pattern out of the test.
-  esc="$(printf '\033')"
-  plant="## Notes ${esc}[31mred"
-  d="$TEST_DIR/undated-esc"
+  # suite stay green. The byte is STX (\002): a control byte no terminal acts
+  # on, because CI's --print-output-on-failure prints $output raw, and if the
+  # replacement is ever lost the byte reaches the log. Not ESC, which a
+  # terminal acts on, and not \001, which bash uses internally and which old
+  # bash mishandles in patterns. Appended, not inserted: the last line of the
+  # file is below the release too, and this keeps one more copy of the dated
+  # pattern out of the test.
+  ctl="$(printf '\002')"
+  plant="## Notes ${ctl}red"
+  d="$TEST_DIR/undated-ctl"
   cp -r "$base" "$d"
   printf '\n%s\n' "$plant" >> "$d/$copied/CHANGELOG.md"
   [ "$(grep -c -x -F -- "$plant" "$d/$copied/CHANGELOG.md")" -eq 1 ] \
-    || { echo "fixture: the ESC plant did not land exactly once in the $copied copy"; false; }
+    || { echo "fixture: the control-byte plant did not land exactly once in the $copied copy"; false; }
   line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
   run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
   [ "$status" -ne 0 ] \
-    || { echo "G1: --released accepted $copied with an ESC heading at line $line. output: $output"; false; }
+    || { echo "G1: --released accepted $copied with a control byte in a heading at line $line. output: ${output//$ctl/<STX>}"; false; }
   case "$output" in
-    *"line $line holds '## Notes ?[31mred'"*) ;;
-    *) echo "G2: the refusal does not show the ESC at line $line as '?'. output, ESC written as <ESC>: ${output//$esc/<ESC>}"; false ;;
+    *"line $line holds '## Notes ?red'"*) ;;
+    *) echo "G2: the refusal does not show the control byte at line $line as '?'. output, the byte written as <STX>: ${output//$ctl/<STX>}"; false ;;
   esac
   case "$output" in
-    *"$esc"*) echo "G2: the refusal carries the raw ESC byte into the log"; false ;;
+    *"$ctl"*) echo "G2: the refusal carries the raw control byte into the log"; false ;;
   esac
 
   # Only the plugin being released is judged: an undated heading in the OTHER
