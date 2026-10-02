@@ -1213,11 +1213,27 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # such line would redden a correct tree.
 # ---------------------------------------------------------------------------
 
-# Put every changelog under <dir> into a RELEASED state: drop each line
-# beginning `## ` that is not a dated version heading, which is exactly what
-# --released refuses (contract G1). Removing one spelling, `## [Unreleased]`,
-# was not enough once the gate judged every `## ` line: a live `## Notes`
-# would have survived into the fixture and reddened a correct tree.
+# Put every changelog under <dir> into a RELEASED state: drop every line
+# that could be, or could start or end, a level-2 heading the release form
+# refuses. Removing one spelling, `## [Unreleased]`, was not enough once the
+# gate judged every `## ` line, and removing every line beginning `## ` was
+# not enough once it judged every heading form: a live `> ## Notes`, a
+# setext underline or an unclosed fence would survive into the fixture and
+# redden a correct tree.
+#
+# The rule is WIDER than the gate's, never narrower, so whatever the gate
+# refuses this has removed: from a copy of each line it strips, one at a
+# time and again and again, leading spaces and tabs, `>` markers and list
+# markers, and tests the line before the first strip and after every one.
+# A line is dropped when any of those forms is a fence line (three
+# backticks or tildes), a run of `-` (an underline), or `##` then a space, a
+# tab or the end, unless the raw line is a dated heading. Testing between
+# strips matters: a bare `-` is an underline, and stripping it as a list
+# marker would leave an empty string that is kept. The rule keeps NO state:
+# it never asks whether a fence or a list item is open, because a fixture
+# that tracked that would be a second copy of the gate's walk. Dropping
+# every fence line leaves no fence open, and dropping every `##` line at
+# any depth leaves no container or deep line for the gate to find.
 #
 # The dated pattern is the TEST's own, the one the plant steps below use
 # (here in bracket spelling, as it reaches awk as a string), and never read
@@ -1232,8 +1248,29 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # inert there, and the message would be swallowed. Messages name a changelog
 # by its plugin directory, never by a full path.
 normalise_to_released() {
-  local re f name counts
+  local re f name counts prog
   re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
+  # One program, two modes. Without CHECK it prints the lines it keeps; with
+  # CHECK=1 it prints "<dated> <wide>": the dated headings, and the other
+  # lines the wide test still matches. No `$` inside a group, and no
+  # interval expression, for the awks CI runs.
+  prog='
+    function wide(s) {
+      return s ~ /^```/ || s ~ /^~~~/ || s ~ /^-+[ \t]*$/ || s ~ /^##$/ || s ~ /^##[ \t]/
+    }
+    function hit(s) {
+      if (wide(s)) return 1
+      for (;;) {
+        if (!sub(/^[ \t]/, "", s) && !sub(/^>[ \t]?/, "", s) \
+            && !sub(/^([-*+]|[0-9]+[.)])[ \t]/, "", s) && !sub(/^([-*+]|[0-9]+[.)])$/, "", s)) return 0
+        if (wide(s)) return 1
+      }
+    }
+    { dated = ($0 ~ ENVIRON["DATED_RE"]) }
+    CHECK { if (dated) d++; else if (hit($0)) u++; next }
+    dated || !hit($0) { print }
+    END { if (CHECK) print d+0 " " u+0 }
+  '
   # The pattern must separate the two kinds before it may judge anything: one
   # that matched every heading would remove nothing and leave the guard below
   # green on a fixture that is not released.
@@ -1243,17 +1280,18 @@ normalise_to_released() {
   for f in "$1"/*/CHANGELOG.md; do
     name="${f#"$1"/}"
     [ -f "$f" ] || { echo "fixture: no changelog in the fixture"; return 1; }
-    DATED_RE="$re" awk '/^## / && $0 !~ ENVIRON["DATED_RE"] { next } { print }' "$f" > "$f.norm" \
+    DATED_RE="$re" awk "$prog" "$f" > "$f.norm" \
       || { echo "fixture: awk could not normalise $name"; return 1; }
     mv "$f.norm" "$f"
-    # The state, not the act: released means no undated `## ` line is left
-    # AND a dated one still is. A pattern that matched nothing would have
-    # deleted every heading; the second half catches that.
-    counts="$(DATED_RE="$re" awk '/^## / { if ($0 ~ ENVIRON["DATED_RE"]) d++; else u++ } END { print d+0 " " u+0 }' "$f")"
+    # The state, not the act: released means no line but a dated heading is
+    # left that the wide test matches, AND a dated heading still is. A rule
+    # that matched everything would have deleted every heading; the second
+    # half catches that.
+    counts="$(DATED_RE="$re" awk -v CHECK=1 "$prog" "$f")"
     case "$counts" in
       "0 "*) echo "fixture: $name holds no dated version heading after normalising"; return 1 ;;
       *" 0") ;;
-      *) echo "fixture: $name still holds an undated '## ' line after normalising ($counts)"; return 1 ;;
+      *) echo "fixture: $name still holds a heading, underline or fence line after normalising ($counts)"; return 1 ;;
     esac
   done
 }
