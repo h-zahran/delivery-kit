@@ -225,25 +225,140 @@ for dir in */; do
       || die "$p: '$first' sits above the released heading '$head' — this tree is NOT released"
 
     # The comparison above reads only the FIRST level-2 heading, so a heading
-    # left lower in the file was invisible to it: an `## [Unreleased]` below
-    # the newest release passed every gate, and the 1.3.0 release caught that
-    # shape only with a one-off quickstart check CI never runs. A released
-    # changelog holds dated version headings and nothing else at level two, so
-    # judge every line beginning `## `, wherever it sits, not one spelling of
-    # one word.
+    # left lower in the file was invisible to it. A released changelog holds
+    # dated version headings and nothing else at level two, so the whole file
+    # is read, line by line, the way Markdown reads it, far enough to know
+    # every level-2 heading: `##` after a tab, an indent or nothing at all;
+    # a text line underlined with `-`; either one inside a quote or a list
+    # item, or deep in a list item's continuation. A fence that never closes,
+    # or whose end depends on a container, could hide one, so it is refused
+    # too.
+    #
+    # The walk keeps three things from line to line: an open fence (with the
+    # text before its fence characters, which every line inside must carry),
+    # whether a list item can be open, and the previous line. It does not
+    # follow Markdown's every rule. Each place it cuts a corner, it cuts toward
+    # refusing: a wrong refusal fails closed and the changelog is fixed, while
+    # a wrong pass would ship an open heading in a release. So while any list
+    # item can be open every deep `##` is judged, a `-` under any text line is
+    # an underline, and a fence is followed only while its shape is clean.
+    # specs/024-gate-every-heading-form/research.md R2 gives the steps.
     #
     # awk, not a `grep -v` pipeline: under pipefail a `grep -v` that selects
     # nothing exits 1, and the assignment would abort this script with no
     # message on exactly the input that is correct. awk exits 0 either way.
     # The pattern reaches awk through the environment, not -v, which would
-    # process escapes in it. The quoted heading is a line from a tracked file
-    # and lands in a public CI log, so every character that is not printable —
-    # an escape sequence, a form feed, a stray CR — is shown as `?`.
-    undated="$(DATED_RE="$dated_re" awk '
-      /^## / && $0 !~ ENVIRON["DATED_RE"] { t = $0; gsub(/[^[:print:]]/, "?", t); print "line " NR " holds \047" t "\047"; exit }
+    # process escapes in it. A quoted line comes from a tracked file and lands
+    # in a public CI log, so every character that is not printable — a tab,
+    # an escape sequence, a stray CR — is shown as `?`. No interval
+    # expressions: indents are counted, not matched.
+    refusal="$(DATED_RE="$dated_re" awk '
+      function expand(s,   o, i, c, col) {
+        o = ""; col = 0
+        for (i = 1; i <= length(s); i++) {
+          c = substr(s, i, 1)
+          if (c == "\t") { do { o = o " "; col++ } while (col % 4 != 0) }
+          else { o = o c; col++ }
+        }
+        return o
+      }
+      function lead(s,   i) { i = 1; while (substr(s, i, 1) == " ") i++; return i - 1 }
+      function run(s, ch,   i) { i = 1; while (substr(s, i, 1) == ch) i++; return i - 1 }
+      function rtrim(s) { sub(/ +$/, "", s); return s }
+      function show(s) { gsub(/[^[:print:]]/, "?", s); return s }
+      function cont(s,   o, i) {
+        o = ""
+        for (i = 1; i <= length(s); i++) o = o (substr(s, i, 1) == ">" ? ">" : " ")
+        return o
+      }
+      function atx(s,   k) { k = run(s, "#"); return k >= 1 && k <= 6 && (length(s) == k || substr(s, k + 1, 1) == " ") }
+      function closer(s,   k) { k = run(s, fch); return k >= flen && substr(s, k + 1) ~ /^ *$/ }
+      function refuse(msg) { print msg; refused = 1; exit }
+      BEGIN { prev = "blank" }
+      {
+        line = expand($0)
+
+        # An open fence: every line inside must carry the opener prefix.
+        if (fenced) {
+          if (substr(line, 1, length(fpre)) == fpre && closer(substr(line, length(fpre) + 1)) && run(substr(line, length(fpre) + 1), fch) > 0) {
+            fenced = 0; prev = "other"; next
+          }
+          if (line ~ /^[ >]*$/) {
+            if (rtrim(line) == rtrim(fpre)) next
+          } else if (substr(line, 1, length(fpre)) == fpre) {
+            r = substr(line, length(fpre) + 1)
+            r = substr(r, lead(r) + 1)
+            if (!(substr(r, 1, 1) == fch && closer(r))) next
+          }
+          refuse("the code fence opened at line " fnr " may already have ended at line " NR ", which holds \047" show($0) "\047")
+        }
+
+        # Quote markers, then what is left of the line.
+        t = line; depth = 0
+        while (substr(t, lead(t) + 1, 1) == ">") {
+          t = substr(t, lead(t) + 2)
+          if (substr(t, 1, 1) == " ") t = substr(t, 2)
+          depth++
+        }
+        ind = lead(t)
+        text = substr(t, ind + 1)
+        blank = (line ~ /^[ >]*$/)
+
+        # An unindented line ends every list item: after a blank line, or
+        # when it starts a heading or a fence. Straight after item text, a
+        # plain line is a lazy continuation and does not.
+        if (depth == 0 && ind == 0 && !blank && text !~ /^([-*+]|[0-9]+[.)])( |$)/) {
+          fc = substr(text, 1, 1)
+          if (prev == "blank" || atx(text) || ((fc == "`" || fc == "~") && run(text, fc) >= 3)) listed = 0
+        }
+
+        # A setext underline: the previous text line is a heading. Checked
+        # before list markers come off: a bare `-` here is an underline.
+        if (text ~ /^-+ *$/ && prev == "text")
+          refuse("line " pnr " holds \047" show(praw) "\047, underlined at line " NR)
+
+        # List markers and quote markers, in any order.
+        rest = text; marked = 0
+        while (1) {
+          r = substr(rest, lead(rest) + 1)
+          if (match(r, /^([-*+]|[0-9]+[.)])( |$)/)) { rest = substr(r, RLENGTH + 1); marked = 1; continue }
+          if (substr(r, 1, 1) == ">") {
+            rest = substr(r, 2)
+            if (substr(rest, 1, 1) == " ") rest = substr(rest, 2)
+            continue
+          }
+          rest = r
+          break
+        }
+        if (marked) listed = 1
+
+        # A fence opener, at any indent.
+        fc = substr(rest, 1, 1)
+        if ((fc == "`" || fc == "~") && run(rest, fc) >= 3 && !(fc == "`" && index(substr(rest, run(rest, fc) + 1), "`"))) {
+          fenced = 1; fch = fc; flen = run(rest, fc)
+          fpre = cont(substr(line, 1, length(line) - length(rest)))
+          fnr = NR; ftext = $0; prev = "other"; next
+        }
+
+        # Indented code, when no list item can be open to claim the line.
+        if (ind >= 4 && !marked && !listed) { prev = "text"; praw = $0; pnr = NR; next }
+
+        # An ATX level-2 heading, in any container.
+        if (rest ~ /^##( |$)/ && $0 !~ ENVIRON["DATED_RE"])
+          refuse("line " NR " holds \047" show($0) "\047, which is not a dated version heading")
+
+        if (blank) prev = "blank"
+        else if (atx(rest) || text ~ /^-+ *$/) prev = "other"
+        else prev = "text"
+        praw = $0; pnr = NR
+      }
+      END {
+        if (fenced && !refused)
+          print "line " fnr " opens a code fence that is never closed: \047" show(ftext) "\047"
+      }
     ' "./$p/CHANGELOG.md")"
-    [ -z "$undated" ] \
-      || die "$p: $undated, which is not a dated version heading — this tree is NOT released"
+    [ -z "$refusal" ] \
+      || die "$p: $refusal — this tree is NOT released"
   fi
 done
 
