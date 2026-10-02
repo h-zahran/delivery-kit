@@ -2577,3 +2577,96 @@ G asks the review question (commits or pauses).
 ```
 /pipeline Phase 24: the release gate reads the whole changelog, and one suite check --auto --implementer claude
 ```
+
+**Correction, 2026-10-02.** "Since 1.2.0" above, twice (the C4 measurement
+and requirement 3), is one release early. The tag run's `--released` call is
+commit `f5e4090`, first shipped in pipeline 1.2.1 and handoff 2.2.0. The
+run found this in its piece 3, and the feature's own files say 1.2.1 / 2.2.0.
+The seed above is left as written. **Outcome:** merged as PR #53, `main` =
+`8bc9b5a`. Two follow-ups were left: this correction, and Phase 25.
+
+## Phase 25: the release gate reads every level-2 heading form
+
+Phase 24 made `--released` judge every line beginning `## `. Its deep review
+found the other ways Markdown writes a level-2 heading, and left them for a
+later decision (`specs/023-gate-reads-whole-changelog/research.md`, R7).
+The owner's ruling (2026-10-02): **judge every Markdown form.** Like Phase 24,
+this phase changes nothing inside a plugin, so **no plugin release follows
+it**.
+
+Measured 2026-10-02 at `main` = `8bc9b5a`:
+
+- `scripts/check-versions.sh:243`, the whole-file rule, matches `/^## /`
+  only. CommonMark also renders each of these as a level-2 heading, and each
+  passes `--released`. Measured by appending each one below the release in
+  a scratch copy of `handoff/CHANGELOG.md`: each exits 0, while a plain
+  `## Notes` control exits 1.
+  - `##` followed by a tab;
+  - `##` indented by one to three spaces;
+  - `##` with nothing after it (an empty heading);
+  - a setext heading: a paragraph line, then a line of `-` characters.
+- A `## ` line inside a fenced code block is not a heading, but today's rule
+  would refuse it. `handoff/CHANGELOG.md` holds one fenced block (lines
+  316-319) with no `## ` line in it, so nothing is refused wrongly today.
+- Neither changelog holds a tab, indented or empty `##` heading, or any line
+  made only of `-` or `=` characters.
+
+**Requirements:**
+
+1. **`--released <plugin>` refuses every level-2 heading that is not a
+   dated version heading, in every Markdown form.** That means ATX (`##`
+   then a space, a tab or the end of the line, indented zero to three
+   spaces, with an optional closing run of `#`) and setext (a paragraph
+   line followed by an underline of `-` characters, indented zero to three
+   spaces). Only the canonical dated form the gate reads today counts as
+   dated. Any other form is refused, even one carrying a version and a date.
+   The refusal names the line and its text, with non-printable characters
+   shown as `?`, as today.
+2. **What is not a heading is never judged:** a line inside a fenced code
+   block (backticks or tildes, indented zero to three spaces); a line
+   indented four or more spaces; and a `-` line with no paragraph line
+   directly above it (a thematic break, e.g. after a blank line). The
+   owner's ruling on doubt: a wrong refusal is acceptable, because it fails
+   closed and the owner fixes the changelog. A wrong pass is not.
+3. **Nothing else moves.** The default run (no argument) keeps its output
+   and status. The first-heading message (Phase 24 contract G3) stays. CI
+   and the suite still call the one script, and the "one version-agreement
+   script" test stays green unchanged.
+4. **The test fixtures keep their own baseline.** `normalise_to_released`
+   in `tests/portability.bats` removes undated `## ` lines only. It must
+   remove every heading form requirement 1 refuses, or a live changelog
+   holding one would turn the `--released` tests red on a correct tree. The
+   fixture keeps its own copy of any pattern: it never reads one from the
+   gate.
+
+**Acceptance criteria:**
+
+- A test plants each new shape BELOW the release in a fixture: `##` plus a
+  tab; `##` indented one space and three spaces; an empty `##`; `## Notes ##`;
+  a setext heading; and a dated heading indented one space. `--released`
+  refuses each one, naming its line, and the default run still exits 0.
+- The same test's negative controls are NOT refused: a `## ` line inside a
+  fenced block below the release; a `---` line after a blank line; and a
+  `## ` line indented four spaces.
+- A mutant that puts back the gate of `8bc9b5a` turns that test red, naming
+  its clause. Confirm the mutation landed before believing the red.
+- The feature quickstart, run as one script, ends ALL OK.
+- Full house suite from the repo root: `1..243` (242 at `8bc9b5a`, plus one
+  test), 243 ok, judged by `bash scripts/check-suite.sh 243`.
+- CI green on all three operating systems. Confirm a run EXISTS before
+  reading its result.
+
+**Constraints:** the Campaign 3 Global Constraints apply, including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` is on the shipped root surface: STRICT
+vocabulary, no machine path, no count in prose. Bash 3.2 and every awk
+(gawk, mawk, the BSD awk on macOS); no interval expressions in awk
+patterns. **Changelog routing: none.** This run uses the INSTALLED pipeline
+1.3.0, so G asks the review question (commits or pauses).
+
+**Invocation:**
+
+```
+/pipeline Phase 25: the release gate reads every level-2 heading form --auto --implementer claude
+```
