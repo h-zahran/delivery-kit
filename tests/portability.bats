@@ -1476,6 +1476,328 @@ normalise_to_released() {
     || { echo "G6: --released $copied refused because of $other's changelog. output: $output"; false; }
 }
 
+# ---------------------------------------------------------------------------
+# Every level-2 heading form (specs/024-gate-every-heading-form/).
+#
+# The test above judges lines beginning `## `. Markdown writes a level-2
+# heading other ways too, and each rendered exactly like `## [Unreleased]`
+# while passing the gate: a tab after `##`, an indent, no text, an
+# underline, a quote or a list item around it, a deep indent that continues
+# a list item. A fence that never closes, or whose end is unclear, could
+# hide one. The three tests below plant each shape on a fresh copy and
+# require a refusal, then plant what Markdown does NOT read as a heading and
+# require a pass. Every failure names its clause in that feature's
+# contracts/release-form.md (H1-H9).
+#
+# Six tests, not one: about forty gate runs do not fit the suite's
+# per-test timeout with room to spare on a slow machine, and that timeout is
+# set once for every suite (tests/helper.bash) and is not raised for one
+# test. Measured on 2026-10-03 on this branch: split three ways, the
+# largest part took about 21 s, and split four and five ways about 17 s,
+# above the suite's slowest test; so the parts follow the contract's
+# clauses until none is slower than the tests already here. Each plant still runs the gate on its own copy, so a red names the
+# plant that caused it.
+#
+# The helpers below share state through these names: base (the released
+# fixture), copied (the judged plugin), other (a second plugin, when the
+# fixture holds one), d (the copy a plant went into), n (a plant counter)
+# and line (set by forms_at). Each fails with an echo and an explicit
+# `return 1`, so call each on its own line at the top level of a test,
+# never under `if`, `||` or `$(...)`, where errexit is inert.
+# ---------------------------------------------------------------------------
+
+# forms_base <one|two>: build a released fixture under $TEST_DIR. With `one`
+# it holds the first marketplace plugin only, behind a marketplace listing
+# just that entry, which halves the time of every gate run; with `two` it
+# holds the first two, for the test that a second plugin is not judged.
+forms_base() {
+  local src p i=0
+  base="$TEST_DIR/forms-base"
+  copied=""
+  other=""
+  # Never reset: a rebuilt base must not send the next plant into a copy
+  # directory that already exists, where cp -r would nest it.
+  : "${n:=0}"
+  mkdir -p "$base/.claude-plugin"
+  while IFS= read -r src; do
+    src="${src%$'\r'}"
+    p="${src#./}"; p="${p%/}"
+    i=$((i + 1))
+    if [ "$i" = "1" ]; then copied="$p"
+    elif [ "$i" = "2" ] && [ "$1" = "two" ]; then other="$p"
+    else continue
+    fi
+    mkdir -p "$base/$p/.claude-plugin"
+    cp "$p/.claude-plugin/plugin.json" "$base/$p/.claude-plugin/plugin.json"
+    cp "$p/CHANGELOG.md" "$base/$p/CHANGELOG.md"
+  done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
+  [ -n "$copied" ] || { echo "fixture: the marketplace names no plugin"; return 1; }
+  if [ "$1" = "two" ]; then
+    [ -n "$other" ] || { echo "fixture: two plugins are needed, one judged and one not"; return 1; }
+    cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+  else
+    # By position, not by name: the first entry is the one `copied` came
+    # from, and a by-name selection here is the marker the "one
+    # version-agreement script" test refuses outside the gate.
+    jq '.plugins |= .[:1]' .claude-plugin/marketplace.json \
+      > "$base/.claude-plugin/marketplace.json" \
+      || { echo "fixture: could not write a one-plugin marketplace"; return 1; }
+  fi
+  normalise_to_released "$base" || return 1
+  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; return 1; }
+}
+
+# forms_put <line>...: a fresh copy of the base, with the lines appended to
+# the judged plugin's changelog after `Plain text.` and a blank line. That
+# unindented paragraph ends the list item the real changelog closes on, so
+# no plant's reading depends on the line before it. Sets d.
+forms_put() {
+  n=$((n + 1))
+  d="$TEST_DIR/forms-$n"
+  cp -r "$base" "$d"
+  { printf '\nPlain text.\n\n'; printf '%s\n' "$@"; } >> "$d/$copied/CHANGELOG.md"
+}
+
+# forms_at <raw line>: sets line to that line's number in the copy, which
+# must hold it exactly once.
+forms_at() {
+  local c
+  c="$(grep -c -x -F -- "$1" "$d/$copied/CHANGELOG.md")"
+  [ "$c" = "1" ] || { echo "fixture: the $copied copy holds '$1' $c times, not once"; return 1; }
+  line="$(grep -n -x -F -- "$1" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
+}
+
+# forms_refused <clause> <fragment>...: --released refuses the copy, saying
+# `is NOT released` and every fragment, and printing no absolute path (H9).
+forms_refused() {
+  local id=$1 f
+  shift
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -ne 0 ] \
+    || { echo "$id: --released accepted the plant. output: $output"; return 1; }
+  case "$output" in
+    *"is NOT released"*) ;;
+    *) echo "$id: --released refused, but not as an unreleased tree. output: $output"; return 1 ;;
+  esac
+  for f in "$@"; do
+    case "$output" in
+      *"$f"*) ;;
+      *) echo "$id: the refusal does not say \"$f\". output: $output"; return 1 ;;
+    esac
+  done
+  case "$output" in
+    *"$TEST_DIR"*|*"$ROOT"*) echo "H9: ($id plant) the refusal prints an absolute path. output: $output"; return 1 ;;
+  esac
+}
+
+# forms_unclear <opener> <unclear line>: the fence is refused at the unclear
+# line, naming the opener's line and that line with its text.
+forms_unclear() {
+  local open
+  forms_at "$1" || return 1
+  open=$line
+  forms_at "$2" || return 1
+  forms_refused H6 "opened at line $open " "at line $line, which holds '$2'"
+}
+
+# forms_passes <what>: --released accepts the copy.
+forms_passes() {
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "H7: --released refused $1, which Markdown does not read as a heading. output: $output"; return 1; }
+}
+
+# forms_default: the default form passes the copy and still reports the
+# judged plugin as released (H8). One copy holds every refused plant of a
+# test, each after its own `Plain text.`, so one run covers them all.
+forms_default() {
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -eq 0 ] \
+    || { echo "H8: the default run failed on the refused plants; the default form must not change. output: $output"; return 1; }
+  printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
+    || { echo "H8: the default run's line for $copied does not say state=released. output: $output"; return 1; }
+}
+
+@test "--released refuses every bare level-2 heading form" {
+  cd "$ROOT"
+  forms_base one
+  tab="$(printf '\t')"
+
+  # H1: ATX forms. A tab is quoted as `?`, like every non-printable byte.
+  forms_put "##${tab}Notes"
+  forms_at "##${tab}Notes"
+  forms_refused H1 "line $line holds '##?Notes'"
+  for raw in ' ## Notes' '   ## Notes' '##' '## Notes ##'; do
+    forms_put "$raw"
+    forms_at "$raw"
+    forms_refused H1 "line $line holds '$raw'"
+  done
+
+  # H2: a version heading counts as dated only in its canonical form.
+  forms_put ' ## [1.0.0] - 2026-01-01'
+  forms_at ' ## [1.0.0] - 2026-01-01'
+  forms_refused H2 "line $line holds ' ## [1.0.0] - 2026-01-01'"
+
+  # H3: a setext heading is named by its text line.
+  forms_put 'Notes' '---'
+  forms_at 'Notes'
+  forms_refused H3 "line $line holds 'Notes', underlined at line $((line + 1))"
+
+  # H8: the default form passes a copy holding every plant above.
+  forms_put "##${tab}Notes" '' 'Plain text.' '' ' ## [1.0.0] - 2026-01-01' '' 'Plain text.' '' \
+    'Notes' '---'
+  forms_default
+}
+
+@test "--released refuses a level-2 heading inside a quote or a list item" {
+  cd "$ROOT"
+  forms_base one
+
+  # H4: quotes and list items, in either order.
+  for raw in '> ## Notes' '>## Notes' '- ## Notes' '* ## Notes' '+ ## Notes' \
+             '1. ## Notes' '1) ## Notes' '- > ## Notes' '1. > ## Notes'; do
+    forms_put "$raw"
+    forms_at "$raw"
+    forms_refused H4 "line $line holds '$raw'"
+  done
+  forms_put '> Notes' '> ---'
+  forms_at '> Notes'
+  forms_refused H4 "line $line holds '> Notes', underlined at line $((line + 1))"
+  forms_put '- Notes' '  ---'
+  forms_at '- Notes'
+  forms_refused H4 "line $line holds '- Notes', underlined at line $((line + 1))"
+
+  # H8: the default form passes a copy holding these plants.
+  forms_put '- > ## Notes' '' 'Plain text.' '' '- Notes' '  ---'
+  forms_default
+}
+
+@test "--released judges a deep line while a list item can be open" {
+  cd "$ROOT"
+  forms_base one
+
+  # H5: while a list item can be open, a deep line is judged.
+  forms_put '- item' '' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
+  forms_put '- item' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
+  forms_put '- a' '  - b' '' '  c' '' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
+  forms_put '-' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
+
+  # H8: the default form passes a copy holding these plants.
+  forms_put '- item' '' '    ## Notes' '' 'Plain text.' '' '- a' '  - b' '' '  c' '' '    ## Notes'
+  forms_default
+}
+
+@test "--released refuses a code fence that never closes" {
+  cd "$ROOT"
+  forms_base one
+  bt='```'
+  tl='~~~'
+
+  # H6: an unclosed fence, backticks and tildes.
+  forms_put "$bt" 'unclosed'
+  forms_at "$bt"
+  forms_refused H6 "line $line opens a code fence that is never closed: '$bt'"
+  forms_put "$tl" 'unclosed'
+  forms_at "$tl"
+  forms_refused H6 "line $line opens a code fence that is never closed: '$tl'"
+
+  # H6, one refusal: a heading refused before an unclosed fence is the only
+  # report, once.
+  forms_put '## Notes' '' "$bt" 'unclosed'
+  forms_at '## Notes'
+  forms_refused H6 "line $line holds '## Notes'"
+  [ "$(printf '%s\n' "$output" | grep -c 'is NOT released')" = "1" ] \
+    || { echo "H6: the refusal is not reported exactly once. output: $output"; false; }
+  case "$output" in
+    *"never closed"*) echo "H6: an open fence was reported after a heading was already refused. output: $output"; false ;;
+  esac
+
+  # H8: the default form passes a copy holding an unclosed fence.
+  forms_put '## Notes' '' "$bt" 'unclosed'
+  forms_default
+}
+
+@test "--released refuses a code fence whose end is unclear" {
+  cd "$ROOT"
+  forms_base one
+  bt='```'
+
+  # H6: a fence whose end is unclear is refused at the first unclear line.
+  forms_put "- $bt" '## Notes'
+  forms_unclear "- $bt" '## Notes'
+  forms_put "   $bt" "$bt"
+  forms_unclear "   $bt" "$bt"
+  forms_put "> $bt" 'x'
+  forms_unclear "> $bt" 'x'
+  forms_put "- $bt" "   $bt"
+  forms_unclear "- $bt" "   $bt"
+  forms_put "    $bt" '## Notes'
+  forms_unclear "    $bt" '## Notes'
+  forms_put '- item' "  > $bt" '> ## Notes'
+  forms_unclear "  > $bt" '> ## Notes'
+  forms_put "- > $bt" '>'
+  forms_unclear "- > $bt" '>'
+  forms_put ">$bt" ">    $bt"
+  forms_unclear ">$bt" ">    $bt"
+
+  # H6: a fence never hides a heading after its clean close.
+  forms_put "$bt" "> $bt" "$bt" '## Notes'
+  forms_at '## Notes'
+  forms_refused H1 "line $line holds '## Notes'"
+
+  # H8: the default form passes a copy holding an unclear fence.
+  forms_put "- $bt" '## Notes'
+  forms_default
+}
+
+@test "--released judges no non-heading, and only the named plugin" {
+  cd "$ROOT"
+  forms_base one
+  tab="$(printf '\t')"
+  bt='```'
+  tl='~~~'
+
+  # H7: what Markdown does not read as a heading passes.
+  forms_put "$bt" '## Notes' "$bt"
+  forms_passes 'a ## line inside a backtick fence'
+  forms_put "$tl" '## Notes' "$tl"
+  forms_passes 'a ## line inside a tilde fence'
+  forms_put '- item' '' "  $bt" '  ## x' "  $bt"
+  forms_passes 'a fence inside a list item'
+  forms_put '---'
+  forms_passes 'a thematic break after a blank line'
+  forms_put '    ## Notes'
+  forms_passes 'a four-space indented ## line with no list item open'
+  forms_put "${tab}## Notes"
+  forms_passes 'a tab-indented ## line with no list item open'
+  forms_put "$bt" '## Notes' "$bt" '' 'Plain text.' '' "$tl" '## Notes' "$tl" '' 'Plain text.' '' \
+    '- item' '' "  $bt" '  ## x' "  $bt" '' 'Plain text.' '' '---' '' 'Plain text.' '' \
+    '    ## Notes' '' 'Plain text.' '' "${tab}## Notes"
+  forms_passes 'every non-heading together'
+
+  # H9: only the plugin being released is judged. This one needs a second
+  # plugin, so the fixture is rebuilt with two.
+  forms_base two
+  d="$TEST_DIR/forms-other"
+  cp -r "$base" "$d"
+  printf '\nPlain text.\n\n##%sNotes\n' "$tab" >> "$d/$other/CHANGELOG.md"
+  [ "$(grep -c -x -F -- "##${tab}Notes" "$d/$other/CHANGELOG.md")" -eq 1 ] \
+    || { echo "fixture: the plant did not land in the $other copy"; false; }
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "H9: --released $copied refused because of $other's changelog. output: $output"; false; }
+}
+
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
   cd "$ROOT"
   # A caller asking for a STRICTER check must never receive a weaker one. With

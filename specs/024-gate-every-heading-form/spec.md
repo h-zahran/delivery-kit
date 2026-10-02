@@ -192,8 +192,8 @@ that copy.
 - **The default run's report**: the `state=` field keeps its meaning; it is
   not widened, because the CI log and an existing test read it.
 - **The "one version-agreement script" test** requires exactly one
-  `run bash <script>.sh` line in `tests/portability.bats`; a new test there
-  calls the gate through `run bash -c`.
+  `run bash <script>.sh` line in `tests/portability.bats`; the new tests
+  there call the gate through `run bash -c`.
 
 ## Requirements *(mandatory)*
 
@@ -254,17 +254,22 @@ that copy.
 - **FR-010**: Only the plugin named by `--released` is judged, and no
   message prints an absolute path.
 - **FR-011**: The default run (no argument) MUST keep its output and exit
-  status, measured on the real tree and on every fixture the new test
-  builds; the first-heading message (Phase 24 contract G3) MUST stay; the
+  status, measured on the real tree and on every fixture the new tests
+  build; the first-heading message (Phase 24 contract G3) MUST stay; the
   gate MUST stay the one script CI and the suite call, and the "one
   version-agreement script" test MUST stay green unchanged.
 - **FR-012**: The suite's released-fixture helper MUST remove every shape
   FR-001 to FR-006 refuse, using its own copy of each pattern, never one
   read from the gate; its rule may be wider than the gate's, never
   narrower.
-- **FR-013**: The house suite MUST grow by exactly one test
-  (`1..242` → `1..243`), which plants every FR-001 to FR-006 shape and
-  every FR-007 negative control. Every changed line under `scripts/` (a
+- **FR-013**: The house suite MUST grow by exactly six tests
+  (`1..242` → `1..248`), which together plant every FR-001 to FR-006 shape
+  and every FR-007 negative control, split by contract clause. (The seed
+  asked for one test. About forty gate runs do not fit the suite's
+  per-test timeout, which is set once for every suite and not raised for
+  one test; measured at H, one test took about 21 s split three ways and
+  13 s at most split six ways, against the suite's slowest test of about
+  15 s. A named departure.) Every changed line under `scripts/` (a
   STRICT surface) MUST avoid the banned vocabulary, machine paths and
   counts in prose, and run under bash 3.2 and the awks the three CI
   systems run, with no interval expressions in awk patterns; no plugin
@@ -289,10 +294,10 @@ that copy.
 - **SC-002**: Every negative control in User Story 2 passes the release form
   (0 wrong refusals on those shapes).
 - **SC-003**: A mutant that puts back the gate of `8bc9b5a` makes the new
-  test fail, naming its clause; the mutation is confirmed to have landed.
+  tests fail, naming a clause; the mutation is confirmed to have landed.
 - **SC-004**: The feature quickstart, run as one script, ends ALL OK.
-- **SC-005**: The house suite reads `1..243`, 243 ok, judged by
-  `scripts/check-suite.sh 243`; CI passes on three operating systems, a run
+- **SC-005**: The house suite reads `1..248`, 248 ok, judged by
+  `scripts/check-suite.sh 248`; CI passes on three operating systems, a run
   confirmed to exist.
 - **SC-006**: The real tree passes both forms of the gate, unchanged from
   `8bc9b5a`.

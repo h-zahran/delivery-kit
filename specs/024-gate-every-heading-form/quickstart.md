@@ -25,7 +25,9 @@ git rev-parse --verify -q "$BASE^{commit}" >/dev/null || fail "base $BASE not fo
 [ -f .claude-plugin/marketplace.json ] || fail "not at the repository root"
 BATS="$HOME/bats/bin/bats"
 [ -f "$BATS" ] || fail "bats not found at the path CONTRIBUTING.md gives"
-NEW='--released refuses every level-2 heading form, and judges no non-heading'
+# The six new tests, one per contract clause group (FR-013). bats reads
+# -f as an extended regular expression over the test name.
+NEW='bare level-2 heading form|inside a quote or a list item|deep line while a list item|code fence that never closes|code fence whose end is unclear|judges no non-heading'
 ```
 
 ## 2. The real tree (H8)
@@ -51,25 +53,25 @@ done
 echo "H8 ok"
 ```
 
-## 3. The new test (H1–H7, H9)
+## 3. The new tests (H1–H7, H9)
 
-The new test is run on its own and its result is read with the suite check:
-plan line, ok count, and no skip, `not ok` or stray line.
+The six new tests are run on their own and their result is read with the
+suite check: plan line, ok count, and no skip, `not ok` or stray line.
 
 ```bash
 t=$(mktemp); CLEANUP+=("$t")
 "$BATS" --print-output-on-failure -f "$NEW" tests/portability.bats > "$t" 2>&1
-bash scripts/check-suite.sh 1 "$t" || { cat "$t"; fail "H1-H7 H9 the new test"; }
-echo "H1-H7 H9 ok (the new test)"
+bash scripts/check-suite.sh 6 "$t" || { cat "$t"; fail "H1-H7 H9 the new tests"; }
+echo "H1-H7 H9 ok (the six new tests)"
 ```
 
 ## 4. The test can go red (mutant)
 
 In a scratch worktree holding this branch's tree, committed or not, the gate
 is put back to its `$BASE` copy, which judges only lines beginning `## `.
-The new test must report `not ok` and name a clause. A red counts only when
-the one selected test reports `not ok 1` AND names the clause: a bats
-crash, an unresolved root or a failed fixture also exit non-zero.
+The new tests must report `not ok` and name a clause. A red counts only
+when a selected test reports `not ok` AND names the clause: a bats crash,
+an unresolved root or a failed fixture also exit non-zero.
 
 ```bash
 mt=$(mktemp -d) && [ -d "$mt" ] || fail "mktemp -d"
@@ -83,8 +85,8 @@ mo=$mt/out.txt
 git show "$BASE:scripts/check-versions.sh" > "$wt/scripts/check-versions.sh"
 cmp -s scripts/check-versions.sh "$wt/scripts/check-versions.sh" && fail "gate mutant did not land"
 (cd "$wt" && "$BATS" -f "$NEW" tests/portability.bats > "$mo" 2>&1)
-grep -q '^not ok 1 ' "$mo" && grep -qE '(^|[^A-Z])H[1-6]:' "$mo" \
-  || { cat "$mo"; fail "the new test did not report an H clause against the base gate"; }
+grep -q '^not ok ' "$mo" && grep -qE '(^|[^A-Z])H[1-6]:' "$mo" \
+  || { cat "$mo"; fail "the new tests did not report an H clause against the base gate"; }
 echo "gate mutant red: $(grep -oE '(^|[^A-Z])H[1-6]:' "$mo" | head -1 | tr -d ' #')"
 git worktree remove --force "$wt" || fail "mutant worktree not removed"
 wt=""
@@ -113,11 +115,11 @@ for p in $plugins; do
     && fail "control: the planted live $p changelog still passes --released, so this block proves nothing"
 done
 fo=$ft/out.txt
-(cd "$wt" && "$BATS" --print-output-on-failure -f '^--released refuses' tests/portability.bats > "$fo" 2>&1)
+(cd "$wt" && "$BATS" --print-output-on-failure -f '^--released (refuses|judges)' tests/portability.bats > "$fo" 2>&1)
 # The expected count comes from the test FILE, not from the run's own plan
 # line: that pins the filter to every test it should select.
-n=$(grep -c '^@test "--released refuses' tests/portability.bats)
-[ "$n" -ge 3 ] || fail "control: expected at least three '--released refuses' tests in the file, found $n"
+n=$(grep -cE '^@test "--released (refuses|judges)' tests/portability.bats)
+[ "$n" -ge 9 ] || fail "control: expected at least nine '--released' tests in the file, found $n"
 bash scripts/check-suite.sh "$n" "$fo" || { cat "$fo"; fail "FR-012 a --released test reddened on a correct tree, or the filter selected a different set"; }
 git worktree remove --force "$wt" || fail "fixture worktree not removed"
 wt=""
@@ -149,7 +151,7 @@ echo "FR-013 ok (no count in prose is a review check, not a script check)"
 tap=$(mktemp)
 "$BATS" -r --print-output-on-failure tests handoff/tests pipeline/tests > "$tap" 2>&1
 rc=$?
-bash scripts/check-suite.sh 243 "$tap" || fail "SC-005 suite (rc $rc, TAP kept at $tap)"
+bash scripts/check-suite.sh 248 "$tap" || fail "SC-005 suite (rc $rc, TAP kept at $tap)"
 [ "$rc" = "0" ] || fail "SC-005 bats exited $rc although every line passed"
 rm -f "$tap"
 echo "SC-005 ok"
