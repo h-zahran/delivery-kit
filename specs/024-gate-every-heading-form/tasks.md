@@ -54,7 +54,7 @@ runs exactly six tests, and they pass.
 
 ## Phase 3: Polish
 
-- [ ] T006 Run the whole of `quickstart.md` (blocks 1–7) as one extracted script with `bash`, in the background or with a timeout of at least 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red naming an H clause and SC-005 read by `scripts/check-suite.sh 248`.
+- [X] T006 Run the whole of `quickstart.md` (blocks 1–7) as one extracted script with `bash`, in the background or with a timeout of at least 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red naming an H clause and SC-005 read by `scripts/check-suite.sh 248`.
 
 ---
 
