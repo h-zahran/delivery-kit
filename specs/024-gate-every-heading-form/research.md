@@ -78,7 +78,10 @@ since `8bc9b5a`: `git diff 8bc9b5a 33c972b -- scripts tests` is empty).
      item.
   7. **Fence opener.** Text (after spaces) of three or more backticks with
      no further backtick, or three or more tildes, opens a fence, at ANY
-     indent: record its character, length, prefix and continuation prefix
+     indent, unless Markdown might not open it: on an ordered list marker
+     other than `1`, or below any line that started with `<` after its
+     containers, the opener is refused instead (added at phase I, when
+     review passed a heading under each). Otherwise: record its character, length, prefix and continuation prefix
      (step 3), and its line and text. The line is not judged. An opener
      indented four or more columns is indented code to CommonMark; reading
      it as a fence is safe, because step 3 refuses any later line that
@@ -116,7 +119,8 @@ since `8bc9b5a`: `git diff 8bc9b5a 33c972b -- scripts tests` is empty).
 
 - **Decision**: every simplification errs toward refusing. While any list
   item can be open, every deeply indented `##` is judged (FR-006). HTML
-  blocks are not tracked. A `---` directly under any text line, a list
+  blocks are not tracked, so any fence opener below a line starting with
+  `<` is refused (step 7). A `---` directly under any text line, a list
   item's included, is read as an underline. Where a fence's end depends on
   a container, the walk refuses the first unclear line instead of guessing.
 - **Rationale**: the owner's ruling (spec, Clarifications and FR-007): a
@@ -193,6 +197,10 @@ since `8bc9b5a`: `git diff 8bc9b5a 33c972b -- scripts tests` is empty).
     '<text>'`;
   - unclear fence (step 3): `the code fence opened at line <n> may already
     have ended at line <m>, which holds '<text>'` (the opener first, so a
-    blank unclear line still names something to edit).
+    blank unclear line still names something to edit);
+  - an opener Markdown might not open (step 7): `line <n> opens a code
+    fence on an ordered list marker other than 1, which may not start a
+    list: '<text>'`, or `line <n> opens a code fence that the HTML at line
+    <m> may hold: '<text>'`.
 - **Rationale**: one message shape per kind; the line a maintainer must
   edit is the one named, with its text (FR-008).

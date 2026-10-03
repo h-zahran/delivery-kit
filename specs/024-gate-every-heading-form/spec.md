@@ -167,7 +167,10 @@ that copy.
   underline.
 - **HTML blocks** are not tracked: a `##` line inside one (for example
   inside `<details>`) is judged. That is a wrong refusal at worst, which the
-  owner's ruling accepts.
+  owner's ruling accepts. The other direction is not safe: a fence line
+  inside an HTML block is not a fence, and following it would skip a real
+  heading below, so any fence opener below a `<` line is refused (FR-007).
+  Neither changelog holds a line that starts with `<`.
 - **Level 1 and level 3**: `#`, `###` and deeper, and a `=` underline (setext
   level 1), are not level-2 headings and are not judged.
 - **A tab as indentation**: a tab before `##` reaches column 4, which is
@@ -249,7 +252,13 @@ that copy.
   prefix then the fence, with no other line inside shaped like a closer.
   At the first line that breaks this,
   it MUST refuse, naming the opener's line and that line with its text,
-  rather than guess where the fence ended.
+  rather than guess where the fence ended. The gate MUST also refuse a
+  fence opener Markdown might not open, naming its line and text, because
+  following it would skip what Markdown reads as headings: an opener on an
+  ordered list marker other than `1` (which may not start a list after a
+  text line), and any opener below a line that starts with `<` after its
+  containers (an HTML block may hold it, and some run past a blank line).
+  Review at phase I found a heading passing under each.
 - **FR-008**: Every refusal MUST name the line number and the line's text,
   every non-printable character shown as `?` (a tab included), and say the
   tree is not released. An ATX refusal reads
