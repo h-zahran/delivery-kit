@@ -162,9 +162,9 @@ that copy.
 - **Setext doubt**: a line of `-` directly under a list item, a quote line or
   another heading is a thematic break in Markdown, not an underline. Under
   the owner's ruling a wrong refusal is acceptable where reading the line
-  needs more than its neighbour, so the release form may treat any `-` line
-  directly under a non-blank text line outside a fence as a setext
-  underline.
+  needs more than its neighbour, so the release form treats any `-` line
+  directly under any non-blank line outside a fence (a heading and a fence
+  closer included, FR-002) as a setext underline.
 - **HTML blocks** are not tracked: a `##` line inside one (for example
   inside `<details>`) is judged. That is a wrong refusal at worst, which the
   owner's ruling accepts. The other direction is not safe: a fence line

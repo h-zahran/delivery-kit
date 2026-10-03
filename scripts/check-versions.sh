@@ -325,9 +325,10 @@ for dir in */; do
         if (under && prev == "text")
           refuse("line " pnr " holds \047" show(praw) "\047, underlined at line " NR)
 
-        # List markers and quote markers, in any order. An ordered marker
-        # other than 1 may not start a list after a text line, so a fence
-        # on it may not be a fence (odd).
+        # List markers and quote markers, in any order. After a text line
+        # an ordered marker other than 1 does not start a list, so a fence
+        # on it would not be a fence; the walk does not ask what came
+        # before, and refuses every such fence (odd).
         rest = text; marked = 0; odd = 0
         while (1) {
           r = substr(rest, lead(rest) + 1)

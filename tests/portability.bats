@@ -1522,7 +1522,7 @@ normalise_to_released() {
 # while passing the gate: a tab after `##`, an indent, no text, an
 # underline, a quote or a list item around it, a deep indent that continues
 # a list item. A fence that never closes, or whose end is unclear, could
-# hide one. The three tests below plant each shape on a fresh copy and
+# hide one. The six tests below plant each shape on a fresh copy and
 # require a refusal, then plant what Markdown does NOT read as a heading and
 # require a pass. Every failure names its clause in that feature's
 # contracts/release-form.md (H1-H9).
@@ -1532,9 +1532,10 @@ normalise_to_released() {
 # set once for every suite (tests/helper.bash) and is not raised for one
 # test. Measured on 2026-10-03 on this branch: split three ways, the
 # largest part took about 21 s, and split four and five ways about 17 s,
-# above the suite's slowest test; so the parts follow the contract's
-# clauses until none is slower than the tests already here. Each plant still runs the gate on its own copy, so a red names the
-# plant that caused it.
+# above the suite's slowest test; split six ways, by the contract's
+# clauses, the slowest took about 13 s. The plants review added later
+# raised that to about 18 s, well inside the timeout. Each plant still
+# runs the gate on its own copy, so a red names the plant that caused it.
 #
 # The helpers below share state through these names: base (the released
 # fixture), copied (the judged plugin), other (a second plugin, when the
@@ -1685,12 +1686,21 @@ forms_default() {
   forms_put 'Notes' '---'
   forms_at 'Notes'
   forms_refused H3 "line $line holds 'Notes', underlined at line $((line + 1))"
-  # Every line that is not blank counts as text above an underline: an
-  # indented line, a `--` run, a heading, a deep `>` and a fence closer.
-  # Each of these passed before review found it; Markdown reads the first
-  # five as a setext heading, and a wrong refusal of the rest is the price.
+  # Every line that is not blank counts as text above an underline. Each
+  # line here follows a blank line, so Markdown reads only `--` then `---`
+  # as a setext heading; it reads the others as code or a heading, then a
+  # thematic break, and refusing them is the wrong refusal the rule costs.
   for raw in '    Notes' '--' '### x' '    >' '    > ### x'; do
     forms_put "$raw" '---'
+    forms_at "$raw"
+    forms_refused H3 "line $line holds '$raw', underlined at line $((line + 1))"
+  done
+  # The shapes review found passing, each a setext heading Markdown
+  # renders: a deep `>` line continuing a paragraph, a fence closer of a
+  # fence Markdown reads as paragraph text, a deep heading line and a `--`
+  # run inside a list item.
+  for raw in '    >' '    > ### x'; do
+    forms_put 'Para' "$raw" '---'
     forms_at "$raw"
     forms_refused H3 "line $line holds '$raw', underlined at line $((line + 1))"
   done
