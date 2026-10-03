@@ -100,5 +100,5 @@ Re-checked after research, data model, contract and quickstart: PASS.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |---|---|---|
-| Six new tests where the seed asked for one | About forty gate runs in one test passed the suite's 60-second per-test timeout, which is set once in `tests/helper.bash` for every suite | Raising the timeout for one test would loosen a limit every suite shares; split by contract clause, the slowest test measured about 13 s, below the suite's slowest of about 15 s |
+| Six new tests where the seed asked for one | About forty gate runs in one test passed the suite's 60-second per-test timeout, which is set once in `tests/helper.bash` for every suite | Raising the timeout for one test would loosen a limit every suite shares; split by contract clause, the slowest test measured about 13 s at H and about 17 s after review added plants at I, well under the 60-second cap |
 | A stateful walk instead of one line pattern | A setext heading, a fence and a list item each change how other lines read | One pattern cannot see a neighbour, so every container and underline shape would pass: the wrong pass the owner ruled out |
