@@ -1373,6 +1373,35 @@ normalise_to_released() {
     *"sits above the released heading"*) ;;
     *) echo "G3: the heading above the release was refused without its own message. output: $output"; false ;;
   esac
+
+  # K2: a first heading holding an escape sequence reaches both forms'
+  # output, and a CI log renders an escape sequence. Each form shows it as
+  # `?`, and the default form still passes.
+  d="$TEST_DIR/released-escape"
+  cp -r "$base" "$d"
+  awk -v esc="$(printf '\033')" 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { print "## [Unreleased] " esc "[31mRED"; print ""; done = 1 } { print }' \
+    "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
+  mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
+  [ "$(( $(tr -cd '\033' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+    || { echo "fixture: the escape plant did not land once in the $copied fixture"; false; }
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -eq 0 ] \
+    || { echo "K2: the default run rejected a first heading holding an escape sequence. output: $output"; false; }
+  case "$output" in
+    *"UNRELEASED-ABOVE:## [Unreleased] ?[31mRED"*) ;;
+    *) echo "K2: the default run did not show the escape byte as '?'. output: $output"; false ;;
+  esac
+  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+    || { echo "K2: the default run printed the escape byte"; false; }
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -ne 0 ] \
+    || { echo "K2: --released accepted a heading above its release. output: $output"; false; }
+  case "$output" in
+    *"'## [Unreleased] ?[31mRED' sits above the released heading"*) ;;
+    *) echo "K2: the first-heading refusal did not show the escape byte as '?'. output: $output"; false ;;
+  esac
+  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+    || { echo "K2: the first-heading refusal printed the escape byte"; false; }
 }
 
 @test "--released refuses an undated heading below the release, and the default run does not" {
@@ -1901,6 +1930,88 @@ forms_default() {
   run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
   [ "$status" -eq 0 ] \
     || { echo "H9: --released $copied refused because of $other's changelog. output: $output"; false; }
+}
+
+# K1-K5: bytes and lines the walk cannot judge, each refused with a message
+# of the gate's own. Every length here is in bytes, as the gate counts them
+# under the C locale. The plants run in this order so that against an older
+# gate the first red names K1: the last plant, a line of 400,000 quote
+# markers, takes an older walk past the per-test timeout.
+@test "--released refuses a byte or a line it cannot judge" {
+  cd "$ROOT"
+  forms_base one
+  local c long cut
+
+  # K1: a lone CR. Markdown reads it as a line end, so `CRplant`, a CR and
+  # `## x` hold a level-2 heading. Built with $'\r', never a literal CR in
+  # this file; Windows gawk strips only a CR that comes before a line feed.
+  forms_put $'CRplant\r## x'
+  c="$(tr -cd '\r' < "$d/$copied/CHANGELOG.md" | wc -c)"
+  [ "$((c))" -eq 1 ] || { echo "fixture: the CR plant holds $((c)) CR bytes, not 1"; false; }
+  line="$(grep -n -F 'CRplant' "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
+  [ -n "$line" ] || { echo "fixture: the CR plant did not land"; false; }
+  forms_refused K1 "line $line holds a carriage return" "CRplant?## x"
+
+  # K3, K4: one byte over the limit is refused for its length, and the
+  # quote is cut to exactly the quote cut, then ` [cut]`. Exactly the limit
+  # is not refused for its length.
+  long="$(printf '%1001s' '' | tr ' ' x)"
+  cut="$(printf '%200s' '' | tr ' ' x)"
+  forms_put "$long"
+  line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
+  [ -n "$line" ] || { echo "fixture: the long line did not land"; false; }
+  forms_refused K3 "line $line is 1001 bytes long"
+  case "$output" in
+    *"'$cut [cut]'"*) ;;
+    *) echo "K4: the quote is not cut to exactly the quote cut, then ' [cut]'. output: ${output:0:600}"; false ;;
+  esac
+  printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
+    || { echo "K4: a refusal line is longer than 400 bytes. output: ${output:0:600}"; false; }
+  forms_put "${long:1}"
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  [ "$status" -eq 0 ] \
+    || { echo "K3: --released refused a line of exactly the limit. output: ${output:0:600}"; false; }
+
+  # K4: a lone 0x9b byte (a bare terminal control) in a refused line is
+  # shown as `?` and never printed.
+  forms_put $'## x \x9b'
+  line="$(LC_ALL=C awk 'index($0, "## x ") == 1 { print NR }' "$d/$copied/CHANGELOG.md")"
+  [ -n "$line" ] || { echo "fixture: the 0x9b plant did not land"; false; }
+  forms_refused K4 "line $line holds '## x ?'"
+  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+    || { echo "K4: the refusal printed the 0x9b byte"; false; }
+
+  # K5: a NUL byte stops both forms with the gate's own message.
+  forms_put 'NULplant'
+  printf 'bad\000byte\n' >> "$d/$copied/CHANGELOG.md"
+  [ "$(( $(tr -cd '\000' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+    || { echo "fixture: the NUL plant did not land once"; false; }
+  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  [ "$status" -ne 0 ] || { echo "K5: the default form accepted a NUL byte. output: $output"; false; }
+  case "$output" in
+    *"$copied: CHANGELOG.md holds a NUL byte"*) ;;
+    *) echo "K5: the default form stopped without its own message. output: $output"; false ;;
+  esac
+  case "$output" in
+    *"$TEST_DIR"*|*"$ROOT"*) echo "H9: (K5 plant) the default form prints an absolute path. output: $output"; false ;;
+  esac
+  forms_refused K5 "$copied: CHANGELOG.md holds a NUL byte"
+
+  # K3, last: 400,000 quote markers on one line, which an older walk took
+  # minutes to read, are refused for their length at once. The line is
+  # found with awk: as an argument, 800 KB fails on Linux.
+  forms_put 'LONGplant'
+  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
+  line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
+  [ -n "$line" ] || { echo "fixture: the 400,000-marker line did not land"; false; }
+  forms_refused K3 "line $line is 800001 bytes long"
+  printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
+    || { echo "K4: a refusal line is longer than 400 bytes"; false; }
+
+  # H8: the default form passes a copy holding every plant above that it
+  # accepts. The NUL plant is left out: K5 stops both forms.
+  forms_put $'CRplant\r## x' '' 'Plain text.' '' "$long" '' 'Plain text.' '' $'## x \x9b'
+  forms_default
 }
 
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {

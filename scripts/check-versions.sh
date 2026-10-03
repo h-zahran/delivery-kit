@@ -103,6 +103,28 @@ released_seen=0
 # to grep -E and to every awk, including one without interval expressions.
 dated_re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
 
+# The release form judges no line longer than line_limit bytes, and a
+# refusal quotes at most quote_cut bytes of any line. Each is written once
+# and reaches awk through the environment, as the pattern does, so the two
+# places that quote a line cannot disagree. A long line is refused rather
+# than read: the walk's cost grows much faster than the line, and every
+# refusal lands in a public CI log.
+line_limit=1000
+quote_cut=200
+
+# A line read from a tracked file is shown with every byte that is not
+# printable ASCII as `?`. Under the C locale, so a byte that is not valid
+# text in any encoding is masked too: under a UTF-8 locale a lone 0x9b, a
+# bare terminal control, passed a printable test unmasked. quoted() also
+# cuts the line to quote_cut, as the walk's show() does.
+masked() { local LC_ALL=C s=$1; printf '%s' "${s//[![:print:]]/?}"; }
+quoted() {
+  local LC_ALL=C s
+  s="$(masked "$1")"
+  [ "${#s}" -le "$quote_cut" ] || s="${s:0:$quote_cut} [cut]"
+  printf '%s' "$s"
+}
+
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
 # plugin lands, and does so silently.
@@ -166,6 +188,17 @@ for dir in */; do
   src="$(norm_source "$ms")"
   [ "$src" = "$p" ] || die "$p: marketplace entry $pn has source '$ms', which does not resolve to $p"
 
+  # A NUL byte makes grep call the changelog binary: the version read below
+  # then finds no version, and errexit ends the run with no message at all.
+  # Name it instead, in both forms. Counted with tr, before any grep or awk
+  # reads the file, because what an awk does with a NUL differs between the
+  # awks CI runs. A missing changelog is left to the diagnostic below.
+  if [ -f "./$p/CHANGELOG.md" ]; then
+    nul="$(tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)"
+    [ "$((nul))" -eq 0 ] \
+      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
+  fi
+
   # The heading format is pinned precisely because this line parses it, so
   # assert the date half too rather than trusting it to stay. Be exact about
   # what that buys: -m1 takes the first heading that MATCHES, so when the newest
@@ -209,7 +242,7 @@ for dir in */; do
   if [ "$first" = "$head" ]; then
     released_state="released"
   else
-    released_state="UNRELEASED-ABOVE:${first//[$'\n\r']/}"
+    released_state="UNRELEASED-ABOVE:$(masked "$first")"
   fi
   printf '%s: plugin=%s marketplace=%s changelog=%s state=%s\n' \
     "${p//[$'\n\r']/}" "${pv//[$'\n\r']/}" "${mv//[$'\n\r']/}" "${cv//[$'\n\r']/}" "$released_state"
@@ -222,7 +255,7 @@ for dir in */; do
   if [ "$p" = "$RELEASED" ]; then
     released_seen=1
     [ "$released_state" = "released" ] \
-      || die "$p: '$first' sits above the released heading '$head' — this tree is NOT released"
+      || die "$p: '$(quoted "$first")' sits above the released heading '$head' — this tree is NOT released"
 
     # The comparison above reads only the FIRST level-2 heading, so a heading
     # left lower in the file was invisible to it. A released changelog holds
@@ -251,9 +284,10 @@ for dir in */; do
     # The pattern reaches awk through the environment, not -v, which would
     # process escapes in it. A quoted line comes from a tracked file and lands
     # in a public CI log, so every character that is not printable — a tab,
-    # an escape sequence, a stray CR — is shown as `?`. No interval
+    # an escape sequence, a stray CR — is shown as `?`, and the walk runs
+    # under the C locale for the reason masked() gives above. No interval
     # expressions: indents are counted, not matched.
-    refusal="$(DATED_RE="$dated_re" awk '
+    refusal="$(DATED_RE="$dated_re" LINE_LIMIT="$line_limit" QUOTE_CUT="$quote_cut" LC_ALL=C awk '
       function expand(s,   o, i, c, col) {
         if (index(s, "\t") == 0) return s
         o = ""; col = 0
@@ -267,7 +301,11 @@ for dir in */; do
       function lead(s,   i) { i = 1; while (substr(s, i, 1) == " ") i++; return i - 1 }
       function run(s, ch,   i) { i = 1; while (substr(s, i, 1) == ch) i++; return i - 1 }
       function rtrim(s) { sub(/ +$/, "", s); return s }
-      function show(s) { gsub(/[^[:print:]]/, "?", s); return s }
+      function show(s) {
+        gsub(/[^[:print:]]/, "?", s)
+        if (length(s) > cut) s = substr(s, 1, cut) " [cut]"
+        return s
+      }
       function cont(s,   o, i) {
         o = ""
         for (i = 1; i <= length(s); i++) o = o (substr(s, i, 1) == ">" ? ">" : " ")
@@ -286,8 +324,20 @@ for dir in */; do
       # One quote marker off the front: any indent, `>`, one optional space.
       function unquote(s) { s = substr(s, lead(s) + 2); if (substr(s, 1, 1) == " ") s = substr(s, 2); return s }
       function refuse(msg) { print msg; refused = 1; exit }
-      BEGIN { prev = "blank"; LM = "^([-*+]|[0-9]+[.)])( |$)" }
+      BEGIN {
+        prev = "blank"; LM = "^([-*+]|[0-9]+[.)])( |$)"
+        limit = ENVIRON["LINE_LIMIT"] + 0; cut = ENVIRON["QUOTE_CUT"] + 0
+      }
       {
+        # A line too long to judge is refused before anything reads it, and
+        # a CR is refused rather than split: Markdown reads a CR as a line
+        # end, and a split line could be a heading or close a fence. Both
+        # come before the fence rules, so a fence hides neither.
+        if (length($0) > limit)
+          refuse("line " NR " is " length($0) " bytes long, longer than the release form judges: \047" show($0) "\047")
+        if (index($0, "\r"))
+          refuse("line " NR " holds a carriage return, which Markdown reads as a line end: \047" show($0) "\047")
+
         line = expand($0)
         # Only a line of spaces is blank. A line of `>` markers alone is
         # not: deep in a list item it is text, and calling it blank would
