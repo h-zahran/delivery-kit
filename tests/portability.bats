@@ -1637,7 +1637,10 @@ forms_unclear() {
   forms_at "$1" || return 1
   open=$line
   forms_at "$2" || return 1
-  forms_refused H6 "opened at line $open " "at line $line, which holds '$2'"
+  forms_refused H6 "opened at line $open " "at line $line, which holds '$2'" || return 1
+  case "$output" in
+    *"never closed"*) echo "H6: an unclear fence was also reported as never closed. output: $output"; return 1 ;;
+  esac
 }
 
 # forms_passes <what>: --released accepts the copy.
@@ -1666,7 +1669,7 @@ forms_default() {
   # H1: ATX forms. A tab is quoted as `?`, like every non-printable byte.
   forms_put "##${tab}Notes"
   forms_at "##${tab}Notes"
-  forms_refused H1 "line $line holds '##?Notes'"
+  forms_refused H1 "line $line holds '##?Notes', which is not a dated version heading"
   for raw in ' ## Notes' '   ## Notes' '##' '## Notes ##'; do
     forms_put "$raw"
     forms_at "$raw"
@@ -1682,6 +1685,24 @@ forms_default() {
   forms_put 'Notes' '---'
   forms_at 'Notes'
   forms_refused H3 "line $line holds 'Notes', underlined at line $((line + 1))"
+  # Every line that is not blank counts as text above an underline: an
+  # indented line, a `--` run, a heading, a deep `>` and a fence closer.
+  # Each of these passed before review found it; Markdown reads the first
+  # five as a setext heading, and a wrong refusal of the rest is the price.
+  for raw in '    Notes' '--' '### x' '    >' '    > ### x'; do
+    forms_put "$raw" '---'
+    forms_at "$raw"
+    forms_refused H3 "line $line holds '$raw', underlined at line $((line + 1))"
+  done
+  forms_put 'Para' '    ```' '    ```' '---'
+  forms_at 'Para'
+  forms_refused H3 "line $((line + 2)) holds '    \`\`\`', underlined at line $((line + 3))"
+  forms_put '- item' '      ### x' '  ---'
+  forms_at '      ### x'
+  forms_refused H3 "line $line holds '      ### x', underlined at line $((line + 1))"
+  forms_put '- item' '' '  --' '  ---'
+  forms_at '  --'
+  forms_refused H3 "line $line holds '  --', underlined at line $((line + 1))"
 
   # H8: the default form passes a copy holding every plant above.
   forms_put "##${tab}Notes" '' 'Plain text.' '' ' ## [1.0.0] - 2026-01-01' '' 'Plain text.' '' \
@@ -1735,6 +1756,11 @@ forms_default() {
   forms_put '- item' '```a`' '    ## Notes'
   forms_at '    ## Notes'
   forms_refused H5 "line $line holds '    ## Notes'"
+  # A line of `>` alone is not blank: deep in an item it is text, so the
+  # lazy line after it continues the item. Found at review (phase I).
+  forms_put '- item' '      >' 'lazy' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
 
   # H8: the default form passes a copy holding these plants.
   forms_put '- item' '' '    ## Notes' '' 'Plain text.' '' '- a' '  - b' '' '  c' '' '    ## Notes'
@@ -1764,6 +1790,13 @@ forms_default() {
     || { echo "H6: the refusal is not reported exactly once. output: $output"; false; }
   case "$output" in
     *"never closed"*) echo "H6: an open fence was reported after a heading was already refused. output: $output"; false ;;
+  esac
+  # FR-009: two refusable lines, and only the first is reported.
+  forms_put '## Notes' '' '## More'
+  forms_at '## Notes'
+  forms_refused H6 "line $line holds '## Notes'"
+  case "$output" in
+    *"## More"*) echo "H6: a second refusal was reported after the first. output: $output"; false ;;
   esac
 
   # H8: the default form passes a copy holding an unclosed fence.

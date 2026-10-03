@@ -59,7 +59,8 @@ since `8bc9b5a`: `git diff 8bc9b5a 33c972b -- scripts tests` is empty).
      spaces, and the closer is two spaces then three backticks.
   4. **List state.** An unindented line (`ind` 0, quote depth 0) that is
      not blank, not a list marker and not a quote clears "a list item can
-     be open" when the previous line was blank; an unindented ATX heading
+     be open" when the previous line was blank (only spaces: a line of `>`
+     markers alone, deep in an item, is text and clears nothing); an unindented ATX heading
      or fence clears it whatever came before. (Straight after item text, an
      unindented text line is a lazy continuation and does not clear it.)
   5. **Setext.** If the text after the spaces is one or more `-` then only
@@ -87,9 +88,11 @@ since `8bc9b5a`: `git diff 8bc9b5a 33c972b -- scripts tests` is empty).
      counts as text for step 5 (it may be a lazy paragraph line).
   9. **ATX.** Text (after spaces) of `##` then a space or the end: refused
      unless the RAW line is exactly canonical.
-  10. **Previous line.** Blank, text (any other non-blank line that is not
-      a fence line and not inside a fence), or other (an ATX heading of any
-      level, a fence line, a `-`-only line that was not refused).
+  10. **Previous line.** Blank (only spaces) or text (every other line
+      outside a fence, a fence closer included). An earlier design kept a
+      third kind, "other", for headings, fence lines and `-` runs; review
+      at phase I passed a setext heading through each of them, so the
+      kind was dropped: stricter, not cleverer.
   At the end of the file, an open fence is refused, naming its line and
   text, unless something was already refused (R4a).
 - **Rationale**: this is CommonMark's container-first reading, cut down to

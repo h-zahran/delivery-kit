@@ -234,14 +234,15 @@ for dir in */; do
     # or whose end depends on a container, could hide one, so it is refused
     # too.
     #
-    # The walk keeps three things from line to line: an open fence (with the
+    # The walk keeps, from line to line, an open fence (with the
     # text before its fence characters, which every line inside must carry),
     # whether a list item can be open, and the previous line. It does not
     # follow Markdown's every rule. Each place it cuts a corner, it cuts toward
     # refusing: a wrong refusal fails closed and the changelog is fixed, while
     # a wrong pass would ship an open heading in a release. So while any list
-    # item can be open every deep `##` is judged, a `-` under any text line is
-    # an underline, and a fence is followed only while its shape is clean.
+    # item can be open every deep `##` is judged, a `-` under any line that is
+    # not blank is an underline, only a line of spaces is blank, and a fence
+    # is followed only while its shape is clean.
     # specs/024-gate-every-heading-form/research.md R2 gives the steps.
     #
     # awk, not a `grep -v` pipeline: under pipefail a `grep -v` that selects
@@ -288,7 +289,10 @@ for dir in */; do
       BEGIN { prev = "blank"; LM = "^([-*+]|[0-9]+[.)])( |$)" }
       {
         line = expand($0)
-        blank = (line ~ /^[ >]*$/)
+        # Only a line of spaces is blank. A line of `>` markers alone is
+        # not: deep in a list item it is text, and calling it blank would
+        # end the item and hide a deep heading below it.
+        blank = (line ~ /^ *$/)
 
         # An open fence: every line inside must carry the opener prefix.
         # closer() needs a run of at least the opener length, so it also
@@ -296,8 +300,8 @@ for dir in */; do
         if (fenced) {
           inpre = (substr(line, 1, length(fpre)) == fpre)
           body = substr(line, length(fpre) + 1)
-          if (inpre && closer(body)) { fenced = 0; prev = "other"; next }
-          if (blank) {
+          if (inpre && closer(body)) { fenced = 0; prev = "text"; praw = $0; pnr = NR; next }
+          if (line ~ /^[ >]*$/) {
             if (rtrim(line) == rtrim(fpre)) next
           } else if (inpre && !closer(substr(body, lead(body) + 1))) next
           refuse("the code fence opened at line " fnr " may already have ended at line " NR ", which holds \047" show($0) "\047")
@@ -337,7 +341,7 @@ for dir in */; do
           fc = substr(rest, 1, 1)
           fenced = 1; fch = fc; flen = run(rest, fc)
           fpre = cont(substr(line, 1, length(line) - length(rest)))
-          fnr = NR; ftext = $0; prev = "other"; next
+          fnr = NR; ftext = $0; next
         }
 
         # Indented code, when no list item can be open to claim the line.
@@ -347,9 +351,10 @@ for dir in */; do
         if (rest ~ /^##( |$)/ && $0 !~ ENVIRON["DATED_RE"])
           refuse("line " NR " holds \047" show($0) "\047, which is not a dated version heading")
 
-        if (blank) prev = "blank"
-        else if (atx(rest) || under) prev = "other"
-        else prev = "text"
+        # Every line that is not blank counts as text for the underline
+        # test, a heading, a fence closer and an underline included: a `-`
+        # run under any of them is refused rather than read as a break.
+        prev = blank ? "blank" : "text"
         praw = $0; pnr = NR
       }
       END {

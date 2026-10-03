@@ -208,8 +208,14 @@ that copy.
   changelog holds a setext level-2 heading: a text line directly followed
   by a line whose text (after quote removal) is one or more `-` characters
   with only spaces or tabs after them. A text line is any non-blank line
-  that is not an ATX heading, not a fence line and not inside a fence;
-  an indented line counts as text.
+  that is not inside a fence: an indented line, an ATX heading, a fence
+  closer and a `-` run count as text, so a `-` run under any of them is
+  refused. A blank line holds only spaces or tabs; a line of `>` markers
+  alone is not blank. (Review at phase I found that each narrower reading
+  passed a heading Markdown renders: a `-` under `--`, under a deep `>`,
+  under a closer of a fence Markdown reads as text. A thematic break
+  directly under a heading is refused too, a wrong refusal the owner's
+  ruling accepts; neither changelog holds one.)
 - **FR-003**: Only the canonical dated form the gate reads today
   (`## [X.Y.Z] - YYYY-MM-DD`, unindented, nothing after the date) counts as
   dated; every other level-2 heading form MUST be refused, even one
