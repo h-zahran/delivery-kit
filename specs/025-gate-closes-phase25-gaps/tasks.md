@@ -80,7 +80,7 @@ helper change turns a test red.
 
 ## Phase 4: Polish
 
-- [ ] T017 Run the whole of `quickstart.md` (blocks 1-8) as one extracted script with `bash`, in the background, with no timeout shorter than the proof's recorded run time plus 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red naming a K clause, the proof's `KEPT`/`REVERTED` lines, and SC-006 read by `scripts/check-suite.sh 249`.
+- [X] T017 Run the whole of `quickstart.md` (blocks 1-8) as one extracted script with `bash`, in the background, with no timeout shorter than the proof's recorded run time plus 20 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with the gate mutant red naming a K clause, the proof's `KEPT`/`REVERTED` lines, and SC-006 read by `scripts/check-suite.sh 249`.
 
 ---
 
