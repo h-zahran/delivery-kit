@@ -1729,6 +1729,12 @@ forms_default() {
   forms_put '-' '    ## Notes'
   forms_at '    ## Notes'
   forms_refused H5 "line $line holds '    ## Notes'"
+  # A backtick line holding a further backtick is text, not a fence, so it
+  # continues the item and does not end it. Found at H.7: a second, looser
+  # opener rule ended the item here and passed the deep heading.
+  forms_put '- item' '```a`' '    ## Notes'
+  forms_at '    ## Notes'
+  forms_refused H5 "line $line holds '    ## Notes'"
 
   # H8: the default form passes a copy holding these plants.
   forms_put '- item' '' '    ## Notes' '' 'Plain text.' '' '- a' '  - b' '' '  c' '' '    ## Notes'
