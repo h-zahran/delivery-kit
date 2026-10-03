@@ -2670,3 +2670,146 @@ patterns. **Changelog routing: none.** This run uses the INSTALLED pipeline
 ```
 /pipeline Phase 25: the release gate reads every level-2 heading form --auto --implementer claude
 ```
+
+## Phase 26: the release gate closes the gaps Phase 25 left
+
+Phase 25 (PR #55, merged as `ceff931`) made `--released` judge every
+level-2 heading form. Its reviews left three gaps, a few test weaknesses,
+and four wrong refusals the strict rules accept; all are listed in the
+PR #55 body and in `specs/024-gate-every-heading-form/`. The owner's ruling
+(2026-10-03): **close all of them.** The ruling on doubt still binds: a
+wrong refusal is acceptable, a wrong pass is not. Like Phases 24 and 25,
+this phase changes nothing inside a plugin, so **no plugin release follows
+it**.
+
+Measured 2026-10-03 at `main` = `ceff931` on a one-plugin fixture built
+from `handoff/`:
+
+- **A lone CR inside a line passes.** Markdown reads a CR as a line end,
+  so `Notes`, a CR, then `## x` holds a level-2 heading. With the walk's
+  awk reading bytes as the Linux and macOS awks do (`-v BINMODE=3` here),
+  `--released` exits 0 on it, while a plain `## x` control exits 1.
+  `.gitattributes` forces LF, so a CRLF cannot reach a commit; only a lone
+  CR can. Neither changelog holds a CR byte.
+- **The first-heading text is printed raw.** `scripts/check-versions.sh:212`
+  strips only CR and LF before the default form prints
+  `state=UNRELEASED-ABOVE:<text>`, and `:225` quotes the same line raw in
+  the `--released` refusal. With an escape sequence in the first heading,
+  both print it into the log. Every other quoted line already goes through
+  the walk's `show()`, which prints a non-printable character as `?`.
+- **A long nested-quote line is slow.** One line of `> ` repeated:
+  50,000 markers take 0.9 s, 100,000 take 1.4 s, 200,000 (400 KB) take
+  22 s, and 400,000 take 123 s. The time grows much faster than the line.
+  The longest line in either changelog is 107 characters. A refusal also
+  quotes its whole line, so a 400 KB line puts 400 KB into the log.
+- **A changelog holding a NUL byte** makes `grep` print `Binary file …
+  matches`, and the gate exits 1 with no message of its own. It fails
+  closed, but the owner cannot tell why.
+- **Four wrong refusals** (each refused today; CommonMark reads none of
+  them as a level-2 heading):
+  - `1. a` then `2. ` + a fence, a normal numbered list (the walk refuses
+    any fence on an ordered marker other than `1`);
+  - a fence anywhere below `<details>` … `</details>` (any `<` line refuses
+    every later fence);
+  - `### Notes` then `---` (a thematic break under a heading);
+  - `> Notes`, `>`, `> ---` (a thematic break after an empty quote line).
+- **The test helpers have weak spots** (`tests/portability.bats`):
+  - the new helpers build `run bash -c "…"` strings from `marketplace.json`
+    data (`:1330`, `:1586`, `:1616`, `:1649`, `:1658` and the older
+    `--released` tests), so a `"` or `$` in a plugin source would run as
+    shell;
+  - the absolute-path check (`:1630`) matches one spelling of each path and
+    reads only refusal output, never `forms_passes`, `forms_default` or
+    the two-plugin run;
+  - `forms_default` (`:1657`) runs once per test on a combined copy, not on
+    each plant's copy;
+  - `forms_passes` (`:1648`) never proves its plant landed;
+  - in `normalise_to_released`, the second half of the self-check (`:1290`)
+    counts what the same program already dropped, so it can never fail,
+    and the `mv` before it is unguarded;
+  - `forms_at` aborts with no message when its count is 0, because
+    `grep -c` exits 1 under errexit.
+
+**Requirements:**
+
+1. **A CR is a line end.** `--released <plugin>` refuses any line of the
+   changelog that holds a CR byte, naming the line, with the CR shown as
+   `?`. (Splitting lines at a CR as Markdown does is the alternative; the
+   spec picks one and records why. Refusing is the strict default.)
+2. **Every quoted text is masked.** The first-heading state field and the
+   first-heading refusal show every non-printable character as `?`, the
+   same way `show()` does. The default run's output on the real tree is
+   byte-identical before and after (neither first heading holds one).
+3. **A line too long to judge is refused.** The walk refuses any line
+   longer than a fixed limit, naming its line and its length, before
+   judging it. The spec sets the limit with room above 107. Every quoted
+   text in every refusal is cut to a fixed length, with a marker saying it
+   was cut.
+4. **A NUL byte is named.** A changelog holding a NUL byte is refused with
+   a message of the gate's own, naming the plugin.
+5. **Each wrong refusal is narrowed only where proven safe.** For each of
+   the four, the walk may stop refusing that shape only if a reference
+   CommonMark parser (Phase 25's review used markdown-it-py in CommonMark
+   mode), run over a systematic enumeration of the shape in
+   every container, finds that the narrowed walk passes no level-2
+   heading it renders, AND the same enumeration, run against a walk with
+   the narrowing done wrongly, finds at least one (a positive control).
+   Where that proof cannot be made, the refusal stays, and the spec
+   records why. The enumeration and its results are kept in the run
+   directory and summed up in the PR body.
+6. **The test helpers are strong.**
+   - Every `run bash -c` in the `--released` tests passes data as
+     arguments (`bash -c '…' _ "$d" "$ROOT" "$copied"`), never inside the
+     command string.
+   - The absolute-path check reads every output the tests capture, in
+     every spelling the platform prints.
+   - `forms_default` runs on every refused plant's own copy, or the
+     contract's H8 wording is changed to say what is checked; the spec
+     picks.
+   - `forms_passes` proves its plant landed, as `forms_refused` does.
+   - The fixture helper's self-check can fail: it checks the dropped
+     file against an independent test, and the `mv` is guarded.
+   - `forms_at` prints its own message when the line is missing.
+7. **Nothing else moves.** The default run (no argument) keeps its output
+   and status on the real tree. The first-heading check (Phase 24 G3) still
+   reads the first line beginning `## `. CI and the suite still call the
+   one script, and the "one version-agreement script" test stays green
+   unchanged. The fixture helper never reads a pattern from the gate.
+
+**Acceptance criteria:**
+
+- Tests plant: a lone CR before `## x`; an escape sequence in the first
+  heading (both forms); a line over the limit; a NUL byte. Each is refused
+  with its message, and the default run still exits 0 where it did. A
+  mutant that removes each new rule turns its test red, naming its clause.
+  Confirm each mutation landed before believing the red.
+- Each wrong refusal narrowed under requirement 5 has a passing plant, and
+  its enumeration proof is in the run directory. Each one kept has a line
+  in the spec saying why.
+- The test-helper changes are each shown able to fail: a mutant per change
+  (for example a path printed in a passing run's output) turns a test red.
+- The feature quickstart, run as one script, ends ALL OK.
+- Full house suite from the repo root: `1..248` at `ceff931`, plus the
+  tests this phase adds. Prefer adding plants to the existing `--released`
+  tests: the per-test timeout is 60 s and the slowest of them takes about
+  18 s. The spec fixes the exact count, and the suite is judged by
+  `bash scripts/check-suite.sh <that count>`.
+- CI green on all three operating systems. Confirm a run EXISTS before
+  reading its result, and read every job's steps.
+
+**Constraints:** the Campaign 3 Global Constraints apply, including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` is on the shipped root surface: STRICT
+vocabulary, no machine path, no count in prose. Bash 3.2 and every awk
+CI runs (gawk, and the BSD awk on macOS); no interval expressions in awk
+patterns. A CR test must plant a LONE CR: Windows gawk strips a CR that
+comes before a line feed. **Changelog routing: none.** This run uses the
+INSTALLED pipeline 1.3.0, so G asks the review question (commits or
+pauses).
+
+**Invocation:**
+
+```
+/pipeline Phase 26: the release gate closes the gaps Phase 25 left --auto --implementer claude
+```
