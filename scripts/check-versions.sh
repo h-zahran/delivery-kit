@@ -254,6 +254,7 @@ for dir in */; do
     # expressions: indents are counted, not matched.
     refusal="$(DATED_RE="$dated_re" awk '
       function expand(s,   o, i, c, col) {
+        if (index(s, "\t") == 0) return s
         o = ""; col = 0
         for (i = 1; i <= length(s); i++) {
           c = substr(s, i, 1)
@@ -273,68 +274,67 @@ for dir in */; do
       }
       function atx(s,   k) { k = run(s, "#"); return k >= 1 && k <= 6 && (length(s) == k || substr(s, k + 1, 1) == " ") }
       function closer(s,   k) { k = run(s, fch); return k >= flen && substr(s, k + 1) ~ /^ *$/ }
+      # One definition of a fence opener for every rule that asks: a
+      # backtick opener holding a further backtick is text, not a fence.
+      function opener(s,   c, k) {
+        c = substr(s, 1, 1)
+        if (c != "`" && c != "~") return 0
+        k = run(s, c)
+        return k >= 3 && !(c == "`" && index(substr(s, k + 1), "`"))
+      }
+      # One quote marker off the front: any indent, `>`, one optional space.
+      function unquote(s) { s = substr(s, lead(s) + 2); if (substr(s, 1, 1) == " ") s = substr(s, 2); return s }
       function refuse(msg) { print msg; refused = 1; exit }
-      BEGIN { prev = "blank" }
+      BEGIN { prev = "blank"; LM = "^([-*+]|[0-9]+[.)])( |$)" }
       {
         line = expand($0)
+        blank = (line ~ /^[ >]*$/)
 
         # An open fence: every line inside must carry the opener prefix.
+        # closer() needs a run of at least the opener length, so it also
+        # proves the line starts with the fence character.
         if (fenced) {
-          if (substr(line, 1, length(fpre)) == fpre && closer(substr(line, length(fpre) + 1)) && run(substr(line, length(fpre) + 1), fch) > 0) {
-            fenced = 0; prev = "other"; next
-          }
-          if (line ~ /^[ >]*$/) {
+          inpre = (substr(line, 1, length(fpre)) == fpre)
+          body = substr(line, length(fpre) + 1)
+          if (inpre && closer(body)) { fenced = 0; prev = "other"; next }
+          if (blank) {
             if (rtrim(line) == rtrim(fpre)) next
-          } else if (substr(line, 1, length(fpre)) == fpre) {
-            r = substr(line, length(fpre) + 1)
-            r = substr(r, lead(r) + 1)
-            if (!(substr(r, 1, 1) == fch && closer(r))) next
-          }
+          } else if (inpre && !closer(substr(body, lead(body) + 1))) next
           refuse("the code fence opened at line " fnr " may already have ended at line " NR ", which holds \047" show($0) "\047")
         }
 
         # Quote markers, then what is left of the line.
         t = line; depth = 0
-        while (substr(t, lead(t) + 1, 1) == ">") {
-          t = substr(t, lead(t) + 2)
-          if (substr(t, 1, 1) == " ") t = substr(t, 2)
-          depth++
-        }
+        while (substr(t, lead(t) + 1, 1) == ">") { t = unquote(t); depth++ }
         ind = lead(t)
         text = substr(t, ind + 1)
-        blank = (line ~ /^[ >]*$/)
+        under = (text ~ /^-+ *$/)
 
         # An unindented line ends every list item: after a blank line, or
         # when it starts a heading or a fence. Straight after item text, a
         # plain line is a lazy continuation and does not.
-        if (depth == 0 && ind == 0 && !blank && text !~ /^([-*+]|[0-9]+[.)])( |$)/) {
-          fc = substr(text, 1, 1)
-          if (prev == "blank" || atx(text) || ((fc == "`" || fc == "~") && run(text, fc) >= 3)) listed = 0
-        }
+        if (depth == 0 && ind == 0 && !blank && text !~ LM)
+          if (prev == "blank" || atx(text) || opener(text)) listed = 0
 
         # A setext underline: the previous text line is a heading. Checked
         # before list markers come off: a bare `-` here is an underline.
-        if (text ~ /^-+ *$/ && prev == "text")
+        if (under && prev == "text")
           refuse("line " pnr " holds \047" show(praw) "\047, underlined at line " NR)
 
         # List markers and quote markers, in any order.
         rest = text; marked = 0
         while (1) {
           r = substr(rest, lead(rest) + 1)
-          if (match(r, /^([-*+]|[0-9]+[.)])( |$)/)) { rest = substr(r, RLENGTH + 1); marked = 1; continue }
-          if (substr(r, 1, 1) == ">") {
-            rest = substr(r, 2)
-            if (substr(rest, 1, 1) == " ") rest = substr(rest, 2)
-            continue
-          }
+          if (match(r, LM)) { rest = substr(r, RLENGTH + 1); marked = 1; continue }
+          if (substr(r, 1, 1) == ">") { rest = unquote(r); continue }
           rest = r
           break
         }
         if (marked) listed = 1
 
         # A fence opener, at any indent.
-        fc = substr(rest, 1, 1)
-        if ((fc == "`" || fc == "~") && run(rest, fc) >= 3 && !(fc == "`" && index(substr(rest, run(rest, fc) + 1), "`"))) {
+        if (opener(rest)) {
+          fc = substr(rest, 1, 1)
           fenced = 1; fch = fc; flen = run(rest, fc)
           fpre = cont(substr(line, 1, length(line) - length(rest)))
           fnr = NR; ftext = $0; prev = "other"; next
@@ -348,7 +348,7 @@ for dir in */; do
           refuse("line " NR " holds \047" show($0) "\047, which is not a dated version heading")
 
         if (blank) prev = "blank"
-        else if (atx(rest) || text ~ /^-+ *$/) prev = "other"
+        else if (atx(rest) || under) prev = "other"
         else prev = "text"
         praw = $0; pnr = NR
       }
