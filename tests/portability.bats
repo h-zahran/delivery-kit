@@ -1719,11 +1719,21 @@ forms_default() {
   # line here follows a blank line, so Markdown reads only `--` then `---`
   # as a setext heading; it reads the others as code or a heading, then a
   # thematic break, and refusing them is the wrong refusal the rule costs.
-  for raw in '    Notes' '--' '### x' '    >' '    > ### x'; do
+  for raw in '    Notes' '--' '    >' '    > ### x'; do
     forms_put "$raw" '---'
     forms_at "$raw"
     forms_refused H3 "line $line holds '$raw', underlined at line $((line + 1))"
   done
+  # K6: an ATX heading inside a quote still counts as text above an
+  # underline; only a heading with no container stopped counting (N3).
+  forms_put '> ### x' '> ---'
+  forms_at '> ### x'
+  forms_refused K6 "line $line holds '> ### x', underlined at line $((line + 1))"
+  # And so does one inside a list item, where the walk cannot tell the item
+  # is still open.
+  forms_put '- a' '  ### x' '  ---'
+  forms_at '  ### x'
+  forms_refused K6 "line $line holds '  ### x', underlined at line $((line + 1))"
   # The shapes review found passing, each a setext heading Markdown
   # renders: a deep `>` line continuing a paragraph, a fence closer of a
   # fence Markdown reads as paragraph text, a deep heading line and a `--`
@@ -1883,6 +1893,18 @@ forms_default() {
   forms_put '<!--' "$bt" '-->' '## x' "$bt"
   forms_at '<!--'
   forms_refused H6 "line $((line + 1)) opens a code fence that the HTML at line $line may hold: '$bt'"
+  # K6: the neighbours of the two fence narrowings stay refused. An empty
+  # `1.` does not start a list after a paragraph, a ten-digit number is not
+  # a list marker, and a `<!--` comment runs past a blank line (N1, N2).
+  forms_put 'Para' '1.' "2. $bt" '   ## x' "   $bt"
+  forms_at "2. $bt"
+  forms_refused K6 "line $line opens a code fence on an ordered list marker other than 1"
+  forms_put '1234567890. a' "2. $bt" '   ## x' "   $bt"
+  forms_at "2. $bt"
+  forms_refused K6 "line $line opens a code fence on an ordered list marker other than 1"
+  forms_put '<x' '<!--' '' "$bt" '-->' '## x' "$bt"
+  forms_at '<!--'
+  forms_refused K6 "line $((line + 2)) opens a code fence that the HTML at line $line may hold"
 
   # H6: a fence never hides a heading after its clean close.
   forms_put "$bt" "> $bt" "$bt" '## Notes'
@@ -1918,6 +1940,19 @@ forms_default() {
     '- item' '' "  $bt" '  ## x' "  $bt" '' 'Plain text.' '' '---' '' 'Plain text.' '' \
     '    ## Notes' '' 'Plain text.' '' "${tab}## Notes"
   forms_passes 'every non-heading together'
+  # K6: the four shapes Phase 26 narrowed, each passing only because the
+  # proof in specs/025-gate-closes-phase25-gaps/proof/ showed the narrowed
+  # walk passes no level-2 heading a CommonMark reader renders.
+  forms_put '1. a' "2. $bt" '   code' "   $bt"
+  forms_passes 'a fence on the second item of a numbered list (N1)'
+  forms_put '<details>' '' 'x' '' '</details>' '' "$bt" 'code' "$bt"
+  forms_passes 'a fence after an HTML block a blank line ended (N2)'
+  forms_put '### Plantnote' '---'
+  forms_passes 'a thematic break under an ATX heading (N3)'
+  forms_put '### x' '---'
+  forms_passes 'the Phase 25 plant, a thematic break under a heading (N3)'
+  forms_put '> Notes' '>' '> ---'
+  forms_passes 'a thematic break after an empty quote line (N4)'
 
   # H9: only the plugin being released is judged. This one needs a second
   # plugin, so the fixture is rebuilt with two.

@@ -324,6 +324,15 @@ for dir in */; do
       # One quote marker off the front: any indent, `>`, one optional space.
       function unquote(s) { s = substr(s, lead(s) + 2); if (substr(s, 1, 1) == " ") s = substr(s, 2); return s }
       function refuse(msg) { print msg; refused = 1; exit }
+      # The digits a list marker starts with, counted, not matched.
+      function digits(s,   i) { i = 1; while (substr(s, i, 1) ~ /[0-9]/) i++; return i - 1 }
+      # An HTML block that only its own end marker closes: a comment, a
+      # processing instruction, a declaration, CDATA, or script, pre, style
+      # or textarea. Every other kind ends at a blank line.
+      function hardhtml(s,   l) {
+        l = tolower(s)
+        return l ~ /^<[!?]/ || l ~ /^<(script|pre|style|textarea)/
+      }
       BEGIN {
         prev = "blank"; LM = "^([-*+]|[0-9]+[.)])( |$)"
         limit = ENVIRON["LINE_LIMIT"] + 0; cut = ENVIRON["QUOTE_CUT"] + 0
@@ -337,6 +346,9 @@ for dir in */; do
           refuse("line " NR " is " length($0) " bytes long, longer than the release form judges: \047" show($0) "\047")
         if (index($0, "\r"))
           refuse("line " NR " holds a carriage return, which Markdown reads as a line end: \047" show($0) "\047")
+
+        # The ordered item on the line before, if the walk accepted it.
+        pok = cok; pdel = cdel; ppre = cpre; cok = 0
 
         line = expand($0)
         # Only a line of spaces is blank. A line of `>` markers alone is
@@ -377,13 +389,24 @@ for dir in */; do
 
         # List markers and quote markers, in any order. After a text line
         # an ordered marker other than 1 does not start a list, so a fence
-        # on it would not be a fence; the walk does not ask what came
-        # before, and refuses every such fence (odd).
-        rest = text; marked = 0; odd = 0
+        # on it would not be a fence: such a marker sets odd, and odd
+        # refuses the fence. One shape is let through (N1): the FIRST marker
+        # on the line, of one to nine digits, after a blank line, or continuing
+        # the ordered item on the line before (same text before the marker,
+        # same delimiter). CommonMark takes at most nine digits.
+        rest = text; marked = 0; odd = 0; first = ""
         while (1) {
           r = substr(rest, lead(rest) + 1)
           if (match(r, LM)) {
-            if (substr(r, 1, RLENGTH) ~ /^[0-9]/ && substr(r, 1, RLENGTH) !~ /^1[.)]/) odd = 1
+            m = substr(r, 1, RLENGTH)
+            if (!marked && m ~ /^[0-9]/) {
+              first = m; fdel = substr(m, digits(m) + 1, 1)
+              fpfx = substr(line, 1, length(line) - length(r))
+            }
+            if (m ~ /^[0-9]/ && m !~ /^1[.)]/) {
+              if (marked || digits(m) > 9) odd = 1
+              else if (prev != "blank" && !(pok && pdel == fdel && ppre == fpfx)) odd = 1
+            }
             rest = substr(r, RLENGTH + 1); marked = 1; continue
           }
           if (substr(r, 1, 1) == ">") { rest = unquote(r); continue }
@@ -391,18 +414,27 @@ for dir in */; do
           break
         }
         if (marked) listed = 1
+        # This line is an accepted ordered item for the next line: its first
+        # marker ordered, one to nine digits, the item not empty, not odd.
+        if (first != "" && digits(first) <= 9 && rest !~ /^ *$/ && !odd) {
+          cok = 1; cdel = fdel; cpre = fpfx
+        }
 
         # A line that starts with `<` may open an HTML block, and a fence
         # line inside one is not a fence: it would hide what follows it.
-        # Some HTML blocks run past a blank line, so from here on every
-        # fence opener is refused rather than followed.
-        if (substr(rest, 1, 1) == "<" && !html) { html = 1; hnr = NR }
+        # Every `<` line is classified, whatever came before: a block that
+        # only its own end marker closes (hard) refuses every fence opener
+        # from here on; any other kind (soft) ends at a line of spaces (N2).
+        if (blank) soft = 0
+        if (substr(rest, 1, 1) == "<") {
+          if (hardhtml(rest)) { hard = 1; hnr = NR } else { soft = 1; snr = NR }
+        }
 
         # A fence opener, at any indent, unless Markdown might not open it.
         if (opener(rest) && odd)
           refuse("line " NR " opens a code fence on an ordered list marker other than 1, which may not start a list: \047" show($0) "\047")
-        if (opener(rest) && html)
-          refuse("line " NR " opens a code fence that the HTML at line " hnr " may hold: \047" show($0) "\047")
+        if (opener(rest) && (hard || soft))
+          refuse("line " NR " opens a code fence that the HTML at line " (hard ? hnr : snr) " may hold: \047" show($0) "\047")
         if (opener(rest)) {
           fc = substr(rest, 1, 1)
           fenced = 1; fch = fc; flen = run(rest, fc)
@@ -418,9 +450,17 @@ for dir in */; do
           refuse("line " NR " holds \047" show($0) "\047, which is not a dated version heading")
 
         # Every line that is not blank counts as text for the underline
-        # test, a heading, a fence closer and an underline included: a `-`
-        # run under any of them is refused rather than read as a break.
-        prev = blank ? "blank" : "text"
+        # test, a fence closer and an underline included: a `-` run under
+        # any of them is refused rather than read as a break. Two kinds are
+        # let through. An ATX heading with no container and at most three
+        # columns of indent, while no list item can be open, is a heading
+        # wherever it stands (N3). A line of `>` marks starting at column
+        # zero is a blank line inside a quote, which ends any paragraph
+        # (N4). Neither counts as blank for any other rule.
+        if (blank) prev = "blank"
+        else if (depth == 0 && !marked && ind <= 3 && !listed && atx(text)) prev = "heading"
+        else if (line ~ /^>[> ]*$/) prev = "qblank"
+        else prev = "text"
         praw = $0; pnr = NR
       }
       END {
