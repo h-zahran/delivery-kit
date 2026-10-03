@@ -1247,13 +1247,17 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # the top level of a test, never under `if`, `||` or `$(...)`: errexit is
 # inert there, and the message would be swallowed. Messages name a changelog
 # by its plugin directory, never by a full path.
+#
+# Two more kinds of line are dropped, each a line the gate refuses whatever
+# it holds: one holding a CR byte, and one longer than the gate's line
+# limit. The helper keeps its own copy of that limit, LIMIT below, and
+# never reads the gate's (FR-017). Both awk and the check below run under
+# the C locale, so a length is a count of bytes, as the gate counts it.
 normalise_to_released() {
-  local re f name counts prog
+  local re f name prog LIMIT=1000 LC_ALL=C
   re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
-  # One program, two modes. Without CHECK it prints the lines it keeps; with
-  # CHECK=1 it prints "<dated> <wide>": the dated headings, and the other
-  # lines the wide test still matches. No `$` inside a group, and no
-  # interval expression, for the awks CI runs.
+  # It prints the lines it keeps. No `$` inside a group, and no interval
+  # expression, for the awks CI runs.
   prog='
     function wide(s) {
       return s ~ /^```/ || s ~ /^~~~/ || s ~ /^-+[ \t]*$/ || s ~ /^##$/ || s ~ /^##[ \t]/
@@ -1266,10 +1270,8 @@ normalise_to_released() {
         if (wide(s)) return 1
       }
     }
-    { dated = ($0 ~ ENVIRON["DATED_RE"]) }
-    CHECK { if (dated) d++; else if (hit($0)) u++; next }
-    dated || !hit($0) { print }
-    END { if (CHECK) print d+0 " " u+0 }
+    index($0, "\r") || length($0) > ENVIRON["LIMIT"] + 0 { next }
+    $0 ~ ENVIRON["DATED_RE"] || !hit($0) { print }
   '
   # The pattern must separate the two kinds before it may judge anything: one
   # that matched every heading would remove nothing and leave the guard below
@@ -1280,20 +1282,139 @@ normalise_to_released() {
   for f in "$1"/*/CHANGELOG.md; do
     name="${f#"$1"/}"
     [ -f "$f" ] || { echo "fixture: no changelog in the fixture"; return 1; }
-    DATED_RE="$re" awk "$prog" "$f" > "$f.norm" \
+    DATED_RE="$re" LIMIT="$LIMIT" awk "$prog" "$f" > "$f.norm" \
       || { echo "fixture: awk could not normalise $name"; return 1; }
-    mv "$f.norm" "$f"
-    # The state, not the act: released means no line but a dated heading is
-    # left that the wide test matches, AND a dated heading still is. A rule
-    # that matched everything would have deleted every heading; the second
-    # half catches that.
-    counts="$(DATED_RE="$re" awk -v CHECK=1 "$prog" "$f")"
-    case "$counts" in
-      "0 "*) echo "fixture: $name holds no dated version heading after normalising"; return 1 ;;
-      *" 0") ;;
-      *) echo "fixture: $name still holds a heading, underline or fence line after normalising ($counts)"; return 1 ;;
+    mv "$f.norm" "$f" \
+      || { echo "fixture: could not replace $name with its normalised copy"; return 1; }
+    # The state, not the act: see released_state, run in a child bash.
+    LC_ALL=C bash -c "$(declare -f released_state); released_state \"\$@\"" _ "$f" "$LIMIT" "$re" "$name" \
+      || return 1
+  done
+}
+
+# released_state <file> <limit> <dated pattern> <name>: the state, not the
+# act. Released means no line is left that the gate could refuse, AND a
+# dated heading still is. A rule that matched everything would have deleted
+# every heading; the dated count catches that. This check is bash, not the
+# awk program in normalise_to_released: a second reader of the file, so a
+# fault in that program cannot also hide itself here. It runs in a child
+# bash, under the C locale so a length counts bytes, because inside a bats
+# test every command also runs bats' debug trap, and this loop, run there,
+# took seconds per changelog. Each failure echoes and returns 1.
+released_state() {
+  local f=$1 LIMIT=$2 re=$3 name=$4 l s x n dated
+  # CR bytes are counted with tr, never matched: this platform's tools
+  # drop a CR from a pattern.
+  [ "$(( $(tr -cd '\r' < "$f" | wc -c) ))" -eq 0 ] \
+    || { echo "fixture: $name still holds a CR byte after normalising"; return 1; }
+  n=0; dated=0
+  while IFS= read -r l || [ -n "$l" ]; do
+    n=$((n + 1))
+    [ "${#l}" -le "$LIMIT" ] \
+      || { echo "fixture: $name line $n is still longer than $LIMIT bytes after normalising"; return 1; }
+    case "$l" in
+      '## ['*) if [[ $l =~ $re ]]; then dated=$((dated + 1)); continue; fi ;;
+    esac
+    # The wide rule again: the line, then each strip of a leading blank,
+    # a `>` marker or a list marker, tested before the first strip and
+    # after every one. Globs and parameter expansion, not a regex per
+    # strip: this loop runs on every line of every fixture.
+    s=$l
+    while :; do
+      case "$s" in
+        '```'*|'~~~'*|'##'|'##'[[:blank:]]*)
+          echo "fixture: $name line $n still holds a heading or fence line after normalising"; return 1 ;;
+        -*)
+          # A run of `-`, then only blanks, is an underline.
+          x=${s#"${s%%[!-]*}"}
+          case "$x" in
+            *[![:blank:]]*) ;;
+            *) echo "fixture: $name line $n still holds an underline after normalising"; return 1 ;;
+          esac ;;
+      esac
+      case "$s" in
+        [[:blank:]]*) s=${s:1} ;;
+        '>'*) s=${s:1}; case "$s" in [[:blank:]]*) s=${s:1} ;; esac ;;
+        [-*+]) s='' ;;
+        [-*+][[:blank:]]*) s=${s:2} ;;
+        [0-9]*)
+          # Digits, then `.` or `)`, then a blank or the end.
+          x=${s#"${s%%[!0-9]*}"}
+          case "$x" in
+            [.\)]) s='' ;;
+            [.\)][[:blank:]]*) s=${x:2} ;;
+            *) break ;;
+          esac ;;
+        *) break ;;
+      esac
+    done
+  done < "$f"
+  [ "$dated" -gt 0 ] \
+    || { echo "fixture: $name holds no dated version heading after normalising"; return 1; }
+}
+
+# forms_no_path [what]: fails, naming U2, when $output holds the test
+# directory or the repository root in any spelling this platform prints:
+# as given, and where cygpath exists its mixed, POSIX and Windows forms;
+# where it does not, the `/c/...` and `C:/...` forms of a path with a drive
+# letter. A drive letter is searched for in both cases. Called after every
+# `run` in the --released tests, passing runs included: a refusal is not
+# the only output that reaches a public CI log. The spellings are worked out
+# once per test directory and kept in forms_spellings: each takes a process,
+# and on a slow machine about forty runs a test would then near the per-test
+# timeout.
+forms_no_path() {
+  local s
+  [ "${forms_spelt_for:-}" = "$TEST_DIR" ] || forms_spell || return 1
+  for s in "${forms_spellings[@]}"; do
+    case "$output" in
+      *"$s"*) echo "U2: ${1:+($1) }the output holds an absolute path. output: ${output:0:600}"; return 1 ;;
     esac
   done
+}
+
+# forms_spell: sets forms_spellings to every spelling of the test directory
+# and the root that forms_no_path searches for. It starts one process at
+# most, a single cygpath call; every other form is built with parameter
+# expansion, because a process costs a tenth of a second or more here.
+forms_spell() {
+  local p s d o pre m up=ABCDEFGHIJKLMNOPQRSTUVWXYZ lo=abcdefghijklmnopqrstuvwxyz
+  local spellings=() mixed=()
+  if command -v cygpath >/dev/null 2>&1; then
+    m="$(cygpath -m "$TEST_DIR" "$ROOT")" \
+      || { echo "fixture: U2 could not spell the test paths with cygpath"; return 1; }
+    mixed=("${m%%$'\n'*}" "${m#*$'\n'}")
+  fi
+  for p in "$TEST_DIR" "$ROOT" "${mixed[@]+"${mixed[@]}"}"; do
+    spellings+=("$p")
+    # A drive form gains its POSIX form and its Windows form; a POSIX form
+    # with a drive letter gains its drive form.
+    case "$p" in
+      [a-zA-Z]:/*) spellings+=("/${p:0:1}/${p:3}" "${p//\//\\}") ;;
+      /[a-zA-Z]/*) spellings+=("${p:1:1}:/${p:3}") ;;
+    esac
+  done
+  # Every drive letter in its other case too.
+  for s in "${spellings[@]}"; do
+    case "$s" in
+      [a-zA-Z]:*) d=${s:0:1} ;;
+      /[a-zA-Z]/*) d=${s:1:1} ;;
+      *) continue ;;
+    esac
+    pre=${up%%"$d"*}
+    if [ "${#pre}" -lt 26 ]; then o=${lo:${#pre}:1}; else pre=${lo%%"$d"*}; o=${up:${#pre}:1}; fi
+    case "$s" in
+      /*) spellings+=("/$o${s:2}") ;;
+      *) spellings+=("$o${s:1}") ;;
+    esac
+  done
+  for s in "${spellings[@]}"; do
+    # A spelling this short would match almost any output; refuse it rather
+    # than report a path that is not there.
+    [ "${#s}" -ge 4 ] || { echo "fixture: U2 was handed the path '$s', too short to search for"; return 1; }
+  done
+  forms_spellings=("${spellings[@]}")
+  forms_spelt_for=$TEST_DIR
 }
 
 @test "--released refuses a dangling Unreleased heading, and the default run does not" {
@@ -1327,7 +1448,8 @@ normalise_to_released() {
   # only that spelling; the helper refuses a fixture it did not release.
   normalise_to_released "$base"
 
-  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$base" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "the normalised fixture already fails --released; the break below would prove nothing. output: $output"; false; }
 
@@ -1348,7 +1470,8 @@ normalise_to_released() {
   # The DEFAULT run must still pass. This is not slack — it is the documented
   # blindness, asserted so that closing it silently would redden this test and
   # force the change to be stated.
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "the default run rejected a dangling heading; that is a behaviour change this test exists to make visible. output: $output"; false; }
   case "$output" in
@@ -1357,7 +1480,8 @@ normalise_to_released() {
   esac
 
   # And --released must refuse it.
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -ne 0 ] \
     || { echo "--released accepted $copied with an Unreleased heading above its release; the check is not running"; false; }
   case "$output" in
@@ -1384,7 +1508,8 @@ normalise_to_released() {
   mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
   [ "$(( $(tr -cd '\033' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
     || { echo "fixture: the escape plant did not land once in the $copied fixture"; false; }
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "K2: the default run rejected a first heading holding an escape sequence. output: $output"; false; }
   case "$output" in
@@ -1393,7 +1518,8 @@ normalise_to_released() {
   esac
   [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K2: the default run printed the escape byte"; false; }
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -ne 0 ] \
     || { echo "K2: --released accepted a heading above its release. output: $output"; false; }
   case "$output" in
@@ -1402,6 +1528,9 @@ normalise_to_released() {
   esac
   [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K2: the first-heading refusal printed the escape byte"; false; }
+  # H8 needs no combined copy here: every plant in this test is a first
+  # heading above the release, which the contract leaves out by name, since
+  # such a copy cannot report state=released.
 }
 
 @test "--released refuses an undated heading below the release, and the default run does not" {
@@ -1440,7 +1569,8 @@ normalise_to_released() {
   # Normalised as the test above is, by the same dated pattern, so an
   # undated heading the live tree happens to hold cannot fail the base.
   normalise_to_released "$base"
-  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$base" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; false; }
 
@@ -1478,14 +1608,16 @@ normalise_to_released() {
     line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
 
     # The default form is untouched: it reports and passes.
-    run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
+    forms_no_path
     [ "$status" -eq 0 ] \
       || { echo "G5: the default run rejected '$plant' below the release; the default form must not change. output: $output"; false; }
     printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
       || { echo "G5: the default run's line for $copied does not say state=released. output: $output"; false; }
 
     # The release form refuses, and says where and what.
-    run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+    forms_no_path
     [ "$status" -ne 0 ] \
       || { echo "G1: --released accepted $copied with '$plant' at line $line, below its release. output: $output"; false; }
     case "$output" in
@@ -1520,7 +1652,8 @@ normalise_to_released() {
   [ "$(grep -c -x -F -- "$plant" "$d/$copied/CHANGELOG.md")" -eq 1 ] \
     || { echo "fixture: the control-byte plant did not land exactly once in the $copied copy"; false; }
   line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -ne 0 ] \
     || { echo "G1: --released accepted $copied with a control byte in a heading at line $line. output: ${output//$ctl/<STX>}"; false; }
   case "$output" in
@@ -1538,9 +1671,19 @@ normalise_to_released() {
   printf '\n## [Unreleased]\n' >> "$d/$other/CHANGELOG.md"
   [ "$(grep -c -x -F -- '## [Unreleased]' "$d/$other/CHANGELOG.md")" -eq 1 ] \
     || { echo "fixture: the plant did not land in the $other copy"; false; }
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "G6: --released $copied refused because of $other's changelog. output: $output"; false; }
+
+  # H8: the default form passes one copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line, and still reports the
+  # judged plugin as released.
+  s=('' 'Plain text.' '')
+  forms_put '## [Unreleased]' "${s[@]}" '## unreleased' "${s[@]}" '## [9.9.9] - 2026-01-01 (yanked)' "${s[@]}" \
+    '## [9.9.9 - 2026-01-01' "${s[@]}" "$plant"
+  forms_at "$plant"
+  forms_default
 }
 
 # ---------------------------------------------------------------------------
@@ -1612,7 +1755,8 @@ forms_base() {
       || { echo "fixture: could not write a one-plugin marketplace"; return 1; }
   fi
   normalise_to_released "$base" || return 1
-  run bash -c "cd \"$base\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$base" "$ROOT" "$copied"
+  forms_no_path || return 1
   [ "$status" -eq 0 ] \
     || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; return 1; }
 }
@@ -1629,20 +1773,25 @@ forms_put() {
 }
 
 # forms_at <raw line>: sets line to that line's number in the copy, which
-# must hold it exactly once.
+# must hold it exactly once. `|| true`: grep exits 1 when it finds none,
+# and under errexit the bare assignment would end the test before the
+# `fixture:` message below could say why (U5). One grep, and the count
+# taken from its output with parameter expansion: a process is slow here.
 forms_at() {
-  local c
-  c="$(grep -c -x -F -- "$1" "$d/$copied/CHANGELOG.md")"
+  local hits nl c=0
+  hits="$(grep -n -x -F -- "$1" "$d/$copied/CHANGELOG.md" || true)"
+  if [ -n "$hits" ]; then nl=${hits//[!$'\n']/}; c=$(( ${#nl} + 1 )); fi
   [ "$c" = "1" ] || { echo "fixture: the $copied copy holds '$1' $c times, not once"; return 1; }
-  line="$(grep -n -x -F -- "$1" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
+  line=${hits%%:*}
 }
 
 # forms_refused <clause> <fragment>...: --released refuses the copy, saying
-# `is NOT released` and every fragment, and printing no absolute path (H9).
+# `is NOT released` and every fragment, and printing no absolute path (U2).
 forms_refused() {
   local id=$1 f
   shift
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path "$id plant" || return 1
   [ "$status" -ne 0 ] \
     || { echo "$id: --released accepted the plant. output: $output"; return 1; }
   case "$output" in
@@ -1655,9 +1804,6 @@ forms_refused() {
       *) echo "$id: the refusal does not say \"$f\". output: $output"; return 1 ;;
     esac
   done
-  case "$output" in
-    *"$TEST_DIR"*|*"$ROOT"*) echo "H9: ($id plant) the refusal prints an absolute path. output: $output"; return 1 ;;
-  esac
 }
 
 # forms_unclear <opener> <unclear line>: the fence is refused at the unclear
@@ -1673,18 +1819,23 @@ forms_unclear() {
   esac
 }
 
-# forms_passes <what>: --released accepts the copy.
+# forms_passes <planted line> <what>: --released accepts the copy. The
+# planted line is found first, so a plant that did not land fails as a
+# fixture instead of passing for having planted nothing (U3).
 forms_passes() {
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  forms_at "$1" || return 1
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path "$2" || return 1
   [ "$status" -eq 0 ] \
-    || { echo "H7: --released refused $1, which Markdown does not read as a heading. output: $output"; return 1; }
+    || { echo "H7: --released refused $2, which Markdown does not read as a heading. output: $output"; return 1; }
 }
 
 # forms_default: the default form passes the copy and still reports the
 # judged plugin as released (H8). One copy holds every refused plant of a
 # test, each after its own `Plain text.`, so one run covers them all.
 forms_default() {
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
+  forms_no_path || return 1
   [ "$status" -eq 0 ] \
     || { echo "H8: the default run failed on the refused plants; the default form must not change. output: $output"; return 1; }
   printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
@@ -1753,9 +1904,15 @@ forms_default() {
   forms_at '  --'
   forms_refused H3 "line $line holds '  --', underlined at line $((line + 1))"
 
-  # H8: the default form passes a copy holding every plant above.
-  forms_put "##${tab}Notes" '' 'Plain text.' '' ' ## [1.0.0] - 2026-01-01' '' 'Plain text.' '' \
-    'Notes' '---'
+  # H8: the default form passes a copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line.
+  s=('' 'Plain text.' '')
+  forms_put "##${tab}Notes" "${s[@]}" ' ## Notes' "${s[@]}" '   ## Notes' "${s[@]}" '##' "${s[@]}" \
+    '## Notes ##' "${s[@]}" ' ## [1.0.0] - 2026-01-01' "${s[@]}" 'Notes' '---' "${s[@]}" \
+    '    Notes' '---' "${s[@]}" '--' '---' "${s[@]}" '    >' '---' "${s[@]}" '    > ### x' '---' "${s[@]}" \
+    '> ### x' '> ---' "${s[@]}" '- a' '  ### x' '  ---' "${s[@]}" 'Para' '    >' '---' "${s[@]}" \
+    'Para' '    > ### x' '---' "${s[@]}" 'Para' '    ```' '    ```' '---' "${s[@]}" \
+    '- item' '      ### x' '  ---' "${s[@]}" '- item' '' '  --' '  ---'
   forms_default
 }
 
@@ -1777,8 +1934,12 @@ forms_default() {
   forms_at '- Notes'
   forms_refused H4 "line $line holds '- Notes', underlined at line $((line + 1))"
 
-  # H8: the default form passes a copy holding these plants.
-  forms_put '- > ## Notes' '' 'Plain text.' '' '- Notes' '  ---'
+  # H8: the default form passes a copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line.
+  s=('' 'Plain text.' '')
+  forms_put '> ## Notes' "${s[@]}" '>## Notes' "${s[@]}" '- ## Notes' "${s[@]}" '* ## Notes' "${s[@]}" \
+    '+ ## Notes' "${s[@]}" '1. ## Notes' "${s[@]}" '1) ## Notes' "${s[@]}" '- > ## Notes' "${s[@]}" \
+    '1. > ## Notes' "${s[@]}" '> Notes' '> ---' "${s[@]}" '- Notes' '  ---'
   forms_default
 }
 
@@ -1811,8 +1972,12 @@ forms_default() {
   forms_at '    ## Notes'
   forms_refused H5 "line $line holds '    ## Notes'"
 
-  # H8: the default form passes a copy holding these plants.
-  forms_put '- item' '' '    ## Notes' '' 'Plain text.' '' '- a' '  - b' '' '  c' '' '    ## Notes'
+  # H8: the default form passes a copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line.
+  s=('' 'Plain text.' '')
+  forms_put '- item' '' '    ## Notes' "${s[@]}" '- item' '    ## Notes' "${s[@]}" \
+    '- a' '  - b' '' '  c' '' '    ## Notes' "${s[@]}" '-' '    ## Notes' "${s[@]}" \
+    '- item' '```a`' '    ## Notes' "${s[@]}" '- item' '      >' 'lazy' '    ## Notes'
   forms_default
 }
 
@@ -1848,8 +2013,11 @@ forms_default() {
     *"## More"*) echo "H6: a second refusal was reported after the first. output: $output"; false ;;
   esac
 
-  # H8: the default form passes a copy holding an unclosed fence.
-  forms_put '## Notes' '' "$bt" 'unclosed'
+  # H8: the default form passes a copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line.
+  s=('' 'Plain text.' '')
+  forms_put '## Notes' '' '## More' "${s[@]}" '## Notes' '' "$bt" 'unclosed' "${s[@]}" \
+    "$tl" 'unclosed' "${s[@]}" "$bt" 'unclosed'
   forms_default
 }
 
@@ -1911,8 +2079,16 @@ forms_default() {
   forms_at '## Notes'
   forms_refused H1 "line $line holds '## Notes'"
 
-  # H8: the default form passes a copy holding an unclear fence.
-  forms_put "- $bt" '## Notes'
+  # H8: the default form passes a copy holding every refused plant above,
+  # each after its own `Plain text.` and blank line.
+  s=('' 'Plain text.' '')
+  forms_put "- $bt" '## Notes' "${s[@]}" "   $bt" "$bt" "${s[@]}" "> $bt" 'x' "${s[@]}" \
+    "- $bt" "   $bt" "${s[@]}" "    $bt" '## Notes' "${s[@]}" '- item' "  > $bt" '> ## Notes' "${s[@]}" \
+    "- > $bt" '>' "${s[@]}" ">$bt" ">    $bt" "${s[@]}" 'Para' "2. $bt" '   ## x' "   $bt" "${s[@]}" \
+    '- a' "  2) $bt" '     ## x' "     $bt" "${s[@]}" '<div>' "$bt" '' '## x' '' "$bt" "${s[@]}" \
+    '<!--' "$bt" '-->' '## x' "$bt" "${s[@]}" 'Para' '1.' "2. $bt" '   ## x' "   $bt" "${s[@]}" \
+    '1234567890. a' "2. $bt" '   ## x' "   $bt" "${s[@]}" '<x' '<!--' '' "$bt" '-->' '## x' "$bt" "${s[@]}" \
+    "$bt" "> $bt" "$bt" '## Notes'
   forms_default
 }
 
@@ -1925,34 +2101,34 @@ forms_default() {
 
   # H7: what Markdown does not read as a heading passes.
   forms_put "$bt" '## Notes' "$bt"
-  forms_passes 'a ## line inside a backtick fence'
+  forms_passes '## Notes' 'a ## line inside a backtick fence'
   forms_put "$tl" '## Notes' "$tl"
-  forms_passes 'a ## line inside a tilde fence'
+  forms_passes '## Notes' 'a ## line inside a tilde fence'
   forms_put '- item' '' "  $bt" '  ## x' "  $bt"
-  forms_passes 'a fence inside a list item'
+  forms_passes '  ## x' 'a fence inside a list item'
   forms_put '---'
-  forms_passes 'a thematic break after a blank line'
+  forms_passes '---' 'a thematic break after a blank line'
   forms_put '    ## Notes'
-  forms_passes 'a four-space indented ## line with no list item open'
+  forms_passes '    ## Notes' 'a four-space indented ## line with no list item open'
   forms_put "${tab}## Notes"
-  forms_passes 'a tab-indented ## line with no list item open'
+  forms_passes "${tab}## Notes" 'a tab-indented ## line with no list item open'
   forms_put "$bt" '## Notes' "$bt" '' 'Plain text.' '' "$tl" '## Notes' "$tl" '' 'Plain text.' '' \
     '- item' '' "  $bt" '  ## x' "  $bt" '' 'Plain text.' '' '---' '' 'Plain text.' '' \
     '    ## Notes' '' 'Plain text.' '' "${tab}## Notes"
-  forms_passes 'every non-heading together'
+  forms_passes "${tab}## Notes" 'every non-heading together'
   # K6: the four shapes Phase 26 narrowed, each passing only because the
   # proof in specs/025-gate-closes-phase25-gaps/proof/ showed the narrowed
   # walk passes no level-2 heading a CommonMark reader renders.
   forms_put '1. a' "2. $bt" '   code' "   $bt"
-  forms_passes 'a fence on the second item of a numbered list (N1)'
+  forms_passes "2. $bt" 'a fence on the second item of a numbered list (N1)'
   forms_put '<details>' '' 'x' '' '</details>' '' "$bt" 'code' "$bt"
-  forms_passes 'a fence after an HTML block a blank line ended (N2)'
+  forms_passes '<details>' 'a fence after an HTML block a blank line ended (N2)'
   forms_put '### Plantnote' '---'
-  forms_passes 'a thematic break under an ATX heading (N3)'
+  forms_passes '### Plantnote' 'a thematic break under an ATX heading (N3)'
   forms_put '### x' '---'
-  forms_passes 'the Phase 25 plant, a thematic break under a heading (N3)'
+  forms_passes '### x' 'the Phase 25 plant, a thematic break under a heading (N3)'
   forms_put '> Notes' '>' '> ---'
-  forms_passes 'a thematic break after an empty quote line (N4)'
+  forms_passes '> ---' 'a thematic break after an empty quote line (N4)'
 
   # H9: only the plugin being released is judged. This one needs a second
   # plugin, so the fixture is rebuilt with two.
@@ -1962,7 +2138,8 @@ forms_default() {
   printf '\nPlain text.\n\n##%sNotes\n' "$tab" >> "$d/$other/CHANGELOG.md"
   [ "$(grep -c -x -F -- "##${tab}Notes" "$d/$other/CHANGELOG.md")" -eq 1 ] \
     || { echo "fixture: the plant did not land in the $other copy"; false; }
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "H9: --released $copied refused because of $other's changelog. output: $output"; false; }
 }
@@ -2003,7 +2180,8 @@ forms_default() {
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes. output: ${output:0:600}"; false; }
   forms_put "${long:1}"
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\" --released \"$copied\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path
   [ "$status" -eq 0 ] \
     || { echo "K3: --released refused a line of exactly the limit. output: ${output:0:600}"; false; }
 
@@ -2021,14 +2199,12 @@ forms_default() {
   printf 'bad\000byte\n' >> "$d/$copied/CHANGELOG.md"
   [ "$(( $(tr -cd '\000' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
     || { echo "fixture: the NUL plant did not land once"; false; }
-  run bash -c "cd \"$d\" && bash \"$ROOT/scripts/check-versions.sh\""
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
+  forms_no_path
   [ "$status" -ne 0 ] || { echo "K5: the default form accepted a NUL byte. output: $output"; false; }
   case "$output" in
     *"$copied: CHANGELOG.md holds a NUL byte"*) ;;
     *) echo "K5: the default form stopped without its own message. output: $output"; false ;;
-  esac
-  case "$output" in
-    *"$TEST_DIR"*|*"$ROOT"*) echo "H9: (K5 plant) the default form prints an absolute path. output: $output"; false ;;
   esac
   forms_refused K5 "$copied: CHANGELOG.md holds a NUL byte"
 
@@ -2043,9 +2219,13 @@ forms_default() {
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes"; false; }
 
-  # H8: the default form passes a copy holding every plant above that it
-  # accepts. The NUL plant is left out: K5 stops both forms.
-  forms_put $'CRplant\r## x' '' 'Plain text.' '' "$long" '' 'Plain text.' '' $'## x \x9b'
+  # H8: the default form passes a copy holding every refused plant above
+  # that it accepts, each after its own `Plain text.` and blank line. The
+  # NUL plant is left out by name: K5 stops both forms.
+  forms_put $'CRplant\r## x' '' 'Plain text.' '' "$long" '' 'Plain text.' '' $'## x \x9b' '' 'Plain text.' '' 'LONGplant'
+  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
+  [ "$(LC_ALL=C awk 'length($0) > 1000 { n++ } END { print n + 0 }' "$d/$copied/CHANGELOG.md")" = "2" ] \
+    || { echo "fixture: the combined copy does not hold both long lines"; false; }
   forms_default
 }
 
@@ -2054,7 +2234,8 @@ forms_default() {
   # A caller asking for a STRICTER check must never receive a weaker one. With
   # no plugin matching the name, the enforcement runs zero times, and a walk
   # over zero items reports zero problems.
-  run bash -c "cd \"$ROOT\" && bash \"$ROOT/scripts/check-versions.sh\" --released definitely-not-a-plugin"
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$ROOT" "$ROOT" definitely-not-a-plugin
+  forms_no_path
   [ "$status" -ne 0 ] \
     || { echo "--released accepted a plugin name matching nothing and enforced nothing. output: $output"; false; }
   case "$output" in
