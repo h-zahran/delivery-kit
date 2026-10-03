@@ -106,7 +106,8 @@ dated_re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[
 # The release form judges no line longer than line_limit bytes, and a
 # refusal quotes at most quote_cut bytes of any line. Each is written once
 # and reaches awk through the environment, as the pattern does, so the two
-# places that quote a line cannot disagree. A long line is refused rather
+# places that quote a line, quoted() below and the walk's show(), cut at the
+# same length. A long line is refused rather
 # than read: the walk's cost grows much faster than the line, and every
 # refusal lands in a public CI log.
 line_limit=1000
@@ -115,12 +116,12 @@ quote_cut=200
 # A line read from a tracked file is shown with every byte that is not
 # printable ASCII as `?`. Under the C locale, so a byte that is not valid
 # text in any encoding is masked too: under a UTF-8 locale a lone 0x9b, a
-# bare terminal control, passed a printable test unmasked. quoted() also
-# cuts the line to quote_cut, as the walk's show() does.
-masked() { local LC_ALL=C s=$1; printf '%s' "${s//[![:print:]]/?}"; }
+# bare terminal control, passed a printable test unmasked. The line is then
+# cut to quote_cut, as the walk's show() does, wherever it is printed: the
+# state field of the default form as well as a refusal.
 quoted() {
-  local LC_ALL=C s
-  s="$(masked "$1")"
+  local LC_ALL=C s=$1
+  s=${s//[![:print:]]/?}
   [ "${#s}" -le "$quote_cut" ] || s="${s:0:$quote_cut} [cut]"
   printf '%s' "$s"
 }
@@ -190,13 +191,14 @@ for dir in */; do
 
   # A NUL byte makes grep call the changelog binary: the version read below
   # then finds no version, and errexit ends the run with no message at all.
-  # Name it instead, in both forms. Counted with tr, before any grep or awk
+  # Name it instead, in both forms. Found by bash before any grep or awk
   # reads the file, because what an awk does with a NUL differs between the
-  # awks CI runs. A missing changelog is left to the diagnostic below.
-  if [ -f "./$p/CHANGELOG.md" ]; then
-    nul="$(tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)"
-    [ "$((nul))" -eq 0 ] \
-      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
+  # awks CI runs: `read -d ''` succeeds only when it meets a NUL before the
+  # end of the file, and starts no process, which counts on a run that
+  # reads every changelog. A missing changelog is left to the diagnostic
+  # below.
+  if [ -f "./$p/CHANGELOG.md" ] && IFS= read -r -d '' _ < "./$p/CHANGELOG.md"; then
+    die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
   fi
 
   # The heading format is pinned precisely because this line parses it, so
@@ -242,7 +244,7 @@ for dir in */; do
   if [ "$first" = "$head" ]; then
     released_state="released"
   else
-    released_state="UNRELEASED-ABOVE:$(masked "$first")"
+    released_state="UNRELEASED-ABOVE:$(quoted "$first")"
   fi
   printf '%s: plugin=%s marketplace=%s changelog=%s state=%s\n' \
     "${p//[$'\n\r']/}" "${pv//[$'\n\r']/}" "${mv//[$'\n\r']/}" "${cv//[$'\n\r']/}" "$released_state"
@@ -285,7 +287,7 @@ for dir in */; do
     # process escapes in it. A quoted line comes from a tracked file and lands
     # in a public CI log, so every character that is not printable — a tab,
     # an escape sequence, a stray CR — is shown as `?`, and the walk runs
-    # under the C locale for the reason masked() gives above. No interval
+    # under the C locale for the reason quoted() gives above. No interval
     # expressions: indents are counted, not matched.
     refusal="$(DATED_RE="$dated_re" LINE_LIMIT="$line_limit" QUOTE_CUT="$quote_cut" LC_ALL=C awk '
       function expand(s,   o, i, c, col) {
