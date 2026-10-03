@@ -325,18 +325,33 @@ for dir in */; do
         if (under && prev == "text")
           refuse("line " pnr " holds \047" show(praw) "\047, underlined at line " NR)
 
-        # List markers and quote markers, in any order.
-        rest = text; marked = 0
+        # List markers and quote markers, in any order. An ordered marker
+        # other than 1 may not start a list after a text line, so a fence
+        # on it may not be a fence (odd).
+        rest = text; marked = 0; odd = 0
         while (1) {
           r = substr(rest, lead(rest) + 1)
-          if (match(r, LM)) { rest = substr(r, RLENGTH + 1); marked = 1; continue }
+          if (match(r, LM)) {
+            if (substr(r, 1, RLENGTH) ~ /^[0-9]/ && substr(r, 1, RLENGTH) !~ /^1[.)]/) odd = 1
+            rest = substr(r, RLENGTH + 1); marked = 1; continue
+          }
           if (substr(r, 1, 1) == ">") { rest = unquote(r); continue }
           rest = r
           break
         }
         if (marked) listed = 1
 
-        # A fence opener, at any indent.
+        # A line that starts with `<` may open an HTML block, and a fence
+        # line inside one is not a fence: it would hide what follows it.
+        # Some HTML blocks run past a blank line, so from here on every
+        # fence opener is refused rather than followed.
+        if (substr(rest, 1, 1) == "<" && !html) { html = 1; hnr = NR }
+
+        # A fence opener, at any indent, unless Markdown might not open it.
+        if (opener(rest) && odd)
+          refuse("line " NR " opens a code fence on an ordered list marker other than 1, which may not start a list: \047" show($0) "\047")
+        if (opener(rest) && html)
+          refuse("line " NR " opens a code fence that the HTML at line " hnr " may hold: \047" show($0) "\047")
         if (opener(rest)) {
           fc = substr(rest, 1, 1)
           fenced = 1; fch = fc; flen = run(rest, fc)

@@ -1827,6 +1827,24 @@ forms_default() {
   forms_put ">$bt" ">    $bt"
   forms_unclear ">$bt" ">    $bt"
 
+  # H6: a fence opener Markdown might not open is refused, because the
+  # walk would skip a heading under it. Found at review (phase I).
+  # An ordered marker other than 1 may not start a list after text:
+  forms_put 'Para' "2. $bt" '   ## x' "   $bt"
+  forms_at "2. $bt"
+  forms_refused H6 "line $line opens a code fence on an ordered list marker other than 1"
+  forms_put '- a' "  2) $bt" '     ## x' "     $bt"
+  forms_at "  2) $bt"
+  forms_refused H6 "line $line opens a code fence on an ordered list marker other than 1"
+  # A fence line inside an HTML block is not a fence; some HTML blocks
+  # run past a blank line, so any opener below a `<` line is refused.
+  forms_put '<div>' "$bt" '' '## x' '' "$bt"
+  forms_at '<div>'
+  forms_refused H6 "line $((line + 1)) opens a code fence that the HTML at line $line may hold: '$bt'"
+  forms_put '<!--' "$bt" '-->' '## x' "$bt"
+  forms_at '<!--'
+  forms_refused H6 "line $((line + 1)) opens a code fence that the HTML at line $line may hold: '$bt'"
+
   # H6: a fence never hides a heading after its clean close.
   forms_put "$bt" "> $bt" "$bt" '## Notes'
   forms_at '## Notes'
