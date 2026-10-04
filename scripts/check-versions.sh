@@ -113,6 +113,12 @@ dated_re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[
 line_limit=1000
 quote_cut=200
 
+# The release form reads the whole changelog of the plugin it releases, line
+# by line, and that cost grows with the file, so it refuses a changelog
+# larger than changelog_limit bytes before reading any of it. Written once.
+# The default form only searches the file and never refuses for its size.
+changelog_limit=262144
+
 # A line read from a tracked file is shown with every byte that is not
 # printable ASCII as `?`. Under the C locale, so a byte that is not valid
 # text in any encoding is masked too: under a UTF-8 locale a lone 0x9b, a
@@ -201,14 +207,40 @@ for dir in */; do
   # bash `read -d ''`, which starts no process but
   # reads one byte at a time: measured, 1.9 s on an 800 KB changelog against
   # 0.1 s for tr at any size. A missing changelog is left to the diagnostic
-  # below. Only the plugin being released is said to leave the tree not
-  # released: the default form asked no such question, and another plugin
-  # is not the one being released.
+  # below.
+  #
+  # Only the plugin being released is said to leave the tree not released:
+  # the default form asked no such question, and another plugin is not the
+  # one being released. Set before the first refusal that reads it, so each
+  # reads this plugin's suffix and never the one before.
+  unreleased=""
+  [ "$p" != "$RELEASED" ] || unreleased=" — this tree is NOT released"
+
+  # Nothing reads the changelog unless it is a regular file of its own. A
+  # test with -f follows a symbolic link, so a link to a device skipped the
+  # NUL check and the search tools read the device: a link to /dev/urandom
+  # ran until it was killed, naming nothing. Every link is refused, wherever
+  # it points and a broken one too: judging a target is more code, and the
+  # target can change after the check. A wrong refusal fails closed.
+  [ ! -L "./$p/CHANGELOG.md" ] \
+    || die "$p: CHANGELOG.md is a symbolic link, which the gate does not follow$unreleased"
+  if [ -e "./$p/CHANGELOG.md" ] && [ ! -f "./$p/CHANGELOG.md" ]; then
+    die "$p: CHANGELOG.md is not a regular file$unreleased"
+  fi
   if [ -f "./$p/CHANGELOG.md" ]; then
+    # The size before any read of the content, and only here: outside this
+    # block a missing changelog would end the run on the shell's own error
+    # under errexit, not on the diagnostic below. wc takes a regular file's
+    # size from the file system (measured on Windows; the checks above send
+    # it nothing else). Arithmetic drops the spaces BSD wc pads with.
+    if [ "$p" = "$RELEASED" ]; then
+      size="$(LC_ALL=C wc -c < "./$p/CHANGELOG.md")" \
+        || die "$p: CHANGELOG.md could not be read"
+      [ "$((size))" -le "$changelog_limit" ] \
+        || die "$p: CHANGELOG.md is $((size)) bytes, more than the release form reads ($changelog_limit)$unreleased"
+    fi
     nul="$(LC_ALL=C tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)" \
       || die "$p: CHANGELOG.md could not be read"
-    unreleased=""
-    [ "$p" != "$RELEASED" ] || unreleased=" — this tree is NOT released"
     [ "$((nul))" -eq 0 ] \
       || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
   fi
@@ -227,15 +259,17 @@ for dir in */; do
   #
   # The `|| true` is load bearing. This script runs under errexit, so a failing
   # command substitution in an assignment aborts AT THIS LINE and the named
-  # diagnostic below never runs — a missing changelog would die with grep's own
-  # "No such file or directory" and name no format, and a file whose only
-  # heading has drifted would die with no output at all, which is exactly the
-  # case the diagnostic exists for. It cannot mask a real failure: an empty head
-  # is rejected on the next line.
+  # diagnostic below never runs — a missing changelog would die naming no
+  # format, and a file whose only heading has drifted would die with no output
+  # at all, which is exactly the case the diagnostic exists for. It cannot mask
+  # a real failure: an empty head is rejected on the next line. grep's own
+  # error is discarded for the same reason: the gate's line follows and says
+  # what failed, and grep's would print the path raw, before it, in a public
+  # log.
   #
   # Under the C locale, as every read of the file here: a byte that is not
   # valid text must never make a tool stop or call the file binary.
-  head="$(LC_ALL=C grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" || true)"
+  head="$(LC_ALL=C grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" 2>/dev/null || true)"
   [ -n "$head" ] || die "$p: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"
   cv="$(printf '%s' "$head" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
 
