@@ -201,17 +201,16 @@ for dir in */; do
   # bash `read -d ''`, which starts no process but
   # reads one byte at a time: measured, 1.9 s on an 800 KB changelog against
   # 0.1 s for tr at any size. A missing changelog is left to the diagnostic
-  # below. Only the release form says the tree is not released: the default
-  # form asked no such question.
+  # below. Only the plugin being released is said to leave the tree not
+  # released: the default form asked no such question, and another plugin
+  # is not the one being released.
   if [ -f "./$p/CHANGELOG.md" ]; then
     nul="$(LC_ALL=C tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)" \
       || die "$p: CHANGELOG.md could not be read"
-    if [ "$((nul))" -ne 0 ]; then
-      if [ -n "$RELEASED" ]; then
-        die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
-      fi
-      die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read"
-    fi
+    unreleased=""
+    [ "$p" != "$RELEASED" ] || unreleased=" — this tree is NOT released"
+    [ "$((nul))" -eq 0 ] \
+      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
   fi
 
   # The heading format is pinned precisely because this line parses it, so

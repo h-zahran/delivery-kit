@@ -329,6 +329,16 @@ At pull request review (phase M):
   cut and masked in two places, `quoted()` and `show()`; the default
   form needs the bash one, and they share the cut length.
 
+Pull request review, round 2, found no wrong pass (42 shapes around the
+four narrowings, each compared with the reader). Changed: the NUL message
+says the tree is not released only for the plugin `--released` names.
+Not changed, each a wrong refusal or a cleanup: Windows gawk drops a CR
+before a line feed, so a CRLF line passes there and is refused elsewhere
+(git checks changelogs out with LF ends); a one-line `<!-- ... -->` keeps
+every later fence refused (narrowing it needs its own proof); two tests
+build the same long line twice; `forms_utf8` keeps no cache (each test
+calls it once).
+
 Deferred, each older than this phase and each reported at review:
 
 - **A changelog that is a symbolic link** (for example to `/dev/urandom`)
