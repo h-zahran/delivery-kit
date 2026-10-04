@@ -2339,6 +2339,123 @@ forms_default() {
   forms_default
 }
 
+# gate_run <copy> [<argument>...]: the gate, run in the copy as CI runs it.
+# Its output must hold no absolute path (U2).
+gate_run() {
+  local c=$1
+  shift
+  run bash -c 'r=$1 c=$2; shift 2; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' _ "$ROOT" "$c" "$@"
+  forms_no_path || return 1
+}
+
+# gate_says <clause> <exit status> <fragment>...: the last run exited with
+# exactly that status, and its output holds every fragment, each matched as
+# a literal: `?` is the mask character and also a glob wildcard.
+gate_says() {
+  local id=$1 want=$2 f
+  shift 2
+  [ "$status" -eq "$want" ] \
+    || { echo "$id: the gate exited $status, not $want. output: ${output:0:600}"; return 1; }
+  for f in "$@"; do
+    case "$output" in
+      *"$f"*) ;;
+      *) echo "$id: the output does not say \"$f\". output: ${output:0:600}"; return 1 ;;
+    esac
+  done
+}
+
+@test "the gate reads only a regular changelog of bounded size" {
+  cd "$ROOT"
+  forms_base one
+  local c lk bl links other want size
+
+  # L1: a link to a regular file, and a link to nothing, are refused as
+  # links in both forms. `|| true`: where `ln` cannot make a native link it
+  # exits non-zero, and under errexit that would end the test before the
+  # fallback below could run.
+  lk="$TEST_DIR/regular-link"
+  bl="$TEST_DIR/regular-broken"
+  cp -r "$base" "$lk"
+  cp -r "$base" "$bl"
+  cp "$lk/$copied/CHANGELOG.md" "$lk/$copied/real.md"
+  rm "$lk/$copied/CHANGELOG.md" "$bl/$copied/CHANGELOG.md"
+  (cd "$lk/$copied" && MSYS=winsymlinks:nativestrict ln -s real.md CHANGELOG.md 2>/dev/null) || true
+  (cd "$bl/$copied" && MSYS=winsymlinks:nativestrict ln -s missing.md CHANGELOG.md 2>/dev/null) || true
+  if [ -L "$lk/$copied/CHANGELOG.md" ]; then links="made"; else links="not available here"; fi
+  # Which way this system took, on a pass too: bats hides a passing test's
+  # output, so file descriptor 3, and `# ` keeps the line a TAP comment.
+  echo "# links: $links" >&3
+  if [ -L "$bl/$copied/CHANGELOG.md" ]; then other="made"; else other="not available here"; fi
+  [ "$other" = "$links" ] \
+    || { echo "fixture: one link was made and the other was not ($links, then $other)"; false; }
+  if [ "$links" = "made" ]; then
+    want="is a symbolic link"
+  else
+    # Only where the runner may not make a link: there, what a checkout
+    # makes in a link's place, a file holding the target path, is checked
+    # instead, and the link rule itself is not reached.
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) ;;
+      *) echo "fixture: this system made no symbolic link"; false ;;
+    esac
+    rm -f "$lk/$copied/CHANGELOG.md" "$bl/$copied/CHANGELOG.md"
+    printf 'real.md' > "$lk/$copied/CHANGELOG.md"
+    printf 'missing.md' > "$bl/$copied/CHANGELOG.md"
+    want="no changelog heading"
+  fi
+  for c in "$lk" "$bl"; do
+    gate_run "$c"
+    gate_says L1 1 "$copied: " "$want"
+    gate_run "$c" --released "$copied"
+    gate_says L1 1 "$copied: " "$want"
+  done
+
+  # L2: a directory where the changelog should be is refused in both forms.
+  c="$TEST_DIR/regular-dir"
+  cp -r "$base" "$c"
+  rm "$c/$copied/CHANGELOG.md"
+  mkdir "$c/$copied/CHANGELOG.md"
+  gate_run "$c"
+  gate_says L2 1 "$copied: CHANGELOG.md is not a regular file"
+  gate_run "$c" --released "$copied"
+  gate_says L2 1 "$copied: CHANGELOG.md is not a regular file"
+
+  # L3: exactly the limit is not refused for its size; one byte more is,
+  # by the release form only. The padding is one awk program: a per-line
+  # bash loop runs bats' debug trap on every line and took 19 s.
+  c="$TEST_DIR/regular-size"
+  cp -r "$base" "$c"
+  size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
+  [ "$size" -le 262144 ] || { echo "fixture: the changelog is already $size bytes"; false; }
+  LC_ALL=C awk -v BINMODE=3 -v n=$((262144 - size)) \
+    'BEGIN { while (n >= 12) { print "Plain text."; n -= 12 } if (n > 0) { t = ""; for (i = 1; i < n; i++) t = t "y"; print t } }' \
+    >> "$c/$copied/CHANGELOG.md"
+  size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
+  [ "$size" -eq 262144 ] || { echo "fixture: the padded changelog is $size bytes, not 262144"; false; }
+  gate_run "$c" --released "$copied"
+  gate_says L3 0
+  printf 'y' >> "$c/$copied/CHANGELOG.md"
+  size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
+  [ "$size" -eq 262145 ] || { echo "fixture: the changelog is $size bytes, not 262145"; false; }
+  gate_run "$c" --released "$copied"
+  gate_says L3 1 "$copied: " "262145 bytes" "262144"
+  gate_run "$c"
+  gate_says L3 0
+
+  # L4: a missing changelog gets the gate's own line in both forms, and no
+  # line from another program, which would print the path raw.
+  c="$TEST_DIR/regular-missing"
+  cp -r "$base" "$c"
+  rm "$c/$copied/CHANGELOG.md"
+  for want in "" "--released"; do
+    if [ -n "$want" ]; then gate_run "$c" --released "$copied"; else gate_run "$c"; fi
+    gate_says L4 1 "$copied: no changelog heading in the pinned"
+    case $'\n'"$output" in
+      *$'\n'grep:*|*$'\n'jq:*) echo "L4: another program printed its own error. output: ${output:0:600}"; false ;;
+    esac
+  done
+}
+
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
   cd "$ROOT"
   # A caller asking for a STRICTER check must never receive a weaker one. With
