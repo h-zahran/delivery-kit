@@ -195,14 +195,23 @@ for dir in */; do
   # then finds no version, and errexit ends the run with no message at all.
   # Name it instead, in both forms. Counted with tr, before any grep or awk
   # reads the file, because what an awk does with a NUL differs between the
-  # awks CI runs. Not with bash `read -d ''`, which starts no process but
+  # awks CI runs; tr under the C locale, because macOS tr under a UTF-8
+  # locale stops at a byte that is not valid text ("Illegal byte
+  # sequence"), and the gate died with no message of its own. Not with
+  # bash `read -d ''`, which starts no process but
   # reads one byte at a time: measured, 1.9 s on an 800 KB changelog against
   # 0.1 s for tr at any size. A missing changelog is left to the diagnostic
-  # below.
+  # below. Only the release form says the tree is not released: the default
+  # form asked no such question.
   if [ -f "./$p/CHANGELOG.md" ]; then
-    nul="$(tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)"
-    [ "$((nul))" -eq 0 ] \
-      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
+    nul="$(LC_ALL=C tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)" \
+      || die "$p: CHANGELOG.md could not be read"
+    if [ "$((nul))" -ne 0 ]; then
+      if [ -n "$RELEASED" ]; then
+        die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
+      fi
+      die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read"
+    fi
   fi
 
   # The heading format is pinned precisely because this line parses it, so
@@ -224,7 +233,10 @@ for dir in */; do
   # heading has drifted would die with no output at all, which is exactly the
   # case the diagnostic exists for. It cannot mask a real failure: an empty head
   # is rejected on the next line.
-  head="$(grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" || true)"
+  #
+  # Under the C locale, as every read of the file here: a byte that is not
+  # valid text must never make a tool stop or call the file binary.
+  head="$(LC_ALL=C grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" || true)"
   [ -n "$head" ] || die "$p: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"
   cv="$(printf '%s' "$head" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
 
@@ -247,8 +259,7 @@ for dir in */; do
   #
   # Under the C locale: under a UTF-8 locale grep calls a line holding a byte
   # that is not valid text binary, and prints "Binary file ... matches" in
-  # place of the heading it found. The dated heading above needs no such
-  # care: only ASCII matches its pattern.
+  # place of the heading it found.
   first="$(LC_ALL=C grep -m1 '^## ' -- "./$p/CHANGELOG.md" || true)"
   if [ "$first" = "$head" ]; then
     released_state="released"
@@ -467,11 +478,15 @@ for dir in */; do
         # let through. An ATX heading with no container and at most three
         # columns of indent, while no list item can be open, is a heading
         # wherever it stands (N3). A line of `>` marks starting at column
-        # zero is a blank line inside a quote, which ends any paragraph
-        # (N4). Neither counts as blank for any other rule.
+        # zero, with at most one space between two marks, is a blank line
+        # inside a quote, which ends any paragraph (N4). A wider gap is not:
+        # after five spaces a `>` is text that continues the paragraph, and
+        # the run below it is an underline. Found at pull request review;
+        # tabs are expanded before this test. Neither counts as blank for
+        # any other rule.
         if (blank) prev = "blank"
         else if (depth == 0 && !marked && ind <= 3 && !listed && atx(text)) prev = "heading"
-        else if (line ~ /^>[> ]*$/) prev = "qblank"
+        else if (line ~ /^>( ?>)* *$/) prev = "qblank"
         else prev = "text"
         praw = $0; pnr = NR
       }
