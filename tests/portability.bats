@@ -1308,7 +1308,7 @@ released_state() {
   local f=$1 LIMIT=$2 re=$3 name=$4 l s x n dated
   # CR bytes are counted with tr, never matched: this platform's tools
   # drop a CR from a pattern.
-  [ "$(( $(tr -cd '\r' < "$f" | wc -c) ))" -eq 0 ] \
+  [ "$(( $(LC_ALL=C tr -cd '\r' < "$f" | wc -c) ))" -eq 0 ] \
     || { echo "fixture: $name still holds a CR byte after normalising"; return 1; }
   n=0; dated=0
   while IFS= read -r l || [ -n "$l" ]; do
@@ -1534,7 +1534,7 @@ forms_utf8() {
   awk -v esc="$(printf '\033')" 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { print "## [Unreleased] " esc "[31mRED"; print ""; done = 1 } { print }' \
     "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
   mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
-  [ "$(( $(tr -cd '\033' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+  [ "$(( $(LC_ALL=C tr -cd '\033' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
     || { echo "fixture: the escape plant did not land once in the $copied fixture"; false; }
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
   forms_no_path
@@ -1544,7 +1544,7 @@ forms_utf8() {
     *"UNRELEASED-ABOVE:## [Unreleased] ?[31mRED"*) ;;
     *) echo "K2: the default run did not show the escape byte as '?'. output: $output"; false ;;
   esac
-  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K2: the default run printed the escape byte"; false; }
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
   forms_no_path
@@ -1554,7 +1554,7 @@ forms_utf8() {
     *"'## [Unreleased] ?[31mRED' sits above the released heading"*) ;;
     *) echo "K2: the first-heading refusal did not show the escape byte as '?'. output: $output"; false ;;
   esac
-  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K2: the first-heading refusal printed the escape byte"; false; }
 
   # K2, K4: a first heading longer than the quote cut, holding a 0x9b byte
@@ -1572,7 +1572,7 @@ forms_utf8() {
   LONG="$long" awk 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { print ENVIRON["LONG"]; print ""; done = 1 } { print }' \
     "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
   mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
-  [ "$(( $(tr -cd '\233' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+  [ "$(( $(LC_ALL=C tr -cd '\233' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
     || { echo "fixture: the long first-heading plant did not land once in the $copied fixture"; false; }
   run bash -c 'export LC_ALL=$3; cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT" "$utf8"
   forms_no_path
@@ -1582,7 +1582,7 @@ forms_utf8() {
     *" state=UNRELEASED-ABOVE:$want"$'\n'*) ;;
     *) echo "K4: under $utf8, the default run's state field is not the heading masked and cut"; false ;;
   esac
-  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\233' | wc -c) ))" -eq 0 ] \
     || { echo "K4: under $utf8, the default run printed the 0x9b byte"; false; }
   run bash -c 'export LC_ALL=$4; cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied" "$utf8"
   forms_no_path
@@ -1591,7 +1591,7 @@ forms_utf8() {
     *"'$want' sits above the released heading"*) ;;
     *) echo "K4: under $utf8, the first-heading refusal is not the heading masked and cut"; false ;;
   esac
-  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\233' | wc -c) ))" -eq 0 ] \
     || { echo "K4: under $utf8, the first-heading refusal printed the 0x9b byte"; false; }
   # H8 needs no combined copy here: every plant in this test is a first
   # heading above the release, which the contract leaves out by name, since
@@ -1945,6 +1945,13 @@ forms_default() {
   forms_put '> ### x' '> ---'
   forms_at '> ### x'
   forms_refused K6 "line $line holds '> ### x', underlined at line $((line + 1))"
+  # A line of `>` marks is an empty quote line only while two marks are at
+  # most one space apart: after five spaces the second `>` continues the
+  # paragraph, and Markdown renders `a >` as a level-2 heading (N4, found at
+  # pull request review).
+  forms_put '> a' '>     >' '> ---'
+  forms_at '>     >'
+  forms_refused K6 "line $line holds '>     >', underlined at line $((line + 1))"
   # And so does one inside a list item, where the walk cannot tell the item
   # is still open.
   forms_put '- a' '  ### x' '  ---'
@@ -1975,7 +1982,8 @@ forms_default() {
   forms_put "##${tab}Notes" "${s[@]}" ' ## Notes' "${s[@]}" '   ## Notes' "${s[@]}" '##' "${s[@]}" \
     '## Notes ##' "${s[@]}" ' ## [1.0.0] - 2026-01-01' "${s[@]}" 'Notes' '---' "${s[@]}" \
     '    Notes' '---' "${s[@]}" '--' '---' "${s[@]}" '    >' '---' "${s[@]}" '    > ### x' '---' "${s[@]}" \
-    '> ### x' '> ---' "${s[@]}" '- a' '  ### x' '  ---' "${s[@]}" 'Para' '    >' '---' "${s[@]}" \
+    '> ### x' '> ---' "${s[@]}" '> a' '>     >' '> ---' "${s[@]}" \
+    '- a' '  ### x' '  ---' "${s[@]}" 'Para' '    >' '---' "${s[@]}" \
     'Para' '    > ### x' '---' "${s[@]}" 'Para' '    ```' '    ```' '---' "${s[@]}" \
     '- item' '      ### x' '  ---' "${s[@]}" '- item' '' '  --' '  ---'
   forms_default
@@ -2234,7 +2242,7 @@ forms_default() {
   # `## x` hold a level-2 heading. Built with $'\r', never a literal CR in
   # this file; Windows gawk strips only a CR that comes before a line feed.
   forms_put $'CRplant\r## x'
-  c="$(tr -cd '\r' < "$d/$copied/CHANGELOG.md" | wc -c)"
+  c="$(LC_ALL=C tr -cd '\r' < "$d/$copied/CHANGELOG.md" | wc -c)"
   [ "$((c))" -eq 1 ] || { echo "fixture: the CR plant holds $((c)) CR bytes, not 1"; false; }
   line="$(grep -n -F 'CRplant' "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
   [ -n "$line" ] || { echo "fixture: the CR plant did not land"; false; }
@@ -2267,7 +2275,7 @@ forms_default() {
   line="$(LC_ALL=C awk 'index($0, "## x ") == 1 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the 0x9b plant did not land"; false; }
   forms_refused K4 "line $line holds '## x ?'"
-  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\233' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal printed the 0x9b byte"; false; }
   # Again under a UTF-8 locale, where the byte is not valid text: the gate
   # must mask it under its own C locale, whatever the caller's is.
@@ -2279,13 +2287,13 @@ forms_default() {
     *"line $line holds '## x ?'"*) ;;
     *) echo "K4: under $utf8, the refusal does not show the 0x9b byte as '?'"; false ;;
   esac
-  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\233' | wc -c) ))" -eq 0 ] \
     || { echo "K4: under $utf8, the refusal printed the 0x9b byte"; false; }
 
   # K5: a NUL byte stops both forms with the gate's own message.
   forms_put 'NULplant'
   printf 'bad\000byte\n' >> "$d/$copied/CHANGELOG.md"
-  [ "$(( $(tr -cd '\000' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+  [ "$(( $(LC_ALL=C tr -cd '\000' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
     || { echo "fixture: the NUL plant did not land once"; false; }
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
   forms_no_path
@@ -2316,7 +2324,7 @@ forms_default() {
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the dense line did not land"; false; }
   forms_refused K3 "line $line is 400000 bytes long"
-  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+  [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal of the dense line printed an escape byte"; false; }
 
   # H8: the default form passes a copy holding every refused plant above

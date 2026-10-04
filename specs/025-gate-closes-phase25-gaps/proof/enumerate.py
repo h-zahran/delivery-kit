@@ -60,7 +60,7 @@ CONTROLS = {
     'N2': [('        l = tolower(s)\n', '        return 0\n')],
     'N3': [('else if (depth == 0 && !marked && ind <= 3 && !listed && atx(text)) prev = "heading"',
             'else if (atx(rest)) prev = "heading"')],
-    'N4': [('else if (line ~ /^>[> ]*$/) prev = "qblank"',
+    'N4': [('else if (line ~ /^>( ?>)* *$/) prev = "qblank"',
             'else if (line ~ /^ *>[> ]*$/) prev = "qblank"')],
 }
 
@@ -68,11 +68,13 @@ OWN = {
     'N1': ['Para', '1. a', '1.', '5. a', '123456789. a', '1234567890. a', ''],
     'N2': ['<details>', '<div>', '<pre>', '<PRE>', '<x', '<!--', '-->', '</details>', ''],
     'N3': ['### Plantnote', 'Para', ''],
-    'N4': ['> Notes', '>', ''],
+    # Gaps between two `>` marks: up to four spaces still open a nested
+    # quote, five do not, and a tab can stand for either (found at review).
+    'N4': ['> Notes', '>', '> >', '>  >', '>    >', '>     >', '>\t\t>', ''],
 }
 BEFORE = ['Para', '- a', '> Para', '1. a', '1.', '5. a', '123456789. a',
           '1234567890. a', '<details>', '<div>', '<pre>', '<PRE>', '<x', '<!--', '-->',
-          '</details>', '### Plantnote', '> Notes', '>', '', '  - b']
+          '</details>', '### Plantnote', '> Notes', '>', '>     >', '>\t\t>', '', '  - b']
 # Every container the Phase 25 rig covered, and the ordered markers at
 # other indents that N1 must not take for a continuation.
 PREFIX = ['', '  ', '   ', '    ', '> ', '>', '- ', '  - ', '1. ', '2. ', '2) ',

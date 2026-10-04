@@ -153,6 +153,12 @@ allowed only behind the proof of R10.
 - **Why it might be safe**: such a line is a blank line inside a block
   quote, which ends any paragraph, so a `-` run under it is a thematic
   break. A deep `>` (indented) stays text: review found that one passing.
+- **Corrected at pull request review (R14)**: "only `>` and spaces" was
+  too wide. After five spaces a second `>` is text that continues the
+  paragraph: `> a`, `>     >`, `> ---` renders `a >` as a level-2 heading,
+  and the walk passed it. The rule now takes two marks at most one space
+  apart (`^>( ?>)* *$`, on the line with tabs expanded); a gap of two to
+  four spaces, which Markdown also reads as a nested quote, is refused.
 
 ## R10 — The proof each narrowing needs
 
@@ -263,7 +269,7 @@ allowed only behind the proof of R10.
   Phase 25. `tr -cd '\000'` and `wc -c` are POSIX; the count is compared
   with arithmetic so BSD `wc`'s leading spaces do not matter.
 
-## R14 — Changes made at review (phases H.7 and I, 2026-10-04)
+## R14 — Changes made at review (phases H.7, I and M, 2026-10-04)
 
 Each was measured, and each new guard has a mutant that turns a test red.
 
@@ -281,9 +287,9 @@ Each was measured, and each new guard has a mutant that turns a test red.
 - **The first-heading `grep` runs under the C locale.** Under a UTF-8
   locale grep 3.0 printed `Binary file ./handoff/CHANGELOG.md matches` in
   place of a first heading holding a byte that is not valid UTF-8, and
-  the gate quoted that. The dated-heading `grep` was left as it was: only
-  ASCII matches its pattern, and a mutant removing the C locale from it
-  could not be made to fail.
+  the gate quoted that. (At phase I the dated-heading `grep` was left as
+  it was, since only ASCII matches its pattern; at phase M it was put
+  under the C locale too, see below.)
 - **The fixture helper's awk is given `LC_ALL=C` on its command.** A
   `local` is not exported, so under `LANG=<UTF-8>` with `LC_ALL` unset
   (as CI runners set it) it counted characters while its bash check
@@ -295,6 +301,33 @@ Each was measured, and each new guard has a mutant that turns a test red.
 - **The proof covers every container the Phase 25 rig covered** (R10):
   13 more prefixes, 2 more shapes after, and an uppercase `<PRE>`. It
   prints the walk's hash, the gate's commit and the reader's version.
+
+At pull request review (phase M):
+
+- **N4 passed a level-2 heading** (R9): `> a`, `>     >`, `> ---`. The
+  proof could not see it: none of its lines had a wide gap between two
+  `>` marks, and its N4 control only added leading spaces. Fixed in the
+  walk; the proof now draws `> >`, `>  >`, `>    >`, `>     >` and
+  `>`, two tabs, `>`; the control puts the old, wide rule back; a K6
+  plant keeps the shape refused, and a mutant restoring the old rule
+  turns it red.
+- **The NUL message** says the tree is not released only in the release
+  form, and a changelog `tr` cannot read is named.
+- **macOS: every byte tool runs under the C locale.** CI on macOS failed
+  at `b8a0d8e`: BSD `tr` under a UTF-8 locale stops with "Illegal byte
+  sequence" at a byte that is not valid text, so the gate's NUL check
+  died with no message of its own on a changelog holding a lone 0x9b,
+  and the tests' byte counts failed the same way. GNU `tr` here does not
+  stop, so no local run could show it. The gate's `tr` and both its
+  `grep` calls, and every `tr` byte count in the tests, now run under
+  `LC_ALL=C`; the 0x9b plants are the tests that show it, on macOS.
+- Not changed, each a wrong refusal the owner's ruling accepts: a tag
+  that only starts with `pre`, `script`, `style` or `textarea` (such as
+  `<preview>`) is treated as a block only its end marker closes; the
+  1,000-byte limit applies to every line, prose and fenced code
+  included (FR-003, the owner's answer at C). Also kept: the quote is
+  cut and masked in two places, `quoted()` and `show()`; the default
+  form needs the bash one, and they share the cut length.
 
 Deferred, each older than this phase and each reported at review:
 
