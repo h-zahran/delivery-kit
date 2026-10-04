@@ -62,20 +62,29 @@ t=$(mktemp); CLEANUP+=("$t")
 "$BATS" --print-output-on-failure -f "$REL" tests/portability.bats > "$t" 2>&1
 bash scripts/check-suite.sh "$NREL" "$t" || { cat "$t"; fail "K1-K6 H8 U1-U6 the release-form tests"; }
 echo "K1-K6 H8 U1-U6 ok ($NREL tests)"
-# SC-002: a 400,000-marker line is refused in under 2 s on this machine.
+# SC-002: a long line is refused in under 2 s on this machine. Two lines:
+# 400,000 quote markers, and 200,000 pairs of `a` and ESC, each a byte the
+# quote must mask (masking a whole long line before cutting it took time
+# that grew with the square of its length).
 sd=$(mktemp -d); CLEANUP+=("$sd")
 mkdir -p "$sd/.claude-plugin" "$sd/handoff/.claude-plugin"
 cp handoff/.claude-plugin/plugin.json "$sd/handoff/.claude-plugin/"
 jq '.plugins |= .[:1]' .claude-plugin/marketplace.json > "$sd/.claude-plugin/marketplace.json"
-{ grep -m1 -E '^## \[[0-9]' handoff/CHANGELOG.md; printf '\nPlain text.\n\n'
-  awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }'; } > "$sd/handoff/CHANGELOG.md"
-s0=$(date +%s)
-out=$(cd "$sd" && bash "$OLDPWD/scripts/check-versions.sh" --released handoff 2>&1) && fail "SC-002 the long line passed: $out"
-s1=$(date +%s)
-case "$out" in *"bytes long"*) ;; *) fail "SC-002 refused, but not for its length: ${out:0:300}" ;; esac
-# Whole seconds: a difference under 2 means the run took under 2 s.
-[ $((s1 - s0)) -lt 2 ] || fail "SC-002 took $((s1 - s0)) s"
-echo "SC-002 ok ($((s1 - s0)) s)"
+gate=$PWD/scripts/check-versions.sh
+for kind in markers escapes; do
+  { grep -m1 -E '^## \[[0-9]' handoff/CHANGELOG.md; printf '\nPlain text.\n\n'
+    case $kind in
+      markers) LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' ;;
+      escapes) LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "a\033"; print s }' ;;
+    esac; } > "$sd/handoff/CHANGELOG.md"
+  s0=$(date +%s)
+  out=$(cd "$sd" && bash "$gate" --released handoff 2>&1) && fail "SC-002 the $kind line passed: $out"
+  s1=$(date +%s)
+  case "$out" in *"bytes long"*) ;; *) fail "SC-002 refused the $kind line, but not for its length: ${out:0:300}" ;; esac
+  # Whole seconds: a difference under 2 means the run took under 2 s.
+  [ $((s1 - s0)) -lt 2 ] || fail "SC-002 took $((s1 - s0)) s on the $kind line"
+  echo "SC-002 ok ($((s1 - s0)) s, the $kind line)"
+done
 ```
 
 ## 4. The tests can go red (base-gate mutant)
@@ -99,7 +108,7 @@ cmp -s scripts/check-versions.sh "$wt/scripts/check-versions.sh" && fail "gate m
 (cd "$wt" && "$BATS" -f "$REL" tests/portability.bats > "$mo" 2>&1)
 grep -q '^not ok ' "$mo" && grep -qE '(^|[^A-Z])K[1-5]:' "$mo" \
   || { cat "$mo"; fail "the release-form tests did not report a K clause against the base gate"; }
-echo "gate mutant red: $(grep -oE '(^|[^A-Z])K[1-5]:' "$mo" | tr -d ' #' | sort -u | tr '\n' ' ')"
+echo "gate mutant red: $(grep -oE '(^|[^A-Z])K[1-5]:' "$mo" | grep -oE 'K[1-5]:' | sort -u | tr '\n' ' ')"
 git worktree remove --force "$wt" || fail "mutant worktree not removed"
 wt=""
 ```
@@ -122,17 +131,28 @@ done
 plugins=$(jq -r '.plugins[].source' .claude-plugin/marketplace.json | tr -d '\r' | sed 's#^\./##; s#/$##')
 [ -n "$plugins" ] || fail "control: the marketplace names no plugin"
 long=$(awk 'BEGIN { s = ""; for (i = 0; i < 1001; i++) s = s "x"; print s }')
+# 600 two-byte characters: 600 characters, 1,200 bytes. The gate counts
+# bytes, so the fixture helper must too, in any locale.
+wide=$(LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 600; i++) s = s "\303\251"; print s }')
 for p in $plugins; do
-  printf '\nPlain text.\n\n##\tTab\n\n> ## Quoted\n\n- ## Listed\n\nUnder\n---\n\n- ```\n  listed fence\n\nNotes\r## x\n\n%s\n\n```\nopen fence\n' "$long" >> "$wt/$p/CHANGELOG.md"
+  printf '\nPlain text.\n\n##\tTab\n\n> ## Quoted\n\n- ## Listed\n\nUnder\n---\n\n- ```\n  listed fence\n\nNotes\r## x\n\n%s\n\n%s\n\n```\nopen fence\n' "$long" "$wide" >> "$wt/$p/CHANGELOG.md"
   (cd "$wt" && bash scripts/check-versions.sh --released "$p" >/dev/null 2>&1) \
     && fail "control: the planted live $p changelog still passes --released, so this block proves nothing"
 done
+# Under a UTF-8 locale, where a character count and a byte count differ,
+# set as CI runners set it: LANG, with LC_ALL unset. An exported LC_ALL
+# would hide a helper that sets LC_ALL only as a local.
+u=""
+for l in C.UTF-8 en_US.UTF-8 en_US.utf8; do
+  [ "$(LC_ALL=$l bash -c 'printf %s "${#1}"' _ $'\xc3\xa9' 2>&1)" = "1" ] && { u=$l; break; }
+done
+[ -n "$u" ] || fail "FR-017 control: no UTF-8 locale found to run the tests under"
 fo=$ft/out.txt
-(cd "$wt" && "$BATS" --print-output-on-failure -f "$REL" tests/portability.bats > "$fo" 2>&1)
+(cd "$wt" && unset LC_ALL && LANG=$u "$BATS" --print-output-on-failure -f "$REL" tests/portability.bats > "$fo" 2>&1)
 bash scripts/check-suite.sh "$NREL" "$fo" || { cat "$fo"; fail "FR-017 a release-form test reddened on a correct tree"; }
 git worktree remove --force "$wt" || fail "fixture worktree not removed"
 wt=""
-echo "FR-017 ok ($NREL tests pass on a live changelog holding every refused kind)"
+echo "FR-017 ok ($NREL tests pass under $u on a live changelog holding every refused kind)"
 ```
 
 ## 6. Scope (FR-018)
@@ -168,7 +188,7 @@ if [ -n "$PY" ]; then
   po=$(mktemp); CLEANUP+=("$po")
   "$PY" specs/025-gate-closes-phase25-gaps/proof/enumerate.py scripts/check-versions.sh > "$po" 2>&1 \
     || { cat "$po"; fail "FR-009 the enumeration proof failed"; }
-  grep -E '^(KEPT|REVERTED) ' "$po"
+  grep -E '^(walk|gate|reader|cases|rendered|control|KEPT|REVERTED|run time)' "$po"
   echo "FR-009 ok"
 elif [ "${QS_SKIP_PROOF:-}" = "1" ]; then
   echo "FR-009 SKIPPED ON PURPOSE (QS_SKIP_PROOF=1): the proof was not rerun"

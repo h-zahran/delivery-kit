@@ -66,16 +66,21 @@ CONTROLS = {
 
 OWN = {
     'N1': ['Para', '1. a', '1.', '5. a', '123456789. a', '1234567890. a', ''],
-    'N2': ['<details>', '<div>', '<pre>', '<x', '<!--', '-->', '</details>', ''],
+    'N2': ['<details>', '<div>', '<pre>', '<PRE>', '<x', '<!--', '-->', '</details>', ''],
     'N3': ['### Plantnote', 'Para', ''],
     'N4': ['> Notes', '>', ''],
 }
 BEFORE = ['Para', '- a', '> Para', '1. a', '1.', '5. a', '123456789. a',
-          '1234567890. a', '<details>', '<div>', '<pre>', '<x', '<!--', '-->',
+          '1234567890. a', '<details>', '<div>', '<pre>', '<PRE>', '<x', '<!--', '-->',
           '</details>', '### Plantnote', '> Notes', '>', '', '  - b']
+# Every container the Phase 25 rig covered, and the ordered markers at
+# other indents that N1 must not take for a continuation.
 PREFIX = ['', '  ', '   ', '    ', '> ', '>', '- ', '  - ', '1. ', '2. ', '2) ',
-          '10. ', '1234567890. ', '- > ', '> - ', '    > ']
-AFTER = [None, '## x', '  ## x', '    ## x', '---', 'Notes\n---', '> ---', '-->']
+          '10. ', '1234567890. ', '- > ', '> - ', '    > ',
+          '-\t', '>\t', '-     ', '-   ', '- - ', '* ', '  > ', '1) ',
+          '> 1. ', '> 2. ', '- 2. ', '  2. ', '   2. ']
+AFTER = [None, '## x', '  ## x', '    ## x', '---', 'Notes\n---', '> ---', '-->',
+         '  Notes\n  ---', '> ## x']
 
 
 def die(msg):
@@ -248,6 +253,16 @@ def main():
     bash = shutil.which('bash')
     if not gawk or not bash:
         die('gawk and bash are needed')
+    # What this run judged, so its result names the walk it proves.
+    import hashlib
+    import markdown_it
+    where = os.path.dirname(os.path.abspath(gate))
+    head = subprocess.run(['git', '-C', where, 'rev-parse', 'HEAD'],
+                          capture_output=True, text=True).stdout.strip() or 'unknown'
+    dirty = subprocess.run(['git', '-C', where, 'diff', '--quiet', 'HEAD', '--', os.path.abspath(gate)]).returncode
+    print('walk sha256 %s' % hashlib.sha256(walk.encode('utf-8')).hexdigest())
+    print('gate at commit %s%s' % (head, ', changed in the working tree' if dirty else ''))
+    print('reader markdown-it-py %s, CommonMark mode' % markdown_it.__version__)
     env = dict(os.environ, DATED_RE=value(src, 'dated_re'),
                LINE_LIMIT=value(src, 'line_limit'), QUOTE_CUT=value(src, 'quote_cut'),
                LC_ALL='C')

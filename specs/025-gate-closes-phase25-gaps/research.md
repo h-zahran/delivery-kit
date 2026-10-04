@@ -31,7 +31,9 @@ allowed only behind the proof of R10.
   release form's first-heading refusal replace every non-printable
   character with `?`, with a bash pattern substitution on `$first` (a
   bracket class `[![:print:]]`), and the refusal also cuts `$first` to the
-  quoted length of R4 with the same marker.
+  quoted length of R4 with the same marker. (Changed at review, R14: one
+  bash function, `quoted()`, cuts and masks, and the state field is cut
+  too.)
 - **Rationale**: the walk's `show()` already masks every line it quotes;
   these two are the only quotes outside it. Both real first headings are
   plain ASCII (measured 2026-10-03: 0 bytes outside `\040-\176`), so the
@@ -56,7 +58,8 @@ allowed only behind the proof of R10.
 
 ## R4 — Every quoted text is cut to 200 characters, and masked byte by byte
 
-- **Decision**: `show()` masks, then cuts: a text longer than the cut
+- **Decision**: `show()` masks, then cuts (changed at review, R14: it cuts,
+  then masks): a text longer than the cut
   length is shown as its first 200 characters followed by ` [cut]`. Every
   quote in the walk already goes through `show()`; the first-heading
   refusal (R2) cuts the same way in bash, and the bash masking and cut of
@@ -259,3 +262,50 @@ allowed only behind the proof of R10.
   `substr`, `length`, `sub`, `match` with `RSTART`/`RLENGTH` only, as in
   Phase 25. `tr -cd '\000'` and `wc -c` are POSIX; the count is compared
   with arithmetic so BSD `wc`'s leading spaces do not matter.
+
+## R14 — Changes made at review (phases H.7 and I, 2026-10-04)
+
+Each was measured, and each new guard has a mutant that turns a test red.
+
+- **Cut first, then mask** (`show()` and `quoted()`). Masking a whole long
+  line before cutting it took time that grew with the square of its
+  length: a line of 200,000 `a` and ESC pairs took the gate 151 s at
+  `5da8c65`, and 1.3 s once cut first. Under the C locale a byte masks to
+  one byte, so the order changes nothing printed (compared byte for byte,
+  old gate against new, in both forms). Quickstart block 3 times that
+  line too, and the release-form tests plant it.
+- **One bash quoting function.** `quoted()` cuts and masks; it now serves
+  the default form's state field as well as the refusal, which used to
+  print a long first heading whole (5,082 characters, measured) one line
+  above its cut refusal. The real tree prints as before (K7).
+- **The first-heading `grep` runs under the C locale.** Under a UTF-8
+  locale grep 3.0 printed `Binary file ./handoff/CHANGELOG.md matches` in
+  place of a first heading holding a byte that is not valid UTF-8, and
+  the gate quoted that. The dated-heading `grep` was left as it was: only
+  ASCII matches its pattern, and a mutant removing the C locale from it
+  could not be made to fail.
+- **The fixture helper's awk is given `LC_ALL=C` on its command.** A
+  `local` is not exported, so under `LANG=<UTF-8>` with `LC_ALL` unset
+  (as CI runners set it) it counted characters while its bash check
+  counted bytes, and a long non-ASCII line reddened a correct tree.
+  Quickstart block 5 now plants such a line and runs under that setting.
+- **The NUL check stays on `tr`.** H.7 had moved it to bash
+  `read -d ''`, which starts no process but reads one byte at a time:
+  1.9 s on an 800 KB changelog against 0.1 s for `tr` at any size.
+- **The proof covers every container the Phase 25 rig covered** (R10):
+  13 more prefixes, 2 more shapes after, and an uppercase `<PRE>`. It
+  prints the walk's hash, the gate's commit and the reader's version.
+
+Deferred, each older than this phase and each reported at review:
+
+- **A changelog that is a symbolic link** (for example to `/dev/urandom`)
+  skips the NUL check and can hang the default form's `grep`. A refusal
+  needs a test, and the Windows runner cannot create the link; a skipped
+  test fails `scripts/check-suite.sh`.
+- **Values from plugin.json and marketplace.json in `die` messages and
+  the report line** reach the log with only CR and LF removed, so a
+  forged line or an escape sequence can pass. Masking them one by one is
+  the piecemeal fix review warned against; one masking point at the
+  output is the right depth.
+- **No bound on a changelog's total size.** The line limit bounds the
+  cost of a line, not of a file.

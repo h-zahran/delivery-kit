@@ -1206,7 +1206,8 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # refuse it, because a gate that has only ever passed has not been shown capable
 # of failing.
 #
-# Every invocation here uses `run bash -c "... && bash <script> ..."`, never
+# Every invocation here uses `run bash -c '... && bash <script> ...' _ <args>`,
+# with every path and name passed as an argument (U1), never
 # `run bash <script>` at the start of a line. That is not cosmetic: the
 # "one version-agreement script" test above requires EXACTLY ONE
 # `run bash <path>.sh` in this file and asserts which @test owns it. A second
@@ -1282,7 +1283,9 @@ normalise_to_released() {
   for f in "$1"/*/CHANGELOG.md; do
     name="${f#"$1"/}"
     [ -f "$f" ] || { echo "fixture: no changelog in the fixture"; return 1; }
-    DATED_RE="$re" LIMIT="$LIMIT" awk "$prog" "$f" > "$f.norm" \
+    # LC_ALL=C on the command, not only the `local` above: a local is not
+    # exported, so awk would count characters in the caller's locale.
+    DATED_RE="$re" LIMIT="$LIMIT" LC_ALL=C awk "$prog" "$f" > "$f.norm" \
       || { echo "fixture: awk could not normalise $name"; return 1; }
     mv "$f.norm" "$f" \
       || { echo "fixture: could not replace $name with its normalised copy"; return 1; }
@@ -1385,6 +1388,12 @@ forms_spell() {
       || { echo "fixture: U2 could not spell the test paths with cygpath"; return 1; }
     mixed=("${m%%$'\n'*}" "${m#*$'\n'}")
   fi
+  # The physical form too, where a link in the path makes it differ: on
+  # macOS a temporary directory under /var is /private/var to `pwd -P`.
+  for p in "$TEST_DIR" "$ROOT"; do
+    s="$(cd "$p" && pwd -P)" || { echo "fixture: U2 could not read the physical path of a test path"; return 1; }
+    [ "$s" = "$p" ] || mixed+=("$s")
+  done
   for p in "$TEST_DIR" "$ROOT" "${mixed[@]+"${mixed[@]}"}"; do
     spellings+=("$p")
     # A drive form gains its POSIX form and its Windows form; a POSIX form
@@ -1415,6 +1424,25 @@ forms_spell() {
   done
   forms_spellings=("${spellings[@]}")
   forms_spelt_for=$TEST_DIR
+}
+
+# forms_utf8: sets utf8 to a UTF-8 locale this machine has. Under a UTF-8
+# locale a byte that is not valid text can pass a printable test, which the
+# C locale the gate sets is there to stop; a run in the test's own locale
+# cannot show that, because that locale may be C. A locale counts only when
+# bash takes it without a word on stderr (bats would read a setlocale
+# warning into $output) and counts a two-byte character as one. None found
+# is a fixture failure, never a skip: every test here must run everywhere.
+forms_utf8() {
+  local l
+  for l in C.UTF-8 en_US.UTF-8 en_US.utf8; do
+    if [ "$(LC_ALL=$l bash -c 'printf %s "${#1}"' _ $'\xc3\xa9' 2>&1)" = "1" ]; then
+      utf8=$l
+      return 0
+    fi
+  done
+  echo "fixture: no UTF-8 locale found (tried C.UTF-8, en_US.UTF-8, en_US.utf8)"
+  return 1
 }
 
 @test "--released refuses a dangling Unreleased heading, and the default run does not" {
@@ -1528,6 +1556,43 @@ forms_spell() {
   esac
   [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K2: the first-heading refusal printed the escape byte"; false; }
+
+  # K2, K4: a first heading longer than the quote cut, holding a 0x9b byte
+  # and an `é`, run under a UTF-8 locale, where the first is not valid text
+  # and the second is a printable character. Both forms show every byte
+  # that is not printable ASCII as `?`, the two bytes of the `é` included,
+  # and cut to exactly the quote cut, then ` [cut]`: the state field as
+  # well as the refusal. Under a UTF-8 locale grep used to call such a line
+  # binary and print that in place of the heading.
+  forms_utf8
+  long="## [Unreleased] $(printf '%100s' '' | tr ' ' x)"$'\x9b\xc3\xa9'"$(printf '%200s' '' | tr ' ' y)"
+  want="## [Unreleased] $(printf '%100s' '' | tr ' ' x)???$(printf '%81s' '' | tr ' ' y) [cut]"
+  d="$TEST_DIR/released-long"
+  cp -r "$base" "$d"
+  LONG="$long" awk 'done != 1 && /^## \[[0-9]+[.][0-9]+[.][0-9]+\] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { print ENVIRON["LONG"]; print ""; done = 1 } { print }' \
+    "$d/$copied/CHANGELOG.md" > "$d/$copied/CHANGELOG.new"
+  mv "$d/$copied/CHANGELOG.new" "$d/$copied/CHANGELOG.md"
+  [ "$(( $(tr -cd '\233' < "$d/$copied/CHANGELOG.md" | wc -c) ))" -eq 1 ] \
+    || { echo "fixture: the long first-heading plant did not land once in the $copied fixture"; false; }
+  run bash -c 'export LC_ALL=$3; cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT" "$utf8"
+  forms_no_path
+  [ "$status" -eq 0 ] \
+    || { echo "K2: under $utf8, the default run rejected a long first heading"; false; }
+  case "$output"$'\n' in
+    *" state=UNRELEASED-ABOVE:$want"$'\n'*) ;;
+    *) echo "K4: under $utf8, the default run's state field is not the heading masked and cut"; false ;;
+  esac
+  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+    || { echo "K4: under $utf8, the default run printed the 0x9b byte"; false; }
+  run bash -c 'export LC_ALL=$4; cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied" "$utf8"
+  forms_no_path
+  [ "$status" -ne 0 ] || { echo "K2: under $utf8, --released accepted a heading above its release"; false; }
+  case "$output" in
+    *"'$want' sits above the released heading"*) ;;
+    *) echo "K4: under $utf8, the first-heading refusal is not the heading masked and cut"; false ;;
+  esac
+  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+    || { echo "K4: under $utf8, the first-heading refusal printed the 0x9b byte"; false; }
   # H8 needs no combined copy here: every plant in this test is a first
   # heading above the release, which the contract leaves out by name, since
   # such a copy cannot report state=released.
@@ -2073,6 +2138,16 @@ forms_default() {
   forms_put '<x' '<!--' '' "$bt" '-->' '## x' "$bt"
   forms_at '<!--'
   forms_refused K6 "line $((line + 2)) opens a code fence that the HTML at line $line may hold"
+  # A `<pre>` block runs past a blank line too, in either case, and an
+  # ordered item at another indent does not continue the list above it.
+  for tag in '<pre>' '<PRE>'; do
+    forms_put "$tag" '' "$bt" '</pre>' '## x' "$bt"
+    forms_at "$tag"
+    forms_refused K6 "line $((line + 2)) opens a code fence that the HTML at line $line may hold"
+  done
+  forms_put '1. a' "   2. $bt" '      ## x' "      $bt"
+  forms_at "   2. $bt"
+  forms_refused K6 "line $line opens a code fence on an ordered list marker other than 1"
 
   # H6: a fence never hides a heading after its clean close.
   forms_put "$bt" "> $bt" "$bt" '## Notes'
@@ -2088,7 +2163,8 @@ forms_default() {
     '- a' "  2) $bt" '     ## x' "     $bt" "${s[@]}" '<div>' "$bt" '' '## x' '' "$bt" "${s[@]}" \
     '<!--' "$bt" '-->' '## x' "$bt" "${s[@]}" 'Para' '1.' "2. $bt" '   ## x' "   $bt" "${s[@]}" \
     '1234567890. a' "2. $bt" '   ## x' "   $bt" "${s[@]}" '<x' '<!--' '' "$bt" '-->' '## x' "$bt" "${s[@]}" \
-    "$bt" "> $bt" "$bt" '## Notes'
+    '<pre>' '' "$bt" '</pre>' '## x' "$bt" "${s[@]}" '<PRE>' '' "$bt" '</pre>' '## x' "$bt" "${s[@]}" \
+    '1. a' "   2. $bt" '      ## x' "      $bt" "${s[@]}" "$bt" "> $bt" "$bt" '## Notes'
   forms_default
 }
 
@@ -2193,6 +2269,18 @@ forms_default() {
   forms_refused K4 "line $line holds '## x ?'"
   [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal printed the 0x9b byte"; false; }
+  # Again under a UTF-8 locale, where the byte is not valid text: the gate
+  # must mask it under its own C locale, whatever the caller's is.
+  forms_utf8
+  run bash -c 'export LC_ALL=$4; cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied" "$utf8"
+  forms_no_path
+  [ "$status" -ne 0 ] || { echo "K4: under $utf8, --released accepted the 0x9b plant"; false; }
+  case "$output" in
+    *"line $line holds '## x ?'"*) ;;
+    *) echo "K4: under $utf8, the refusal does not show the 0x9b byte as '?'"; false ;;
+  esac
+  [ "$(( $(printf '%s' "$output" | tr -cd '\233' | wc -c) ))" -eq 0 ] \
+    || { echo "K4: under $utf8, the refusal printed the 0x9b byte"; false; }
 
   # K5: a NUL byte stops both forms with the gate's own message.
   forms_put 'NULplant'
@@ -2219,13 +2307,27 @@ forms_default() {
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes"; false; }
 
+  # K3, K4: an over-long line of bytes that each need masking. Masking the
+  # whole line before the cut took time that grew with the square of its
+  # length: 400,000 of them ran past the per-test timeout. Cut first, it is
+  # refused at once.
+  forms_put 'DENSEplant'
+  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
+  line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
+  [ -n "$line" ] || { echo "fixture: the dense line did not land"; false; }
+  forms_refused K3 "line $line is 400000 bytes long"
+  [ "$(( $(printf '%s' "$output" | tr -cd '\033' | wc -c) ))" -eq 0 ] \
+    || { echo "K4: the refusal of the dense line printed an escape byte"; false; }
+
   # H8: the default form passes a copy holding every refused plant above
   # that it accepts, each after its own `Plain text.` and blank line. The
   # NUL plant is left out by name: K5 stops both forms.
   forms_put $'CRplant\r## x' '' 'Plain text.' '' "$long" '' 'Plain text.' '' $'## x \x9b' '' 'Plain text.' '' 'LONGplant'
   LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
-  [ "$(LC_ALL=C awk 'length($0) > 1000 { n++ } END { print n + 0 }' "$d/$copied/CHANGELOG.md")" = "2" ] \
-    || { echo "fixture: the combined copy does not hold both long lines"; false; }
+  printf '\nPlain text.\n\nDENSEplant\n' >> "$d/$copied/CHANGELOG.md"
+  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
+  [ "$(LC_ALL=C awk 'length($0) > 1000 { n++ } END { print n + 0 }' "$d/$copied/CHANGELOG.md")" = "3" ] \
+    || { echo "fixture: the combined copy does not hold all three long lines"; false; }
   forms_default
 }
 
