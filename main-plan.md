@@ -2813,3 +2813,116 @@ pauses).
 ```
 /pipeline Phase 26: the release gate closes the gaps Phase 25 left --auto --implementer claude
 ```
+
+## Phase 27: the release gate reads only what it can judge, and prints only what is safe
+
+Phase 26 (PR #57, merged as `6fd91f3`) closed every gap Phase 25 left.
+Its reviews found three older problems and deferred each, with its
+reason, in `specs/025-gate-closes-phase25-gaps/research.md` R14 and in the
+PR #57 body. The owner's ruling (2026-10-04): **close all three.** The
+ruling on doubt still binds: a wrong refusal is acceptable, a wrong pass
+is not. Like Phases 24 to 26, this phase changes nothing inside a
+plugin, so **no plugin release follows it**.
+
+Measured 2026-10-04 at `main` = `6fd91f3` on a one-plugin fixture built
+from `handoff/`:
+
+- **A changelog that is a symbolic link is read wherever it points.**
+  With `handoff/CHANGELOG.md` a link to `/dev/urandom`, the default form
+  ran until it was killed at 20 s. A link to `/dev/zero` failed on
+  grep's own error, then the gate's "no changelog heading" message. The
+  NUL check skips the file because it is not a regular file. On Linux
+  and macOS, `actions/checkout` makes a committed link a real link. This
+  machine can make one too (`core.symlinks` is true); whether the
+  windows-latest runner can is not measured.
+- **Values read from tracked files are printed raw.** A `plugin.json`
+  version of `1.0.0`, a line feed, `::error title=forged::all checks
+  passed` and an escape sequence printed, in the default form:
+  - on the report line, `plugin=1.0.0::error title=forged::all checks
+    passed` with the escape byte raw (the line strips only CR and LF);
+  - in the `die` message, a second log line that STARTS with `::error`,
+    which a workflow log reads as a command.
+
+  The output held 2 raw escape bytes. The same holds for the marketplace
+  `name` and `source`, the plugin directory name, and the changelog's
+  version, wherever a message quotes them.
+- **Nothing bounds a changelog's size.** The line limit bounds the cost of
+  one line, not of the file. Lines of 499 list markers, each one passing
+  the walk: 1 MB took `--released` 4.1 s, 2 MB 9.2 s and 4 MB 14.6 s. The
+  real changelogs are 38 KB (`handoff`) and 15 KB (`pipeline`). The suite
+  runs the gate dozens of times on copies of the live changelogs.
+
+**Requirements:**
+
+1. **A changelog must be a regular file.** Before any tool reads it, in
+   both forms, the gate refuses a `CHANGELOG.md` that is a symbolic link,
+   or that exists but is not a regular file, with a message of its own
+   naming the plugin. A missing changelog keeps its present diagnostic.
+2. **One masking point.** Every value the gate prints that it read from a
+   tracked file or a directory name is shown through one function that
+   masks every byte outside printable ASCII as `?` and cuts at the quote
+   cut, as `quoted()` does: the report line's fields and every `die`
+   message's quoted values. The gate's own message text is never masked
+   (it holds an em dash). The spec lists every print site, derived from
+   the script, not from memory.
+3. **A changelog too large to judge is refused.** The gate refuses a
+   changelog larger than a fixed byte limit before reading it, naming
+   the plugin and the size. The spec sets the limit with room above
+   38 KB, decides whether the default form refuses too, and records why.
+   The size is read without reading the file.
+4. **Nothing else moves.** On the real tree, both forms print and exit
+   exactly as at `6fd91f3`. The four narrowings and their proof are not
+   touched: if the walk's text changes, the proof
+   (`specs/025-gate-closes-phase25-gaps/proof/enumerate.py`) is rerun
+   and must report 0 wrong passes and each control at least 1. CI and the
+   suite still call the one script, and the "one version-agreement
+   script" test stays green unchanged.
+
+**Acceptance criteria:**
+
+- Tests plant: a changelog that is a symbolic link; a version with a line
+  feed, `::error` and an escape sequence (both forms, and the report
+  line); a changelog one byte over the size limit. Each is refused or
+  masked with its message, and no output line starts with `::`. A mutant
+  that removes each new rule turns its test red, naming its clause.
+  Confirm each mutation landed before believing the red.
+- The link test runs on all three operating systems. A skipped test
+  fails `scripts/check-suite.sh`, so where a system cannot make a link,
+  the spec chooses another way to reach the same rule (measure the
+  windows-latest runner first), and says so.
+- Every byte tool the gate or the tests run on a file or an output that
+  may hold a byte which is not valid text runs under `LC_ALL=C`: macOS
+  `tr` under a UTF-8 locale stops at such a byte.
+- The feature quickstart, run as one script, ends ALL OK.
+- Full house suite from the repo root: `1..249` at `6fd91f3`, plus the
+  tests this phase adds. Prefer adding plants to the existing tests: the
+  per-test timeout is 60 s and the slowest test takes about 23 to 34 s
+  on this machine. The spec fixes the exact count, and the suite is
+  judged by `bash scripts/check-suite.sh <that count>`.
+- CI green on all three operating systems. Confirm a run EXISTS before
+  reading its result, and read every job's steps.
+
+**Not in this phase** (each recorded in R14, each a wrong refusal the
+ruling accepts or a cleanup): Windows gawk reading a CRLF line end
+differently; a one-line `<!-- ... -->` keeping later fences refused; a
+tag that only starts with `pre`, `script`, `style` or `textarea`; the
+1,000-byte line limit on prose; a mechanical check for U1; bats printing
+a failed test's raw `$output`; the quote cut written in both bash and
+awk; a job time limit in `.github/workflows/ci.yml`.
+
+**Constraints:** the Campaign 3 Global Constraints apply, including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` is on the shipped root surface: STRICT
+vocabulary, no machine path, no count in prose. Bash 3.2 and every awk
+CI runs (gawk, and the BSD awk on macOS); no interval expressions in awk
+patterns. Test a locale-dependent rule with `LANG` set to a UTF-8 locale
+and `LC_ALL` unset, as CI runners set them. **Changelog routing: none.**
+This run uses the INSTALLED pipeline 1.3.0, so G asks the review question
+(commits or pauses).
+
+**Invocation:**
+
+```
+/pipeline Phase 27: the release gate reads only what it can judge, and prints only what is safe --auto --implementer claude
+```
