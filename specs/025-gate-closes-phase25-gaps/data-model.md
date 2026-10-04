@@ -33,7 +33,8 @@ as in `specs/024-gate-every-heading-form/data-model.md`.
 | Check | Where | Forms | Message |
 |---|---|---|---|
 | NUL byte (NEW) | before the dated-heading `grep` | both | `<plugin>: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released` |
-| first heading (CHANGED) | as Phase 24 G3 | default: state field; release: refusal | text masked (`?`), and cut in the refusal |
+| first heading (CHANGED) | as Phase 24 G3, its `grep` under the C locale | default: state field; release: refusal | text cut and masked (`?`) by `quoted()`, in both forms (cut in the state field too since review, R14) |
 
-Every quoted text goes through `show()`: non-printable characters become
-`?`, then a text longer than the quote cut is cut and ends with ` [cut]`.
+Every quoted text goes through `show()` in the walk or `quoted()` in bash:
+a text longer than the quote cut is cut and ends with ` [cut]`, then every
+byte that is not printable ASCII becomes `?` (cut first since review, R14).

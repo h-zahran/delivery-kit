@@ -116,14 +116,16 @@ quote_cut=200
 # A line read from a tracked file is shown with every byte that is not
 # printable ASCII as `?`. Under the C locale, so a byte that is not valid
 # text in any encoding is masked too: under a UTF-8 locale a lone 0x9b, a
-# bare terminal control, passed a printable test unmasked. The line is then
+# bare terminal control, passed a printable test unmasked. The line is also
 # cut to quote_cut, as the walk's show() does, wherever it is printed: the
-# state field of the default form as well as a refusal.
+# state field of the default form as well as a refusal. Cut first, then
+# masked: under the C locale a byte masks to one byte, so the order changes
+# nothing printed, and masking a long line whole cost time that grew with
+# the square of its length.
 quoted() {
-  local LC_ALL=C s=$1
-  s=${s//[![:print:]]/?}
-  [ "${#s}" -le "$quote_cut" ] || s="${s:0:$quote_cut} [cut]"
-  printf '%s' "$s"
+  local LC_ALL=C s=$1 t=
+  [ "${#s}" -le "$quote_cut" ] || { s=${s:0:$quote_cut}; t=" [cut]"; }
+  printf '%s' "${s//[![:print:]]/?}$t"
 }
 
 # Loop over plugin directories rather than naming one. A gate that knows a
@@ -191,14 +193,16 @@ for dir in */; do
 
   # A NUL byte makes grep call the changelog binary: the version read below
   # then finds no version, and errexit ends the run with no message at all.
-  # Name it instead, in both forms. Found by bash before any grep or awk
+  # Name it instead, in both forms. Counted with tr, before any grep or awk
   # reads the file, because what an awk does with a NUL differs between the
-  # awks CI runs: `read -d ''` succeeds only when it meets a NUL before the
-  # end of the file, and starts no process, which counts on a run that
-  # reads every changelog. A missing changelog is left to the diagnostic
+  # awks CI runs. Not with bash `read -d ''`, which starts no process but
+  # reads one byte at a time: measured, 1.9 s on an 800 KB changelog against
+  # 0.1 s for tr at any size. A missing changelog is left to the diagnostic
   # below.
-  if [ -f "./$p/CHANGELOG.md" ] && IFS= read -r -d '' _ < "./$p/CHANGELOG.md"; then
-    die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
+  if [ -f "./$p/CHANGELOG.md" ]; then
+    nul="$(tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)"
+    [ "$((nul))" -eq 0 ] \
+      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read — this tree is NOT released"
   fi
 
   # The heading format is pinned precisely because this line parses it, so
@@ -240,7 +244,12 @@ for dir in */; do
   # release cycle while this gate printed agreement. Reported on every run;
   # enforced only for the plugin named by --released, because unreleased work is
   # normal and correct everywhere else.
-  first="$(grep -m1 '^## ' -- "./$p/CHANGELOG.md" || true)"
+  #
+  # Under the C locale: under a UTF-8 locale grep calls a line holding a byte
+  # that is not valid text binary, and prints "Binary file ... matches" in
+  # place of the heading it found. The dated heading above needs no such
+  # care: only ASCII matches its pattern.
+  first="$(LC_ALL=C grep -m1 '^## ' -- "./$p/CHANGELOG.md" || true)"
   if [ "$first" = "$head" ]; then
     released_state="released"
   else
@@ -303,10 +312,11 @@ for dir in */; do
       function lead(s,   i) { i = 1; while (substr(s, i, 1) == " ") i++; return i - 1 }
       function run(s, ch,   i) { i = 1; while (substr(s, i, 1) == ch) i++; return i - 1 }
       function rtrim(s) { sub(/ +$/, "", s); return s }
-      function show(s) {
+      function show(s,   t) {
+        t = ""
+        if (length(s) > cut) { s = substr(s, 1, cut); t = " [cut]" }
         gsub(/[^[:print:]]/, "?", s)
-        if (length(s) > cut) s = substr(s, 1, cut) " [cut]"
-        return s
+        return s t
       }
       function cont(s,   o, i) {
         o = ""

@@ -189,7 +189,8 @@ proves nothing.
   leans to refusing.)
 - **FR-002**: The default form's `UNRELEASED-ABOVE:` state field and the
   release form's first-heading refusal MUST show every non-printable
-  character as `?`, as the walk's quoted lines already do.
+  character as `?`, as the walk's quoted lines already do. (Added at
+  review: both are also cut as FR-004 cuts a quote; research R14.)
 - **FR-003**: Under `--released`, the gate MUST refuse any changelog line
   longer than 1,000 bytes, naming the line and its length, before the line
   is judged. (The owner's answer said characters; the walk counts bytes,

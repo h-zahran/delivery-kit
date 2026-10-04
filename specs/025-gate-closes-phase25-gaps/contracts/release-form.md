@@ -10,7 +10,7 @@ changelog holds (`CRplant`, `### Plantnote`): the copied changelog holds
 | ID | Clause | Spec |
 |---|---|---|
 | K1 | A changelog line holding a CR byte is refused under `--released`, naming the line and saying `carriage return`, the CR shown as `?`. A lone CR is planted (`CRplant`, a CR, `## x`). | FR-001 |
-| K2 | The default form's `state=UNRELEASED-ABOVE:` field and the release form's first-heading refusal show every non-printable character as `?`. With an escape sequence in a first heading above the release, neither output holds the escape byte, and the default form exits as it does today. | FR-002 |
+| K2 | The default form's `state=UNRELEASED-ABOVE:` field and the release form's first-heading refusal show every non-printable character as `?`. With an escape sequence in a first heading above the release, neither output holds the escape byte, and the default form exits as it does today. Since review (research R14), both are also cut as K4 cuts a quote, and both hold for a first heading with a byte that is not valid UTF-8, run under a UTF-8 locale. | FR-002 |
 | K3 | A line longer than 1,000 bytes is refused under `--released`, naming the line and its length, before it is judged; a line of exactly 1,000 is not refused for its length. A line of 400,000 `> ` markers is refused this way, in under 2 s on this machine (measured by the quickstart). | FR-003 |
 | K4 | A refusal quotes at most 200 characters of a line, then ` [cut]`. Every non-printable byte in a quote is shown as `?`, a lone `\x9b` included. | FR-004 |
 | K5 | A changelog holding a NUL byte stops both forms with a non-zero status and `holds a NUL byte`, naming the plugin. | FR-005 |
