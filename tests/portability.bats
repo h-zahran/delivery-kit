@@ -2456,6 +2456,151 @@ gate_says() {
   done
 }
 
+# gate_safe <clause>: the last run's output is printed safely. With every
+# em dash (the gate's own text) removed, no byte is outside space to `~`,
+# and no line starts with `::` after any spaces (research R6). BINMODE=3:
+# Windows gawk would otherwise drop a CR that comes before a line feed.
+gate_safe() {
+  printf '%s\n' "$output" | LC_ALL=C awk -v BINMODE=3 -v ed=$'\342\200\224' '
+    { gsub(ed, "") }
+    /[^ -~]/ { bad = bad " a byte on line " NR }
+    /^[ ]*::/ { bad = bad " a command on line " NR }
+    END { if (bad != "") { print bad; exit 1 } }' \
+    || { echo "$1: the output is not printed safely. output: ${output:0:600}"; return 1; }
+}
+
+# json_set <file> <jq program> <value>: rewrites the file through jq, the
+# value as $v. Read on standard input: native Windows jq cannot open a path
+# holding `:` or a control byte. Entries are chosen by position, never by
+# name, which is the one-script test's marker.
+json_set() {
+  jq --arg v "$3" "$2" < "$1" > "$1.new" \
+    || { echo "fixture: jq could not edit ${1##*/}"; return 1; }
+  mv "$1.new" "$1"
+}
+
+@test "the gate prints every value masked, and no line starts with ::" {
+  cd "$ROOT"
+  forms_base one
+  local F E c dn want long cut
+  # A forged value: a line feed, a workflow command, an escape sequence.
+  E=$'\033'
+  F="1.0.0"$'\n'"::error title=x::y${E}[2K"
+
+  # P1: a plugin.json version, then a name. The fragments avoid the line
+  # feed: native Windows jq writes it as CR LF, so it is masked as one `?`
+  # or two.
+  c="$TEST_DIR/masked-pv"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.version = $v' "$F"
+  gate_run "$c"
+  gate_says P1 1 "1.0.0?" "::error title=x::y?[2K"
+  gate_safe P1
+  c="$TEST_DIR/masked-pn"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = $v' "$F"
+  gate_run "$c"
+  gate_says P1 1 "1.0.0?" "::error title=x::y?[2K"
+  gate_safe P1
+
+  # P2: the marketplace entry's version and source, then two appended
+  # entries, which only the reverse walk reaches. It reads them through
+  # @tsv, which writes the line feed as a backslash and `n`.
+  c="$TEST_DIR/masked-mv"
+  cp -r "$base" "$c"
+  json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].version = $v' "$F"
+  gate_run "$c"
+  gate_says P2 1 "1.0.0?" "::error title=x::y?[2K"
+  gate_safe P2
+  c="$TEST_DIR/masked-ms"
+  cp -r "$base" "$c"
+  json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].source = $v' "$F"
+  gate_run "$c"
+  gate_says P2 1 "1.0.0?" "::error title=x::y?[2K"
+  gate_safe P2
+  c="$TEST_DIR/masked-ghost"
+  cp -r "$base" "$c"
+  json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: $v, source: ("./ghost" + $v)}]' "$F"
+  gate_run "$c"
+  gate_says P2 1 '1.0.0\n::error title=x::y?[2K' "names no plugin directory"
+  gate_safe P2
+  c="$TEST_DIR/masked-abs"
+  cp -r "$base" "$c"
+  json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: $v, source: ("/abs" + $v)}]' "$F"
+  gate_run "$c"
+  gate_says P2 1 '1.0.0\n::error title=x::y?[2K' "is an absolute path"
+  gate_safe P2
+
+  # P3: a plugin directory named `::`, an escape, `x`; then the same after
+  # a space. The run passes, and the report line starts with `?`. The name
+  # is set before the rename: jq could not open the renamed path.
+  for dn in "::${E}x" " ::${E}x"; do
+    want="?:?x: plugin="
+    if [ "${dn:0:1}" = " " ]; then want="??:?x: plugin="; fi
+    c="$TEST_DIR/masked-dir-${#dn}"
+    cp -r "$base" "$c"
+    json_set "$c/$copied/.claude-plugin/plugin.json" '.name = $v' "$dn"
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].name = $v | .plugins[0].source = ("./" + $v)' "$dn"
+    mv "$c/$copied" "$c/$dn"
+    [ -f "$c/$dn/.claude-plugin/plugin.json" ] || { echo "fixture: the directory '${dn//$E/?}' could not be made"; false; }
+    gate_run "$c"
+    gate_says P3 0
+    gate_safe P3
+    case "$output" in
+      "$want"*) ;;
+      *) echo "P3: the report line does not start with '$want'. output: ${output:0:600}"; false ;;
+    esac
+  done
+  # The name in a die message: plugin.json names another plugin.
+  c="$TEST_DIR/masked-dir-other"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = $v' "other"
+  mv "$c/$copied" "$c/::${E}x"
+  gate_run "$c"
+  gate_says P3 1 "::?x: plugin.json name 'other'"
+  gate_safe P3
+
+  # P4: an escape in the --released argument, and in an unknown argument.
+  gate_run "$base" --released "a${E}b"
+  gate_says P4 1 "'a?b'"
+  gate_safe P4
+  gate_run "$base" "x${E}y"
+  gate_says P4 1 "'x?y'"
+  gate_safe P4
+
+  # P5: a first heading holding an escape sequence above the release. It
+  # is masked in the report line and in the refusal, and the refusal keeps
+  # the gate's own em dash.
+  c="$TEST_DIR/masked-first"
+  cp -r "$base" "$c"
+  { printf '## [Unreleased] %s[2K\n' "$E"; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
+  gate_run "$c" --released "$copied"
+  gate_says P5 1 "state=UNRELEASED-ABOVE:## [Unreleased] ?[2K" \
+    "'## [Unreleased] ?[2K' sits above the released heading" $'\342\200\224 this tree is NOT released'
+  gate_safe P5
+
+  # P6: a value over the quote cut is cut, then ` [cut]`.
+  printf -v long '%250s' ''
+  long=${long// /x}
+  cut=${long:0:200}
+  c="$TEST_DIR/masked-long"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.version = $v' "$long"
+  gate_run "$c"
+  gate_says P6 1 "plugin=$cut [cut]"
+  case "$output" in
+    *"${cut}x"*) echo "P6: more than the quote cut of the value was printed. output: ${output:0:600}"; false ;;
+  esac
+  gate_safe P6
+  # And under a UTF-8 locale: a byte that is not valid text, and an `é`,
+  # are each shown as `?`, one per byte.
+  forms_utf8
+  run bash -c 'export LC_ALL=$1; cd "$2" && bash "$3/scripts/check-versions.sh" "$4"' _ "$utf8" "$base" "$ROOT" $'x\x9b\xc3\xa9y'
+  forms_no_path
+  gate_says P6 1 "'x???y'"
+  gate_safe P6
+}
+
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
   cd "$ROOT"
   # A caller asking for a STRICTER check must never receive a weaker one. With
