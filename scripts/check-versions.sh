@@ -73,6 +73,28 @@ norm_source() {
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
+# A value the gate did not write, read from a tracked file or the command
+# line, is printed only through shown, which stores a copy safe to print in
+# the variable it is named: cut to quote_cut bytes, then ` [cut]`, with every
+# byte that is not printable ASCII shown as `?`. A line feed is masked, not
+# dropped, so no value can start a line of its own in a workflow log, which
+# reads a line starting `::` as a command. Under the C locale, so a byte
+# that is not valid text in any encoding is masked too: under a UTF-8 locale
+# a lone 0x9b, a bare terminal control, passed a printable test unmasked.
+# Cut first, then masked: under the C locale a byte masks to one byte, so
+# the order changes nothing printed, and masking a long value whole cost
+# time that grew with the square of its length. printf -v sets the copy
+# without a process, and the value is never the format: it may hold `%`.
+# The gate's own text never passes through shown, or its em dash would be
+# masked too. Every copy is named here once, so a reader can see them all.
+quote_cut=200
+p_s='' pr_s='' pn_s='' pv_s='' mv_s='' cv_s='' ms_s='' head_s='' first_s='' en_s='' es_s='' rel_s='' arg_s=''
+shown() {
+  local LC_ALL=C s=$2 t=
+  [ "${#s}" -le "$quote_cut" ] || { s=${s:0:$quote_cut}; t=" [cut]"; }
+  printf -v "$1" '%s' "${s//[![:print:]]/?}$t"
+}
+
 # --released <plugin> additionally requires that plugin's changelog to carry NO
 # heading above its version heading, and no line beginning `## ` anywhere in
 # the file that is not a dated version heading. Default (no argument)
@@ -87,7 +109,7 @@ while [ $# -gt 0 ]; do
     --released)
       [ $# -ge 2 ] || die "--released needs a plugin name"
       RELEASED="$2"; shift 2 ;;
-    *) die "unknown argument '$1' (usage: check-versions.sh [--released <plugin>])" ;;
+    *) shown arg_s "$1"; die "unknown argument '$arg_s' (usage: check-versions.sh [--released <plugin>])" ;;
   esac
 done
 # A plugin name that matches nothing would make the enforcement below run zero
@@ -103,15 +125,13 @@ released_seen=0
 # to grep -E and to every awk, including one without interval expressions.
 dated_re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
 
-# The release form judges no line longer than line_limit bytes, and a
-# refusal quotes at most quote_cut bytes of any line. Each is written once
-# and reaches awk through the environment, as the pattern does, so the two
-# places that quote a line, quoted() below and the walk's show(), cut at the
-# same length. A long line is refused rather
-# than read: the walk's cost grows much faster than the line, and every
-# refusal lands in a public CI log.
+# The release form judges no line longer than line_limit bytes. It is written
+# once and reaches awk through the environment, as the pattern and quote_cut
+# do, so the two places that quote a line, shown() above and the walk's
+# show(), cut at the same length. A long line is refused rather than read:
+# the walk's cost grows much faster than the line, and every refusal lands
+# in a public CI log.
 line_limit=1000
-quote_cut=200
 
 # The release form reads the whole changelog of the plugin it releases, line
 # by line, and that cost grows with the file, so it refuses a changelog
@@ -119,40 +139,29 @@ quote_cut=200
 # The default form only searches the file and never refuses for its size.
 changelog_limit=262144
 
-# A line read from a tracked file is shown with every byte that is not
-# printable ASCII as `?`. Under the C locale, so a byte that is not valid
-# text in any encoding is masked too: under a UTF-8 locale a lone 0x9b, a
-# bare terminal control, passed a printable test unmasked. The line is also
-# cut to quote_cut, as the walk's show() does, wherever it is printed: the
-# state field of the default form as well as a refusal. Cut first, then
-# masked: under the C locale a byte masks to one byte, so the order changes
-# nothing printed, and masking a long line whole cost time that grew with
-# the square of its length.
-quoted() {
-  local LC_ALL=C s=$1 t=
-  [ "${#s}" -le "$quote_cut" ] || { s=${s:0:$quote_cut}; t=" [cut]"; }
-  printf '%s' "${s//[![:print:]]/?}$t"
-}
-
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
 # plugin lands, and does so silently.
 checked=0
 for dir in */; do
   p="${dir%/}"
-  # The ./ prefix here, and the -- on the changelog grep below: a tracked
-  # directory named like an option (-rf, say) would otherwise reach jq and
-  # grep as an OPTION rather than as a path. Measured: today jq aborts the
-  # script first under errexit, so the grep is unreachable — but it is
-  # unreachable by an accident of statement order, and an accident is not a
-  # guard. A fork pull request controls every tracked path name.
+  # The ./ prefix here, and the -- on the changelog greps below: a tracked
+  # directory named like an option (-rf, say) would otherwise reach grep as
+  # an OPTION rather than as a path. A fork pull request controls every
+  # tracked path name.
   [ -f "./$p/.claude-plugin/plugin.json" ] || continue
   checked=$((checked + 1))
+  shown p_s "$p"
 
-  pn="$(jq -r '.name // empty' "./$p/.claude-plugin/plugin.json")"
-  pv="$(jq -r '.version // empty' "./$p/.claude-plugin/plugin.json")"
-  [ -n "$pn" ] || die "$p: plugin.json has no name"
-  [ -n "$pv" ] || die "$p: plugin.json has no version"
+  # plugin.json reaches jq on standard input, never as a path: jq prints a
+  # path it cannot open in its own error, raw, and native Windows jq cannot
+  # open a path whose directory name holds `:` or a control byte at all.
+  pn="$(jq -r '.name // empty' < "./$p/.claude-plugin/plugin.json")"
+  pv="$(jq -r '.version // empty' < "./$p/.claude-plugin/plugin.json")"
+  shown pn_s "$pn"
+  shown pv_s "$pv"
+  [ -n "$pn" ] || die "$p_s: plugin.json has no name"
+  [ -n "$pv" ] || die "$p_s: plugin.json has no version"
 
   # The release-tag gate in ci.yml resolves a plugin FROM THE DIRECTORY NAME —
   # it strips the version suffix from the tag and reads
@@ -160,7 +169,7 @@ for dir in */; do
   # marketplace entry from the manifest's .name. Nothing else holds those two
   # identities together: a manifest renamed without its directory left every
   # gate green while release tags silently stopped naming the plugin.
-  [ "$pn" = "$p" ] || die "$p: plugin.json name '$pn' does not match its directory"
+  [ "$pn" = "$p" ] || die "$p_s: plugin.json name '$pn_s' does not match its directory"
 
   # Select by name, never by position. A second plugin prepended to the array
   # would otherwise be compared against the wrong entry — and could agree with
@@ -180,9 +189,10 @@ for dir in */; do
   # non-empty test and sends the maintainer diffing two version numbers when one
   # of them does not exist.
   jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
-    || die "$p: no marketplace entry named $pn"
+    || die "$p_s: no marketplace entry named $pn_s"
   mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)"
-  [ -n "$mv" ] || die "$p: marketplace entry $pn has no version"
+  shown mv_s "$mv"
+  [ -n "$mv" ] || die "$p_s: marketplace entry $pn_s has no version"
 
   # And the entry must point AT the directory this iteration just read. Nothing
   # else in the repository reads `source` — no other test, no workflow — and it
@@ -193,9 +203,10 @@ for dir in */; do
   # directory until the commit that renamed it, and the whole suite was green
   # for the duration.
   ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
-  [ -n "$ms" ] || die "$p: marketplace entry $pn has no source"
+  shown ms_s "$ms"
+  [ -n "$ms" ] || die "$p_s: marketplace entry $pn_s has no source"
   src="$(norm_source "$ms")"
-  [ "$src" = "$p" ] || die "$p: marketplace entry $pn has source '$ms', which does not resolve to $p"
+  [ "$src" = "$p" ] || die "$p_s: marketplace entry $pn_s has source '$ms_s', which does not resolve to $p_s"
 
   # A NUL byte makes grep call the changelog binary: the version read below
   # then finds no version, and errexit ends the run with no message at all.
@@ -223,9 +234,9 @@ for dir in */; do
   # it points and a broken one too: judging a target is more code, and the
   # target can change after the check. A wrong refusal fails closed.
   [ ! -L "./$p/CHANGELOG.md" ] \
-    || die "$p: CHANGELOG.md is a symbolic link, which the gate does not follow$unreleased"
+    || die "$p_s: CHANGELOG.md is a symbolic link, which the gate does not follow$unreleased"
   if [ -e "./$p/CHANGELOG.md" ] && [ ! -f "./$p/CHANGELOG.md" ]; then
-    die "$p: CHANGELOG.md is not a regular file$unreleased"
+    die "$p_s: CHANGELOG.md is not a regular file$unreleased"
   fi
   if [ -f "./$p/CHANGELOG.md" ]; then
     # The size before any read of the content, and only here: outside this
@@ -235,14 +246,14 @@ for dir in */; do
     # it nothing else). Arithmetic drops the spaces BSD wc pads with.
     if [ "$p" = "$RELEASED" ]; then
       size="$(LC_ALL=C wc -c < "./$p/CHANGELOG.md")" \
-        || die "$p: CHANGELOG.md could not be read"
+        || die "$p_s: CHANGELOG.md could not be read"
       [ "$((size))" -le "$changelog_limit" ] \
-        || die "$p: CHANGELOG.md is $((size)) bytes, more than the release form reads ($changelog_limit)$unreleased"
+        || die "$p_s: CHANGELOG.md is $((size)) bytes, more than the release form reads ($changelog_limit)$unreleased"
     fi
     nul="$(LC_ALL=C tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)" \
-      || die "$p: CHANGELOG.md could not be read"
+      || die "$p_s: CHANGELOG.md could not be read"
     [ "$((nul))" -eq 0 ] \
-      || die "$p: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
+      || die "$p_s: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
   fi
 
   # The heading format is pinned precisely because this line parses it, so
@@ -270,16 +281,18 @@ for dir in */; do
   # Under the C locale, as every read of the file here: a byte that is not
   # valid text must never make a tool stop or call the file binary.
   head="$(LC_ALL=C grep -m1 -E -e "$dated_re" -- "./$p/CHANGELOG.md" 2>/dev/null || true)"
-  [ -n "$head" ] || die "$p: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"
+  [ -n "$head" ] || die "$p_s: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format"
   cv="$(printf '%s' "$head" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+  shown head_s "$head"
+  shown cv_s "$cv"
 
   # Print what was read before comparing it. In a workflow log this line is the
   # difference between a red that explains itself and a red that sends someone
   # to open three files.
-  # Line breaks are stripped before printing. jq emits a value raw, a version
-  # or a directory name may hold a newline, and this line lands in a public
-  # workflow log where a forged extra line would misreport what the gate
-  # found. The comparisons below read the UNSTRIPPED values, so the strip
+  # Every value is printed through its masked copy. jq emits a value raw, a
+  # version or a directory name may hold a line feed, and this line lands in
+  # a public workflow log where a forged extra line would misreport what the
+  # gate found. The comparisons below read the raw values, so the masking
   # cleans the report and hides nothing from the check.
   # Is the version heading the FIRST heading, or does something sit above it?
   # The three comparisons in this loop are satisfied by ANY matching heading, so
@@ -294,23 +307,33 @@ for dir in */; do
   # that is not valid text binary, and prints "Binary file ... matches" in
   # place of the heading it found.
   first="$(LC_ALL=C grep -m1 '^## ' -- "./$p/CHANGELOG.md" || true)"
+  shown first_s "$first"
   if [ "$first" = "$head" ]; then
     released_state="released"
   else
-    released_state="UNRELEASED-ABOVE:$(quoted "$first")"
+    released_state="UNRELEASED-ABOVE:$first_s"
   fi
+  # This is the one line that starts with a value, so its first field also
+  # shows its leading spaces, and a `:` directly after them, as `?`: a
+  # workflow log reads a command in a line that starts `::`, after any white
+  # space. Every other line starts with the script's own name.
+  pr_s=${p_s%%[! ]*}
+  case "${p_s#"$pr_s"}" in
+    :*) pr_s="${pr_s// /?}?${p_s#"$pr_s":}" ;;
+    *) pr_s="${pr_s// /?}${p_s#"$pr_s"}" ;;
+  esac
   printf '%s: plugin=%s marketplace=%s changelog=%s state=%s\n' \
-    "${p//[$'\n\r']/}" "${pv//[$'\n\r']/}" "${mv//[$'\n\r']/}" "${cv//[$'\n\r']/}" "$released_state"
+    "$pr_s" "$pv_s" "$mv_s" "$cv_s" "$released_state"
 
   # Name the values on failure. A bare exit status tells you the versions
   # disagree but not which file is the odd one out — and not which plugin.
-  [ "$pv" = "$mv" ] || die "$p: plugin=$pv marketplace=$mv"
-  [ "$pv" = "$cv" ] || die "$p: plugin=$pv changelog=$cv"
+  [ "$pv" = "$mv" ] || die "$p_s: plugin=$pv_s marketplace=$mv_s"
+  [ "$pv" = "$cv" ] || die "$p_s: plugin=$pv_s changelog=$cv_s"
 
   if [ "$p" = "$RELEASED" ]; then
     released_seen=1
     [ "$released_state" = "released" ] \
-      || die "$p: '$(quoted "$first")' sits above the released heading '$head' — this tree is NOT released"
+      || die "$p_s: '$first_s' sits above the released heading '$head_s' — this tree is NOT released"
 
     # The comparison above reads only the FIRST level-2 heading, so a heading
     # left lower in the file was invisible to it. A released changelog holds
@@ -340,7 +363,7 @@ for dir in */; do
     # process escapes in it. A quoted line comes from a tracked file and lands
     # in a public CI log, so every character that is not printable — a tab,
     # an escape sequence, a stray CR — is shown as `?`, and the walk runs
-    # under the C locale for the reason quoted() gives above. No interval
+    # under the C locale for the reason shown() gives above. No interval
     # expressions: indents are counted, not matched.
     refusal="$(DATED_RE="$dated_re" LINE_LIMIT="$line_limit" QUOTE_CUT="$quote_cut" LC_ALL=C awk '
       function expand(s,   o, i, c, col) {
@@ -529,7 +552,7 @@ for dir in */; do
       }
     ' "./$p/CHANGELOG.md")"
     [ -z "$refusal" ] \
-      || die "$p: $refusal — this tree is NOT released"
+      || die "$p_s: $refusal — this tree is NOT released"
   fi
 done
 
@@ -565,20 +588,22 @@ while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
   entries=$((entries + 1))
   ed="$(norm_source "$es")"
+  shown en_s "$en"
+  shown es_s "$es"
   # Refuse an absolute or traversing source before it reaches the filesystem.
   # The forward walk constrains its own source by comparing it against the
   # directory being iterated; this walk has nothing to compare against, so it
   # states the rule instead of stat-ing outside the tree and reading the miss
   # as an answer.
   case "$ed" in
-    /*) die "marketplace entry '$en': source '$es' is an absolute path" ;;
+    /*) die "marketplace entry '$en_s': source '$es_s' is an absolute path" ;;
   esac
   # `..` as a PATH COMPONENT, not as a substring. `*..*` also matched a
   # directory legitimately named "my..plugin" and refused it while naming a
   # traversal that was not there — a wrong diagnostic is its own defect, even
   # when it fails in the safe direction.
   case "/$ed/" in
-    */../*) die "marketplace entry '$en': source '$es' leaves the repository" ;;
+    */../*) die "marketplace entry '$en_s': source '$es_s' leaves the repository" ;;
   esac
   # Written as an `if`, not `A && B || C`. The chained form means the same
   # thing here, but it is the shape that silently does the wrong thing when B
@@ -587,7 +612,7 @@ while IFS=$'\t' read -r en es; do
   # 0.9.0, which reports this, while 0.11.0 does not. A contributor with a
   # newer local copy therefore sees FEWER findings than the gate does.
   if [ -z "$ed" ] || [ ! -f "./$ed/.claude-plugin/plugin.json" ]; then
-    die "marketplace entry '$en': source '$es' names no plugin directory"
+    die "marketplace entry '$en_s': source '$es_s' names no plugin directory"
   fi
 done <<< "$entries_tsv"
 
@@ -605,5 +630,6 @@ done <<< "$entries_tsv"
 # asking for MORE checking and receiving LESS, which is the exact shape the
 # refusal above and the count comparison before it both exist to prevent.
 if [ -n "$RELEASED" ] && [ "$released_seen" -ne 1 ]; then
-  die "--released named '$RELEASED', which is not a plugin in this tree; nothing was enforced"
+  shown rel_s "$RELEASED"
+  die "--released named '$rel_s', which is not a plugin in this tree; nothing was enforced"
 fi
