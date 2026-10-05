@@ -83,6 +83,19 @@ norm_source() {
 # contributor pastes a failing local run, and an absolute checkout path
 # carries a username. The source-level path scan cannot see a value built
 # at run time, so the discipline has to live here.
+#
+# No symbolic link is followed, here or at any path read below: a link
+# would let a fork have the gate read, and print from, a file outside the
+# checkout. A link is refused wherever it points, a broken one too, as the
+# changelog link is below. These two come before the -f test, which
+# follows a link, so a broken link is named as a link and not as a
+# working directory that holds no marketplace.
+if [ -L .claude-plugin ]; then
+  die ".claude-plugin is a symbolic link, which the gate does not follow"
+fi
+if [ -L .claude-plugin/marketplace.json ]; then
+  die ".claude-plugin/marketplace.json is a symbolic link, which the gate does not follow"
+fi
 [ -f .claude-plugin/marketplace.json ] \
   || die "run me from the repository root — the working directory holds no .claude-plugin/marketplace.json"
 
@@ -160,6 +173,11 @@ changelog_limit=262144
 # it: collapsing doubled separators costs more than the length grows, and a
 # fork sets the source. No file system path is longer.
 source_limit=4096
+# The reverse walk checks every leading part of a source for a link, a
+# test for each component, so a source of more components than this is
+# refused, counted from its text before any file test. Without the bound
+# a fork could list a long source many times over and stall the walk.
+component_limit=64
 
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
@@ -172,9 +190,30 @@ for dir in */; do
   # an OPTION rather than as a path, and one named like name=value would
   # reach awk as an assignment. A fork pull request controls every tracked
   # path name.
+  #
+  # Masked first, so every message below names this plugin and never the
+  # one before it.
+  shown p_s "$p"
+  # No link on the way to plugin.json, each checked before anything reads
+  # through it: the -f test below follows a link. The directory itself is
+  # tested by its name, not by the glob's `dir`, which ends in a separator
+  # and then follows the link (measured). A linked directory with no
+  # .claude-plugin is no plugin, the gate reads nothing in it, and a
+  # contributor's own linked folder must not stop a local run, so it is
+  # refused only when it holds one.
+  if [ -e "./$p/.claude-plugin" ] || [ -L "./$p/.claude-plugin" ]; then
+    if [ -L "./$p" ]; then
+      die "$p_s: the plugin directory is a symbolic link, which the gate does not follow"
+    fi
+  fi
+  if [ -L "./$p/.claude-plugin" ]; then
+    die "$p_s: .claude-plugin is a symbolic link, which the gate does not follow"
+  fi
+  if [ -L "./$p/.claude-plugin/plugin.json" ]; then
+    die "$p_s: plugin.json is a symbolic link, which the gate does not follow"
+  fi
   [ -f "./$p/.claude-plugin/plugin.json" ] || continue
   checked=$((checked + 1))
-  shown p_s "$p"
 
   # plugin.json reaches jq on standard input, never as a path: jq prints a
   # path it cannot open in its own error, raw, and native Windows jq cannot
@@ -621,6 +660,10 @@ entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plug
 # holds no plugin directory — two zeroes agree.
 [ -n "$entries_tsv" ] || die "the marketplace manifest lists no plugin entries at all"
 entries=0
+# What the link walk below needs: every byte but a separator, held in a
+# variable as norm_source holds its patterns, and the source it last walked.
+nsl='[!/]'
+walked=''
 while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
   entries=$((entries + 1))
@@ -644,6 +687,43 @@ while IFS=$'\t' read -r en es; do
   case "/$ed/" in
     */../*) die "marketplace entry '$en_s': source '$es_s' leaves the repository" ;;
   esac
+  # No link on the way, as in the loop above: each leading part of the
+  # source, then its .claude-plugin, then plugin.json, before the -f test
+  # below follows any of them. The components are counted from the text
+  # first, with no process and no file test, so a long source costs one
+  # count and is refused whatever exists on disk: a count kept inside the
+  # walk would never reach the bound, because the walk stops at the first
+  # part that is not there, below which nothing can be a link. Each
+  # leading part is cut off with prefix and suffix removal; with no
+  # separator left the suffix removal returns the text unchanged, so the
+  # walk ends when the part is the whole rest. Entries naming the source
+  # walked last walk it once.
+  if [ -n "$ed" ]; then
+    slashes=${ed//$nsl/}
+    if [ $(( ${#slashes} + 1 )) -gt "$component_limit" ]; then
+      die "marketplace entry '$en_s': source '$es_s' has more than $component_limit components"
+    fi
+    if [ "$ed" != "$walked" ]; then
+      left=$ed
+      pfx=.
+      while :; do
+        seg=${left%%/*}
+        pfx=$pfx/$seg
+        if [ -L "$pfx" ]; then
+          die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
+        fi
+        if [ ! -e "$pfx" ] || [ "$seg" = "$left" ]; then break; fi
+        left=${left#*/}
+      done
+      walked=$ed
+    fi
+    if [ -L "./$ed/.claude-plugin" ]; then
+      die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
+    fi
+    if [ -L "./$ed/.claude-plugin/plugin.json" ]; then
+      die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
+    fi
+  fi
   # Written as an `if`, not `A && B || C`. The chained form means the same
   # thing here, but it is the shape that silently does the wrong thing when B
   # can fail for a second reason, and CI's analyser reports it. WHICH analyser
