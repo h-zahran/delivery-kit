@@ -243,9 +243,15 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   - Each marketplace entry costs about 27 ms (a `$(norm_source)` per
     entry, a process here). Recorded beside the deferred job time limit
     (spec Assumptions): a fork can make the walk slow, not wrong.
-  - Nothing guards the order inside `shown` (cut, then mask). No
-    requirement names the order, and the size limit now bounds what a
-    mask-first order would cost (R2, "Found at H").
+  - Nothing guarded the order inside `shown` (cut, then mask). Left out
+    at I on the claim that the size limit bounds what a mask-first order
+    would cost. **Wrong, found at M (round 1)**: the limit bounds the
+    changelog only, and a `plugin.json` value has no size limit.
+    Masking a value whole took 0.5 s at 50 KB and 6.1 s at 200 KB here
+    (it grows with the square of the length); the gate as built takes
+    1.3 s on a version of 1,000,000 escape bytes. **Closed at M**: P6
+    plants that version and runs the gate under `timeout 20`; the
+    mask-first mutant goes red.
 - **Found at I, closed beyond the seed**: the walk read its entries from
   a herestring, and Git Bash hung, naming nothing, on a herestring of
   65,536 to about 65,700 bytes; a fork reaches that size through one
@@ -285,3 +291,14 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   Windows the sub-check cannot run and prints `# unreadable: not
   available here`, so its mutant goes red only on the Linux and macOS
   runners.
+- **Found at M (round 1)**: with `POSIXLY_CORRECT` in the caller's
+  environment, bash runs in POSIX mode. There a failed redirect on `:`,
+  a special builtin, ends the script before `|| die` runs, so the open
+  check above printed nothing. Measured wider: GNU grep then reads the
+  `--` after a pattern as a file name, so the default form printed
+  `grep: --: No such file or directory` and a raw path in the report
+  line's `state=`. **Decision (M)**: the gate unsets `POSIXLY_CORRECT`
+  beside `GREP_OPTIONS`, which turns POSIX mode off and keeps the
+  variable from every program it runs, and runs `set +o posix`. L6
+  compares both forms with and without it; L5 runs its unreadable
+  `plugin.json` once more in POSIX mode (Linux and macOS).
