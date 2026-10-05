@@ -2545,16 +2545,29 @@ gate_safe() {
 # of the file expands that is neither a masked copy (named `_s`) nor one of
 # the values the gate itself makes. `$((size))` is arithmetic, not a name.
 # A static scan: no run of the gate can reach every die line.
-# The report line's printf is scanned too, with every line it continues on.
+# The report line's printf is scanned too, with every line it continues on;
+# so are positional parameters. A name ending `_s` is trusted only because
+# every line that assigns one is checked too: it may be set to '' (the
+# declarations), or be pr_s, which the report line builds from p_s. Any
+# other such assignment prints as `<line>: <name>=`. Comments are skipped.
 die_raw() {
   LC_ALL=C awk '
     function scan(s,  v) {
-      while (match(s, /[$][{]?[A-Za-z_][A-Za-z0-9_]*/)) {
+      while (match(s, /[$]([{]?[A-Za-z_][A-Za-z0-9_]*|[{]?[0-9]|[*@#?])/)) {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
         s = substr(s, RSTART + RLENGTH)
         if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|entries|checked|released_state)$/) continue
         print NR ": " v
+      }
+    }
+    /^[ \t]*#/ { next }
+    {
+      t = $0
+      while (match(t, /[A-Za-z_][A-Za-z0-9_]*_s=/)) {
+        n = substr(t, RSTART, RLENGTH - 1)
+        t = substr(t, RSTART + RLENGTH)
+        if (n != "pr_s" && substr(t, 1, 2) != "\047\047") print NR ": " n "="
       }
     }
     more { scan($0); more = /\\$/; next }
@@ -2727,10 +2740,11 @@ gate_forged() {
   # allowed shapes must not.
   printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
     'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' \
-    'printf "%s: plugin=%s\n" \' '  "$pr_s" "$pv" "$released_state"' 'echo "$x"' > "$TEST_DIR/planted.sh"
+    'printf "%s: plugin=%s\n" \' '  "$pr_s" "$pv" "$released_state"' 'echo "$x"' \
+    'die "z $1 $*"' 'size_s=$pv' $'p_s=\'\' pr_s=$x' '  # die "$q" size_s=$q' > "$TEST_DIR/planted.sh"
   raw="$(die_raw "$TEST_DIR/planted.sh")"
-  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv" ] \
-    || { echo "control: the die scan did not name exactly the planted p, pn and pv. it printed: $raw"; false; }
+  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv"$'\n'"7: 1"$'\n'"7: *"$'\n'"8: size_s=" ] \
+    || { echo "control: the die scan did not name exactly the planted p, pn, pv, 1, * and size_s=. it printed: $raw"; false; }
   raw="$(die_raw scripts/check-versions.sh)"
   [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
 }
