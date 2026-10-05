@@ -122,6 +122,10 @@ identical to `5a78ea4`, unless it names another place.
   even a failure the shape check did not foresee prints nothing of
   `jq`'s. That discard is a backstop: once the shape check has passed,
   no plant can make a later read fail, so it has no mutant of its own.
+  Nor can the backstop stand in for `-s`: jq 1.8.1 exits 0 when an
+  earlier document fails and a later one succeeds (measured at H, T006),
+  so a two-document file reaches no `|| die` at all; only the shape
+  check's `-s` stops it.
   With `-s` (measured at F, round 2, native jq 1.8.1): one valid
   document 0; two documents 1; `[]` 1; not JSON 5; a broken second
   document 5; CRLF line ends 0; an empty or whitespace-only file 1,

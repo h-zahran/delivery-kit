@@ -2602,6 +2602,16 @@ gate_forged() {
 
 @test "the gate prints every value masked, and no line starts with ::" {
   cd "$ROOT"
+  # X2, a TEMPORARY probe: on a runner only, five lines through file
+  # descriptor 3, which bats writes to the log as they are, to measure
+  # where in a line the runner acts on `##[`, with `::warning::` as a
+  # control it is known to act on. Measured once in this pull request's
+  # CI, recorded in research R3, and removed before merge. Locally it
+  # prints nothing: the suite check refuses a line that is not TAP.
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    printf '%s\n' '##[warning]p28 probe: start of line' '# x ##[warning]p28 probe: mid-line' \
+      '##[group]p28 probe: group' '##[endgroup]' '::warning::p28 probe: control' >&3
+  fi
   local F E c dn want long cut o rc raw
   # The check itself, before anything leans on it: each unsafe shape must
   # fail it, with exactly 1, and the gate's own em dash must pass it.
@@ -2732,6 +2742,35 @@ gate_forged() {
   gate_says P6 1 "'x???y'"
   gate_safe P6
 
+  # X1: `##[`, which a workflow log may read as a command, is shown as
+  # `#?[` wherever a printed value holds it: a plugin.json version; a
+  # first heading above the release; a changelog line the walk refuses,
+  # whose text the walk prints, under the C locale and then with LANG set
+  # to a UTF-8 locale and LC_ALL unset, as runners set them.
+  F='1.0.0 ##[error]x'
+  gate_forged X1 x1-version "$copied/.claude-plugin/plugin.json" '.version = $v' "plugin=1.0.0 #?[error]x"
+  gate_lacks X1 '##['
+  c="$TEST_DIR/x1-first"
+  cp -r "$base" "$c"
+  { printf '## [Unreleased] ##[error]x\n'; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
+  gate_run "$c" --released "$copied"
+  gate_says X1 1 "state=UNRELEASED-ABOVE:## [Unreleased] #?[error]x" \
+    "'## [Unreleased] #?[error]x' sits above the released heading"
+  gate_lacks X1 '##['
+  gate_safe X1
+  forms_put '## Notes ##[error]x'
+  gate_run "$d" --released "$copied"
+  gate_says X1 1 "holds '## Notes #?[error]x', which is not a dated version heading"
+  gate_lacks X1 '##['
+  gate_safe X1
+  forms_utf8
+  run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; shift 3; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' \
+    _ "$utf8" "$ROOT" "$d" --released "$copied"
+  forms_no_path
+  gate_says X1 1 "holds '## Notes #?[error]x', which is not a dated version heading"
+  gate_lacks X1 '##['
+  gate_safe X1
+
   # P0, last, so that against an older gate a run's own clause speaks
   # first: every value a die line prints is a masked copy, including the
   # die lines no run above reaches. First the scan itself, on lines of
@@ -2775,6 +2814,26 @@ gate_forged() {
   esac
 }
 
+# gate_json <clause> <copy> <message>: the gate, run in the copy in the
+# default form, exits 1 and prints the gate's whole line alone (research
+# R2): no line from jq, and not bash's line about a NUL read through
+# `$( )`. The clause's own checks come before forms_no_path, because
+# bash's line names the gate by its path: it must be red on the clause.
+gate_json() {
+  local id=$1 c=$2 want=$3
+  run bash -c 'r=$1 c=$2; cd "$c" && bash "$r/scripts/check-versions.sh"' _ "$ROOT" "$c"
+  case $'\n'"$output" in
+    *$'\n'jq:*) echo "$id: a line from jq reached the output. output: ${output:0:600}"; return 1 ;;
+  esac
+  case "$output" in
+    *"ignored null byte"*) echo "$id: bash's line about a NUL byte reached the output. output: ${output:0:600}"; return 1 ;;
+  esac
+  gate_refuses "$id" "$want" || return 1
+  [ "$output" = "$want" ] \
+    || { echo "$id: the output is not the gate's own line alone. output: ${output:0:600}"; return 1; }
+  forms_no_path || return 1
+}
+
 @test "a TRAILING malformed marketplace entry cannot escape the reverse walk" {
   cd "$ROOT"
   # The reverse walk used to be fed by a process substitution, whose exit status
@@ -2784,6 +2843,12 @@ gate_forged() {
   # line, reconciled its counts and exited 0 — never validating the bad entry's
   # `source`, which named a directory that did not exist. A LEADING malformed
   # entry died correctly, so only trailing ones escaped.
+  #
+  # The first plant below, an entry whose name is an object, is now stopped
+  # by the gate's shape check of marketplace.json, before the @tsv read it
+  # was written for (research R2): no plant reaches that read failing any
+  # more, and its `|| die` is a backstop. The J plants at the end check the
+  # shape check's own lines.
   t="$TEST_DIR/trailing-malformed"
   mkdir -p "$t/.claude-plugin"
   first_src="$(jq -r '.plugins[0].source' .claude-plugin/marketplace.json)"
@@ -2858,6 +2923,78 @@ gate_forged() {
     *"marketplace entry 'ghost': source"*"is longer than $source_limit characters"*) ;;
     *) echo "the reverse walk did not refuse a source over the limit. output: ${output:0:600}"; false ;;
   esac
+
+  # J1, J2: a marketplace.json or plugin.json that is not JSON, or not of
+  # the shape the gate's reads need, is refused with the gate's own line
+  # alone, before any other read of the file (research R2). Each plant is
+  # its own copy of a clean base, which must pass first. A NUL is written
+  # with jq as the \u0000 escape: a raw NUL byte is not JSON.
+  local jb="$TEST_DIR/json-base" m=.claude-plugin/marketplace.json pj="$d/.claude-plugin/plugin.json" c
+  local E=$'\033' mw mn pw pn
+  mw="check-versions.sh: .claude-plugin/marketplace.json is not one object whose plugins is a list of entries with string name, source and version, and no NUL character"
+  mn="check-versions.sh: .claude-plugin/marketplace.json is not valid JSON"
+  pw="check-versions.sh: $d: plugin.json is not one object with a string name and version, and no NUL character"
+  pn="check-versions.sh: $d: plugin.json is not valid JSON"
+  mkdir -p "$jb/.claude-plugin"
+  cp -r "$t/$d" "$jb/$d"
+  jq '.plugins |= .[:1]' .claude-plugin/marketplace.json > "$jb/$m"
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$jb" "$ROOT"
+  forms_no_path
+  [ "$status" -eq 0 ] \
+    || { echo "fixture: the clean base is refused, so no plant below would prove anything. output: ${output:0:600}"; false; }
+
+  # J1: a trailing entry whose name is an object; a plugins that is a
+  # string holding a workflow command and an escape; two documents, of
+  # which jq -e alone judges only the last (measured); valid JSON of the
+  # wrong type.
+  c="$TEST_DIR/json-name-object"; cp -r "$jb" "$c"
+  json_set "$c/$m" '.plugins += [{name: {"::error title=x::y": 1}, source: "./ghost"}]' ""
+  gate_json J1 "$c" "$mw"
+  c="$TEST_DIR/json-plugins-string"; cp -r "$jb" "$c"
+  json_set "$c/$m" '.plugins = $v' "::error title=x::y${E}[2K"
+  gate_json J1 "$c" "$mw"
+  c="$TEST_DIR/json-two-documents"; cp -r "$jb" "$c"
+  { printf '{"plugins": "x"}\n'; cat "$jb/$m"; } > "$c/$m"
+  gate_json J1 "$c" "$mw"
+  c="$TEST_DIR/json-array"; cp -r "$jb" "$c"
+  printf '[]\n' > "$c/$m"
+  gate_json J1 "$c" "$mw"
+
+  # J2: each file not JSON, then empty, which is not JSON either; a
+  # plugin.json whose name is a number, of two documents, or that is `[]`;
+  # a NUL in a plugin.json string and in a marketplace string. The two
+  # documents come before `[]`: read without -s, `[]` is sent to error as
+  # empty, so a gate that dropped -s would be red on `[]` first, hiding
+  # whether the two documents alone catch it.
+  c="$TEST_DIR/json-m-not-json"; cp -r "$jb" "$c"
+  printf '{"plugins": [\n' > "$c/$m"
+  gate_json J2 "$c" "$mn"
+  c="$TEST_DIR/json-m-empty"; cp -r "$jb" "$c"
+  : > "$c/$m"
+  gate_json J2 "$c" "$mn"
+  c="$TEST_DIR/json-p-not-json"; cp -r "$jb" "$c"
+  printf '{"name": [\n' > "$c/$pj"
+  gate_json J2 "$c" "$pn"
+  c="$TEST_DIR/json-p-empty"; cp -r "$jb" "$c"
+  : > "$c/$pj"
+  gate_json J2 "$c" "$pn"
+  c="$TEST_DIR/json-p-name-number"; cp -r "$jb" "$c"
+  json_set "$c/$pj" '.name = 1' ""
+  gate_json J2 "$c" "$pw"
+  c="$TEST_DIR/json-p-two-documents"; cp -r "$jb" "$c"
+  { printf '{"name": 1}\n'; cat "$jb/$pj"; } > "$c/$pj"
+  gate_json J2 "$c" "$pw"
+  c="$TEST_DIR/json-p-array"; cp -r "$jb" "$c"
+  printf '[]\n' > "$c/$pj"
+  gate_json J2 "$c" "$pw"
+  c="$TEST_DIR/json-p-nul"; cp -r "$jb" "$c"
+  json_set "$c/$pj" '.version += "\u0000"' ""
+  LC_ALL=C grep -q -F -- '\u0000' "$c/$pj" || { echo "fixture: the plugin.json NUL plant did not land"; false; }
+  gate_json J2 "$c" "$pw"
+  c="$TEST_DIR/json-m-nul"; cp -r "$jb" "$c"
+  json_set "$c/$m" '.plugins[0].source += "\u0000"' ""
+  LC_ALL=C grep -q -F -- '\u0000' "$c/$m" || { echo "fixture: the marketplace NUL plant did not land"; false; }
+  gate_json J2 "$c" "$mw"
 }
 
 # nolink_make <target> <name>: a symbolic link, made as L1 makes one.
@@ -3021,6 +3158,63 @@ gate_refuses() {
     gate_run "$c"
     gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
   fi
+
+  # O1, after the N plants, so against an older gate the first red is an
+  # N clause: a caller's xtrace, verbose, noglob or keyword changes nothing
+  # in either form. Each is set through SHELLOPTS on the gate's own command
+  # only: on the wrapper's command line xtrace would trace the test's
+  # paths, and `SHELLOPTS=$o bash` inside bash is a read-only variable,
+  # which runs the gate without the option (measured). Exit status and
+  # standard output must equal one run per form without it; standard error
+  # must be exactly what FR-006 allows, from the test's own copy of the
+  # gate's first two lines: the options line traced for xtrace, the `#!`
+  # line and the options line echoed for verbose, nothing for the others.
+  # Each output goes to a file, then both are printed, so forms_no_path
+  # reads them too, after the clause's own checks.
+  local optline='set +o xtrace +o verbose +o noglob +o keyword' form prc unreadable
+  local po="$TEST_DIR/o1-plain-out.txt" so="$TEST_DIR/o1-out.txt" se="$TEST_DIR/o1-err.txt" pe="$TEST_DIR/o1-want-err.txt"
+  for form in "" "--released"; do
+    run bash -c 'r=$1 c=$2 so=$3 se=$4; shift 4; cd "$c" && bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
+      _ "$ROOT" "$base" "$po" "$se" ${form:+--released "$copied"}
+    forms_no_path
+    prc=$status
+    [ "$prc" -eq 0 ] && [ -s "$po" ] && [ ! -s "$se" ] \
+      || { echo "fixture: the ${form:-default} form without an option exited $prc, or printed no report line, or wrote standard error. output: ${output:0:600}"; false; }
+    for o in xtrace verbose noglob keyword; do
+      run bash -c 'o=$1 r=$2 c=$3 so=$4 se=$5; shift 5; cd "$c" && env SHELLOPTS="$o" bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
+        _ "$o" "$ROOT" "$base" "$so" "$se" ${form:+--released "$copied"}
+      [ "$status" -eq "$prc" ] \
+        || { echo "O1: with $o set, the ${form:-default} form exited $status, not $prc. output: ${output:0:600}"; false; }
+      cmp -s "$po" "$so" \
+        || { echo "O1: with $o set, the ${form:-default} form's standard output changed. output: ${output:0:600}"; false; }
+      case $o in
+        xtrace) printf '+ %s\n' "$optline" > "$pe" ;;
+        verbose) printf '%s\n' '#!/usr/bin/env bash' "$optline" > "$pe" ;;
+        *) : > "$pe" ;;
+      esac
+      cmp -s "$pe" "$se" \
+        || { echo "O1: with $o set, the ${form:-default} form's standard error is not what FR-006 allows. output: ${output:0:600}"; false; }
+      forms_no_path
+    done
+  done
+
+  # N6, after O1, so against the gate before the open check the first red
+  # in this test is O1 on every system. Where a mode of 000 stops a read
+  # (decided as L5 decides; not on Windows, and not as root), an
+  # unreadable marketplace.json is refused as unreadable, alone, and never
+  # as "is not valid JSON". Its mutant can go red on Linux and macOS only.
+  c="$TEST_DIR/nolink-n6"
+  cp -r "$base" "$c"
+  chmod 000 "$c/.claude-plugin/marketplace.json"
+  if [ -r "$c/.claude-plugin/marketplace.json" ]; then unreadable="not available here"; else unreadable="made"; fi
+  echo "# unreadable: $unreadable" >&3
+  if [ "$unreadable" = "made" ]; then
+    gate_run "$c"
+    gate_refuses N6 "check-versions.sh: .claude-plugin/marketplace.json could not be read"
+    [ "$output" = "check-versions.sh: .claude-plugin/marketplace.json could not be read" ] \
+      || { echo "N6: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
+  fi
+  chmod 644 "$c/.claude-plugin/marketplace.json"
 }
 
 @test "only spec-kit scaffolding is tracked under .claude/" {
