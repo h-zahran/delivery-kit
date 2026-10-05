@@ -2557,7 +2557,7 @@ die_raw() {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
         s = substr(s, RSTART + RLENGTH)
-        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|source_limit|entries|checked|released_state)$/) continue
+        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|source_limit|component_limit|entries|checked|released_state)$/) continue
         print NR ": " v
       }
     }
@@ -2858,6 +2858,169 @@ gate_forged() {
     *"marketplace entry 'ghost': source"*"is longer than $source_limit characters"*) ;;
     *) echo "the reverse walk did not refuse a source over the limit. output: ${output:0:600}"; false ;;
   esac
+}
+
+# nolink_make <target> <name>: a symbolic link, made as L1 makes one.
+# `|| true`: where ln cannot make a native link it exits non-zero, and
+# under errexit that would end the test before the fixture line below.
+# Called only where the test's first link was made, so a link not made
+# here is a fixture failure on every system.
+nolink_make() {
+  MSYS=winsymlinks:nativestrict ln -s "$1" "$2" 2>/dev/null || true
+  [ -L "$2" ] || { echo "fixture: the link ${2##*/} was not made"; return 1; }
+}
+
+# gate_refuses <clause> <message>: the last run exited 1, said the whole
+# message, from `check-versions.sh: ` on, and printed safely.
+gate_refuses() {
+  gate_says "$1" 1 "$2" || return 1
+  gate_safe "$1"
+}
+
+@test "the gate follows no link, and keeps its own shell options" {
+  cd "$ROOT"
+  forms_base one
+  local c k o m src pad links aa='a/' to=""
+  # The test's own copies of the gate's limits and words: a fixture that
+  # read the gate would move with it.
+  local component_limit=64 quote_cut=200 source_limit=4096
+  local fol=", which the gate does not follow"
+  local out="$TEST_DIR/nolink-outside"
+  mkdir -p "$out"
+
+  # N5, before any run, so the line is printed whatever fails below. The
+  # first link, N1's plugin.json pointing at a file outside the copy,
+  # decides whether this system makes links at all, as L1 decides. Which
+  # way it took goes through file descriptor 3: bats hides a passing
+  # test's output.
+  printf '{"name":"OUTSIDE-NAME","version":"9.9.9"}\n' > "$out/plugin.json"
+  c="$TEST_DIR/nolink-n1"
+  cp -r "$base" "$c"
+  rm "$c/$copied/.claude-plugin/plugin.json"
+  MSYS=winsymlinks:nativestrict ln -s "$out/plugin.json" "$c/$copied/.claude-plugin/plugin.json" 2>/dev/null || true
+  if [ -L "$c/$copied/.claude-plugin/plugin.json" ]; then links="made"; else links="not available here"; fi
+  echo "# nolinks: $links" >&3
+  if [ "$links" != "made" ]; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) ;;
+      *) echo "fixture: this system made no symbolic link"; false ;;
+    esac
+  fi
+
+  # N7, first among the runs: it needs no link, so against an older gate it
+  # is the first red on every system. Each source is `./` and then `a/a/…`,
+  # its first component a real directory and the rest missing. At the
+  # limit the source is read, and names no plugin directory; over it, the
+  # count refuses it before any file test, at 2,046 components too (under
+  # the source limit). The limit's own source first, so a limit set one
+  # lower is red on it.
+  if command -v timeout > /dev/null; then to=1; fi
+  for k in "$component_limit" $((component_limit + 1)) 2046; do
+    printf -v pad '%*s' $((k - 1)) ''
+    src="./${pad// /$aa}a"
+    [ "${#src}" -le "$source_limit" ] || { echo "fixture: the $k-component source is ${#src} characters, over the source limit"; false; }
+    c="$TEST_DIR/nolink-n7-$k"
+    cp -r "$base" "$c"
+    mkdir "$c/a"
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "deep", source: $v}]' "$src"
+    if [ -n "$to" ]; then
+      run timeout 15 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+    else
+      run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+    fi
+    forms_no_path
+    if [ "$k" -gt "$component_limit" ]; then
+      m="'$src'"
+      if [ "${#src}" -gt "$quote_cut" ]; then m="'${src:0:$quote_cut} [cut]'"; fi
+      gate_refuses N7 "check-versions.sh: marketplace entry 'deep': source $m has more than $component_limit components"
+    else
+      gate_refuses N7 "check-versions.sh: marketplace entry 'deep': source '$src' names no plugin directory"
+    fi
+  done
+
+  if [ "$links" = "made" ]; then
+    # N1, in both forms: no link check reads anything the form sets, so
+    # the release form refuses the link as the default form does, with no
+    # suffix. The outside file must be reachable, or its name missing from
+    # the output would prove nothing.
+    c="$TEST_DIR/nolink-n1"
+    [ -f "$c/$copied/.claude-plugin/plugin.json" ] \
+      || { echo "fixture: the N1 link does not reach the outside file"; false; }
+    for o in "" "--released"; do
+      gate_run "$c" ${o:+--released "$copied"}
+      gate_refuses N1 "check-versions.sh: $copied: plugin.json is a symbolic link$fol"
+      gate_lacks N1 "OUTSIDE-NAME"
+    done
+
+    # N2: the repository's marketplace.json linked to a copy outside; its
+    # .claude-plugin directory moved outside and linked back; a broken
+    # marketplace.json link. Each is a link, never "run me from the
+    # repository root", which a broken link alone gave.
+    cp "$base/.claude-plugin/marketplace.json" "$out/marketplace.json"
+    c="$TEST_DIR/nolink-n2-file"
+    cp -r "$base" "$c"
+    rm "$c/.claude-plugin/marketplace.json"
+    nolink_make "$out/marketplace.json" "$c/.claude-plugin/marketplace.json"
+    gate_run "$c"
+    gate_refuses N2 "check-versions.sh: .claude-plugin/marketplace.json is a symbolic link$fol"
+    c="$TEST_DIR/nolink-n2-dir"
+    cp -r "$base" "$c"
+    mv "$c/.claude-plugin" "$out/n2-dir"
+    nolink_make "$out/n2-dir" "$c/.claude-plugin"
+    gate_run "$c"
+    gate_refuses N2 "check-versions.sh: .claude-plugin is a symbolic link$fol"
+    c="$TEST_DIR/nolink-n2-broken"
+    cp -r "$base" "$c"
+    rm "$c/.claude-plugin/marketplace.json"
+    nolink_make "$out/missing.json" "$c/.claude-plugin/marketplace.json"
+    gate_run "$c"
+    gate_refuses N2 "check-versions.sh: .claude-plugin/marketplace.json is a symbolic link$fol"
+    gate_lacks N2 "run me from the repository root"
+
+    # N3: the plugin directory moved outside and linked back under its
+    # name; then its .claude-plugin directory. Each message names this
+    # plugin, never the one before.
+    c="$TEST_DIR/nolink-n3-dir"
+    cp -r "$base" "$c"
+    mv "$c/$copied" "$out/n3-dir"
+    nolink_make "$out/n3-dir" "$c/$copied"
+    gate_run "$c"
+    gate_refuses N3 "check-versions.sh: $copied: the plugin directory is a symbolic link$fol"
+    c="$TEST_DIR/nolink-n3-cp"
+    cp -r "$base" "$c"
+    mv "$c/$copied/.claude-plugin" "$out/n3-cp"
+    nolink_make "$out/n3-cp" "$c/$copied/.claude-plugin"
+    gate_run "$c"
+    gate_refuses N3 "check-versions.sh: $copied: .claude-plugin is a symbolic link$fol"
+
+    # N4: a source the reverse walk alone meets, passing through a link. A
+    # linked component; then, because a top-level source is met by the
+    # forward loop first, a nested source whose .claude-plugin is a link,
+    # and one whose plugin.json alone is.
+    mkdir -p "$out/n4-via/x/.claude-plugin" "$out/n4-cp"
+    cp "$base/$copied/.claude-plugin/plugin.json" "$out/n4-via/x/.claude-plugin/plugin.json"
+    cp "$base/$copied/.claude-plugin/plugin.json" "$out/n4-cp/plugin.json"
+    c="$TEST_DIR/nolink-n4-via"
+    cp -r "$base" "$c"
+    nolink_make "$out/n4-via" "$c/via"
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./via/x"
+    gate_run "$c"
+    gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './via/x' passes through a symbolic link"
+    c="$TEST_DIR/nolink-n4-cp"
+    cp -r "$base" "$c"
+    mkdir -p "$c/nest/x"
+    nolink_make "$out/n4-cp" "$c/nest/x/.claude-plugin"
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./nest/x"
+    gate_run "$c"
+    gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
+    c="$TEST_DIR/nolink-n4-json"
+    cp -r "$base" "$c"
+    mkdir -p "$c/nest/x/.claude-plugin"
+    nolink_make "$out/plugin.json" "$c/nest/x/.claude-plugin/plugin.json"
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./nest/x"
+    gate_run "$c"
+    gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
+  fi
 }
 
 @test "only spec-kit scaffolding is tracked under .claude/" {
