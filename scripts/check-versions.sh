@@ -67,8 +67,14 @@ die() { printf 'check-versions.sh: %s\n' "$*" >&2; exit 1; }
 # how it was written. One function, called from both walks. Writing this rule
 # out twice — in the file whose header explains why a hand-kept pair is the
 # defect — would be the same mistake one level down.
+# norm_source <name> <value> sets the named variable, as shown() does, and
+# prints nothing: called in a `$( )` it cost a process per marketplace
+# entry, about 20 ms each on Windows (400 entries: 9 s, and 1.3 s by name,
+# measured; research R5), which a fork listing thousands of entries turns
+# into minutes. The name is a caller's variable, never one of the locals
+# below.
 norm_source() {
-  local LC_ALL=C s="$1" re='^(\./)+' two=// one=/
+  local LC_ALL=C s="$2" re='^(\./)+' two=// one=/
   # Collapse doubled separators FIRST, then strip leading current-directory
   # prefixes, then trailing separators — in that order, and each repeatedly.
   # A single pass of each was not enough: ".//handoff" survived as "/handoff",
@@ -85,8 +91,10 @@ norm_source() {
   while [ "$s" != "${s//$two/$one}" ]; do s="${s//$two/$one}"; done
   if [[ $s =~ $re ]]; then s=${s:${#BASH_REMATCH[0]}}; fi
   while [ "$s" != "${s%/}" ]; do s="${s%/}"; done
-  printf '%s' "$s"
+  printf -v "$1" '%s' "$s"
 }
+# The two variables norm_source sets, declared here, as shown()'s are.
+src='' ed=''
 
 # The working directory IS the contract. Assert it before reading anything, so
 # a caller that starts somewhere unexpected gets a named refusal instead of a
@@ -343,7 +351,7 @@ for dir in */; do
   [ -n "$ms" ] || die "$p_s: marketplace entry $pn_s has no source"
   [ "${#ms}" -le "$source_limit" ] \
     || die "$p_s: marketplace entry $pn_s has a source longer than $source_limit characters"
-  src="$(norm_source "$ms")"
+  norm_source src "$ms"
   [ "$src" = "$p" ] || die "$p_s: marketplace entry $pn_s has source '$ms_s', which does not resolve to $p_s"
 
   # A NUL byte makes grep call the changelog binary: the version read below
@@ -746,7 +754,7 @@ while IFS=$'\t' read -r en es; do
   shown es_s "$es"
   [ "${#es}" -le "$source_limit" ] \
     || die "marketplace entry '$en_s': source '$es_s' is longer than $source_limit characters"
-  ed="$(norm_source "$es")"
+  norm_source ed "$es"
   # Refuse an absolute or traversing source before it reaches the filesystem.
   # The forward walk constrains its own source by comparing it against the
   # directory being iterated; this walk has nothing to compare against, so it

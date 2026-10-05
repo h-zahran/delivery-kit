@@ -245,11 +245,17 @@ identical to `5a78ea4`, unless it names another place.
   sourced at it), same machine, same run, in a prototype: N = 400 took
   14.9 s with the subshell and 1.6 s without; N = 0 took 1.5 s and 2.1 s
   (this machine varies by a second between runs). T008 measures again on
-  the final code and writes both figures here: (recorded at H).
+  the final code and writes both figures here: on the seed's fixture
+  (the first plugin plus 400 entries), the gate before T008 and after,
+  alternating in one run, three rounds (`$RUN/t008-cost.txt`, Windows,
+  `MINGW64_NT-10.0-26200`): before 9.0, 11.4 and 9.1 s, after 1.3, 2.1
+  and 1.3 s; with no extra entry, before 1.2, 2.1 and 1.1 s, after 1.1,
+  1.3 and 1.1 s. So about 20 ms an entry before and under 1 ms after.
+  The 2,000-entry fixture C1 uses took 2.4 and 2.5 s after.
 - **Test**: the walk plant runs 2,000 extra entries under `timeout 15`.
   With a process per entry, at the 20 to 37 ms an entry measured here
-  (seed, and above), that is 40 s or more; without, a few seconds (an
-  estimate from the 400-entry run, checked at H). A mutant that restores the subshell goes red here; on a
+  (seed, and above), that is 40 s or more; without, a few seconds (measured
+  at T008: 2.4 and 2.5 s on the 2,000-entry fixture, Windows). A mutant that restores the subshell goes red here; on a
   runner where a process is cheap it may not, and the test says which
   system it ran on.
 
