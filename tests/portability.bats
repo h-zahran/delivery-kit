@@ -2557,7 +2557,7 @@ die_raw() {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
         s = substr(s, RSTART + RLENGTH)
-        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|entries|checked|released_state)$/) continue
+        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|source_limit|entries|checked|released_state)$/) continue
         print NR ": " v
       }
     }
@@ -2762,6 +2762,17 @@ gate_forged() {
     *"nothing was enforced"*) ;;
     *) echo "it refused, but not for the vacuous-enforcement reason. output: $output"; false ;;
   esac
+  # An empty name matches nothing too, and once passed, enforcing nothing:
+  # the end check skipped an empty name. A tag spelled `-v1.2.0` makes CI
+  # pass one.
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released ""' _ "$ROOT" "$ROOT"
+  forms_no_path
+  [ "$status" -ne 0 ] \
+    || { echo "--released accepted an empty plugin name and enforced nothing. output: $output"; false; }
+  case "$output" in
+    *"--released needs a plugin name"*) ;;
+    *) echo "an empty --released name was refused, but not as a missing name. output: $output"; false ;;
+  esac
 }
 
 @test "a TRAILING malformed marketplace entry cannot escape the reverse walk" {
@@ -2818,6 +2829,34 @@ gate_forged() {
   case "$output" in
     *"names no plugin directory"*) ;;
     *) echo "a 65,600-byte walk input was not refused for its ghost entry. output: ${output:0:600}"; false ;;
+  esac
+
+  # A source of exactly the source limit (the tests' own copy) is read; one
+  # character more is refused before it is normalised, in the forward walk
+  # and in the reverse walk, which alone reaches an entry naming no plugin.
+  # Padded with separators, which normalising collapses.
+  local source_limit=4096 pad
+  pad="$(printf '%*s' $(( source_limit - 2 - ${#d} )) '' | tr ' ' /)"
+  jq --arg s "./$pad$d" '{name: "fixture", plugins: [ .plugins[0] | .source = $s ]}' \
+    .claude-plugin/marketplace.json > "$w/.claude-plugin/marketplace.json"
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$w" "$ROOT"
+  [ "$status" -eq 0 ] \
+    || { echo "a source of exactly $source_limit characters was refused. output: ${output:0:600}"; false; }
+  jq --arg s "./$pad/$d" '{name: "fixture", plugins: [ .plugins[0] | .source = $s ]}' \
+    .claude-plugin/marketplace.json > "$w/.claude-plugin/marketplace.json"
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$w" "$ROOT"
+  [ "$status" -eq 1 ] || { echo "a source one character over the limit: exit $status, not 1"; false; }
+  case "$output" in
+    *"has a source longer than $source_limit characters"*) ;;
+    *) echo "the forward walk did not refuse a source over the limit. output: ${output:0:600}"; false ;;
+  esac
+  jq --arg s "./$pad/$d" '{name: "fixture", plugins: [ .plugins[0], {name: "ghost", source: $s} ]}' \
+    .claude-plugin/marketplace.json > "$w/.claude-plugin/marketplace.json"
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$w" "$ROOT"
+  [ "$status" -eq 1 ] || { echo "a ghost source one character over the limit: exit $status, not 1"; false; }
+  case "$output" in
+    *"marketplace entry 'ghost': source"*"is longer than $source_limit characters"*) ;;
+    *) echo "the reverse walk did not refuse a source over the limit. output: ${output:0:600}"; false ;;
   esac
 }
 

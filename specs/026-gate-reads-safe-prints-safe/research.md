@@ -259,6 +259,30 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   The test plants a 65,600-byte walk input and runs the gate under
   `timeout 30`; its mutant (the herestring back) goes red on Windows
   only, where the hang lives.
+- **Found at M (round 3), closed beyond the seed** on the owner's answer
+  at the review cap (both older than this phase):
+  - `--released ""` passed on the real tree, enforcing nothing: an empty
+    name matched no plugin, and the end check skips an empty name. A tag
+    spelled `-v1.2.0` makes CI pass one. It is now refused as a missing
+    name.
+  - `norm_source` stripped one leading `./` per pass, copying the whole
+    string each time: 10,000 of them took 3.5 s, and a fork sets the
+    source. The prefixes now go in one regex match (0 of 540 spellings
+    differ from the old function; a broken copy differs on 149). The
+    collapse of doubled separators also grows faster than the length
+    (1.9 s at 240 KB) and bash has no linear form of it, so both walks
+    refuse a source longer than 4,096 characters before normalising it.
+- **Found at M (round 3), left out**:
+  - The P0 scan does not see `printf -v`, `read` or `for` into a name
+    ending `_s`, a `$(…)` with no `$` inside, or a `die` message
+    continued onto a second line. A static scan is a backstop; the
+    plants are the test.
+  - `SHELLOPTS` and `BASH_ENV` from the caller (xtrace would echo raw
+    values to standard error). A caller who sets those controls the
+    shell already; CI sets neither.
+  - K3's quote-marker plant needs the copied changelog under about
+    154 KB to fit its 50,000 pairs; `handoff`'s is 38 KB.
+  - `gate_safe` removes every em dash, not only the gate's own.
 
 ## R11 — Other programs' own errors
 

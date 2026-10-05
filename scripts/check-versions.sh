@@ -56,15 +56,19 @@ die() { printf 'check-versions.sh: %s\n' "$*" >&2; exit 1; }
 # out twice — in the file whose header explains why a hand-kept pair is the
 # defect — would be the same mistake one level down.
 norm_source() {
-  local s="$1"
+  local LC_ALL=C s="$1" re='^(\./)+'
   # Collapse doubled separators FIRST, then strip leading current-directory
   # prefixes, then trailing separators — in that order, and each repeatedly.
   # A single pass of each was not enough: ".//handoff" survived as "/handoff",
   # which then tripped the absolute-path guard in the reverse walk and was
   # reported as escaping the repository. Every spelling here names the same
-  # directory, which is what this function exists to say.
+  # directory, which is what this function exists to say. The leading
+  # prefixes go in one regex match: stripping one per pass copied the whole
+  # string each time, and 10,000 of them took 3.5 s (measured). The collapse
+  # also grows faster than the length, so callers bound the length first
+  # (source_limit).
   while [ "$s" != "${s//\/\//\/}" ]; do s="${s//\/\//\/}"; done
-  while [ "$s" != "${s#./}" ]; do s="${s#./}"; done
+  if [[ $s =~ $re ]]; then s=${s:${#BASH_REMATCH[0]}}; fi
   while [ "$s" != "${s%/}" ]; do s="${s%/}"; done
   printf '%s' "$s"
 }
@@ -115,7 +119,10 @@ RELEASED=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --released)
-      [ $# -ge 2 ] || die "--released needs a plugin name"
+      # An empty name matches no plugin, and the vacuous-enforcement check
+      # at the end is skipped for an empty RELEASED: it passed, enforcing
+      # nothing (measured). A tag spelled `-v1.2.0` makes CI pass one.
+      if [ $# -lt 2 ] || [ -z "$2" ]; then die "--released needs a plugin name"; fi
       RELEASED="$2"; shift 2 ;;
     *) shown arg_s "$1"; die "unknown argument '$arg_s' (usage: check-versions.sh [--released <plugin>])" ;;
   esac
@@ -146,6 +153,10 @@ line_limit=1000
 # larger than changelog_limit bytes before reading any of it. Written once.
 # The default form only searches the file and never refuses for its size.
 changelog_limit=262144
+# A marketplace source longer than this is refused before norm_source reads
+# it: collapsing doubled separators costs more than the length grows, and a
+# fork sets the source. No file system path is longer.
+source_limit=4096
 
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
@@ -220,6 +231,8 @@ for dir in */; do
   ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
   shown ms_s "$ms"
   [ -n "$ms" ] || die "$p_s: marketplace entry $pn_s has no source"
+  [ "${#ms}" -le "$source_limit" ] \
+    || die "$p_s: marketplace entry $pn_s has a source longer than $source_limit characters"
   src="$(norm_source "$ms")"
   [ "$src" = "$p" ] || die "$p_s: marketplace entry $pn_s has source '$ms_s', which does not resolve to $p_s"
 
@@ -608,9 +621,11 @@ entries=0
 while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
   entries=$((entries + 1))
-  ed="$(norm_source "$es")"
   shown en_s "$en"
   shown es_s "$es"
+  [ "${#es}" -le "$source_limit" ] \
+    || die "marketplace entry '$en_s': source '$es_s' is longer than $source_limit characters"
+  ed="$(norm_source "$es")"
   # Refuse an absolute or traversing source before it reaches the filesystem.
   # The forward walk constrains its own source by comparing it against the
   # directory being iterated; this walk has nothing to compare against, so it
