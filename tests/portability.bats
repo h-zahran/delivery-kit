@@ -2237,6 +2237,9 @@ forms_default() {
 # their own copy, never the gate's: a fixture that read the code under test
 # would move with it.
 changelog_limit=262144
+# The longest line, in bytes, the release form judges: the tests' own
+# copy too, for the same reason.
+line_limit=1000
 
 @test "--released refuses a byte or a line it cannot judge" {
   cd "$ROOT"
@@ -2314,11 +2317,17 @@ changelog_limit=262144
   # changelog over its size limit before the walk, so the line fills the
   # room left under the limit, less a margin, measured on the copy rather
   # than written down: the changelog grows with every release. The line is
-  # found with awk: as an argument, a line this long fails on Linux.
+  # found with awk: as an argument, a line this long fails on Linux. Its
+  # only floor is the rule under test, a line longer than the line limit:
+  # a fixed count of pairs failed a correct tree once the copy grew past
+  # 153,948 bytes (research R6). The margin is what the plant needs, 64
+  # bytes, so the plant fits until the copy leaves less than that and a
+  # 1,001-byte line under the limit.
   forms_put 'LONGplant'
-  room=$(( changelog_limit - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
+  room=$(( changelog_limit - 64 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
   pairs=$(( room / 2 - 1 ))
-  [ "$pairs" -gt 50000 ] || { echo "fixture: only $pairs quote markers fit under the size limit"; false; }
+  [ $(( pairs * 2 + 1 )) -gt "$line_limit" ] \
+    || { echo "fixture: only $pairs quote markers fit under the size limit, no line longer than $line_limit"; false; }
   LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the quote-marker line did not land"; false; }
@@ -2527,15 +2536,21 @@ gate_lacks() {
   done
 }
 
-# gate_safe <clause>: the last run's output is printed safely. With every
-# em dash (the gate's own text) removed, no byte is outside space to `~`,
-# and no line starts with `::` after any spaces (research R6). Matched in
-# bash under the C locale, with no process: a CR is caught as any other
-# byte, where Windows gawk would drop one before a line feed.
+# gate_safe <clause>: the last run's output is printed safely. With only
+# the gate's own ` — this tree is NOT released` removed, no byte is
+# outside space to `~`, no line starts with `::` after any spaces, and no
+# line holds `##[` (research R6). Any other em dash fails it: removing
+# every one passed an em dash a value carried. The gate's other em dash,
+# in "run me from the repository root", is in no output read here; if it
+# ever is, this fails, as it should. Matched in bash under the C locale,
+# with no process: a CR is caught as any other byte, where Windows gawk
+# would drop one before a line feed. The suffix is held in a variable and
+# quoted as the pattern, as the gate holds its own.
 gate_safe() {
   local LC_ALL=C
-  local o=$'\n'"${output//$'\342\200\224'/}" bad=$'[^\n -~]' cmd=$'\n *::'
-  if [[ $o =~ $bad ]] || [[ $o =~ $cmd ]]; then
+  local sfx=$' \342\200\224 this tree is NOT released' hh='##['
+  local o=$'\n'"${output//"$sfx"/}" bad=$'[^\n -~]' cmd=$'\n *::'
+  if [[ $o =~ $bad ]] || [[ $o =~ $cmd ]] || [[ $o == *"$hh"* ]]; then
     echo "$1: the output is not printed safely. output: ${output:0:600}"
     return 1
   fi
@@ -2549,10 +2564,19 @@ gate_safe() {
 # so are positional parameters. A name ending `_s` is trusted only because
 # every line that assigns one is checked too: it may be set to '' (the
 # declarations), or be pr_s, which the report line builds from p_s. Any
-# other such assignment prints as `<line>: <name>=`. Comments are skipped.
+# other such assignment prints as `<line>: <name>=`, and so does a name
+# ending `_s` that `printf -v`, `read` or `for` sets. A `$(` in a scanned
+# line that is not `$((` prints as `<line>: $(`: a command substitution
+# prints what it runs, raw. A `die` line ending in `\` is continued onto
+# the next line, as the report line is. Comments are skipped.
 die_raw() {
   LC_ALL=C awk '
-    function scan(s,  v) {
+    function scan(s,  v, u, k) {
+      u = s
+      while ((k = index(u, "$(")) > 0) {
+        if (substr(u, k + 2, 1) != "(") print NR ": $("
+        u = substr(u, k + 2)
+      }
       while (match(s, /[$]([{]?[A-Za-z_][A-Za-z0-9_]*|[{]?[0-9]|[*@#?])/)) {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
@@ -2569,10 +2593,31 @@ die_raw() {
         t = substr(t, RSTART + RLENGTH)
         if (n != "pr_s" && substr(t, 1, 2) != "\047\047") print NR ": " n "="
       }
+      t = " " $0
+      while (match(t, /[^A-Za-z0-9_]printf[ \t]+-v[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        n = substr(t, RSTART, RLENGTH)
+        t = substr(t, RSTART + RLENGTH)
+        sub(/^.printf[ \t]+-v[ \t]+/, "", n)
+        if (n ~ /_s$/) print NR ": " n "="
+      }
+      t = " " $0
+      while (match(t, /[^A-Za-z0-9_]read[ \t][^;&|<>)]*/)) {
+        r = substr(t, RSTART + 6, RLENGTH - 6)
+        t = substr(t, RSTART + RLENGTH)
+        k = split(r, w, /[ \t]+/)
+        for (i = 1; i <= k; i++) if (w[i] ~ /^[A-Za-z_][A-Za-z0-9_]*_s$/) print NR ": " w[i] "="
+      }
+      t = " " $0
+      while (match(t, /[^A-Za-z0-9_]for[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        n = substr(t, RSTART, RLENGTH)
+        t = substr(t, RSTART + RLENGTH)
+        sub(/^.for[ \t]+/, "", n)
+        if (n ~ /_s$/) print NR ": " n "="
+      }
     }
     more { scan($0); more = /\\$/; next }
     index($0, "plugin=%s") { scan($0); more = /\\$/; next }
-    index($0, "die \"") { scan(substr($0, index($0, "die \""))) }' "$1"
+    index($0, "die \"") { scan(substr($0, index($0, "die \""))); more = /\\$/ }' "$1"
 }
 
 # json_set <file> <jq program> <value>: rewrites the file through jq, the
@@ -2614,15 +2659,16 @@ gate_forged() {
   fi
   local F E c dn want long cut o rc raw
   # The check itself, before anything leans on it: each unsafe shape must
-  # fail it, with exactly 1, and the gate's own em dash must pass it.
-  for o in $'a\033b' $'ok\n  ::x' $'a\rb'; do
+  # fail it, with exactly 1, including an em dash that is not the gate's
+  # own suffix and a `##[`, and the gate's own suffix must pass it.
+  for o in $'a\033b' $'ok\n  ::x' $'a\rb' $'ok \342\200\224 ok' $'a \342\200\224 b' 'x ##[y'; do
     output=$o
     rc=0
     gate_safe ctl > /dev/null || rc=$?
     [ "$rc" -eq 1 ] || { echo "control: gate_safe returned $rc on an unsafe output, not 1"; false; }
   done
-  output=$'ok \342\200\224 ok'
-  gate_safe ctl || { echo "control: gate_safe refused the gate's own em dash"; false; }
+  output=$'x: y \342\200\224 this tree is NOT released'
+  gate_safe ctl || { echo "control: gate_safe refused the gate's own suffix"; false; }
 
   forms_base one
   # A forged value: a line feed, a workflow command, an escape sequence.
@@ -2776,14 +2822,20 @@ gate_forged() {
   # die lines no run above reaches. First the scan itself, on lines of
   # its own rather than a copy of the gate, which would move with the
   # gate: a raw name, plain and braced, must be found by name, and the
-  # allowed shapes must not.
+  # allowed shapes must not. Then (T1) a name ending `_s` set by
+  # `printf -v`, by `read` and by `for`, a `$(` in a die message, and a
+  # raw name on the line a die line ending in `\` continues onto; and
+  # last the gate's own shapes of each, which must not be found.
   printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
     'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' \
     'printf "%s: plugin=%s\n" \' '  "$pr_s" "$pv" "$released_state"' 'echo "$x"' \
-    'die "z $1 $*"' 'size_s=$pv' $'p_s=\'\' pr_s=$x' '  # die "$q" size_s=$q' > "$TEST_DIR/planted.sh"
+    'die "z $1 $*"' 'size_s=$pv' $'p_s=\'\' pr_s=$x' '  # die "$q" size_s=$q' \
+    'printf -v a_s %s "$x"' 'IFS= read -r b_s c' 'for c_s in x; do :; done' \
+    'die "x $(id) $((n))"' 'die "y \' '  $q"' \
+    'printf -v "$1" %s "$s"; read -r en es; for dir in x; do :; done; die "could not be read$u_s"' > "$TEST_DIR/planted.sh"
   raw="$(die_raw "$TEST_DIR/planted.sh")"
-  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv"$'\n'"7: 1"$'\n'"7: *"$'\n'"8: size_s=" ] \
-    || { echo "control: the die scan did not name exactly the planted p, pn, pv, 1, * and size_s=. it printed: $raw"; false; }
+  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv"$'\n'"7: 1"$'\n'"7: *"$'\n'"8: size_s="$'\n'"11: a_s="$'\n'"12: b_s="$'\n'"13: c_s="$'\n'"14: \$("$'\n'"16: q" ] \
+    || { echo "control: the die scan did not name exactly the planted p, pn, pv, 1, *, size_s=, a_s=, b_s=, c_s=, \$( and q. it printed: $raw"; false; }
   raw="$(die_raw scripts/check-versions.sh)"
   [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
 }
@@ -2995,6 +3047,28 @@ gate_json() {
   json_set "$c/$m" '.plugins[0].source += "\u0000"' ""
   LC_ALL=C grep -q -F -- '\u0000' "$c/$m" || { echo "fixture: the marketplace NUL plant did not land"; false; }
   gate_json J2 "$c" "$mw"
+
+  # C1, after the J plants: the first plugin and 2,000 more entries naming
+  # it, which the reverse walk reads one by one before the count refuses
+  # them. With a process per entry that took 20 to 37 ms an entry here
+  # (research R5), 40 s or more; without, a few seconds. Where a process is
+  # cheap the bound cannot see one, so the system is printed, on a pass
+  # as on a failure.
+  echo "# walk: $(uname -s)" >&3
+  c="$TEST_DIR/walk-2000"; cp -r "$jb" "$c"
+  jq --arg s "./$d" '.plugins = [.plugins[0]] + [range(2000) | {name: "x\(.)", source: $s}]' "$jb/$m" > "$c/$m" \
+    || { echo "fixture: jq could not write the 2,000 entries"; false; }
+  [ "$(jq '.plugins | length' "$c/$m")" = "2001" ] || { echo "fixture: the marketplace does not list 2,001 entries"; false; }
+  if command -v timeout > /dev/null; then
+    run timeout 15 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+  else
+    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+  fi
+  forms_no_path
+  [ "$status" -eq 1 ] \
+    || { echo "C1: 2,001 entries: the gate exited $status, not 1 (124 is the timeout). output: ${output:0:600}"; false; }
+  gate_says C1 1 "check-versions.sh: marketplace lists 2001 plugins, the tree holds 1"
+  gate_safe C1
 }
 
 # nolink_make <target> <name>: a symbolic link, made as L1 makes one.
