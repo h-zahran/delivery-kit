@@ -299,7 +299,10 @@ identical to `5a78ea4`, unless it names another place.
   form only (no link or component check reads anything the form sets:
   the forward loop's run before anything form-dependent, which N1 shows,
   and the reverse walk's after a release-form changelog walk the fixture
-  passes), then the `SHELLOPTS` plants (R4),
+  passes), then the `SHELLOPTS` plants (R4) in the default form only
+  (the options line is the gate's first command and reads nothing the
+  form sets; with it removed each option changed both forms alike,
+  measured at T010; quickstart SC-003 runs both forms on the real tree),
   then N6 (Linux and macOS only), and its `# nolinks:` line through file descriptor 3
   saying whether this system made links, as L1 does. Every other plant
   goes into an existing test: the `jq` shapes and the 2,000-entry walk

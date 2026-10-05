@@ -3234,42 +3234,45 @@ gate_refuses() {
   fi
 
   # O1, after the N plants, so against an older gate the first red is an
-  # N clause: a caller's xtrace, verbose, noglob or keyword changes nothing
-  # in either form. Each is set through SHELLOPTS on the gate's own command
+  # N clause: a caller's xtrace, verbose, noglob or keyword changes nothing.
+  # In the default form only, as N2-N4 are (research R8): the options line
+  # is the gate's first command and reads nothing the form sets, so after
+  # it both forms run with the four options off; with the line removed,
+  # each option changed both forms alike, at the same line (measured at
+  # T010), and the quickstart's SC-003 check runs both forms on the real
+  # tree. Each is set through SHELLOPTS on the gate's own command
   # only: on the wrapper's command line xtrace would trace the test's
   # paths, and `SHELLOPTS=$o bash` inside bash is a read-only variable,
   # which runs the gate without the option (measured). Exit status and
-  # standard output must equal one run per form without it; standard error
+  # standard output must equal one run without it; standard error
   # must be exactly what FR-006 allows, from the test's own copy of the
   # gate's first two lines: the options line traced for xtrace, the `#!`
   # line and the options line echoed for verbose, nothing for the others.
   # Each output goes to a file, then both are printed, so forms_no_path
   # reads them too, after the clause's own checks.
-  local optline='set +o xtrace +o verbose +o noglob +o keyword' form prc unreadable
+  local optline='set +o xtrace +o verbose +o noglob +o keyword' prc unreadable
   local po="$TEST_DIR/o1-plain-out.txt" so="$TEST_DIR/o1-out.txt" se="$TEST_DIR/o1-err.txt" pe="$TEST_DIR/o1-want-err.txt"
-  for form in "" "--released"; do
-    run bash -c 'r=$1 c=$2 so=$3 se=$4; shift 4; cd "$c" && bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
-      _ "$ROOT" "$base" "$po" "$se" ${form:+--released "$copied"}
+  run bash -c 'r=$1 c=$2 so=$3 se=$4; shift 4; cd "$c" && bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
+    _ "$ROOT" "$base" "$po" "$se"
+  forms_no_path
+  prc=$status
+  [ "$prc" -eq 0 ] && [ -s "$po" ] && [ ! -s "$se" ] \
+    || { echo "fixture: the default form without an option exited $prc, or printed no report line, or wrote standard error. output: ${output:0:600}"; false; }
+  for o in xtrace verbose noglob keyword; do
+    run bash -c 'o=$1 r=$2 c=$3 so=$4 se=$5; shift 5; cd "$c" && env SHELLOPTS="$o" bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
+      _ "$o" "$ROOT" "$base" "$so" "$se"
+    [ "$status" -eq "$prc" ] \
+      || { echo "O1: with $o set, the default form exited $status, not $prc. output: ${output:0:600}"; false; }
+    cmp -s "$po" "$so" \
+      || { echo "O1: with $o set, the default form's standard output changed. output: ${output:0:600}"; false; }
+    case $o in
+      xtrace) printf '+ %s\n' "$optline" > "$pe" ;;
+      verbose) printf '%s\n' '#!/usr/bin/env bash' "$optline" > "$pe" ;;
+      *) : > "$pe" ;;
+    esac
+    cmp -s "$pe" "$se" \
+      || { echo "O1: with $o set, the default form's standard error is not what FR-006 allows. output: ${output:0:600}"; false; }
     forms_no_path
-    prc=$status
-    [ "$prc" -eq 0 ] && [ -s "$po" ] && [ ! -s "$se" ] \
-      || { echo "fixture: the ${form:-default} form without an option exited $prc, or printed no report line, or wrote standard error. output: ${output:0:600}"; false; }
-    for o in xtrace verbose noglob keyword; do
-      run bash -c 'o=$1 r=$2 c=$3 so=$4 se=$5; shift 5; cd "$c" && env SHELLOPTS="$o" bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
-        _ "$o" "$ROOT" "$base" "$so" "$se" ${form:+--released "$copied"}
-      [ "$status" -eq "$prc" ] \
-        || { echo "O1: with $o set, the ${form:-default} form exited $status, not $prc. output: ${output:0:600}"; false; }
-      cmp -s "$po" "$so" \
-        || { echo "O1: with $o set, the ${form:-default} form's standard output changed. output: ${output:0:600}"; false; }
-      case $o in
-        xtrace) printf '+ %s\n' "$optline" > "$pe" ;;
-        verbose) printf '%s\n' '#!/usr/bin/env bash' "$optline" > "$pe" ;;
-        *) : > "$pe" ;;
-      esac
-      cmp -s "$pe" "$se" \
-        || { echo "O1: with $o set, the ${form:-default} form's standard error is not what FR-006 allows. output: ${output:0:600}"; false; }
-      forms_no_path
-    done
   done
 
   # N6, after O1, so against the gate before the open check the first red
