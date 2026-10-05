@@ -2233,6 +2233,11 @@ forms_default() {
 # under the C locale. The plants run in this order so that against an older
 # gate the first red names K1: the last plant, a line of 400,000 quote
 # markers, takes an older walk past the per-test timeout.
+# The largest changelog, in bytes, the release form reads. The tests hold
+# their own copy, never the gate's: a fixture that read the code under test
+# would move with it.
+changelog_limit=262144
+
 @test "--released refuses a byte or a line it cannot judge" {
   cd "$ROOT"
   forms_base one
@@ -2311,7 +2316,7 @@ forms_default() {
   # than written down: the changelog grows with every release. The line is
   # found with awk: as an argument, a line this long fails on Linux.
   forms_put 'LONGplant'
-  room=$(( 262144 - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
+  room=$(( changelog_limit - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
   pairs=$(( room / 2 - 1 ))
   [ "$pairs" -gt 50000 ] || { echo "fixture: only $pairs quote markers fit under the size limit"; false; }
   LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
@@ -2321,19 +2326,16 @@ forms_default() {
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes"; false; }
 
-  # K3, K4: an over-long line of bytes that each need masking. Masking the
-  # whole line before the cut took time that grew with the square of its
-  # length: 400,000 of them ran past the per-test timeout. Cut first, it is
-  # refused at once. Sized like the line above, to fill the room the size
-  # limit leaves.
+  # K3, K4: an over-long line of bytes that each need masking is refused
+  # for its length, cut, and masked. This line once also guarded the order
+  # (cut, then mask) through the per-test timeout, at 400,000 bytes; the
+  # size limit now bounds every line the walk reads well below that, so the
+  # timeout can no longer see the order, and a short line checks the rest.
   forms_put 'DENSEplant'
-  room=$(( 262144 - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
-  pairs=$(( room / 2 - 1 ))
-  [ "$pairs" -gt 50000 ] || { echo "fixture: only $pairs dense pairs fit under the size limit"; false; }
-  LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
+  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 1000; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the dense line did not land"; false; }
-  forms_refused K3 "line $line is $(( pairs * 2 )) bytes long"
+  forms_refused K3 "line $line is 2000 bytes long"
   [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal of the dense line printed an escape byte"; false; }
 
@@ -2377,7 +2379,7 @@ gate_says() {
 @test "the gate reads only a regular changelog of bounded size" {
   cd "$ROOT"
   forms_base one
-  local c lk bl links other want size
+  local c lk bl links other want size form
 
   # L1: a link to a regular file, and a link to nothing, are refused as
   # links in both forms. `|| true`: where `ln` cannot make a native link it
@@ -2436,19 +2438,19 @@ gate_says() {
   c="$TEST_DIR/regular-size"
   cp -r "$base" "$c"
   size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
-  [ "$size" -le 262144 ] || { echo "fixture: the changelog is already $size bytes"; false; }
-  LC_ALL=C awk -v BINMODE=3 -v n=$((262144 - size)) \
+  [ "$size" -le "$changelog_limit" ] || { echo "fixture: the changelog is already $size bytes"; false; }
+  LC_ALL=C awk -v BINMODE=3 -v n=$((changelog_limit - size)) \
     'BEGIN { while (n >= 12) { print "Plain text."; n -= 12 } if (n > 0) { t = ""; for (i = 1; i < n; i++) t = t "y"; print t } }' \
     >> "$c/$copied/CHANGELOG.md"
   size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
-  [ "$size" -eq 262144 ] || { echo "fixture: the padded changelog is $size bytes, not 262144"; false; }
+  [ "$size" -eq "$changelog_limit" ] || { echo "fixture: the padded changelog is $size bytes, not $changelog_limit"; false; }
   gate_run "$c" --released "$copied"
   gate_says L3 0
   printf 'y' >> "$c/$copied/CHANGELOG.md"
   size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
-  [ "$size" -eq 262145 ] || { echo "fixture: the changelog is $size bytes, not 262145"; false; }
+  [ "$size" -eq $((changelog_limit + 1)) ] || { echo "fixture: the changelog is $size bytes, not $((changelog_limit + 1))"; false; }
   gate_run "$c" --released "$copied"
-  gate_says L3 1 "$copied: " "262145 bytes" "262144"
+  gate_says L3 1 "$copied: " "$((changelog_limit + 1)) bytes" "($changelog_limit)"
   gate_run "$c"
   gate_says L3 0
 
@@ -2457,8 +2459,8 @@ gate_says() {
   c="$TEST_DIR/regular-missing"
   cp -r "$base" "$c"
   rm "$c/$copied/CHANGELOG.md"
-  for want in "" "--released"; do
-    if [ -n "$want" ]; then gate_run "$c" --released "$copied"; else gate_run "$c"; fi
+  for form in "" "--released"; do
+    gate_run "$c" ${form:+--released "$copied"}
     gate_says L4 1 "$copied: no changelog heading in the pinned"
     case $'\n'"$output" in
       *$'\n'grep:*|*$'\n'jq:*) echo "L4: another program printed its own error. output: ${output:0:600}"; false ;;
@@ -2468,15 +2470,16 @@ gate_says() {
 
 # gate_safe <clause>: the last run's output is printed safely. With every
 # em dash (the gate's own text) removed, no byte is outside space to `~`,
-# and no line starts with `::` after any spaces (research R6). BINMODE=3:
-# Windows gawk would otherwise drop a CR that comes before a line feed.
+# and no line starts with `::` after any spaces (research R6). Matched in
+# bash under the C locale, with no process: a CR is caught as any other
+# byte, where Windows gawk would drop one before a line feed.
 gate_safe() {
-  printf '%s\n' "$output" | LC_ALL=C awk -v BINMODE=3 -v ed=$'\342\200\224' '
-    { gsub(ed, "") }
-    /[^ -~]/ { bad = bad " a byte on line " NR }
-    /^[ ]*::/ { bad = bad " a command on line " NR }
-    END { if (bad != "") { print bad; exit 1 } }' \
-    || { echo "$1: the output is not printed safely. output: ${output:0:600}"; return 1; }
+  local LC_ALL=C
+  local o=$'\n'"${output//$'\342\200\224'/}" bad=$'[^\n -~]' cmd=$'\n *::'
+  if [[ $o =~ $bad ]] || [[ $o =~ $cmd ]]; then
+    echo "$1: the output is not printed safely. output: ${output:0:600}"
+    return 1
+  fi
 }
 
 # json_set <file> <jq program> <value>: rewrites the file through jq, the
@@ -2484,9 +2487,24 @@ gate_safe() {
 # holding `:` or a control byte. Entries are chosen by position, never by
 # name, which is the one-script test's marker.
 json_set() {
-  jq --arg v "$3" "$2" < "$1" > "$1.new" \
+  local j
+  j="$(jq --arg v "$3" "$2" < "$1")" \
     || { echo "fixture: jq could not edit ${1##*/}"; return 1; }
-  mv "$1.new" "$1"
+  printf '%s\n' "$j" > "$1"
+}
+
+# gate_forged <clause> <copy name> <file in the copy> <jq program>
+# <fragment>...: a fresh copy of the base with the forged value F written
+# by the program, run in the default form. It must exit 1, say every
+# fragment, and print safely. F is the caller's.
+gate_forged() {
+  local id=$1 c="$TEST_DIR/$2" f=$3 prog=$4
+  shift 4
+  cp -r "$base" "$c"
+  json_set "$c/$f" "$prog" "$F" || return 1
+  gate_run "$c" || return 1
+  gate_says "$id" 1 "$@" || return 1
+  gate_safe "$id"
 }
 
 @test "the gate prints every value masked, and no line starts with ::" {
@@ -2500,46 +2518,18 @@ json_set() {
   # P1: a plugin.json version, then a name. The fragments avoid the line
   # feed: native Windows jq writes it as CR LF, so it is masked as one `?`
   # or two.
-  c="$TEST_DIR/masked-pv"
-  cp -r "$base" "$c"
-  json_set "$c/$copied/.claude-plugin/plugin.json" '.version = $v' "$F"
-  gate_run "$c"
-  gate_says P1 1 "1.0.0?" "::error title=x::y?[2K"
-  gate_safe P1
-  c="$TEST_DIR/masked-pn"
-  cp -r "$base" "$c"
-  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = $v' "$F"
-  gate_run "$c"
-  gate_says P1 1 "1.0.0?" "::error title=x::y?[2K"
-  gate_safe P1
+  gate_forged P1 masked-pv "$copied/.claude-plugin/plugin.json" '.version = $v' "1.0.0?" "::error title=x::y?[2K"
+  gate_forged P1 masked-pn "$copied/.claude-plugin/plugin.json" '.name = $v' "1.0.0?" "::error title=x::y?[2K"
 
   # P2: the marketplace entry's version and source, then two appended
   # entries, which only the reverse walk reaches. It reads them through
   # @tsv, which writes the line feed as a backslash and `n`.
-  c="$TEST_DIR/masked-mv"
-  cp -r "$base" "$c"
-  json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].version = $v' "$F"
-  gate_run "$c"
-  gate_says P2 1 "1.0.0?" "::error title=x::y?[2K"
-  gate_safe P2
-  c="$TEST_DIR/masked-ms"
-  cp -r "$base" "$c"
-  json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].source = $v' "$F"
-  gate_run "$c"
-  gate_says P2 1 "1.0.0?" "::error title=x::y?[2K"
-  gate_safe P2
-  c="$TEST_DIR/masked-ghost"
-  cp -r "$base" "$c"
-  json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: $v, source: ("./ghost" + $v)}]' "$F"
-  gate_run "$c"
-  gate_says P2 1 '1.0.0\n::error title=x::y?[2K' "names no plugin directory"
-  gate_safe P2
-  c="$TEST_DIR/masked-abs"
-  cp -r "$base" "$c"
-  json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: $v, source: ("/abs" + $v)}]' "$F"
-  gate_run "$c"
-  gate_says P2 1 '1.0.0\n::error title=x::y?[2K' "is an absolute path"
-  gate_safe P2
+  gate_forged P2 masked-mv .claude-plugin/marketplace.json '.plugins[0].version = $v' "1.0.0?" "::error title=x::y?[2K"
+  gate_forged P2 masked-ms .claude-plugin/marketplace.json '.plugins[0].source = $v' "1.0.0?" "::error title=x::y?[2K"
+  gate_forged P2 masked-ghost .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("./ghost" + $v)}]' \
+    '1.0.0\n::error title=x::y?[2K' "names no plugin directory"
+  gate_forged P2 masked-abs .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("/abs" + $v)}]' \
+    '1.0.0\n::error title=x::y?[2K' "is an absolute path"
 
   # P3: a plugin directory named `::`, an escape, `x`; then the same after
   # a space. The run passes, and the report line starts with `?`. The name
