@@ -17,6 +17,10 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   The message names the plugin, masked (R3), and says "this tree is NOT
   released" only for the plugin `--released` names, as the NUL message
   does.
+- **As built** (H, then I): the `-L` refusal comes first; then
+  `if [ -f … ]` holds the open check (R11), the size (R2) and the NUL
+  check, and `elif [ -e … ]` refuses what is not a regular file. Step 2
+  is that `elif`, not a second test.
 - **Rationale**: `[ -f ]` follows a link, so today a link to a device
   skips the NUL check and `grep` reads the device: a link to
   `/dev/urandom` ran the default form until it was killed at 20 s.
@@ -168,6 +172,13 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   every other byte. `BINMODE=3` because Windows gawk in text mode drops
   a CR before an LF, and native Windows `jq` writes an embedded line
   feed as CR LF: without it the check would never see that CR.
+- **Changed at H.7**: the check is `gate_safe` in
+  `tests/portability.bats`, bash `[[ =~ ]]` under `local LC_ALL=C`, with
+  no process: a CR is caught as any other byte, so no awk and no
+  `BINMODE` are needed. The rule it applies is unchanged. Phase I added a
+  control at the top of the P test: an escape, a `::` line after spaces
+  and a lone CR must each make it return exactly 1, and the em dash must
+  pass.
 
 ## R7 — The walk does not change, so the proof stands
 
@@ -223,6 +234,25 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   either to a regular file is still read. That is older than this
   phase, outside the seed (which names the changelog), and fails
   closed; it is recorded here for a later phase.
+- **Found at I, left out** (deep review, three reviewers):
+  - A `jq` type error on a malformed `marketplace.json` quotes up to 11
+    escaped characters of the offending value in `jq`'s own message.
+    `jq` escapes a control byte there, so no `::` line can start; a C1
+    byte or a bidirectional mark can still reach a UTF-8 log raw. Older
+    than this phase, and outside the print-site table.
+  - Each marketplace entry costs about 27 ms (a `$(norm_source)` per
+    entry, a process here). Recorded beside the deferred job time limit
+    (spec Assumptions): a fork can make the walk slow, not wrong.
+  - Nothing guards the order inside `shown` (cut, then mask). No
+    requirement names the order, and the size limit now bounds what a
+    mask-first order would cost (R2, "Found at H").
+- **Found at I, closed beyond the seed**: the walk read its entries from
+  a herestring, and Git Bash hung, naming nothing, on a herestring of
+  65,536 to about 65,700 bytes; a fork reaches that size through one
+  entry's name. The loop is now fed by `printf` over the assigned text.
+  The test plants a 65,600-byte walk input and runs the gate under
+  `timeout 30`; its mutant (the herestring back) goes red on Windows
+  only, where the hang lives.
 
 ## R11 — Other programs' own errors
 
@@ -242,3 +272,16 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   matters.
 - **Rationale**: masking cannot reach another program's error text, so
   the only safe way is not to hand that program a value it would print.
+- **Found at I**: reading through standard input moves the leak to the
+  shell. When bash cannot open a redirect's file, it prints the path
+  raw, before the gate says anything.
+- **Decision (I)**: before the two `jq` reads of `plugin.json`, and
+  before the changelog's size and NUL reads, the gate opens the file
+  once with the shell's error discarded:
+  `{ : < f; } 2>/dev/null || die "<plugin>: … could not be read"`. That
+  is safe only because `-f` (and, for the changelog, `-L`) has already
+  refused a pipe, whose open would wait for ever. The test (L5) needs a
+  file a mode of 000 makes unreadable: Linux and macOS, not as root. On
+  Windows the sub-check cannot run and prints `# unreadable: not
+  available here`, so its mutant goes red only on the Linux and macOS
+  runners.

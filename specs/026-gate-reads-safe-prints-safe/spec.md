@@ -223,10 +223,12 @@ read the output for raw bytes and for lines starting with `::`.
   `scripts/` MUST avoid the banned vocabulary, machine paths and counts
   in prose, and run under bash 3.2 and the awks the three CI systems run.
 
-- **FR-014**: No other program the gate runs MAY print a value from the
-  print-site table in its own error message: `plugin.json` is read
-  through standard input, and a search whose failure the gate reports
-  itself has its own error output discarded.
+- **FR-014**: No other program the gate runs, and not the shell, MAY
+  print a value from the print-site table in its own error message:
+  `plugin.json` is read through standard input, a file the gate reads
+  through a redirect is first opened once with the shell's error
+  discarded, and a search whose failure the gate reports itself has its
+  own error output discarded.
 - **FR-015**: A value longer than the quote cut MUST be shown cut, with
   the cut marker; and a value holding a byte that is not valid UTF-8, or
   a printable non-ASCII character, MUST be shown masked when the gate
