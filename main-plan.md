@@ -2926,3 +2926,149 @@ This run uses the INSTALLED pipeline 1.3.0, so G asks the review question
 ```
 /pipeline Phase 27: the release gate reads only what it can judge, and prints only what is safe --auto --implementer claude
 ```
+
+## Phase 28: the release gate closes what Phase 27 deferred
+
+Phase 27 (PR #59, merged as `5a78ea4`) closed the three problems Phase 26
+deferred, and several older ones its reviews found. It deferred the rest,
+each with its reason, in `specs/026-gate-reads-safe-prints-safe/research.md`
+R10, in its spec's Assumptions (the `##[` form) and in the PR #59 body.
+The owner's ruling (2026-10-05): **close everything Phase 27 deferred.**
+The ruling on doubt still binds: a wrong refusal is acceptable, a wrong
+pass is not. Like Phases 24 to 27, this phase changes nothing inside a
+plugin, so **no plugin release follows it**.
+
+Measured 2026-10-05 at `main` = `5a78ea4` on a one-plugin fixture built
+from `handoff/`:
+
+- **A link is still followed everywhere but the changelog.**
+  - `handoff/.claude-plugin/plugin.json` as a symbolic link to a JSON
+    file outside the tree: the gate read it and printed that file's
+    name, `plugin.json name 'SECRET-NAME-OUTSIDE' does not match its
+    directory`, exit 1.
+  - `.claude-plugin/marketplace.json` as a link to a copy outside the
+    tree: the gate passed, exit 0, saying nothing of the link.
+  - The plugin directory `handoff` as a link to a directory outside the
+    tree: the gate passed, exit 0.
+
+  All three runners can make a link (Phase 27's L1 printed
+  `# links: made` on ubuntu, windows and macos).
+- **`jq`'s own errors quote fork-written text.** A trailing marketplace
+  entry whose `name` is an object holding `::error title=x::y` printed
+  `jq: error (at .claude-plugin/marketplace.json:28): object
+  ({"::error t...) is not valid in a csv row`, exit 5 (jq's status, not
+  the gate's). A `.plugins` that is a string printed `Cannot iterate
+  over string ("::error ti...)`, then the gate's own line. Neither line
+  starts with `::`; the quoted text never passes through `shown`, and
+  FR-014 of Phase 27 says no other program may print a value.
+- **The runner's older command form, `##[...]`, is not masked.** `#`,
+  `[` and `]` are printable. Where in a line the runner acts on `##[`
+  was never measured (Phase 27 spec, Assumptions).
+- **The caller's shell options reach the gate.** With
+  `SHELLOPTS=xtrace` in the environment, the gate traced 120 lines to
+  standard error, among them `+ pv=$'1.0.0\E[2K'`: every value read
+  from a file, uncut. Bash escaped the control bytes (0 raw escape
+  bytes reached the output) and every trace line starts with `+ `.
+  `BASH_ENV` names a file bash runs before the gate's first line
+  (measured: it ran).
+- **Each marketplace entry costs a process.** A fixture with 100 extra
+  entries took 2.8 s, with 400 took 9.1 s, against 0.9 s with none:
+  about 20 ms an entry. Each entry runs `norm_source` in a `$( )`
+  subshell (the share of the cost is not measured).
+- **Three test weaknesses** (`tests/portability.bats`):
+  - the P0 scan does not see a name ending `_s` set by `printf -v`,
+    `read` or `for`, a `$(…)` with no `$` inside, or a `die` message
+    continued onto a second line;
+  - K3's quote-marker plant requires 50,000 pairs under the size limit,
+    so it fails on a correct tree once the copied changelog passes
+    153,950 bytes (`handoff`'s is 38,028);
+  - `gate_safe` removes every em dash before it checks, not only the
+    gate's own text, so a raw em dash in a value passes it.
+
+**Requirements:**
+
+1. **No link is followed.** In both forms the gate refuses, with a
+   message of its own naming what it refused, a `plugin.json`, a
+   `marketplace.json` and a plugin directory that is a symbolic link,
+   before any tool reads through it. The changelog rule stays as it is.
+2. **No other program prints a value.** A `jq` read that fails stops
+   the gate with its own message, exit 1, and no `jq:` line reaches the
+   output. The spec decides how, and keeps a malformed file
+   distinguishable from one that cannot be read.
+3. **`##[` is measured, then closed.** The spec first measures on a
+   runner where in a line the runner acts on `##[`, and records the run.
+   Every printed value is then shown so that the runner cannot act on
+   it: masked wherever the runner acts, or, if it acts only at the start
+   of a line, by the report line's first-field rule extended to `##[`.
+4. **No inherited shell option changes what the gate prints.** The gate
+   turns off, at its first line, every option the caller can set
+   through `SHELLOPTS` that prints or changes behaviour (at least
+   `xtrace` and `verbose`); the spec lists them. `BASH_ENV` runs before
+   any line of the gate, so no line of it can stop that: the spec either
+   chooses a way the callers run the gate without it (CI and the suite),
+   or records it as a limit, and says why.
+5. **No process per marketplace entry.** `norm_source` sets a variable,
+   as `shown` does, instead of printing into `$( )`. The spec records
+   the cost per entry before and after, on the fixture above.
+6. **The tests check what they claim.**
+   - P0 also sees `printf -v`, `read` and `for` into a name ending `_s`,
+     a `$( )` with no `$` inside, and a `die` message continued with
+     `\`; or the spec replaces the scan with a check that cannot miss a
+     print site, and says which.
+   - K3's plant is sized from the room under the limit, with no fixed
+     floor a longer changelog can break.
+   - `gate_safe` removes only the gate's own text, never every em dash.
+7. **Nothing else moves.** On the real tree, both forms print and exit
+   exactly as at `5a78ea4`. The walk's text is not changed; if it must
+   be, the proof (`specs/025-gate-closes-phase25-gaps/proof/enumerate.py`)
+   is rerun and must report 0 wrong passes and each control at least 1.
+   CI and the suite still call the one script, and the "one
+   version-agreement script" test stays green unchanged.
+
+**Acceptance criteria:**
+
+- Tests plant: each of the three links; a marketplace entry whose name
+  is an object, and a `.plugins` that is a string; a value holding
+  `##[` where the measurement says the runner acts; `SHELLOPTS=xtrace`;
+  a marketplace with many entries, timed against a bound. Each is
+  refused or masked with its message. A mutant that removes each new
+  rule turns its test red, naming its clause. Confirm each mutation
+  landed before believing the red.
+- The link tests run on all three operating systems, and print which
+  way they took, as Phase 27's L1 does.
+- Every byte tool the gate or the tests run on a file or an output that
+  may hold a byte which is not valid text runs under `LC_ALL=C`.
+- The feature quickstart, run as one script, ends ALL OK.
+- Full house suite from the repo root: `1..251` at `5a78ea4`, plus the
+  tests this phase adds. Prefer adding plants to the existing tests: the
+  per-test timeout is 60 s, and the two Phase 27 tests take about 21 s
+  (L) and 24 s (P) on this machine. The spec fixes the exact count, and
+  the suite is judged by `bash scripts/check-suite.sh <that count>`.
+- CI green on all three operating systems. Confirm a run EXISTS before
+  reading its result, and read every job's steps.
+
+**Not in this phase:** Phase 26's R14 list stays out (Windows gawk
+reading a CRLF line end differently; a one-line `<!-- ... -->` keeping
+later fences refused; a tag that only starts with `pre`, `script`,
+`style` or `textarea`; the 1,000-byte line limit on prose; a mechanical
+check for U1; bats printing a failed test's raw `$output`; the quote cut
+written in both bash and awk; a job time limit in
+`.github/workflows/ci.yml`).
+
+**Constraints:** the Campaign 3 Global Constraints apply, including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` is on the shipped root surface: STRICT
+vocabulary, no machine path, no count in prose. Bash 3.2 and every awk
+CI runs (gawk, and the BSD awk on macOS); no interval expressions in awk
+patterns; never `\/` inside a pattern substitution (macOS bash 3.2
+collapsed nothing with it, Phase 27 N). Test a locale-dependent rule
+with `LANG` set to a UTF-8 locale and `LC_ALL` unset, as CI runners set
+them. **Changelog routing: none.** This run uses the INSTALLED pipeline
+1.3.0, so G asks the review question (commits or pauses).
+
+**Invocation:**
+
+```
+/pipeline Phase 28: the release gate closes what Phase 27 deferred --auto --implementer claude
+```
