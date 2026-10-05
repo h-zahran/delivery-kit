@@ -147,8 +147,9 @@ for dir in */; do
   p="${dir%/}"
   # The ./ prefix here, and the -- on the changelog greps below: a tracked
   # directory named like an option (-rf, say) would otherwise reach grep as
-  # an OPTION rather than as a path. A fork pull request controls every
-  # tracked path name.
+  # an OPTION rather than as a path, and one named like name=value would
+  # reach awk as an assignment. A fork pull request controls every tracked
+  # path name.
   [ -f "./$p/.claude-plugin/plugin.json" ] || continue
   checked=$((checked + 1))
   shown p_s "$p"
@@ -156,6 +157,12 @@ for dir in */; do
   # plugin.json reaches jq on standard input, never as a path: jq prints a
   # path it cannot open in its own error, raw, and native Windows jq cannot
   # open a path whose directory name holds `:` or a control byte at all.
+  # The shell opens it instead, and a shell that cannot prints the path raw
+  # too, so it is opened once first with that error discarded. Safe only
+  # because the -f test above has refused anything that is not a regular
+  # file: opening a pipe would wait for ever.
+  { : < "./$p/.claude-plugin/plugin.json"; } 2>/dev/null \
+    || die "$p_s: plugin.json could not be read"
   pn="$(jq -r '.name // empty' < "./$p/.claude-plugin/plugin.json")"
   pv="$(jq -r '.version // empty' < "./$p/.claude-plugin/plugin.json")"
   shown pn_s "$pn"
@@ -241,7 +248,11 @@ for dir in */; do
     # under errexit, not on the diagnostic below. wc takes a regular file's
     # size from the file system (measured on Windows; the link check above
     # and this test send it nothing else). Arithmetic drops the spaces BSD
-    # wc pads with.
+    # wc pads with. Opened once first, its error discarded: a shell that
+    # cannot open the file prints the path raw. Safe only because the link
+    # check and the -f test have refused a pipe, which would never open.
+    { : < "./$p/CHANGELOG.md"; } 2>/dev/null \
+      || die "$p_s: CHANGELOG.md could not be read$unreleased"
     if [ "$p" = "$RELEASED" ]; then
       size="$(LC_ALL=C wc -c < "./$p/CHANGELOG.md")" \
         || die "$p_s: CHANGELOG.md could not be read"
@@ -576,7 +587,10 @@ done
 # set entries=1, matched checked=1, and exited 0 having never validated the bad
 # entry's `source`, which pointed at a directory that did not exist. A leading
 # malformed entry died correctly, so only trailing ones escaped. Assigning first
-# puts the failure where errexit can see it.
+# puts the failure where errexit can see it. The loop is then fed by printf
+# over the assigned text, which cannot fail, and not by a herestring: Git
+# Bash hung, naming nothing, on a herestring of 65,536 to about 65,700 bytes
+# (measured), a size a fork controls through one entry's name.
 entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json)"
 # An empty result would make the loop below run zero times and pass vacuously.
 # The count comparison further down would not catch it either when the tree
@@ -613,7 +627,7 @@ while IFS=$'\t' read -r en es; do
   if [ -z "$ed" ] || [ ! -f "./$ed/.claude-plugin/plugin.json" ]; then
     die "marketplace entry '$en_s': source '$es_s' names no plugin directory"
   fi
-done <<< "$entries_tsv"
+done < <(printf '%s\n' "$entries_tsv")
 
 [ "$entries" -eq "$checked" ] || die "marketplace lists $entries plugins, the tree holds $checked"
 

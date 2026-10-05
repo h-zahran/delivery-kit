@@ -2231,8 +2231,8 @@ forms_default() {
 # K1-K5: bytes and lines the walk cannot judge, each refused with a message
 # of the gate's own. Every length here is in bytes, as the gate counts them
 # under the C locale. The plants run in this order so that against an older
-# gate the first red names K1: the last plant, a line of 400,000 quote
-# markers, takes an older walk past the per-test timeout.
+# gate the first red names K1, before the line of quote markers, which an
+# older walk took minutes to read.
 # The largest changelog, in bytes, the release form reads. The tests hold
 # their own copy, never the gate's: a fixture that read the code under test
 # would move with it.
@@ -2376,10 +2376,20 @@ gate_says() {
   done
 }
 
+# gate_lacks <clause> <fragment>: the last run's output does not hold the
+# fragment, matched as a literal.
+gate_lacks() {
+  case "$output" in
+    *"$2"*) echo "$1: the output says \"$2\". output: ${output:0:600}"; return 1 ;;
+  esac
+}
+
 @test "the gate reads only a regular changelog of bounded size" {
   cd "$ROOT"
   forms_base one
-  local c lk bl links other want size form
+  local c lk bl links other want size form sfx unreadable
+  # The release form's refusals end with this; the default form's never do.
+  local nr=$' \342\200\224 this tree is NOT released'
 
   # L1: a link to a regular file, and a link to nothing, are refused as
   # links in both forms. `|| true`: where `ln` cannot make a native link it
@@ -2402,6 +2412,7 @@ gate_says() {
     || { echo "fixture: one link was made and the other was not ($links, then $other)"; false; }
   if [ "$links" = "made" ]; then
     want="is a symbolic link"
+    sfx=$nr
   else
     # Only where the runner may not make a link: there, what a checkout
     # makes in a link's place, a file holding the target path, is checked
@@ -2413,13 +2424,16 @@ gate_says() {
     rm -f "$lk/$copied/CHANGELOG.md" "$bl/$copied/CHANGELOG.md"
     printf 'real.md' > "$lk/$copied/CHANGELOG.md"
     printf 'missing.md' > "$bl/$copied/CHANGELOG.md"
+    # That refusal is no link refusal, and carries no suffix in either form.
     want="no changelog heading"
+    sfx=""
   fi
   for c in "$lk" "$bl"; do
     gate_run "$c"
     gate_says L1 1 "$copied: " "$want"
+    gate_lacks L1 "NOT released"
     gate_run "$c" --released "$copied"
-    gate_says L1 1 "$copied: " "$want"
+    gate_says L1 1 "$copied: " "$want" "$sfx"
   done
 
   # L2: a directory where the changelog should be is refused in both forms.
@@ -2429,8 +2443,9 @@ gate_says() {
   mkdir "$c/$copied/CHANGELOG.md"
   gate_run "$c"
   gate_says L2 1 "$copied: CHANGELOG.md is not a regular file"
+  gate_lacks L2 "NOT released"
   gate_run "$c" --released "$copied"
-  gate_says L2 1 "$copied: CHANGELOG.md is not a regular file"
+  gate_says L2 1 "$copied: CHANGELOG.md is not a regular file$nr"
 
   # L3: exactly the limit is not refused for its size; one byte more is,
   # by the release form only. The padding is one awk program: a per-line
@@ -2450,22 +2465,45 @@ gate_says() {
   size=$(( $(LC_ALL=C wc -c < "$c/$copied/CHANGELOG.md") ))
   [ "$size" -eq $((changelog_limit + 1)) ] || { echo "fixture: the changelog is $size bytes, not $((changelog_limit + 1))"; false; }
   gate_run "$c" --released "$copied"
-  gate_says L3 1 "$copied: " "$((changelog_limit + 1)) bytes" "($changelog_limit)"
+  gate_says L3 1 "$copied: " "$((changelog_limit + 1)) bytes" "($changelog_limit)$nr"
   gate_run "$c"
   gate_says L3 0
 
-  # L4: a missing changelog gets the gate's own line in both forms, and no
-  # line from another program, which would print the path raw.
+  # L4: a missing changelog gets the gate's own line in both forms, and
+  # nothing else: a line from another program would print the path raw.
   c="$TEST_DIR/regular-missing"
   cp -r "$base" "$c"
   rm "$c/$copied/CHANGELOG.md"
   for form in "" "--released"; do
     gate_run "$c" ${form:+--released "$copied"}
-    gate_says L4 1 "$copied: no changelog heading in the pinned"
-    case $'\n'"$output" in
-      *$'\n'grep:*|*$'\n'jq:*) echo "L4: another program printed its own error. output: ${output:0:600}"; false ;;
-    esac
+    gate_says L4 1
+    [ "$output" = "check-versions.sh: $copied: no changelog heading in the pinned '## [X.Y.Z] - YYYY-MM-DD' format" ] \
+      || { echo "L4: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
   done
+
+  # L5: a plugin.json, then a changelog, that the gate may not open gets
+  # the gate's own line alone: the shell would print the path raw. Only
+  # where a mode of 000 stops a read; on Windows it does not, and as root
+  # nothing does, so there this sub-check cannot run, and says so. Its
+  # mutant can therefore go red only on the Linux and macOS runners.
+  c="$TEST_DIR/regular-unreadable"
+  cp -r "$base" "$c"
+  chmod 000 "$c/$copied/.claude-plugin/plugin.json"
+  if [ -r "$c/$copied/.claude-plugin/plugin.json" ]; then unreadable="not available here"; else unreadable="made"; fi
+  echo "# unreadable: $unreadable" >&3
+  if [ "$unreadable" = "made" ]; then
+    gate_run "$c"
+    gate_says L5 1
+    [ "$output" = "check-versions.sh: $copied: plugin.json could not be read" ] \
+      || { echo "L5: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
+    chmod 644 "$c/$copied/.claude-plugin/plugin.json"
+    chmod 000 "$c/$copied/CHANGELOG.md"
+    gate_run "$c" --released "$copied"
+    gate_says L5 1
+    [ "$output" = "check-versions.sh: $copied: CHANGELOG.md could not be read$nr" ] \
+      || { echo "L5: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
+  fi
+  chmod 644 "$c/$copied/.claude-plugin/plugin.json" "$c/$copied/CHANGELOG.md"
 }
 
 # gate_safe <clause>: the last run's output is printed safely. With every
@@ -2480,6 +2518,24 @@ gate_safe() {
     echo "$1: the output is not printed safely. output: ${output:0:600}"
     return 1
   fi
+}
+
+# die_raw <file>: prints `<line>: <name>` for every variable a `die "` line
+# of the file expands that is neither a masked copy (named `_s`) nor one of
+# the values the gate itself makes. `$((size))` is arithmetic, not a name.
+# A static scan: no run of the gate can reach every die line.
+die_raw() {
+  LC_ALL=C awk '
+    index($0, "die \"") {
+      s = substr($0, index($0, "die \""))
+      while (match(s, /[$][{]?[A-Za-z_][A-Za-z0-9_]*/)) {
+        v = substr(s, RSTART + 1, RLENGTH - 1)
+        sub(/^[{]/, "", v)
+        s = substr(s, RSTART + RLENGTH)
+        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|entries|checked)$/) continue
+        print NR ": " v
+      }
+    }' "$1"
 }
 
 # json_set <file> <jq program> <value>: rewrites the file through jq, the
@@ -2509,8 +2565,31 @@ gate_forged() {
 
 @test "the gate prints every value masked, and no line starts with ::" {
   cd "$ROOT"
+  local F E c dn want long cut o rc raw
+  # The check itself, before anything leans on it: each unsafe shape must
+  # fail it, with exactly 1, and the gate's own em dash must pass it.
+  for o in $'a\033b' $'ok\n  ::x' $'a\rb'; do
+    output=$o
+    rc=0
+    gate_safe ctl > /dev/null || rc=$?
+    [ "$rc" -eq 1 ] || { echo "control: gate_safe returned $rc on an unsafe output, not 1"; false; }
+  done
+  output=$'ok \342\200\224 ok'
+  gate_safe ctl || { echo "control: gate_safe refused the gate's own em dash"; false; }
+
+  # P0: every value a die line prints is a masked copy. First the scan
+  # itself, on lines of its own rather than a copy of the gate, which
+  # would move with the gate: a raw name, plain and braced, must be found
+  # by name, and the allowed shapes must not.
+  printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
+    'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' > "$TEST_DIR/planted.sh"
+  raw="$(die_raw "$TEST_DIR/planted.sh")"
+  [ "$raw" = "2: p"$'\n'"2: pn" ] \
+    || { echo "control: the die scan did not name exactly the planted p and pn. it printed: $raw"; false; }
+  raw="$(die_raw scripts/check-versions.sh)"
+  [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
+
   forms_base one
-  local F E c dn want long cut
   # A forged value: a line feed, a workflow command, an escape sequence.
   E=$'\033'
   F="1.0.0"$'\n'"::error title=x::y${E}[2K"
@@ -2530,6 +2609,8 @@ gate_forged() {
     '1.0.0\n::error title=x::y?[2K' "names no plugin directory"
   gate_forged P2 masked-abs .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("/abs" + $v)}]' \
     '1.0.0\n::error title=x::y?[2K' "is an absolute path"
+  gate_forged P2 masked-up .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("../x" + $v)}]' \
+    '1.0.0\n::error title=x::y?[2K' "leaves the repository"
 
   # P3: a plugin directory named `::`, an escape, `x`; then the same after
   # a space. The run passes, and the report line starts with `?`. The name
@@ -2592,6 +2673,13 @@ gate_forged() {
     *"${cut}x"*) echo "P6: more than the quote cut of the value was printed. output: ${output:0:600}"; false ;;
   esac
   gate_safe P6
+  # Exactly the quote cut is printed whole, with no ` [cut]`.
+  c="$TEST_DIR/masked-edge"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.version = $v' "$cut"
+  gate_run "$c"
+  gate_says P6 1 "plugin=$cut marketplace="
+  gate_lacks P6 " [cut]"
   # And under a UTF-8 locale: a byte that is not valid text, and an `é`,
   # are each shown as `?`, one per byte.
   forms_utf8
@@ -2642,6 +2730,35 @@ gate_forged() {
   run bash -c "cd \"$t\" && bash \"$ROOT/scripts/check-versions.sh\""
   [ "$status" -ne 0 ] \
     || { echo "the script exited 0 on a marketplace whose trailing entry jq could not read, having never validated it. output: $output"; false; }
+
+  # The walk's input, sized by a trailing entry's name to 65,600 bytes:
+  # Git Bash hung, naming nothing, on a herestring of 65,536 to about
+  # 65,700 bytes. Measured with the walk's own jq program, held here as a
+  # copy: a fixture that read the gate would move with it.
+  local w="$TEST_DIR/trailing-long" prog='.plugins[] | [.name, (.source // "")] | @tsv' len n
+  mkdir -p "$w/.claude-plugin"
+  cp -r "$t/$d" "$w/$d"
+  jq --argjson n 1 '{name: "fixture", plugins: [ .plugins[0], {name: ("f" * $n), source: "./ghost"} ]}' \
+    .claude-plugin/marketplace.json > "$w/.claude-plugin/marketplace.json"
+  len="$(jq -r "$prog" "$w/.claude-plugin/marketplace.json")"
+  len=$(LC_ALL=C; echo "${#len}")
+  n=$(( 65600 - len + 1 ))
+  jq --argjson n "$n" '{name: "fixture", plugins: [ .plugins[0], {name: ("f" * $n), source: "./ghost"} ]}' \
+    .claude-plugin/marketplace.json > "$w/.claude-plugin/marketplace.json"
+  len="$(jq -r "$prog" "$w/.claude-plugin/marketplace.json")"
+  len=$(LC_ALL=C; echo "${#len}")
+  [ "$len" -eq 65600 ] || { echo "fixture: the walk's input is $len bytes, not 65600"; false; }
+  if command -v timeout > /dev/null; then
+    run timeout 30 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$w" "$ROOT"
+  else
+    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$w" "$ROOT"
+  fi
+  [ "$status" -eq 1 ] \
+    || { echo "a 65,600-byte walk input: the gate exited $status, not 1 (124 is the timeout). output: ${output:0:600}"; false; }
+  case "$output" in
+    *"names no plugin directory"*) ;;
+    *) echo "a 65,600-byte walk input was not refused for its ghost entry. output: ${output:0:600}"; false ;;
+  esac
 }
 
 @test "only spec-kit scaffolding is tracked under .claude/" {
