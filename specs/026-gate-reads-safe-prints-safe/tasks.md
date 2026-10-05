@@ -71,7 +71,7 @@ passes, and fails against the gate at `$BASE`.
 
 ## Phase 3: Polish
 
-- [ ] T008 Run the whole of `quickstart.md` (blocks 1-8) as one extracted script with `bash`, in the background, with a timeout of at least 30 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with both new tests red against the base gate, one naming an L clause and one a P clause, neither a `fixture:`, `R1 ok`, `R2 ok`, SC-001 and SC-003, and SC-006 read by `scripts/check-suite.sh 251`.
+- [X] T008 Run the whole of `quickstart.md` (blocks 1-8) as one extracted script with `bash`, in the background, with a timeout of at least 30 minutes; save to `$RUN/final-quickstart.txt`. It ends `ALL OK`, with both new tests red against the base gate, one naming an L clause and one a P clause, neither a `fixture:`, `R1 ok`, `R2 ok`, SC-001 and SC-003, and SC-006 read by `scripts/check-suite.sh 251`.
 
 **Not an H task (the CI half of SC-006 and FR-011)**: at phases L and N,
 read the `# links:` line of each operating system's job from the CI log,
