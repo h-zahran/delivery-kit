@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+set +o xtrace +o verbose +o noglob +o keyword
+# The first command, above everything else here: a caller can switch these
+# options on through SHELLOPTS. Then xtrace printed every value uncut, and
+# verbose the script's text, on standard error, while noglob and keyword
+# made the gate refuse a correct tree (measured). Bash echoes or traces a
+# line before it runs it, so verbose still shows the two lines above and
+# xtrace the one, and no value: placed lower, verbose echoed every line
+# above it. noexec, onecmd and BASH_ENV cannot be stopped from in here:
+# under the first two no line of this file runs, and BASH_ENV runs a file
+# before the first. Only a caller sets them, and a caller who does controls
+# the shell already (specs/027-gate-closes-phase27-deferrals/research.md R4).
+#
 # check-versions.sh — every plugin's manifest, marketplace entry and changelog
 # agree. ONE implementation, TWO callers: the suite gate in
 # tests/portability.bats and the version job in .github/workflows/ci.yml.
@@ -101,6 +113,41 @@ fi
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
+# No line from jq reaches the output: a fork writes these files, and jq
+# quotes what it cannot read, raw, in its own error (measured: a name that
+# is an object, and a plugins that is a string, each printed a workflow
+# command from the file). So each JSON file is checked once for the shape
+# every later read needs, before any of them, with jq's own error
+# discarded; each later read discards it too, and ends in the gate's own
+# line. After the jq test above: with jq missing, its status would read as
+# a file that is not JSON. The file is opened once first, its error
+# discarded, as plugin.json is below, so one that cannot be read says so
+# and is never called "not valid JSON". Safe only because the -f test
+# above has refused anything that is not a regular file.
+#
+# jq -e exits 1 on a false shape and with another status on text that is
+# not JSON, which differs between jq versions, so any status but 0 and 1
+# is "not valid JSON". Read as one array (-s): jq -e alone judges only the
+# last of several documents, and a valid one after a malformed one passed
+# (measured). The type of each part is tested before anything reads it,
+# or valid JSON of the wrong type stops jq with an error and reads as not
+# JSON. An empty file is sent to error, so it is not JSON, not a wrong
+# shape. A NUL in any string
+# is refused: bash, not jq, then prints its own line about the byte, with
+# this file's path. A name, source or version that is missing, false or
+# null passes here and keeps its own message below.
+market_shape='if length == 0 then error else length == 1 and (.[0] | type == "object" and (.plugins | type) == "array" and all(.plugins[]; type == "object" and ((.name // "") | type) == "string" and ((.source // "") | type) == "string" and ((.version // "") | type) == "string")) and all(.. | strings; all(explode[]; . != 0)) end'
+plugin_shape='if length == 0 then error else length == 1 and (.[0] | type == "object" and ((.name // "") | type) == "string" and ((.version // "") | type) == "string") and all(.. | strings; all(explode[]; . != 0)) end'
+{ : < .claude-plugin/marketplace.json; } 2>/dev/null \
+  || die ".claude-plugin/marketplace.json could not be read"
+shape=0
+jq -e -s "$market_shape" < .claude-plugin/marketplace.json > /dev/null 2>&1 || shape=$?
+case $shape in
+  0) ;;
+  1) die ".claude-plugin/marketplace.json is not one object whose plugins is a list of entries with string name, source and version, and no NUL character" ;;
+  *) die ".claude-plugin/marketplace.json is not valid JSON" ;;
+esac
+
 # A value the gate did not write, read from a tracked file or the command
 # line, is printed only through shown, which stores a copy safe to print in
 # the variable it is named: cut to quote_cut bytes, then ` [cut]`, with every
@@ -115,12 +162,21 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 # without a process, and the value is never the format: it may hold `%`.
 # The gate's own text never passes through shown, or its em dash would be
 # masked too. Every copy is named here once, so a reader can see them all.
+# Then, after the mask, `##[` is shown as `#?[`, wherever it is in the
+# line: a workflow log may read it as a command, as it reads a line
+# starting `::`. The replacement holds `?` before `[`, so it cannot form a
+# new one. The pattern and its replacement are held in variables, the
+# pattern quoted: `[` is a pattern character, and macOS's bash 3.2
+# mishandled a pattern written in place (norm_source). The walk's refusal
+# text below gets the same step, in bash, after the walk.
 quote_cut=200
+hh='##[' hm='#?['
 p_s='' pr_s='' pn_s='' pv_s='' mv_s='' cv_s='' ms_s='' head_s='' first_s='' en_s='' es_s='' rel_s='' arg_s=''
 shown() {
   local LC_ALL=C s=$2 t=
   [ "${#s}" -le "$quote_cut" ] || { s=${s:0:$quote_cut}; t=" [cut]"; }
-  printf -v "$1" '%s' "${s//[![:print:]]/?}$t"
+  s=${s//[![:print:]]/?}
+  printf -v "$1" '%s' "${s//"$hh"/$hm}$t"
 }
 
 # --released <plugin> additionally requires that plugin's changelog to carry NO
@@ -224,8 +280,18 @@ for dir in */; do
   # file: opening a pipe would wait for ever.
   { : < "./$p/.claude-plugin/plugin.json"; } 2>/dev/null \
     || die "$p_s: plugin.json could not be read"
-  pn="$(jq -r '.name // empty' < "./$p/.claude-plugin/plugin.json")"
-  pv="$(jq -r '.version // empty' < "./$p/.claude-plugin/plugin.json")"
+  # Its shape once, before any read of it, as marketplace.json's above.
+  shape=0
+  jq -e -s "$plugin_shape" < "./$p/.claude-plugin/plugin.json" > /dev/null 2>&1 || shape=$?
+  case $shape in
+    0) ;;
+    1) die "$p_s: plugin.json is not one object with a string name and version, and no NUL character" ;;
+    *) die "$p_s: plugin.json is not valid JSON" ;;
+  esac
+  pn="$(jq -r '.name // empty' < "./$p/.claude-plugin/plugin.json" 2>/dev/null)" \
+    || die "$p_s: plugin.json could not be read"
+  pv="$(jq -r '.version // empty' < "./$p/.claude-plugin/plugin.json" 2>/dev/null)" \
+    || die "$p_s: plugin.json could not be read"
   shown pn_s "$pn"
   shown pv_s "$pv"
   [ -n "$pn" ] || die "$p_s: plugin.json has no name"
@@ -256,9 +322,10 @@ for dir in */; do
   # literal string "null" for a present entry missing the key, which passes a
   # non-empty test and sends the maintainer diffing two version numbers when one
   # of them does not exist.
-  jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null \
+  jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null 2>&1 \
     || die "$p_s: no marketplace entry named $pn_s"
-  mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json)"
+  mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json 2>/dev/null)" \
+    || die ".claude-plugin/marketplace.json could not be read"
   shown mv_s "$mv"
   [ -n "$mv" ] || die "$p_s: marketplace entry $pn_s has no version"
 
@@ -270,7 +337,8 @@ for dir in */; do
   # no plugin manifest, from the commit that moved the plugin into its own
   # directory until the commit that renamed it, and the whole suite was green
   # for the duration.
-  ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json)"
+  ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json 2>/dev/null)" \
+    || die ".claude-plugin/marketplace.json could not be read"
   shown ms_s "$ms"
   [ -n "$ms" ] || die "$p_s: marketplace entry $pn_s has no source"
   [ "${#ms}" -le "$source_limit" ] \
@@ -624,6 +692,9 @@ for dir in */; do
           print "line " fnr " opens a code fence that is never closed: \047" show(ftext) "\047"
       }
     ' "./$p/CHANGELOG.md")"
+    # The walk masks its own text; `##[` is shown as `#?[` here, in bash,
+    # as shown does, so the walk itself does not change.
+    refusal=${refusal//"$hh"/$hm}
     [ -z "$refusal" ] \
       || die "$p_s: $refusal — this tree is NOT released"
   fi
@@ -654,7 +725,11 @@ done
 # over the assigned text, which cannot fail, and not by a herestring: Git
 # Bash hung, naming nothing, on a herestring of 65,536 to about 65,700 bytes
 # (measured), a size a fork controls through one entry's name.
-entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json)"
+# The shape check at the top now stops such a file before this read, so
+# the read's own failure is a backstop: its error discarded, and the
+# gate's line in its place.
+entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json 2>/dev/null)" \
+  || die ".claude-plugin/marketplace.json could not be read"
 # An empty result would make the loop below run zero times and pass vacuously.
 # The count comparison further down would not catch it either when the tree
 # holds no plugin directory — two zeroes agree.
