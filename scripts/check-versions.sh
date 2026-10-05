@@ -235,15 +235,13 @@ for dir in */; do
   # target can change after the check. A wrong refusal fails closed.
   [ ! -L "./$p/CHANGELOG.md" ] \
     || die "$p_s: CHANGELOG.md is a symbolic link, which the gate does not follow$unreleased"
-  if [ -e "./$p/CHANGELOG.md" ] && [ ! -f "./$p/CHANGELOG.md" ]; then
-    die "$p_s: CHANGELOG.md is not a regular file$unreleased"
-  fi
   if [ -f "./$p/CHANGELOG.md" ]; then
     # The size before any read of the content, and only here: outside this
     # block a missing changelog would end the run on the shell's own error
     # under errexit, not on the diagnostic below. wc takes a regular file's
-    # size from the file system (measured on Windows; the checks above send
-    # it nothing else). Arithmetic drops the spaces BSD wc pads with.
+    # size from the file system (measured on Windows; the link check above
+    # and this test send it nothing else). Arithmetic drops the spaces BSD
+    # wc pads with.
     if [ "$p" = "$RELEASED" ]; then
       size="$(LC_ALL=C wc -c < "./$p/CHANGELOG.md")" \
         || die "$p_s: CHANGELOG.md could not be read"
@@ -254,6 +252,8 @@ for dir in */; do
       || die "$p_s: CHANGELOG.md could not be read"
     [ "$((nul))" -eq 0 ] \
       || die "$p_s: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
+  elif [ -e "./$p/CHANGELOG.md" ]; then
+    die "$p_s: CHANGELOG.md is not a regular file$unreleased"
   fi
 
   # The heading format is pinned precisely because this line parses it, so
@@ -318,10 +318,9 @@ for dir in */; do
   # workflow log reads a command in a line that starts `::`, after any white
   # space. Every other line starts with the script's own name.
   pr_s=${p_s%%[! ]*}
-  case "${p_s#"$pr_s"}" in
-    :*) pr_s="${pr_s// /?}?${p_s#"$pr_s":}" ;;
-    *) pr_s="${pr_s// /?}${p_s#"$pr_s"}" ;;
-  esac
+  rest=${p_s#"$pr_s"}
+  case $rest in :*) rest="?${rest#:}" ;; esac
+  pr_s=${pr_s// /?}$rest
   printf '%s: plugin=%s marketplace=%s changelog=%s state=%s\n' \
     "$pr_s" "$pv_s" "$mv_s" "$cv_s" "$released_state"
 

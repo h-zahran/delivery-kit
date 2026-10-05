@@ -54,14 +54,17 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
   "--released refuses a byte or a line it cannot judge". Its 800,001-byte
   quote-marker line and its 400,000-byte dense line were now refused for
   the file's size before the walk could refuse them for their length, so
-  the test went red. Both lines now fill the room left under the limit,
-  less 8,192 bytes, measured on the copy at test time. The cost: the dense
-  line guarded the walk's `show()` cutting before it masks, through the
-  per-test timeout alone. At the new size, a `show()` that masks first
-  passes that test in 48.6 s here (19.7 s unchanged), so the timeout no
-  longer catches it (measured). The size limit now bounds that cost
-  instead: no line the release form walks can be longer than the limit.
-  No wall-clock assertion was added: one would fail under CI load.
+  the test went red. The quote-marker line now fills the room left under
+  the limit, less 8,192 bytes, measured on the copy at test time. The
+  dense line guarded the walk's `show()` cutting before it masks, through
+  the per-test timeout alone: sized to the room, a `show()` that masks
+  first passed that test in 48.6 s here (19.7 s unchanged), so the
+  timeout no longer caught it (measured). The size limit now bounds that
+  cost instead: no line the release form walks can be longer than the
+  limit. So at H.7 the dense line became 2,000 bytes, enough to check the
+  refusal, the cut and the mask, and no longer walked at full size on
+  every run. No wall-clock assertion was added: one would fail under CI
+  load. The tests hold their own copy of the limit, `changelog_limit`.
 
 ## R3 — One masking function, setting a variable, no process
 
