@@ -33,6 +33,14 @@ set -euo pipefail
 # progress.sh do: a gate whose behaviour depends on the caller's environment is
 # not a gate. CDPATH needs no such guard here — this script never cd's.
 unset GREP_OPTIONS
+# POSIXLY_CORRECT, for the same reason: in its environment bash runs in POSIX
+# mode, where a failed redirect on `:` ends the script before its own message,
+# and GNU grep reads the `--` after a pattern as a file name (measured: a
+# grep error, and a raw path in the report line). Unsetting it turns bash's
+# POSIX mode off and keeps it from every program run below; set +o posix
+# covers a bash started in that mode another way.
+unset POSIXLY_CORRECT
+set +o posix
 
 # One exit helper, prefixed with the script name, matching the house pattern in
 # pipeline/scripts/preflight.sh and pipeline/scripts/progress.sh. There were
@@ -255,12 +263,12 @@ for dir in */; do
       || die "$p_s: CHANGELOG.md could not be read$unreleased"
     if [ "$p" = "$RELEASED" ]; then
       size="$(LC_ALL=C wc -c < "./$p/CHANGELOG.md")" \
-        || die "$p_s: CHANGELOG.md could not be read"
+        || die "$p_s: CHANGELOG.md could not be read$unreleased"
       [ "$((size))" -le "$changelog_limit" ] \
         || die "$p_s: CHANGELOG.md is $((size)) bytes, more than the release form reads ($changelog_limit)$unreleased"
     fi
     nul="$(LC_ALL=C tr -cd '\000' < "./$p/CHANGELOG.md" | wc -c)" \
-      || die "$p_s: CHANGELOG.md could not be read"
+      || die "$p_s: CHANGELOG.md could not be read$unreleased"
     [ "$((nul))" -eq 0 ] \
       || die "$p_s: CHANGELOG.md holds a NUL byte, which the gate cannot read$unreleased"
   elif [ -e "./$p/CHANGELOG.md" ]; then

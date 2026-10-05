@@ -2387,7 +2387,7 @@ gate_lacks() {
 @test "the gate reads only a regular changelog of bounded size" {
   cd "$ROOT"
   forms_base one
-  local c lk bl links other want size form sfx unreadable
+  local c lk bl links other want size form sfx unreadable rc
   # The release form's refusals end with this; the default form's never do.
   local nr=$' \342\200\224 this tree is NOT released'
 
@@ -2496,6 +2496,12 @@ gate_lacks() {
     gate_says L5 1
     [ "$output" = "check-versions.sh: $copied: plugin.json could not be read" ] \
       || { echo "L5: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
+    # Again in bash's POSIX mode, where a failed redirect on `:` would end
+    # the script before its message (L6).
+    run bash -c 'cd "$1" && POSIXLY_CORRECT=1 bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+    forms_no_path
+    [ "$output" = "check-versions.sh: $copied: plugin.json could not be read" ] \
+      || { echo "L5: in POSIX mode, the output is not the gate's own line alone. output: ${output:0:600}"; false; }
     chmod 644 "$c/$copied/.claude-plugin/plugin.json"
     chmod 000 "$c/$copied/CHANGELOG.md"
     gate_run "$c" --released "$copied"
@@ -2504,6 +2510,21 @@ gate_lacks() {
       || { echo "L5: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
   fi
   chmod 644 "$c/$copied/.claude-plugin/plugin.json" "$c/$copied/CHANGELOG.md"
+
+  # L6: bash's POSIX mode, set by POSIXLY_CORRECT in the caller's
+  # environment, changes nothing in either form. In it GNU grep reads the
+  # `--` after a pattern as a file name: a grep error, and a raw path in
+  # the report line (measured).
+  for form in "" "--released"; do
+    gate_run "$base" ${form:+--released "$copied"}
+    want=$output
+    rc=$status
+    run bash -c 'r=$1 c=$2; shift 2; cd "$c" && POSIXLY_CORRECT=1 bash "$r/scripts/check-versions.sh" "$@"' \
+      _ "$ROOT" "$base" ${form:+--released "$copied"}
+    forms_no_path
+    [ "$status" -eq "$rc" ] && [ "$output" = "$want" ] \
+      || { echo "L6: in POSIX mode the gate exited $status (not $rc) or printed otherwise. output: ${output:0:600}"; false; }
+  done
 }
 
 # gate_safe <clause>: the last run's output is printed safely. With every
@@ -2524,18 +2545,21 @@ gate_safe() {
 # of the file expands that is neither a masked copy (named `_s`) nor one of
 # the values the gate itself makes. `$((size))` is arithmetic, not a name.
 # A static scan: no run of the gate can reach every die line.
+# The report line's printf is scanned too, with every line it continues on.
 die_raw() {
   LC_ALL=C awk '
-    index($0, "die \"") {
-      s = substr($0, index($0, "die \""))
+    function scan(s,  v) {
       while (match(s, /[$][{]?[A-Za-z_][A-Za-z0-9_]*/)) {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
         s = substr(s, RSTART + RLENGTH)
-        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|entries|checked)$/) continue
+        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|entries|checked|released_state)$/) continue
         print NR ": " v
       }
-    }' "$1"
+    }
+    more { scan($0); more = /\\$/; next }
+    index($0, "plugin=%s") { scan($0); more = /\\$/; next }
+    index($0, "die \"") { scan(substr($0, index($0, "die \""))) }' "$1"
 }
 
 # json_set <file> <jq program> <value>: rewrites the file through jq, the
@@ -2668,6 +2692,25 @@ gate_forged() {
   gate_run "$c"
   gate_says P6 1 "plugin=$cut marketplace="
   gate_lacks P6 " [cut]"
+  # A value of 1,000,000 escape bytes is cut before it is masked: masking
+  # it whole takes time that grows with the square of its length, minutes
+  # here, and a plugin.json has no size limit. Bounded by timeout where the
+  # system has one, and by the per-test timeout where it does not. jq takes
+  # the value from a file: as an argument it is too long.
+  c="$TEST_DIR/masked-huge"
+  cp -r "$base" "$c"
+  printf '%1000000s' '' | LC_ALL=C tr ' ' '\033' > "$TEST_DIR/huge.bin"
+  jq --rawfile v "$TEST_DIR/huge.bin" '.version = $v' < "$c/$copied/.claude-plugin/plugin.json" > "$TEST_DIR/huge.json" \
+    || { echo "fixture: jq could not write the 1,000,000-byte version"; false; }
+  cp "$TEST_DIR/huge.json" "$c/$copied/.claude-plugin/plugin.json"
+  if command -v timeout > /dev/null; then
+    run timeout 20 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+  else
+    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+  fi
+  forms_no_path
+  gate_says P6 1 "plugin=$(printf '%200s' '' | tr ' ' '?') [cut]"
+  gate_safe P6
   # And under a UTF-8 locale: a byte that is not valid text, and an `é`,
   # are each shown as `?`, one per byte.
   forms_utf8
@@ -2683,10 +2726,11 @@ gate_forged() {
   # gate: a raw name, plain and braced, must be found by name, and the
   # allowed shapes must not.
   printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
-    'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' > "$TEST_DIR/planted.sh"
+    'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' \
+    'printf "%s: plugin=%s\n" \' '  "$pr_s" "$pv" "$released_state"' 'echo "$x"' > "$TEST_DIR/planted.sh"
   raw="$(die_raw "$TEST_DIR/planted.sh")"
-  [ "$raw" = "2: p"$'\n'"2: pn" ] \
-    || { echo "control: the die scan did not name exactly the planted p and pn. it printed: $raw"; false; }
+  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv" ] \
+    || { echo "control: the die scan did not name exactly the planted p, pn and pv. it printed: $raw"; false; }
   raw="$(die_raw scripts/check-versions.sh)"
   [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
 }
