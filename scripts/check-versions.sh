@@ -56,7 +56,7 @@ die() { printf 'check-versions.sh: %s\n' "$*" >&2; exit 1; }
 # out twice — in the file whose header explains why a hand-kept pair is the
 # defect — would be the same mistake one level down.
 norm_source() {
-  local LC_ALL=C s="$1" re='^(\./)+'
+  local LC_ALL=C s="$1" re='^(\./)+' two=// one=/
   # Collapse doubled separators FIRST, then strip leading current-directory
   # prefixes, then trailing separators — in that order, and each repeatedly.
   # A single pass of each was not enough: ".//handoff" survived as "/handoff",
@@ -66,8 +66,11 @@ norm_source() {
   # prefixes go in one regex match: stripping one per pass copied the whole
   # string each time, and 10,000 of them took 3.5 s (measured). The collapse
   # also grows faster than the length, so callers bound the length first
-  # (source_limit).
-  while [ "$s" != "${s//\/\//\/}" ]; do s="${s//\/\//\/}"; done
+  # (source_limit). The pattern and its replacement are held in variables:
+  # written `\/\/` and `\/` in place, macOS's bash 3.2 did not collapse a
+  # source padded with slashes, which then did not resolve (CI; no test had
+  # doubled a slash before, and the other steps resolve `./handoff` there).
+  while [ "$s" != "${s//$two/$one}" ]; do s="${s//$two/$one}"; done
   if [[ $s =~ $re ]]; then s=${s:${#BASH_REMATCH[0]}}; fi
   while [ "$s" != "${s%/}" ]; do s="${s%/}"; done
   printf '%s' "$s"

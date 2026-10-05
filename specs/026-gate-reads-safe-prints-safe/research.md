@@ -272,6 +272,17 @@ gawk 5.4, grep 3.0, jq 1.8.1), unless it says otherwise.
     collapse of doubled separators also grows faster than the length
     (1.9 s at 240 KB) and bash has no linear form of it, so both walks
     refuse a source longer than 4,096 characters before normalising it.
+- **Found at N, closed beyond the seed** (older than this phase): on
+  macOS, W2's source of exactly 4,096 characters, padded with slashes,
+  was refused as not resolving (CI run 37309048556; Linux and Windows
+  passed). No test had doubled a slash in a source before. The rest of
+  `norm_source` works there (the walk input of 65,600 bytes, whose
+  source is `./handoff`, passed in the same run), so the collapse
+  `${s//\/\//\/}` did nothing under bash 3.2. The pattern and its
+  replacement are now held in variables. On bash 5 0 of 693 spellings
+  differ from the old function, and with the collapse disabled 181 do;
+  that mutant fails W2 with the exact macOS message. Only macOS CI can
+  show bash 3.2.
 - **Found at M (round 3), left out**:
   - The P0 scan does not see `printf -v`, `read` or `for` into a name
     ending `_s`, a `$(…)` with no `$` inside, or a `die` message
