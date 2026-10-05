@@ -2577,18 +2577,6 @@ gate_forged() {
   output=$'ok \342\200\224 ok'
   gate_safe ctl || { echo "control: gate_safe refused the gate's own em dash"; false; }
 
-  # P0: every value a die line prints is a masked copy. First the scan
-  # itself, on lines of its own rather than a copy of the gate, which
-  # would move with the gate: a raw name, plain and braced, must be found
-  # by name, and the allowed shapes must not.
-  printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
-    'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' > "$TEST_DIR/planted.sh"
-  raw="$(die_raw "$TEST_DIR/planted.sh")"
-  [ "$raw" = "2: p"$'\n'"2: pn" ] \
-    || { echo "control: the die scan did not name exactly the planted p and pn. it printed: $raw"; false; }
-  raw="$(die_raw scripts/check-versions.sh)"
-  [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
-
   forms_base one
   # A forged value: a line feed, a workflow command, an escape sequence.
   E=$'\033'
@@ -2687,6 +2675,20 @@ gate_forged() {
   forms_no_path
   gate_says P6 1 "'x???y'"
   gate_safe P6
+
+  # P0, last, so that against an older gate a run's own clause speaks
+  # first: every value a die line prints is a masked copy, including the
+  # die lines no run above reaches. First the scan itself, on lines of
+  # its own rather than a copy of the gate, which would move with the
+  # gate: a raw name, plain and braced, must be found by name, and the
+  # allowed shapes must not.
+  printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
+    'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' > "$TEST_DIR/planted.sh"
+  raw="$(die_raw "$TEST_DIR/planted.sh")"
+  [ "$raw" = "2: p"$'\n'"2: pn" ] \
+    || { echo "control: the die scan did not name exactly the planted p and pn. it printed: $raw"; false; }
+  raw="$(die_raw scripts/check-versions.sh)"
+  [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
 }
 
 @test "--released refuses a plugin name that matches nothing, rather than enforcing nothing" {
