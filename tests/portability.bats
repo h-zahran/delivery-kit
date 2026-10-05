@@ -2236,7 +2236,7 @@ forms_default() {
 @test "--released refuses a byte or a line it cannot judge" {
   cd "$ROOT"
   forms_base one
-  local c long cut
+  local c long cut room pairs
 
   # K1: a lone CR. Markdown reads it as a line end, so `CRplant`, a CR and
   # `## x` hold a level-2 heading. Built with $'\r', never a literal CR in
@@ -2304,26 +2304,36 @@ forms_default() {
   esac
   forms_refused K5 "$copied: CHANGELOG.md holds a NUL byte"
 
-  # K3, last: 400,000 quote markers on one line, which an older walk took
-  # minutes to read, are refused for their length at once. The line is
-  # found with awk: as an argument, 800 KB fails on Linux.
+  # K3, last: a line of quote markers, which an older walk took minutes to
+  # read, is refused for its length at once. The release form refuses a
+  # changelog over its size limit before the walk, so the line fills the
+  # room left under the limit, less a margin, measured on the copy rather
+  # than written down: the changelog grows with every release. The line is
+  # found with awk: as an argument, a line this long fails on Linux.
   forms_put 'LONGplant'
-  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
+  room=$(( 262144 - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
+  pairs=$(( room / 2 - 1 ))
+  [ "$pairs" -gt 50000 ] || { echo "fixture: only $pairs quote markers fit under the size limit"; false; }
+  LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
-  [ -n "$line" ] || { echo "fixture: the 400,000-marker line did not land"; false; }
-  forms_refused K3 "line $line is 800001 bytes long"
+  [ -n "$line" ] || { echo "fixture: the quote-marker line did not land"; false; }
+  forms_refused K3 "line $line is $(( pairs * 2 + 1 )) bytes long"
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes"; false; }
 
   # K3, K4: an over-long line of bytes that each need masking. Masking the
   # whole line before the cut took time that grew with the square of its
   # length: 400,000 of them ran past the per-test timeout. Cut first, it is
-  # refused at once.
+  # refused at once. Sized like the line above, to fill the room the size
+  # limit leaves.
   forms_put 'DENSEplant'
-  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
+  room=$(( 262144 - 8192 - $(LC_ALL=C wc -c < "$d/$copied/CHANGELOG.md") ))
+  pairs=$(( room / 2 - 1 ))
+  [ "$pairs" -gt 50000 ] || { echo "fixture: only $pairs dense pairs fit under the size limit"; false; }
+  LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the dense line did not land"; false; }
-  forms_refused K3 "line $line is 400000 bytes long"
+  forms_refused K3 "line $line is $(( pairs * 2 )) bytes long"
   [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal of the dense line printed an escape byte"; false; }
 
