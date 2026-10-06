@@ -2583,7 +2583,7 @@ die_raw() {
         v = substr(s, RSTART + 1, RLENGTH - 1)
         sub(/^[{]/, "", v)
         s = substr(s, RSTART + RLENGTH)
-        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|source_limit|component_limit|entries|checked|released_state)$/) continue
+        if (v ~ /_s$/ || v ~ /^(refusal|unreleased|changelog_limit|source_limit|component_limit|entries_limit|entries|checked|released_state)$/) continue
         print NR ": " v
       }
     }
@@ -2672,25 +2672,25 @@ gate_forged() {
   forms_base one
   # A forged value: a line feed, a workflow command, an escape sequence.
   E=$'\033'
-  F="1.0.0"$'\n'"::error title=x::y${E}[2K"
+  F="1.0.0"$'\n'"::p28x title=x::y${E}[31m"
 
   # P1: a plugin.json version, then a name. The fragments avoid the line
   # feed: native Windows jq writes it as CR LF, so it is masked as one `?`
   # or two.
-  gate_forged P1 masked-pv "$copied/.claude-plugin/plugin.json" '.version = $v' "1.0.0?" "::error title=x::y?[2K"
-  gate_forged P1 masked-pn "$copied/.claude-plugin/plugin.json" '.name = $v' "1.0.0?" "::error title=x::y?[2K"
+  gate_forged P1 masked-pv "$copied/.claude-plugin/plugin.json" '.version = $v' "1.0.0?" "::p28x title=x::y?[31m"
+  gate_forged P1 masked-pn "$copied/.claude-plugin/plugin.json" '.name = $v' "1.0.0?" "::p28x title=x::y?[31m"
 
   # P2: the marketplace entry's version and source, then two appended
   # entries, which only the reverse walk reaches. It reads them through
   # @tsv, which writes the line feed as a backslash and `n`.
-  gate_forged P2 masked-mv .claude-plugin/marketplace.json '.plugins[0].version = $v' "1.0.0?" "::error title=x::y?[2K"
-  gate_forged P2 masked-ms .claude-plugin/marketplace.json '.plugins[0].source = $v' "1.0.0?" "::error title=x::y?[2K"
+  gate_forged P2 masked-mv .claude-plugin/marketplace.json '.plugins[0].version = $v' "1.0.0?" "::p28x title=x::y?[31m"
+  gate_forged P2 masked-ms .claude-plugin/marketplace.json '.plugins[0].source = $v' "1.0.0?" "::p28x title=x::y?[31m"
   gate_forged P2 masked-ghost .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("./ghost" + $v)}]' \
-    '1.0.0\n::error title=x::y?[2K' "names no plugin directory"
+    '1.0.0\n::p28x title=x::y?[31m' "names no plugin directory"
   gate_forged P2 masked-abs .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("/abs" + $v)}]' \
-    '1.0.0\n::error title=x::y?[2K' "is an absolute path"
+    '1.0.0\n::p28x title=x::y?[31m' "is an absolute path"
   gate_forged P2 masked-up .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("../x" + $v)}]' \
-    '1.0.0\n::error title=x::y?[2K' "leaves the repository"
+    '1.0.0\n::p28x title=x::y?[31m' "leaves the repository"
 
   # P3: a plugin directory named `::`, an escape, `x`; then the same after
   # a space. The run passes, and the report line starts with `?`. The name
@@ -2734,10 +2734,10 @@ gate_forged() {
   # the gate's own em dash.
   c="$TEST_DIR/masked-first"
   cp -r "$base" "$c"
-  { printf '## [Unreleased] %s[2K\n' "$E"; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
+  { printf '## [Unreleased] %s[31m\n' "$E"; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
   gate_run "$c" --released "$copied"
-  gate_says P5 1 "state=UNRELEASED-ABOVE:## [Unreleased] ?[2K" \
-    "'## [Unreleased] ?[2K' sits above the released heading" $'\342\200\224 this tree is NOT released'
+  gate_says P5 1 "state=UNRELEASED-ABOVE:## [Unreleased] ?[31m" \
+    "'## [Unreleased] ?[31m' sits above the released heading" $'\342\200\224 this tree is NOT released'
   gate_safe P5
 
   # P6: a value over the quote cut is cut, then ` [cut]`.
@@ -2794,23 +2794,23 @@ gate_forged() {
   # LC_ALL unset, as runners set them (that run alone: a C-locale run of
   # the same line took the test past its 30 s budget, and the gate sets
   # the C locale for the walk itself).
-  F='1.0.0 ##[error]x'
-  gate_forged X1 x1-version "$copied/.claude-plugin/plugin.json" '.version = $v' "plugin=1.0.0 #?[error]x"
+  F='1.0.0 ##[p28x]x'
+  gate_forged X1 x1-version "$copied/.claude-plugin/plugin.json" '.version = $v' "plugin=1.0.0 #?[p28x]x"
   gate_lacks X1 '##['
   c="$TEST_DIR/x1-first"
   cp -r "$base" "$c"
-  { printf '## [Unreleased] ##[error]x\n'; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
+  { printf '## [Unreleased] ##[p28x]x\n'; cat "$base/$copied/CHANGELOG.md"; } > "$c/$copied/CHANGELOG.md"
   gate_run "$c" --released "$copied"
-  gate_says X1 1 "state=UNRELEASED-ABOVE:## [Unreleased] #?[error]x" \
-    "'## [Unreleased] #?[error]x' sits above the released heading"
+  gate_says X1 1 "state=UNRELEASED-ABOVE:## [Unreleased] #?[p28x]x" \
+    "'## [Unreleased] #?[p28x]x' sits above the released heading"
   gate_lacks X1 '##['
   gate_safe X1
-  forms_put '## Notes ##[error]x'
+  forms_put '## Notes ##[p28x]x'
   forms_utf8
   run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; shift 3; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' \
     _ "$utf8" "$ROOT" "$d" --released "$copied"
   forms_no_path
-  gate_says X1 1 "holds '## Notes #?[error]x', which is not a dated version heading"
+  gate_says X1 1 "holds '## Notes #?[p28x]x', which is not a dated version heading"
   gate_lacks X1 '##['
   gate_safe X1
 
@@ -2999,10 +2999,10 @@ gate_json() {
   # which jq -e alone judges only the last (measured); valid JSON of the
   # wrong type.
   c="$TEST_DIR/json-name-object"; cp -r "$jb" "$c"
-  json_set "$c/$m" '.plugins += [{name: {"::error title=x::y": 1}, source: "./ghost"}]' ""
+  json_set "$c/$m" '.plugins += [{name: {"::p28x title=x::y": 1}, source: "./ghost"}]' ""
   gate_json J1 "$c" "$mw"
   c="$TEST_DIR/json-plugins-string"; cp -r "$jb" "$c"
-  json_set "$c/$m" '.plugins = $v' "::error title=x::y${E}[2K"
+  json_set "$c/$m" '.plugins = $v' "::p28x title=x::y${E}[31m"
   gate_json J1 "$c" "$mw"
   c="$TEST_DIR/json-two-documents"; cp -r "$jb" "$c"
   { printf '{"plugins": "x"}\n'; cat "$jb/$m"; } > "$c/$m"
@@ -3047,27 +3047,36 @@ gate_json() {
   LC_ALL=C grep -q -F -- '\u0000' "$c/$m" || { echo "fixture: the marketplace NUL plant did not land"; false; }
   gate_json J2 "$c" "$mw"
 
-  # C1, after the J plants: the first plugin and 2,000 more entries naming
-  # it, which the reverse walk reads one by one before the count refuses
-  # them. With a process per entry that took 20 to 37 ms an entry here
-  # (research R5), 40 s or more; without, a few seconds. Where a process is
-  # cheap the bound cannot see one, so the system is printed, on a pass
-  # as on a failure.
+  # C1, after the J plants: the gate reads at most 256 marketplace entries
+  # (entries_limit). The first plugin and 255 more entries naming it, 256
+  # in all, are walked one by one and refused by the count; one more entry
+  # is refused at the bound, before the walk reads it. Both under a
+  # timeout where the system has one; the system is printed, on a pass as
+  # on a failure.
   echo "# walk: $(uname -s)" >&3
-  c="$TEST_DIR/walk-2000"; cp -r "$jb" "$c"
-  jq --arg s "./$d" '.plugins = [.plugins[0]] + [range(2000) | {name: "x\(.)", source: $s}]' "$jb/$m" > "$c/$m" \
-    || { echo "fixture: jq could not write the 2,000 entries"; false; }
-  [ "$(jq '.plugins | length' "$c/$m")" = "2001" ] || { echo "fixture: the marketplace does not list 2,001 entries"; false; }
-  if command -v timeout > /dev/null; then
-    run timeout 15 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
-  else
-    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
-  fi
-  forms_no_path
-  [ "$status" -eq 1 ] \
-    || { echo "C1: 2,001 entries: the gate exited $status, not 1 (124 is the timeout). output: ${output:0:600}"; false; }
-  gate_says C1 1 "check-versions.sh: marketplace lists 2001 plugins, the tree holds 1"
-  gate_safe C1
+  local extra want
+  for extra in 255 256; do
+    c="$TEST_DIR/walk-$extra"; cp -r "$jb" "$c"
+    jq --argjson n "$extra" --arg s "./$d" '.plugins = [.plugins[0]] + [range($n) | {name: "x\(.)", source: $s}]' "$jb/$m" > "$c/$m" \
+      || { echo "fixture: jq could not write $extra entries"; false; }
+    [ "$(jq '.plugins | length' "$c/$m" | tr -d '\r')" = "$((extra + 1))" ] || { echo "fixture: the marketplace does not list $((extra + 1)) entries"; false; }
+    if command -v timeout > /dev/null; then
+      run timeout 15 bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+    else
+      run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$c" "$ROOT"
+    fi
+    forms_no_path
+    [ "$status" -eq 1 ] \
+      || { echo "C1: $((extra + 1)) entries: the gate exited $status, not 1 (124 is the timeout). output: ${output:0:600}"; false; }
+    if [ "$extra" -eq 255 ]; then
+      want="check-versions.sh: marketplace lists 256 plugins, the tree holds 1"
+      gate_lacks C1 "more than the gate walks"
+    else
+      want="check-versions.sh: the marketplace lists more than 256 entries, more than the gate walks"
+    fi
+    gate_says C1 1 "$want"
+    gate_safe C1
+  done
 }
 
 # nolink_make <target> <name>: a symbolic link, made as L1 makes one.

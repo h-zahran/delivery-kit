@@ -30,4 +30,5 @@ any leading spaces, and no line holds `##[`.
 | T2 | K3's quote-marker plant is sized from the room under the size limit; its only floor is that the line is longer than the line limit. | FR-010 |
 | T3 | `gate_safe`'s control fails an output holding an em dash that is not the gate's suffix, and one holding `##[`, and passes the suffix. | FR-011 |
 | R1 | On the real tree both forms print and exit exactly as at `5a78ea4`. | FR-012 |
+| C1′ | Changed after merge (2026-10-06, branch `028-gate-entry-limit`): C1 is replaced by a bound. 256 entries in all are refused by the count; 257 are refused at the bound with "the marketplace lists more than 256 entries, more than the gate walks" (research R1). | FR-008 |
 | R2 | The walk is unchanged: its sha256, as the quickstart extracts it, is `24c123b1b203af88fdcd745f3c4cba58ba6289e1612cf13f7bf1708d46314896`. | FR-012 |

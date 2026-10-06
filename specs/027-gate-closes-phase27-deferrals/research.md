@@ -87,6 +87,18 @@ identical to `5a78ea4`, unless it names another place.
   gets, so the TRAILING test's clauses would no longer hold as written.
   It is left as this recorded limit, for a later phase.
 
+  **Closed after merge (2026-10-06, branch `028-gate-entry-limit`, at
+  the owner's word).** The gate now refuses a marketplace at its 257th
+  entry (`entries_limit=256`), before the reverse walk reads it, with
+  "the marketplace lists more than 256 entries, more than the gate
+  walks". The cost is bounded by 256 entries; a passing tree lists one
+  per plugin directory. The TRAILING test's clauses are unchanged: its
+  plants list far fewer entries. C1 now tests the bound (256 entries in
+  all refused by the count, 257 at the bound) in place of the 2,000-entry
+  walk, so it no longer measures a process per entry; that cost is now
+  bounded by the limit as well. The gate on `main` at `34ad050`, the bound
+  one lower, one higher and removed each went red on C1.
+
   `[ -e ./$p/.claude-plugin ]` stats through a directory link before the
   link is refused. That one stat reads nothing and prints nothing; it is
   how the gate tells a plugin directory from any other folder.
@@ -392,6 +404,13 @@ identical to `5a78ea4`, unless it names another place.
   helpers that echo it predate this feature, and only a failing run is
   affected. The recorded fix, for a later phase: mask the output in the
   failure path, and give plants inert command names such as `##[p28x]`.
+  **Partly closed after merge (2026-10-06, branch `028-gate-entry-limit`,
+  at the owner's word):** every planted command is renamed to one the
+  runner has no meaning for (`::p28x`, `##[p28x]`) and the planted
+  escape is a colour (`ESC[31m`) in place of an erase (`ESC[2K`), so a
+  failing run's log carries harmless text. bats still prints `$output`
+  raw on a failure; with the mask removed, X1 still went red on
+  `#?[p28x]x`.
 
 ## R7 — Nothing else moves
 
