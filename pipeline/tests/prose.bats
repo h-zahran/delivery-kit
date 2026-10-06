@@ -1386,6 +1386,7 @@ PINS
 A state file's claim is accepted only after the tracked-state check in Resume has passed, or its stop has been confirmed.
 On a resume, that read comes after the tracked-state check in Resume.
 The answer is recorded under `gates.gitignore`: on a fresh run it is held aside and written in B, as item 9's is.
+An accepted write, here or at item 9, is recorded in K's `{accepted, hash}` shape.
 PINS
   flat="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   pins_in "$flat" 'phase B' <<'PINS'
