@@ -1598,54 +1598,48 @@ forms_utf8() {
   # such a copy cannot report state=released.
 }
 
-@test "--released refuses an undated heading below the release, and the default run does not" {
-  cd "$ROOT"
-
-  # The test above plants its heading ABOVE the release. That is the one place
-  # the release form used to look: it compared the FIRST level-2 heading with
-  # the version heading and read nothing below it, so a heading left lower in
-  # the file passed every gate. The 1.3.0 release caught that shape only with a
-  # one-off quickstart check that CI never runs. The release form now judges
-  # every line beginning `## `, and anything that is not a dated version
-  # heading is refused — `## [Unreleased]` and every other spelling of it.
-  #
-  # Every failure below names the contract clause it guards (G1, G2, G5, G6 in
-  # specs/023-gate-reads-whole-changelog/contracts/release-form.md), so a red
-  # says which promise broke rather than only that something did.
-
-  # A faithful, released fixture first, required to PASS, as the test above
-  # builds one: a fixture broken by construction would make every break below
-  # succeed for the wrong reason.
+# undated_base: the faithful, released fixture the three undated tests
+# below share, built and required to PASS, as the test above builds one: a
+# fixture broken by construction would make every break below succeed for
+# the wrong reason. It holds every marketplace plugin, and sets base,
+# copied (the judged plugin) and other (a second plugin, which is not
+# judged). Normalised as the test above is, by the same dated pattern, so
+# an undated heading the live tree happens to hold cannot fail the base.
+# Each failure echoes and returns 1: call it on its own line at the top
+# level of a test, never under `if`, `||` or `$(...)`.
+undated_base() {
+  local src p
   base="$TEST_DIR/undated-base"
+  : "${n:=0}"
   mkdir -p "$base/.claude-plugin"
   cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
   copied=""
   other=""
   while IFS= read -r src; do
     src="${src%$'\r'}"
-    d="${src#./}"; d="${d%/}"
-    mkdir -p "$base/$d/.claude-plugin"
-    cp "$d/.claude-plugin/plugin.json" "$base/$d/.claude-plugin/plugin.json"
-    cp "$d/CHANGELOG.md" "$base/$d/CHANGELOG.md"
-    if [ -z "$copied" ]; then copied="$d"; elif [ -z "$other" ]; then other="$d"; fi
+    p="${src#./}"; p="${p%/}"
+    mkdir -p "$base/$p/.claude-plugin"
+    cp "$p/.claude-plugin/plugin.json" "$base/$p/.claude-plugin/plugin.json"
+    cp "$p/CHANGELOG.md" "$base/$p/CHANGELOG.md"
+    if [ -z "$copied" ]; then copied="$p"; elif [ -z "$other" ]; then other="$p"; fi
   done < <(jq -r '.plugins[].source' .claude-plugin/marketplace.json)
   [ -n "$copied" ] && [ -n "$other" ] \
-    || { echo "fixture: two plugins are needed, one judged and one not; got '$copied' and '$other'"; false; }
-  # Normalised as the test above is, by the same dated pattern, so an
-  # undated heading the live tree happens to hold cannot fail the base.
-  normalise_to_released "$base"
+    || { echo "fixture: two plugins are needed, one judged and one not; got '$copied' and '$other'"; return 1; }
+  normalise_to_released "$base" || return 1
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$base" "$ROOT" "$copied"
-  forms_no_path
+  forms_no_path || return 1
   [ "$status" -eq 0 ] \
-    || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; false; }
+    || { echo "fixture: the normalised copy already fails --released; nothing below would prove anything. output: $output"; return 1; }
+}
 
-  # Four plants, each BELOW the first dated heading: the exact Keep a
-  # Changelog spelling; one the old exact-text idea would have let through;
-  # and two that only an anchored pattern refuses — a dated heading with a
-  # trailing note (the drift the version read above was anchored against)
-  # and one with its closing bracket missing.
-  n=0
-  for plant in '## [Unreleased]' '## unreleased' '## [9.9.9] - 2026-01-01 (yanked)' '## [9.9.9 - 2026-01-01'; do
+# undated_below <plant>...: each plant on its own copy of the base, BELOW
+# the first dated heading. The default form must pass it and still say
+# state=released (G5); the release form must refuse it, naming its line
+# and quoting it (G1, G2). Each failure echoes and returns 1: call it on
+# its own line at the top level of a test.
+undated_below() {
+  local plant first
+  for plant in "$@"; do
     n=$((n + 1))
     d="$TEST_DIR/undated-$n"
     cp -r "$base" "$d"
@@ -1664,51 +1658,94 @@ forms_utf8() {
     # Prove the plant landed exactly once, and BELOW: the first heading is
     # still the dated one, so the old first-heading rule sees nothing wrong.
     [ "$(grep -c -x -F -- "$plant" "$d/$copied/CHANGELOG.md")" -eq 1 ] \
-      || { echo "fixture: '$plant' did not land exactly once in the $copied copy"; false; }
+      || { echo "fixture: '$plant' did not land exactly once in the $copied copy"; return 1; }
     first="$(grep -m1 '^## ' "$d/$copied/CHANGELOG.md")"
     case "$first" in
       "## ["[0-9]*"] - "[0-9]*) ;;
-      *) echo "fixture: '$plant' landed above the release; the first heading is '$first'"; false ;;
+      *) echo "fixture: '$plant' landed above the release; the first heading is '$first'"; return 1 ;;
     esac
     line="$(grep -n -x -F -- "$plant" "$d/$copied/CHANGELOG.md" | cut -d: -f1)"
 
     # The default form is untouched: it reports and passes.
     run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh"' _ "$d" "$ROOT"
-    forms_no_path
+    forms_no_path || return 1
     [ "$status" -eq 0 ] \
-      || { echo "G5: the default run rejected '$plant' below the release; the default form must not change. output: $output"; false; }
+      || { echo "G5: the default run rejected '$plant' below the release; the default form must not change. output: $output"; return 1; }
     printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
-      || { echo "G5: the default run's line for $copied does not say state=released. output: $output"; false; }
+      || { echo "G5: the default run's line for $copied does not say state=released. output: $output"; return 1; }
 
     # The release form refuses, and says where and what.
     run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
-    forms_no_path
+    forms_no_path || return 1
     [ "$status" -ne 0 ] \
-      || { echo "G1: --released accepted $copied with '$plant' at line $line, below its release. output: $output"; false; }
+      || { echo "G1: --released accepted $copied with '$plant' at line $line, below its release. output: $output"; return 1; }
     case "$output" in
       *"is NOT released"*) ;;
-      *) echo "G2: --released refused, but not as an unreleased tree. output: $output"; false ;;
+      *) echo "G2: --released refused, but not as an unreleased tree. output: $output"; return 1 ;;
     esac
     case "$output" in
       *"line $line "*) ;;
-      *) echo "G2: the refusal does not name line $line. output: $output"; false ;;
+      *) echo "G2: the refusal does not name line $line. output: $output"; return 1 ;;
     esac
     case "$output" in
       *"$plant"*) ;;
-      *) echo "G2: the refusal does not quote '$plant'. output: $output"; false ;;
+      *) echo "G2: the refusal does not quote '$plant'. output: $output"; return 1 ;;
     esac
   done
+}
+
+@test "--released refuses an undated heading below the release, and the default run does not" {
+  cd "$ROOT"
+
+  # The test above plants its heading ABOVE the release. That is the one place
+  # the release form used to look: it compared the FIRST level-2 heading with
+  # the version heading and read nothing below it, so a heading left lower in
+  # the file passed every gate. The 1.3.0 release caught that shape only with a
+  # one-off quickstart check that CI never runs. The release form now judges
+  # every line beginning `## `, and anything that is not a dated version
+  # heading is refused — `## [Unreleased]` and every other spelling of it.
+  #
+  # Every failure below, and in the two tests after this one, names the
+  # contract clause it guards (G1, G2, G5, G6 in
+  # specs/023-gate-reads-whole-changelog/contracts/release-form.md), so a red
+  # says which promise broke rather than only that something did.
+  #
+  # Three tests, not one: about a dozen gate runs on a fixture of every
+  # plugin took one test 40 to 47 s on a slow machine, against the suite's
+  # per-test timeout, which is set once for every suite (tests/helper.bash)
+  # and is not raised for one test. Each of the three builds its own base.
+  undated_base
+
+  # Four plants, each BELOW the first dated heading: here the exact Keep a
+  # Changelog spelling, and one the old exact-text idea would have let
+  # through; in the next test, the two that only an anchored pattern refuses.
+  undated_below '## [Unreleased]' '## unreleased'
+}
+
+@test "--released refuses a dated heading with a note or a missing bracket below the release" {
+  cd "$ROOT"
+  undated_base
+
+  # The two plants only an anchored pattern refuses: a dated heading with a
+  # trailing note (the drift the version read above was anchored against),
+  # and one with its closing bracket missing.
+  undated_below '## [9.9.9] - 2026-01-01 (yanked)' '## [9.9.9 - 2026-01-01'
+}
+
+@test "--released masks a control byte below the release, and judges only the named plugin" {
+  cd "$ROOT"
+  undated_base
 
   # G2's other half: the quoted line lands in a public CI log, so every byte
-  # in it that is not printable is shown as `?`. Every plant above is
-  # printable, so without this one the replacement could be deleted and the
-  # suite stay green. The byte is STX (\002): a control byte no terminal acts
-  # on, because CI's --print-output-on-failure prints $output raw, and if the
-  # replacement is ever lost the byte reaches the log. Not ESC, which a
-  # terminal acts on, and not \001, which bash uses internally and which old
-  # bash mishandles in patterns. Appended, not inserted: the last line of the
-  # file is below the release too, and this keeps one more copy of the dated
-  # pattern out of the test.
+  # in it that is not printable is shown as `?`. Every plant in the two tests
+  # above is printable, so without this one the replacement could be deleted
+  # and the suite stay green. The byte is STX (\002): a control byte no
+  # terminal acts on, because CI's --print-output-on-failure prints $output
+  # raw, and if the replacement is ever lost the byte reaches the log. Not
+  # ESC, which a terminal acts on, and not \001, which bash uses internally
+  # and which old bash mishandles in patterns. Appended, not inserted: the
+  # last line of the file is below the release too, and this keeps one more
+  # copy of the dated pattern out of the test.
   ctl="$(printf '\002')"
   plant="## Notes ${ctl}red"
   d="$TEST_DIR/undated-ctl"
@@ -1741,9 +1778,9 @@ forms_utf8() {
   [ "$status" -eq 0 ] \
     || { echo "G6: --released $copied refused because of $other's changelog. output: $output"; false; }
 
-  # H8: the default form passes one copy holding every refused plant above,
-  # each after its own `Plain text.` and blank line, and still reports the
-  # judged plugin as released.
+  # H8: the default form passes one copy holding every refused plant of the
+  # three undated tests, each after its own `Plain text.` and blank line,
+  # and still reports the judged plugin as released.
   s=('' 'Plain text.' '')
   forms_put '## [Unreleased]' "${s[@]}" '## unreleased' "${s[@]}" '## [9.9.9] - 2026-01-01 (yanked)' "${s[@]}" \
     '## [9.9.9 - 2026-01-01' "${s[@]}" "$plant"
@@ -1759,9 +1796,9 @@ forms_utf8() {
 # while passing the gate: a tab after `##`, an indent, no text, an
 # underline, a quote or a list item around it, a deep indent that continues
 # a list item. A fence that never closes, or whose end is unclear, could
-# hide one. The six tests below plant each shape on a fresh copy and
-# require a refusal, then plant what Markdown does NOT read as a heading and
-# require a pass. Every failure names its clause in that feature's
+# hide one. The tests below plant each shape on a fresh copy and require a
+# refusal, then plant what Markdown does NOT read as a heading and require
+# a pass. Every failure names its clause in that feature's
 # contracts/release-form.md (H1-H9).
 #
 # Six tests, not one: about forty gate runs do not fit the suite's
@@ -1773,6 +1810,11 @@ forms_utf8() {
 # clauses, the slowest took about 13 s. The plants review added later
 # raised that to about 18 s, well inside the timeout. Each plant still
 # runs the gate on its own copy, so a red names the plant that caused it.
+# Later plants grew four of the six past 39 s on a loaded Windows machine,
+# two of them to the 60 s timeout (measured 2026-10-06), so those four are
+# now split again by clause, eleven tests where there were four, each
+# building its own fixture. A test that holds the H8 copy names the tests
+# whose plants it gathers.
 #
 # The helpers below share state through these names: base (the released
 # fixture), copied (the judged plugin), other (a second plugin, when the
@@ -1926,6 +1968,11 @@ forms_default() {
   forms_put ' ## [1.0.0] - 2026-01-01'
   forms_at ' ## [1.0.0] - 2026-01-01'
   forms_refused H2 "line $line holds ' ## [1.0.0] - 2026-01-01'"
+}
+
+@test "--released refuses every setext form of a level-2 heading" {
+  cd "$ROOT"
+  forms_base one
 
   # H3: a setext heading is named by its text line.
   forms_put 'Notes' '---'
@@ -1957,6 +2004,13 @@ forms_default() {
   forms_put '- a' '  ### x' '  ---'
   forms_at '  ### x'
   forms_refused K6 "line $line holds '  ### x', underlined at line $((line + 1))"
+}
+
+@test "--released refuses the setext shapes review found passing" {
+  cd "$ROOT"
+  forms_base one
+  tab="$(printf '\t')"
+
   # The shapes review found passing, each a setext heading Markdown
   # renders: a deep `>` line continuing a paragraph, a fence closer of a
   # fence Markdown reads as paragraph text, a deep heading line and a `--`
@@ -1976,8 +2030,9 @@ forms_default() {
   forms_at '  --'
   forms_refused H3 "line $line holds '  --', underlined at line $((line + 1))"
 
-  # H8: the default form passes a copy holding every refused plant above,
-  # each after its own `Plain text.` and blank line.
+  # H8: the default form passes a copy holding every refused plant of this
+  # test and the two before it, each after its own `Plain text.` and blank
+  # line.
   s=('' 'Plain text.' '')
   forms_put "##${tab}Notes" "${s[@]}" ' ## Notes' "${s[@]}" '   ## Notes' "${s[@]}" '##' "${s[@]}" \
     '## Notes ##' "${s[@]}" ' ## [1.0.0] - 2026-01-01' "${s[@]}" 'Notes' '---' "${s[@]}" \
@@ -1993,9 +2048,22 @@ forms_default() {
   cd "$ROOT"
   forms_base one
 
-  # H4: quotes and list items, in either order.
+  # H4: quotes and list items, in either order. Each marker alone here;
+  # the two nestings and the setext forms in the next test.
   for raw in '> ## Notes' '>## Notes' '- ## Notes' '* ## Notes' '+ ## Notes' \
-             '1. ## Notes' '1) ## Notes' '- > ## Notes' '1. > ## Notes'; do
+             '1. ## Notes' '1) ## Notes'; do
+    forms_put "$raw"
+    forms_at "$raw"
+    forms_refused H4 "line $line holds '$raw'"
+  done
+}
+
+@test "--released refuses a level-2 heading in a nested quote, or underlined in a container" {
+  cd "$ROOT"
+  forms_base one
+
+  # H4, continued: a quote inside a list item, then the setext forms.
+  for raw in '- > ## Notes' '1. > ## Notes'; do
     forms_put "$raw"
     forms_at "$raw"
     forms_refused H4 "line $line holds '$raw'"
@@ -2007,8 +2075,9 @@ forms_default() {
   forms_at '- Notes'
   forms_refused H4 "line $line holds '- Notes', underlined at line $((line + 1))"
 
-  # H8: the default form passes a copy holding every refused plant above,
-  # each after its own `Plain text.` and blank line.
+  # H8: the default form passes a copy holding every refused plant of this
+  # test and the one before it, each after its own `Plain text.` and blank
+  # line.
   s=('' 'Plain text.' '')
   forms_put '> ## Notes' "${s[@]}" '>## Notes' "${s[@]}" '- ## Notes' "${s[@]}" '* ## Notes' "${s[@]}" \
     '+ ## Notes' "${s[@]}" '1. ## Notes' "${s[@]}" '1) ## Notes' "${s[@]}" '- > ## Notes' "${s[@]}" \
@@ -2116,6 +2185,12 @@ forms_default() {
   forms_unclear "- > $bt" '>'
   forms_put ">$bt" ">    $bt"
   forms_unclear ">$bt" ">    $bt"
+}
+
+@test "--released refuses a fence opener Markdown might not open" {
+  cd "$ROOT"
+  forms_base one
+  bt='```'
 
   # H6: a fence opener Markdown might not open is refused, because the
   # walk would skip a heading under it. Found at review (phase I).
@@ -2146,6 +2221,14 @@ forms_default() {
   forms_put '<x' '<!--' '' "$bt" '-->' '## x' "$bt"
   forms_at '<!--'
   forms_refused K6 "line $((line + 2)) opens a code fence that the HTML at line $line may hold"
+}
+
+@test "--released refuses a fence in a pre block or a later list item, and finds a heading after a clean close" {
+  cd "$ROOT"
+  forms_base one
+  bt='```'
+
+  # K6, the narrowings' last neighbours, after the three in the test above.
   # A `<pre>` block runs past a blank line too, in either case, and an
   # ordered item at another indent does not continue the list above it.
   for tag in '<pre>' '<PRE>'; do
@@ -2162,8 +2245,9 @@ forms_default() {
   forms_at '## Notes'
   forms_refused H1 "line $line holds '## Notes'"
 
-  # H8: the default form passes a copy holding every refused plant above,
-  # each after its own `Plain text.` and blank line.
+  # H8: the default form passes a copy holding every refused plant of this
+  # test and the two before it, each after its own `Plain text.` and blank
+  # line.
   s=('' 'Plain text.' '')
   forms_put "- $bt" '## Notes' "${s[@]}" "   $bt" "$bt" "${s[@]}" "> $bt" 'x' "${s[@]}" \
     "- $bt" "   $bt" "${s[@]}" "    $bt" '## Notes' "${s[@]}" '- item' "  > $bt" '> ## Notes' "${s[@]}" \
@@ -2176,7 +2260,7 @@ forms_default() {
   forms_default
 }
 
-@test "--released judges no non-heading, and only the named plugin" {
+@test "--released judges no non-heading" {
   cd "$ROOT"
   forms_base one
   tab="$(printf '\t')"
@@ -2200,6 +2284,13 @@ forms_default() {
     '- item' '' "  $bt" '  ## x' "  $bt" '' 'Plain text.' '' '---' '' 'Plain text.' '' \
     '    ## Notes' '' 'Plain text.' '' "${tab}## Notes"
   forms_passes "${tab}## Notes" 'every non-heading together'
+}
+
+@test "--released judges none of the shapes Phase 26 narrowed" {
+  cd "$ROOT"
+  forms_base one
+  bt='```'
+
   # K6: the four shapes Phase 26 narrowed, each passing only because the
   # proof in specs/025-gate-closes-phase25-gaps/proof/ showed the narrowed
   # walk passes no level-2 heading a CommonMark reader renders.
@@ -2213,9 +2304,14 @@ forms_default() {
   forms_passes '### x' 'the Phase 25 plant, a thematic break under a heading (N3)'
   forms_put '> Notes' '>' '> ---'
   forms_passes '> ---' 'a thematic break after an empty quote line (N4)'
+}
+
+@test "--released judges only the named plugin" {
+  cd "$ROOT"
+  tab="$(printf '\t')"
 
   # H9: only the plugin being released is judged. This one needs a second
-  # plugin, so the fixture is rebuilt with two.
+  # plugin, so its fixture is built with two.
   forms_base two
   d="$TEST_DIR/forms-other"
   cp -r "$base" "$d"
@@ -2654,20 +2750,32 @@ gate_forged() {
   gate_safe "$id"
 }
 
-@test "the gate prints every value masked, and no line starts with ::" {
-  cd "$ROOT"
-  local F E c dn want long cut o rc raw
-  # The check itself, before anything leans on it: each unsafe shape must
-  # fail it, with exactly 1, including an em dash that is not the gate's
-  # own suffix and a `##[`, and the gate's own suffix must pass it.
+# gate_safe_control: the check itself, before anything leans on it: each
+# unsafe shape must fail it, with exactly 1, including an em dash that is
+# not the gate's own suffix and a `##[`, and the gate's own suffix must
+# pass it. No process runs: each of the three masking tests below calls it
+# first. Each failure echoes and returns 1; call it on its own line at the
+# top level of a test.
+gate_safe_control() {
+  local o rc
   for o in $'a\033b' $'ok\n  ::x' $'a\rb' $'ok \342\200\224 ok' $'a \342\200\224 b' 'x ##[y'; do
     output=$o
     rc=0
     gate_safe ctl > /dev/null || rc=$?
-    [ "$rc" -eq 1 ] || { echo "control: gate_safe returned $rc on an unsafe output, not 1"; false; }
+    [ "$rc" -eq 1 ] || { echo "control: gate_safe returned $rc on an unsafe output, not 1"; return 1; }
   done
   output=$'x: y \342\200\224 this tree is NOT released'
-  gate_safe ctl || { echo "control: gate_safe refused the gate's own suffix"; false; }
+  gate_safe ctl || { echo "control: gate_safe refused the gate's own suffix"; return 1; }
+}
+
+# The masking clauses (P0-P6, X1) are three tests, not one: about twenty
+# gate runs took one test to about 30 s on a slow machine, half the
+# suite's per-test timeout (measured 2026-10-06). Each builds its own
+# fixture, and each runs the control above first.
+@test "the gate prints every value masked, and no line starts with ::" {
+  cd "$ROOT"
+  local F E
+  gate_safe_control
 
   forms_base one
   # A forged value: a line feed, a workflow command, an escape sequence.
@@ -2691,6 +2799,15 @@ gate_forged() {
     '1.0.0\n::p28x title=x::y?[31m' "is an absolute path"
   gate_forged P2 masked-up .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("../x" + $v)}]' \
     '1.0.0\n::p28x title=x::y?[31m' "leaves the repository"
+}
+
+@test "the gate masks a plugin directory, an argument and a first heading" {
+  cd "$ROOT"
+  local E c dn want
+  gate_safe_control
+
+  forms_base one
+  E=$'\033'
 
   # P3: a plugin directory named `::`, an escape, `x`; then the same after
   # a space. The run passes, and the report line starts with `?`. The name
@@ -2739,6 +2856,14 @@ gate_forged() {
   gate_says P5 1 "state=UNRELEASED-ABOVE:## [Unreleased] ?[31m" \
     "'## [Unreleased] ?[31m' sits above the released heading" $'\342\200\224 this tree is NOT released'
   gate_safe P5
+}
+
+@test "the gate cuts a long value before masking it, and masks a log command marker" {
+  cd "$ROOT"
+  local F c long cut raw
+  gate_safe_control
+
+  forms_base one
 
   # P6: a value over the quote cut is cut, then ` [cut]`.
   printf -v long '%250s' ''
@@ -3096,7 +3221,11 @@ gate_refuses() {
   gate_safe "$1"
 }
 
-@test "the gate follows no link, and keeps its own shell options" {
+# The link and shell-option clauses (N1-N7, O1, O2) are three tests, not
+# one: about twenty-five gate runs took one test to about 30 s on a slow
+# machine, half the suite's per-test timeout (measured 2026-10-06). Each
+# builds its own fixture.
+@test "the gate follows no link to a manifest, and bounds a source's components" {
   cd "$ROOT"
   forms_base one
   local c k o m src pad links aa='a/' to=""
@@ -3202,7 +3331,31 @@ gate_refuses() {
     gate_run "$c"
     gate_refuses N2 "check-versions.sh: .claude-plugin/marketplace.json is a symbolic link$fol"
     gate_lacks N2 "run me from the repository root"
+  fi
+}
 
+@test "the gate follows no link to a plugin directory, nor a source through one" {
+  cd "$ROOT"
+  forms_base one
+  local c links
+  local fol=", which the gate does not follow"
+  local out="$TEST_DIR/nolink-outside"
+  mkdir -p "$out"
+
+  # Whether this system makes links is decided as the test above decides
+  # it, by a first link to a file outside the copy, which N4 uses below.
+  # That test prints the decision; this one does not print it again.
+  printf '{"name":"OUTSIDE-NAME","version":"9.9.9"}\n' > "$out/plugin.json"
+  MSYS=winsymlinks:nativestrict ln -s "$out/plugin.json" "$TEST_DIR/nolink-probe" 2>/dev/null || true
+  if [ -L "$TEST_DIR/nolink-probe" ]; then links="made"; else links="not available here"; fi
+  if [ "$links" != "made" ]; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*) ;;
+      *) echo "fixture: this system made no symbolic link"; false ;;
+    esac
+  fi
+
+  if [ "$links" = "made" ]; then
     # N3: the plugin directory moved outside and linked back under its
     # name; then its .claude-plugin directory. Each message names this
     # plugin, never the one before.
@@ -3261,9 +3414,16 @@ gate_refuses() {
     gate_run "$c"
     gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
   fi
+}
 
-  # O1, after the N plants, so against an older gate the first red is an
-  # N clause: a caller's xtrace, verbose, noglob or keyword changes nothing.
+@test "the gate keeps its own shell options" {
+  cd "$ROOT"
+  forms_base one
+  local c o m
+
+  # O1, in the test after the N plants, so against an older gate the first
+  # red in this file is an N clause: a caller's xtrace, verbose, noglob or
+  # keyword changes nothing.
   # In the default form only (research R8): the options line
   # is the gate's first command and reads nothing the form sets, so after
   # it both forms run with the four options off; with the line removed,
