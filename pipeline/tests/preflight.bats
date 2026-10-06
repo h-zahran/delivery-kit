@@ -338,8 +338,8 @@ stub() {
 }
 
 @test "the review phase is announced skipped for both of its causes" {
-  # ONE test, because this is ONE branch in the script reached by two routes.
-  # Splitting it would put the suite at fourteen new tests against thirteen.
+  # ONE test for the two routes to the M skip. They were one branch with one
+  # reason; they are now two branches with two reasons, each pinned below.
   # The already-covered no-remote cause is deliberately not repeated here.
 
   # Route (a): the client IS findable, but the remote is not the expected host.
@@ -355,8 +355,13 @@ stub() {
   probe --path "$a" --dir "$ra" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.gh' <<<"$output")" = "true" ]
+  [ "$(jq -r '.remote.ghCommand' <<<"$output")" = "gh" ]
   [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | length' <<<"$output")" = "1" ]
+  # The two routes carry DIFFERENT reasons, and each is pinned: one shared
+  # message named both causes, so an operator could not tell which to fix.
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "the remote is not GitHub — review needs a GitHub pull request" ]
 
   # Route (b): the remote IS the expected host, but the client cannot be found.
   b="$BATS_TEST_TMPDIR/without-client"
@@ -367,8 +372,13 @@ stub() {
   probe --path "$b" --dir "$rb" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.gh' <<<"$output")" = "false" ]
+  [ "$(jq -r '.remote.ghPresent' <<<"$output")" = "false" ]
+  # Absent is the EMPTY STRING, still a string — the key is never dropped.
+  jq -e '.remote.ghCommand == ""' <<<"$output" > /dev/null
   [ "$(jq -r '.remote.kind' <<<"$output")" = "github" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | length' <<<"$output")" = "1" ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "gh is absent — none of gh, gh.exe, gh.cmd is on PATH" ]
 
   # Negative control. Neither cause holds, so the phase must NOT be announced.
   # Without this the two assertions above cannot be shown to go red when they
@@ -377,6 +387,34 @@ stub() {
   probe --path "$b" --dir "$rb" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | length' <<<"$output")" = "0" ]
+}
+
+@test "gh installed only as gh.cmd is found, named, and keeps the review phase" {
+  # A Windows package manager can install gh as gh.cmd alone. A bare `gh`
+  # lookup does not find that file on any platform, so a probe of one name
+  # reported a working client absent and announced M skipped. The stub
+  # directory holds gh.cmd and NO gh — that absence is the whole test.
+  d="$BATS_TEST_TMPDIR/cmd-only"
+  shimdir "$d" $PROBE_TOOLS
+  stub "$d/gh.cmd"
+  [ ! -e "$d/gh" ]
+  r="$BATS_TEST_TMPDIR/repo-cmd-only"
+  mkdir -p "$r"
+  ( cd "$r" && git init -q . && git remote add origin https://github.com/example/thing.git )
+  probe --path "$d" --dir "$r" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.remote.kind' <<<"$output")" = "github" ]
+  jq -e '.remote.ghPresent == true' <<<"$output" > /dev/null
+  jq -e '.capabilities.gh == true' <<<"$output" > /dev/null
+  [ "$(jq -r '.remote.ghCommand' <<<"$output")" = "gh.cmd" ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | length' <<<"$output")" = "0" ]
+
+  # Order: with both names present the bare name wins, so a platform where
+  # `gh` works is reported exactly as it was before gh.cmd was probed.
+  stub "$d/gh"
+  probe --path "$d" --dir "$r" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.remote.ghCommand' <<<"$output")" = "gh" ]
 }
 
 # --- the last unpinned base-branch route --------------------------------------
@@ -494,4 +532,34 @@ stub() {
       = "no git remote — the run stops after the commit gate and says so" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
       = "no pull request without a remote" ]
+}
+
+# --- a constitution at the size a herestring hangs on -------------------------
+
+@test "a constitution of 65,600 bytes is judged, not hung on" {
+  # Git Bash 5.3.9 hangs a herestring of 65,536 to about 65,700 bytes, and the
+  # constitution body used to reach grep through one. Measured against that
+  # script: this test timed out (status 124) here, and 65,600 sits inside the
+  # band. The size IS the property, so it is asserted before the probe runs —
+  # a fixture that drifted out of the band would pass for the wrong reason.
+  T="$BATS_TEST_TMPDIR/big-constitution"
+  mkdir -p "$T/.specify/memory"
+  ( cd "$T" && git init -q . )
+  # 820 lines of 79 characters plus a newline: 65,600 bytes, no template token.
+  awk 'BEGIN { l = sprintf("%79s", ""); gsub(/ /, "x", l); for (i = 0; i < 820; i++) print l }' \
+    > "$T/.specify/memory/constitution.md"
+  [ "$(wc -c < "$T/.specify/memory/constitution.md" | tr -d ' ')" -eq 65600 ]
+
+  # timeout is GNU coreutils and macOS does not ship it. Where it is missing,
+  # bats' own per-test limit (helper.bash) still bounds a hang and names it.
+  # Probed with --version, not command -v: on Windows a System32 timeout.exe
+  # can come first on PATH, takes no command, and exits 1 on --version
+  # (measured), so it falls to the fallback instead of failing for no reason.
+  if timeout --version > /dev/null 2>&1; then
+    run --separate-stderr timeout 30 "$BASH_ABS" "$PROBE" --dir "$T" --base-branch main
+  else
+    probe --dir "$T" --base-branch main
+  fi
+  [ "$status" -eq 0 ] || { echo "pre-flight did not finish: status $status"; false; }
+  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "true" ]
 }
