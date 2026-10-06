@@ -308,9 +308,10 @@ setup() {
   # eight silently droppable under an earlier three-name assertion. Any drop,
   # and any reorder, reddens this line. (An earlier draft of this comment said
   # three names were substrings; measured, it is exactly one.) The list grew
-  # from eight to ten with commit-add and piece-next, edited here rather than
+  # from eight to ten with commit-add and piece-next, and to twenty with the
+  # commit mechanics (snapshot to drop-stale), edited here rather than
   # pinned by a second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
