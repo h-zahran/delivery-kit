@@ -265,10 +265,8 @@ for dir in */; do
   # .claude-plugin is no plugin, the gate reads nothing in it, and a
   # contributor's own linked folder must not stop a local run, so it is
   # refused only when it holds one.
-  if [ -e "./$p/.claude-plugin" ] || [ -L "./$p/.claude-plugin" ]; then
-    if [ -L "./$p" ]; then
-      die "$p_s: the plugin directory is a symbolic link, which the gate does not follow"
-    fi
+  if [ -L "./$p" ] && { [ -e "./$p/.claude-plugin" ] || [ -L "./$p/.claude-plugin" ]; }; then
+    die "$p_s: the plugin directory is a symbolic link, which the gate does not follow"
   fi
   if [ -L "./$p/.claude-plugin" ]; then
     die "$p_s: .claude-plugin is a symbolic link, which the gate does not follow"
@@ -779,15 +777,17 @@ while IFS=$'\t' read -r en es; do
   # part that is not there, below which nothing can be a link. Each
   # leading part is cut off with prefix and suffix removal; with no
   # separator left the suffix removal returns the text unchanged, so the
-  # walk ends when the part is the whole rest. Entries naming the source
-  # walked last walk it once.
+  # walk ends when the part is the whole rest. The walk runs on to
+  # .claude-plugin and plugin.json, the last two parts of the same path,
+  # and stops at the first part that is not there; the count is of the
+  # source alone. Entries naming the source walked last walk it once.
   if [ -n "$ed" ]; then
     slashes=${ed//$nsl/}
     if [ $(( ${#slashes} + 1 )) -gt "$component_limit" ]; then
       die "marketplace entry '$en_s': source '$es_s' has more than $component_limit components"
     fi
     if [ "$ed" != "$walked" ]; then
-      left=$ed
+      left=$ed/.claude-plugin/plugin.json
       pfx=.
       while :; do
         seg=${left%%/*}
@@ -795,16 +795,10 @@ while IFS=$'\t' read -r en es; do
         if [ -L "$pfx" ]; then
           die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
         fi
-        if [ ! -e "$pfx" ] || [ "$seg" = "$left" ]; then break; fi
+        if [ "$seg" = "$left" ] || [ ! -e "$pfx" ]; then break; fi
         left=${left#*/}
       done
       walked=$ed
-    fi
-    if [ -L "./$ed/.claude-plugin" ]; then
-      die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
-    fi
-    if [ -L "./$ed/.claude-plugin/plugin.json" ]; then
-      die "marketplace entry '$en_s': source '$es_s' passes through a symbolic link"
     fi
   fi
   # Written as an `if`, not `A && B || C`. The chained form means the same
