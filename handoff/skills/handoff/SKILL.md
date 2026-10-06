@@ -76,6 +76,12 @@ Required sections:
   section is what replaces the commit an earlier version of this skill made: the
   work is durable because it is *recorded*, not because it was written to history.
   If the tree is clean, say so — an absent section reads as an omission.
+  `git status --porcelain` never lists an ignored file, and even `--ignored`
+  collapses it into its directory (`!! docs/`), so when the ignore check in the
+  save step below reports this handoff document ignored, add it here by its own
+  path, marked as ignored:
+  `!! <path-to-handoff-document> (ignored: this handoff document, on this machine only)`.
+  Without that line the inventory omits the one file this run certainly wrote.
 - **Verification state** — last full test count, static-analysis baseline, CI
   status, runtime verification done or pending.
 - **Blocked** — items that cannot proceed, each with its specific blocker
@@ -109,9 +115,33 @@ before.
 
 **Then save it and stop. Do not commit it and do not push it.** The document is
 durable because it is on disk, and the next session reads it from disk. Tell the
-developer the path, and include the document itself in the `git add` line you
-print in step 1, so a developer who does want a commit gets the work and the
-record in one.
+developer the path.
+
+Then ask git whether the document is ignored — a read, not a write. From the
+repository root, run `git check-ignore -q -- <path-to-handoff-document>`; the
+path is judged relative to the working directory, so the same root-relative path
+checked from a subdirectory reports "not ignored". Act on the exit status:
+
+- **1, not ignored.** Include the document itself in the `git add` line you
+  print in step 1, so a developer who does want a commit gets the work and the
+  record in one.
+- **0, ignored.** `<docsDir>` is matched by `.gitignore`, `.git/info/exclude`
+  or a global excludes file. Say so plainly: the handoff document is ignored and
+  stays on this machine only — a fresh clone will not have it. Keep the document
+  out of the `git add` line: given an ignored path, `git add` exits 1 and still
+  stages the other paths on the line, so it fails halfway. Add the document to
+  the Uncommitted work section as described there. If the developer wants the
+  record in history regardless, print one separate line for them, marked
+  optional — printed for them to run, never run by you:
+
+  ```bash
+  git add -f -- <path-to-handoff-document>   # optional: overrides the ignore rule, which may be deliberate
+  ```
+
+- **Any other status** (128 when the path lies outside this repository): git
+  cannot judge the path. Keep the document out of every printed git line and say
+  why — most often `<docsDir>` resolves outside the repository, where no `git add`
+  can reach it.
 
 ### 3. Persist durable knowledge
 
