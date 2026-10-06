@@ -149,8 +149,12 @@ if [ -f "$const_file" ]; then
       const_body=""
       warn "constitution unreadable — read as not set"
     fi
-    if grep -q '[^[:space:]]' <<<"$const_body" \
-       && ! grep -qE "$const_tokens" <<<"$const_body"; then
+    # Fed through process substitution, never a herestring: Git Bash 5.3.9
+    # hangs a herestring of 65,536 to about 65,700 bytes, and this body is
+    # file-sized. printf's newline matches the one <<< appended. Its stderr
+    # is dropped because grep -q may close the pipe early.
+    if grep -q '[^[:space:]]' < <(printf '%s\n' "$const_body" 2>/dev/null) \
+       && ! grep -qE "$const_tokens" < <(printf '%s\n' "$const_body" 2>/dev/null); then
       sk_const=true
     fi
   fi
@@ -178,7 +182,13 @@ fi
 # silence is what this line exists to end. Reporting is still all this script
 # does; the stop is the orchestrator's decision 11.
 git_present=false; command -v git >/dev/null 2>&1 && git_present=true
-gh_present=false; command -v gh >/dev/null 2>&1 && gh_present=true
+# gh is probed under three names, first found wins, and the name is reported:
+# a Windows package manager can install it as gh.cmd alone, which a bare `gh`
+# lookup never finds, so probing one name read a working gh as absent.
+gh_present=false; gh_command=""
+for c in gh gh.exe gh.cmd; do
+  if command -v "$c" >/dev/null 2>&1; then gh_present=true; gh_command="$c"; break; fi
+done
 adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 
 dirty=false
@@ -202,8 +212,10 @@ fi
 if [ "$remote" = "none" ]; then
   add_skip "L" "no git remote — the run stops after the commit gate and says so"
   add_skip "M" "no pull request without a remote"
-elif [ "$remote" != "github" ] || [ "$gh_present" = false ]; then
-  add_skip "M" "review needs a GitHub pull request and gh"
+elif [ "$remote" != "github" ]; then
+  add_skip "M" "the remote is not GitHub — review needs a GitHub pull request"
+elif [ "$gh_present" = false ]; then
+  add_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
 fi
 
 jq -n \
@@ -213,7 +225,8 @@ jq -n \
   --arg  sk_scripts_dir "$sk_scripts_dir" --arg sk_form "$sk_form" \
   --argjson sk_const "$sk_const" \
   --arg  base "$base" --arg base_source "$base_source" \
-  --arg  remote "$remote" --argjson gh "$gh_present" --argjson adb "$adb_present" \
+  --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
+  --argjson adb "$adb_present" \
   --argjson git "$git_present" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
   --argjson skips "$skips" '{
@@ -224,7 +237,7 @@ jq -n \
     constitutionSet: $sk_const
   },
   baseBranch: $base, baseBranchSource: $base_source,
-  remote: { kind: $remote, ghPresent: $gh },
+  remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
   capabilities: { jq: true, git: $git, gh: $gh, adb: $adb },
   willSkip: $skips,
   tree: { dirty: $dirty, runsLive: $runs_live }

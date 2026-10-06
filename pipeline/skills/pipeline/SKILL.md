@@ -147,6 +147,9 @@ Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```
 
+Every `gh` call this run makes uses the name `remote.ghCommand` reports:
+on Windows it can be `gh.cmd`, which a bare `gh` does not reach.
+
 When `capabilities.git` is false, mark the parts of that block that came from
 commands which did not run — and only those parts. This block is the FIRST
 thing the operator reads, so suppressing a wrong cause lower down is not enough;
