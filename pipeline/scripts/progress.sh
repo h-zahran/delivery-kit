@@ -55,18 +55,75 @@ kind_known() {
   return 1
 }
 
+# The keys every state file must hold, in the order validate names a missing
+# one. One list, read by both checks below.
+REQUIRED_KEYS="feature current_phase completed_phases gates timestamps artifacts"
+
+# validate's checks as ONE jq program, because every subcommand validates and
+# a jq process costs far more than the checks do on Windows: on a 19 KB state
+# file, ten alternating runs each, the nine-process form averaged 1.9 s a call
+# and this one 0.47 s, bash start-up included (2026-10-06). It reads the
+# file slurped, judges only a file that is exactly ONE JSON document, and
+# answers one line naming the FIRST fault, in the order the per-check form
+# finds them:
+#   nojson        the document is null or false (`jq -e .` fails on those)
+#   missing<US>K  key K is absent; any non-object fails on the first key,
+#                 because `has` errors on it
+#   notarray      completed_phases is not an array
+#   phase<US>P    current_phase is the string P, for bash to judge
+#   other         current_phase is not a string; bash reads it as before
+#   each          not one document; judged document by document below
+# The string comes last so the line ending jq adds lands where the per-check
+# form's did, and command substitution strips it the same way.
+# shellcheck disable=SC2016 # a jq program: $d, $k and $ARGS are jq's
+VALIDATE_JQ='
+  if length != 1 then "each"
+  else .[0]
+  | if . == null or . == false then "nojson"
+    elif type != "object" then "missing\u001f" + $ARGS.positional[0]
+    else . as $d
+    | [$ARGS.positional[] | select(. as $k | $d | has($k) | not)] as $gone
+    | if ($gone | length) > 0 then "missing\u001f" + $gone[0]
+      elif (.completed_phases | type) != "array" then "notarray"
+      elif (.current_phase | type) == "string" then "phase\u001f" + .current_phase
+      else "other" end
+    end
+  end'
+
+# The per-check form, kept for what the one program does not judge: a file
+# that is not exactly one JSON document — unparseable, empty, or several
+# documents, where jq judges each document in turn and its exit status
+# across them is not the same in every jq version. Sets cp.
+validate_each() {
+  local key
+  jq -e . "$1" >/dev/null 2>&1 || die "$1 is not valid JSON"
+  for key in $REQUIRED_KEYS; do
+    if ! jq -e --arg k "$key" 'has($k)' "$1" >/dev/null 2>&1; then
+      die "$1 is missing required key '$key'"
+    fi
+  done
+  if ! jq -e '.completed_phases | type == "array"' "$1" >/dev/null 2>&1; then
+    die "$1: completed_phases must be an array"
+  fi
+  cp="$(jq -r '.current_phase // empty' "$1")"
+}
+
 cmd_validate() {
   need_feature "$1"
   sf="$(state_file "$1")"
   [ -f "$sf" ] || die "no state file at $sf"
-  jq -e . "$sf" >/dev/null 2>&1 || die "$sf is not valid JSON"
-  for key in feature current_phase completed_phases gates timestamps artifacts; do
-    jq -e --arg k "$key" 'has($k)' "$sf" >/dev/null 2>&1 \
-      || die "$sf is missing required key '$key'"
-  done
-  jq -e '.completed_phases | type == "array"' "$sf" >/dev/null 2>&1 \
-    || die "$sf: completed_phases must be an array"
-  cp="$(jq -r '.current_phase // empty' "$sf")"
+  # A jq that fails here (a parse error, or a program it cannot run) answers
+  # nothing, and nothing falls through to the per-check form.
+  # shellcheck disable=SC2086 # REQUIRED_KEYS is split into words on purpose
+  v="$(jq -r -s "$VALIDATE_JQ" "$sf" --args $REQUIRED_KEYS 2>/dev/null)" || v=""
+  case "${v%%$'\x1f'*}" in
+    nojson)   die "$sf is not valid JSON" ;;
+    missing)  die "$sf is missing required key '${v#*$'\x1f'}'" ;;
+    notarray) die "$sf: completed_phases must be an array" ;;
+    phase)    cp="${v#*$'\x1f'}" ;;
+    other)    cp="$(jq -r '.current_phase // empty' "$sf")" ;;
+    *)        validate_each "$sf" ;;
+  esac
   phase_known "$cp" || die "$sf: current_phase '$cp' is not a phase this pipeline knows"
   printf '%s\n' "$sf"
 }

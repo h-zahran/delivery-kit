@@ -895,3 +895,76 @@ $(fixture_heading 'Phase 9b: ')|T007"
   # Read as "nothing recorded", it would offer every piece again.
   pn_refuses "commits must be a list"
 }
+
+# --- validate as one jq program -------------------------------------------------
+# validate answers from ONE jq program over the slurped file, and falls back to
+# the old one-process-per-check form only for a file that is not exactly one
+# JSON document. These pin the translations that program makes, where the old
+# form got its answer from a jq ERROR or exit status rather than a value.
+
+@test "validate names the first required key when the document is not an object" {
+  mkdir -p .delivery-kit/runs/001-demo
+  for doc in '[1]' 'true' '5' '"str"'; do
+    printf '%s' "$doc" > .delivery-kit/runs/001-demo/progress.json
+    run bash "$PROG" validate 001-demo
+    [ "$status" -eq 1 ]
+    [ "$output" = "progress.sh: .delivery-kit/runs/001-demo/progress.json is missing required key 'feature'" ]
+  done
+}
+
+@test "validate calls a null or false document, or an empty file, not valid JSON" {
+  mkdir -p .delivery-kit/runs/001-demo
+  for doc in 'null' 'false' ''; do
+    printf '%s' "$doc" > .delivery-kit/runs/001-demo/progress.json
+    run bash "$PROG" validate 001-demo
+    [ "$status" -eq 1 ]
+    [ "$output" = "progress.sh: .delivery-kit/runs/001-demo/progress.json is not valid JSON" ]
+  done
+}
+
+@test "validate names the first fault when two rules are broken at once" {
+  bash "$PROG" init 001-demo b main web
+  sf=.delivery-kit/runs/001-demo/progress.json
+  cp "$sf" good.json
+  jq 'del(.artifacts) | del(.gates)' good.json > "$sf"
+  run bash "$PROG" validate 001-demo
+  [ "$output" = "progress.sh: $sf is missing required key 'gates'" ]
+  jq '.completed_phases = "x" | .current_phase = "ZZZ"' good.json > "$sf"
+  run bash "$PROG" validate 001-demo
+  [ "$output" = "progress.sh: $sf: completed_phases must be an array" ]
+}
+
+@test "validate prints a current_phase that is not a string as jq prints it" {
+  bash "$PROG" init 001-demo b main web
+  sf=.delivery-kit/runs/001-demo/progress.json
+  jq '.current_phase = 5' "$sf" > t.json
+  mv t.json "$sf"
+  run bash "$PROG" validate 001-demo
+  [ "$status" -eq 1 ]
+  [ "$output" = "progress.sh: $sf: current_phase '5' is not a phase this pipeline knows" ]
+  jq '.current_phase = null' "$sf" > t.json
+  mv t.json "$sf"
+  run bash "$PROG" validate 001-demo
+  [ "$output" = "progress.sh: $sf: current_phase '' is not a phase this pipeline knows" ]
+}
+
+@test "validate spawns ONE jq process on a valid state file" {
+  # The point of the one program: a jq that cannot run it would fall back to
+  # the per-check form and stay green everywhere else, only slower. A shim on
+  # PATH counts the processes, and the count is the assertion.
+  bash "$PROG" init 001-demo b main web
+  real="$(command -v jq)"
+  mkdir -p shim
+  printf '#!/usr/bin/env bash\nprintf x >> "%s/jq.log"\nexec "%s" "$@"\n' "$PWD" "$real" > shim/jq
+  chmod +x shim/jq
+  : > jq.log
+  PATH="$PWD/shim:$PATH" run bash "$PROG" validate 001-demo
+  [ "$status" -eq 0 ]
+  [ "$(cat jq.log)" = "x" ]
+  # And the shim is live: the fallback a two-document file takes counts more.
+  sf=.delivery-kit/runs/001-demo/progress.json
+  jq -c . "$sf" > two.json; jq -c . "$sf" >> two.json; mv two.json "$sf"
+  : > jq.log
+  PATH="$PWD/shim:$PATH" run bash "$PROG" validate 001-demo
+  [ "$(wc -c < jq.log)" -gt 1 ]
+}
