@@ -221,7 +221,8 @@ through 10 keep the numbers they have always had.
    the run proceeds and the files show up as untracked. Never silently,
    and never with `git add`.
    The answer is recorded under `gates.gitignore`: on a fresh run it is
-   held aside and written in B, as item 9's is.
+   held aside and written in B, as item 9's is. An accepted write, here
+   or at item 9, is recorded in K's `{accepted, hash}` shape.
 7. **Lock:** take it with `progress.sh lock-take <feature> <session>`.
    On a fresh run the feature has no name yet — the lock is taken in
    Phase B, immediately after `init` creates the state file, and
