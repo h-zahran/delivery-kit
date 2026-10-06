@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-10-06
+
+### Fixed
+
+- **A git-ignored handoff document is said to be one.** When the handoff
+  document's directory is ignored by git (a `docs/` in `.git/info/exclude`,
+  for example), the printed `git add` line that included the document failed
+  halfway: git staged the other paths, then exited 1. And the "Uncommitted
+  work" list, built from `git status`, never showed the document. The skill
+  now runs `git check-ignore` on the document after saving it. When it is
+  ignored, the skill says the document stays on this machine only (a fresh
+  clone will not have it), keeps it out of the plain `git add` line, offers
+  `git add -f` for it as a separate optional line, and lists it under
+  "Uncommitted work" marked as ignored.
+
 ## [2.2.0] - 2026-09-08
 
 ### Changed

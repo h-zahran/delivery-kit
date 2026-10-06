@@ -2,6 +2,35 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.3.1] - 2026-10-06
+
+### Fixed
+
+- **Pre-flight no longer hangs on a large constitution.** A constitution of
+  about 64 KB (65,536 to about 65,700 bytes) made pre-flight hang under Git
+  Bash 5.3.9, which hangs a herestring of that size. The file is now fed
+  through process substitution, and a test pins a 65,600-byte constitution
+  under a timeout.
+- **Pre-flight finds `gh` installed as `gh.exe` or `gh.cmd`.** A Windows
+  package manager can install the GitHub CLI as `gh.cmd` alone, which a bare
+  `gh` lookup never finds, so pre-flight reported a working `gh` as absent and
+  planned to skip the pull-request review (M). It now probes `gh`, `gh.exe`
+  and `gh.cmd`, reports the name it found as `remote.ghCommand`, and the
+  orchestrator calls `gh` by that name. M's skip now gives one of two reasons:
+  the remote is not GitHub, or `gh` is absent.
+
+### Changed
+
+- **The state helper validates with one `jq` process.** `progress.sh
+  validate`, which every subcommand calls, ran about nine `jq` processes and
+  now runs one on a well-formed state file, with the same messages in the same
+  order (a 150-case comparison against the old script). Each call is about four
+  times faster on Windows, and the helper's own test file ran in 192 s instead
+  of 625 s.
+- The plugin's README shows the two spec-kit setup commands a first run needs,
+  and its phase diagram groups every phase under the right label. The plugin's
+  description says it requires spec-kit in the target repository.
+
 ## [1.3.0] - 2026-10-01
 
 ### Added
