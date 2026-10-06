@@ -1,5 +1,13 @@
 {
   "pipeline": {
-    "planFile": "main-plan.md"
+    "planFile": "main-plan.md",
+    "codeRoots": [
+      "handoff",
+      "pipeline",
+      "scripts",
+      "tests"
+    ],
+    "testCommand": "bash \"$HOME/bats/bin/bats\" -r --print-output-on-failure tests handoff/tests pipeline/tests",
+    "analyzeCommand": "mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/'); shellcheck --norc -f gcc -- \"${files[@]}\""
   }
 }
