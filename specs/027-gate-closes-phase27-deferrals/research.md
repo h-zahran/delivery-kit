@@ -51,6 +51,16 @@ identical to `5a78ea4`, unless it names another place.
   so its own `.claude-plugin` and `plugin.json` checks are reached only
   by a nested source, which the tests plant.
 
+  **Deferred at review (phase I).** Measured by the security review:
+  2,000 extra entries alternating between two 64-component sources took
+  37.4 s and 36.0 s on Windows (about 16 ms an entry), against 6.4 s for
+  one repeated deep source and 3.7 to 4.0 s for `./handoff`; cost grows
+  with the marketplace, which nothing bounds. The proposed bound, refusing
+  once `entries` passes `checked` after that entry's own checks, would
+  change which message a trailing entry past position `checked + 1`
+  gets, so the TRAILING test's clauses would no longer hold as written.
+  It is left as this recorded limit, for a later phase.
+
   `[ -e ./$p/.claude-plugin ]` stats through a directory link before the
   link is refused. That one stat reads nothing and prints nothing; it is
   how the gate tells a plugin directory from any other folder.
@@ -184,8 +194,12 @@ identical to `5a78ea4`, unless it names another place.
 
 - **Decision**: the gate's first command, at line 2 directly after the
   `#!` line and before the header comments, turns off `xtrace`,
-  `verbose`, `noglob` and `keyword`. Placed lower, `verbose` echoed every
-  comment line above it (measured at F).
+  `verbose`, `noglob` and `keyword`, and then, on the same line,
+  `dotglob` and `nocasematch`: line 2 is exactly
+  `set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch`.
+  Placed lower, `verbose` echoed every comment line above it (measured
+  at F). The `set` comes first, so `xtrace` is off before the `shopt`
+  runs.
 - **Measured** on the real tree, every option `SHELLOPTS` can switch on
   (it can only switch options on):
 
@@ -202,7 +216,22 @@ identical to `5a78ea4`, unless it names another place.
 
   `BASHOPTS` (the `shopt` options, read from the environment from bash
   4.1) was measured at F for 16 options: each exit 0, same output on the
-  real tree. It is recorded, not acted on.
+  real tree. That was recorded, not acted on, until the security review
+  measured two that flip the verdict on a planted tree (Git Bash, bash
+  5.3.9, `$RUN/i-fix3-probe.txt`): with a hidden plugin directory `.hid`
+  (a whole agreeing plugin) and its entry `./.hid` on the one-plugin
+  fixture, the gate exits 1 (`marketplace lists 2 plugins, the tree
+  holds 1`; the review's own plant on the real tree, 3 and 2), but under `BASHOPTS=dotglob` the
+  plugin loop's `*/` reads `.hid` and the gate exits 0; and
+  `--RELEASED handoff` is refused as an unknown argument, but under
+  `BASHOPTS=nocasematch` the `case` takes it as `--released` and the
+  gate runs the release form and exits 0. Acted on: line 2 ends
+  `; shopt -u dotglob nocasematch` (both exist in bash 3.2, per the review; macOS CI is the first run of O2 there), and with it
+  each plant exits and prints exactly as without the option (contract
+  O2). Measured with that line: `xtrace` still traces only
+  `+ set +o xtrace +o verbose +o noglob +o keyword`, and `verbose`
+  echoes the `#!` line and the whole of line 2; on the real tree both
+  options leave both forms unchanged (`$RUN/i-sc003.txt`).
 
   Measured at F, round 3, on a copy of the gate with that line at line
   2, both forms, from the repository root (Git Bash, bash 5.3.9 only;
@@ -210,12 +239,14 @@ identical to `5a78ea4`, unless it names another place.
   runs on each job): standard error exactly `+ set +o xtrace +o verbose
   +o noglob +o keyword` for `xtrace`, exactly the `#!` line and that line
   for `verbose` (no CR: `.gitattributes` keeps `*.sh` LF), and nothing
-  for `noglob` and `keyword`; exit and standard output unchanged.
+  for `noglob` and `keyword`; exit and standard output unchanged. (The
+  line then held the `set` alone; with the `shopt` added at review,
+  `verbose` echoes the whole line 2 and `xtrace` is unchanged, measured
+  above.)
 
-  With `set +o xtrace +o verbose +o noglob +o keyword` as the first
-  command: `verbose` still echoes the `#!` line and that line (bash
-  prints a line before running it), and `xtrace` traces that one
-  command; no value appears. FR-006 says so.
+  With line 2 as the first command: `verbose` still echoes the `#!`
+  line and line 2 (bash prints a line before running it), and `xtrace`
+  traces its `set` command alone; no value appears. FR-006 says so.
 - **Limit (FR-007)**: `noexec` and `onecmd` make the gate exit 0
   having printed nothing, and no line of the gate can stop that: none
   runs (a first-line `set +o onecmd` printed nothing). `BASH_ENV` runs a
@@ -284,6 +315,14 @@ identical to `5a78ea4`, unless it names another place.
   In its control, `ok — ok` moves to the must-fail list, the suffix is
   the must-pass case, and `a — b` and `x ##[y` join the must-fail list.
 
+- **Deferred at review (phase I)**: when a test fails, its failure
+  message and bats' `--print-output-on-failure` print `$output` raw, so
+  a planted `##[error]x` or `::error title=x::y` reaches that failing
+  run's public log unmasked. bats prints the output by design, the
+  helpers that echo it predate this feature, and only a failing run is
+  affected. The recorded fix, for a later phase: mask the output in the
+  failure path, and give plants inert command names such as `##[p28x]`.
+
 ## R7 — Nothing else moves
 
 - The walk's awk text is not touched; R3's `##[` mask runs on its output
@@ -296,14 +335,26 @@ identical to `5a78ea4`, unless it names another place.
 - One new test, "the gate follows no link, and keeps its own shell
   options", in this order: N7 (no link needed, so an older gate's first
   red is N7 on every system), N1 in both forms, N2-N4 in the default
-  form only (no link or component check reads anything the form sets:
-  the forward loop's run before anything form-dependent, which N1 shows,
-  and the reverse walk's after a release-form changelog walk the fixture
-  passes), then the `SHELLOPTS` plants (R4) in the default form only
-  (the options line is the gate's first command and reads nothing the
-  form sets; with it removed each option changed both forms alike,
-  measured at T010; quickstart SC-003 runs both forms on the real tree),
-  then N6 (Linux and macOS only), and its `# nolinks:` line through file descriptor 3
+  form, each with one plant also run in the release form (the
+  `.claude-plugin` directory link, the plugin directory link, the
+  linked component `./via/x`), N4 with a broken link as a component
+  too, then the `SHELLOPTS` plants (R4, O1) in the default form only,
+  then the `BASHOPTS` plants (R4, O2), then N6 (Linux and macOS only).
+  The two kinds of check differ. The options line, line 2, runs before
+  any argument is read, and `verbose`'s exact standard error pins both
+  its position (moved lower, it echoes the lines above it) and its whole
+  text, so a condition on the form added to it turns O1 red; and
+  quickstart SC-003 runs both forms on the real tree; so O1 stays
+  default-only. Nothing pins the text of N2-N4's checks: N3's and N4's
+  run after the arguments are parsed, N2's before the argument loop but
+  where `$#` can still be read, so any of them could be made to read the
+  form, and quickstart block 6 runs only N1 in both forms: at review, a
+  `.claude-plugin` check limited to
+  `[ $# -eq 0 ]` and a walk link test limited to `[ -z "$RELEASED" ]`
+  each left the test green while the release form read through the
+  link and exited 0 (measured). One release-form run per clause is what
+  turns each such mutant red (`$RUN/i-mutants.txt`). The new test has
+  its `# nolinks:` line through file descriptor 3
   saying whether this system made links, as L1 does. Every other plant
   goes into an existing test: the `jq` shapes and the 2,000-entry walk
   into the TRAILING test; `##[` and the P0 changes into the P test; K3

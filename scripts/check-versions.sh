@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-set +o xtrace +o verbose +o noglob +o keyword
+set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 # The first command, above everything else here: a caller can switch these
 # options on through SHELLOPTS. Then xtrace printed every value uncut, and
 # verbose the script's text, on standard error, while noglob and keyword
 # made the gate refuse a correct tree (measured). Bash echoes or traces a
 # line before it runs it, so verbose still shows the two lines above and
-# xtrace the one, and no value: placed lower, verbose echoed every line
-# above it. noexec, onecmd and BASH_ENV cannot be stopped from in here:
+# xtrace the set command, and no value: placed lower, verbose echoed every
+# line above it. The shopt comes after the set, so xtrace is off before it
+# runs. A caller sets shopt options through BASHOPTS: dotglob made the
+# plugin loop read a hidden directory, so a marketplace entry the count
+# should refuse passed, and nocasematch made `--RELEASED` the release
+# form (measured). noexec, onecmd and BASH_ENV cannot be stopped from in here:
 # under the first two no line of this file runs, and BASH_ENV runs a file
 # before the first. Only a caller sets them, and a caller who does controls
 # the shell already (specs/027-gate-closes-phase27-deferrals/research.md R4).

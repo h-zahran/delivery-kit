@@ -13,8 +13,9 @@ each JSON file's shape once with `jq`'s own errors discarded, so no `jq`
 line reaches the output and "not JSON", "wrong shape" and "could not be
 read" stay distinct (R2); shows `##[` as `#?[` in every printed value,
 with a probe measuring the runner once in this pull request's CI (R3);
-turns off `xtrace`, `verbose`, `noglob` and `keyword` at its first
-command, and records `noexec`, `onecmd` and `BASH_ENV` as limits (R4);
+turns off `xtrace`, `verbose`, `noglob` and `keyword`, then `dotglob`
+and `nocasematch` (`shopt -u`, added at review), at its first command,
+and records `noexec`, `onecmd` and `BASH_ENV` as limits (R4);
 and normalises a marketplace source with no process (R5). Three test
 helpers are made to check what they claim (R6). The walk does not
 change, so the Phase 26 proof stands (R7). One test is added; the suite
