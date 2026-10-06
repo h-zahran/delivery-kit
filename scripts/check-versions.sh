@@ -264,6 +264,13 @@ source_limit=4096
 # refused, counted from its text before any file test. Without the bound
 # a fork could list a long source many times over and stall the walk.
 component_limit=64
+# The reverse walk reads every marketplace entry, and each costs a read
+# and up to a component_limit walk, so a marketplace of more entries
+# than this is refused at the first entry past it: 2,000 entries
+# alternating between two deep sources took about 36 s on Windows
+# (measured, specs/027-gate-closes-phase27-deferrals/research.md R1). A
+# passing tree lists one entry per plugin directory, far below it.
+entries_limit=256
 
 # Loop over plugin directories rather than naming one. A gate that knows a
 # single plugin's name stops covering the repository the moment a second
@@ -768,6 +775,9 @@ walked=''
 while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
   entries=$((entries + 1))
+  if [ "$entries" -gt "$entries_limit" ]; then
+    die "the marketplace lists more than $entries_limit entries, more than the gate walks"
+  fi
   shown en_s "$en"
   shown es_s "$es"
   [ "${#es}" -le "$source_limit" ] \
