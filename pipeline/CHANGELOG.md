@@ -24,6 +24,12 @@ All notable changes to the `pipeline` plugin.
   for H.5, H.7, I or J from what changed since the phase started, leaves an
   untracked file outside the feature for K, makes no commit when nothing
   changed, and with `--record` makes J's empty record commit, once.
+- **`remainder-commit <feature> <message-file>`** makes K's commit of
+  everything still uncommitted, every path named, never a path under
+  `.delivery-kit/`, and records it as kind `other`; with
+  `--kind constitution` it commits a constitution written by an accepted
+  pre-flight offer as its own commit. Nothing left makes no commit.
+  `--list` shows the files without committing.
 - **`record-branch <feature>`** records every unrecorded commit on the
   branch under its kind, oldest first, and stops on a commit it cannot show.
 - **`guide <feature>`** prints the pull request's review guide. With

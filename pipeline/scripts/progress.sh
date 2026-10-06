@@ -27,7 +27,7 @@ STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -230,22 +230,38 @@ sha_ok() {
 # The entry commit-add writes, defined ONCE and used by both of its jq
 # programs. The duplicate check compares against exactly what the write would
 # append, so the two can never disagree about what "the same entry" means —
-# and that agreement is what makes a re-run after a crash safe.
-# shellcheck disable=SC2016 # a jq program: $sha, $k, $p, $t and $ARGS are jq's
-ENTRY_JQ='def entry: {sha: $sha, kind: $k, piece: $p,
+# and that agreement is what makes a re-run after a crash safe. The files are
+# read from a NUL-separated file ($f), never from jq's arguments: a native
+# Windows jq cannot start with more than 32,767 characters of command line,
+# about 650 paths, so a big commit landed and could never be recorded
+# (measured). NUL, not a line feed: a path from a commit on the branch is
+# not checked for one. The one NUL that ends the list is dropped; any other
+# empty item is an empty path, which the duplicate check refuses.
+# shellcheck disable=SC2016 # a jq program: $sha, $k, $p, $t and $f are jq's
+ENTRY_JQ='def files: $f | split("\u0000")
+  | if length > 0 and .[length-1] == "" then .[0:length-1] else . end;
+def entry: {sha: $sha, kind: $k, piece: $p,
   tasks: ($t | if . == "" then [] else split(",") end),
-  files: $ARGS.positional};'
+  files: files};'
 
 # commit-add records one commit the run made: what it holds, which piece and
 # tasks it covers, and which files it changed. The orchestrator calls it after
 # every commit; piece-next reads what it wrote to know which pieces are done.
+# The files come as arguments, or with --files-from as a NUL-separated file —
+# the form every commit command here uses, so no list is too long.
 #
 # Cheap checks come first, so a bad call never spawns jq. Nothing is printed
 # on stdout, in success or refusal: the orchestrator reads stdout, and a stray
 # line there would be taken for an answer.
 cmd_commit_add() {
-  [ $# -ge 5 ] || die "commit-add needs <feature> <kind> <sha> <piece> <tasks> [<file>...]"
-  feature="$1"; kind="$2"; sha="$3"; piece="$4"; tasks="$5"; shift 5
+  local ff='' id rest
+  feature="${1:-}"; shift || true
+  if [ "${1:-}" = --files-from ]; then
+    [ $# -ge 2 ] || die "commit-add --files-from needs a file"
+    ff="$2"; shift 2
+  fi
+  [ $# -ge 4 ] || die "commit-add needs <feature> [--files-from <file>] <kind> <sha> <piece> <tasks> [<file>...]"
+  kind="$1"; sha="$2"; piece="$3"; tasks="$4"; shift 4
   kind_known "$kind" || die "unknown kind '$kind' (legal:${KINDS% })"
   [ -n "$sha" ] || die "the entry needs a commit id"
   sha_ok "$sha" \
@@ -259,17 +275,36 @@ cmd_commit_add() {
   case "$piece" in *$'\r'*|*$'\n'*|*$'\x1f'*)
     die "the piece name holds a control character (CR, LF or U+001F)" ;;
   esac
-  [ $# -gt 0 ] || [ "$kind" = tests ] \
-    || die "a $kind entry needs the files it changed; only a tests entry may have none"
+  if [ -n "$ff" ]; then
+    [ $# -eq 0 ] || die "commit-add --files-from takes no paths after <tasks>: the list is the file's"
+    [ -f "$ff" ] || die "commit-add --files-from: no file at $ff"
+  else
+    [ $# -gt 0 ] || [ "$kind" = tests ] \
+      || die "a $kind entry needs the files it changed; only a tests entry may have none"
+  fi
   # An empty item is what an unset variable expands to, so it is the shape a
   # broken caller produces; a list that is merely non-empty would hide it.
   case ",$tasks," in *,,*) [ -z "$tasks" ] || die "the task list holds an empty task id: '$tasks'" ;; esac
+  # A task id is T and digits, as piece-next reads it from the tasks file: the
+  # review guide prints the ids in a table cell, so an id is never markup. The
+  # digits are spelled out, as sha_ok's are, for the same locale reason.
+  rest="$tasks,"
+  while [ -n "$tasks" ] && [ -n "$rest" ]; do
+    id="${rest%%,*}"; rest="${rest#*,}"
+    case "$id" in T|[!T]*|T*[!0123456789]*)
+      die "the task list holds task id '$id', which is not T and digits (T001)" ;;
+    esac
+  done
   for f in "$@"; do [ -n "$f" ] || die "the file list holds an empty path"; done
   sf="$(cmd_validate "$feature")"
-  jqargs=(--arg sha "$sha" --arg k "$kind" --arg p "$piece" --arg t "$tasks")
+  if [ -z "$ff" ]; then
+    ff="${sf%/*}/commit-add-files.nul"
+    nul_file "$ff" "$@"
+  fi
+  jqargs=(--arg sha "$sha" --arg k "$kind" --arg p "$piece" --arg t "$tasks" --rawfile f "$ff")
 
-  # One word back: new, same, conflict or legacy. The files travel after
-  # `--args --`, so a path starting with a dash is data and not an option.
+  # One word back: new, same, conflict or legacy — or a refusal of the file
+  # list itself, which only a --files-from list can reach here.
   # Old-style entries are bare strings written before this command existed —
   # an id, or an id and the commit subject — so only their first word is
   # compared, and only when it is long enough to be an id git prints. This
@@ -278,7 +313,9 @@ cmd_commit_add() {
   # A commits value that is not a list is refused, never read as empty: `[]?`
   # would otherwise swallow the type error and answer "new".
   verdict="$(jq -r "${jqargs[@]}" "$ENTRY_JQ"'
-    if ((.commits // []) | type) != "array" then "notlist"
+    if (files | any(. == "")) then "emptypath"
+    elif (files | length) == 0 and $k != "tests" then "nofiles"
+    elif ((.commits // []) | type) != "array" then "notlist"
     else
     [.commits[]? | objects | select(.sha == $sha)] as $mine
     | if ($mine | length) > 0 then
@@ -289,19 +326,21 @@ cmd_commit_add() {
                | ($w | test("^[0-9a-f]{7,40}$")) and ($sha | startswith($w)))
       then "legacy"
       else "new" end
-    end' "$sf" --args -- "$@")"
+    end' "$sf")"
   case "$verdict" in
     new) ;;
+    emptypath) die "the file list holds an empty path" ;;
+    nofiles) die "a $kind entry needs the files it changed; only a tests entry may have none" ;;
     notlist) die "$sf: commits must be a list — not recording into it" ;;
     # A re-run after a crash repeats the call exactly; the work is done.
     same) return 0 ;;
     conflict) die "commit $sha is already recorded with different details in $sf — not recording it twice" ;;
     legacy) die "commit $sha is already recorded by an old-style entry in $sf" ;;
-    *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict, legacy or notlist — nothing written" ;;
+    *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict, legacy, notlist, emptypath or nofiles — nothing written" ;;
   esac
 
   tmp="$sf.tmp"
-  jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" --args -- "$@" > "$tmp" && mv "$tmp" "$sf"
+  jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp" && mv "$tmp" "$sf"
 }
 
 # piece-next names the next piece to build: the first `## Phase <N>:` section
@@ -507,6 +546,19 @@ path_ok() {
   esac
 }
 
+# in_state_dir <path> — the path lies under the state directory, in ANY
+# letter case: where the file system ignores case, .Delivery-Kit/ is the same
+# directory, and git lists it under that spelling (measured: one was
+# committed). nocasematch, not ${p,,}: bash 3.2 has the option and not the
+# expansion. It is set and cleared here, never left on.
+in_state_dir() {
+  local r=1
+  shopt -s nocasematch
+  case "$1" in "$STATE_ROOT"/*) r=0 ;; esac
+  shopt -u nocasematch
+  return "$r"
+}
+
 # status_to <file> [<dir>] — the records `git status --porcelain=v1 -z
 # --untracked-files=all --no-renames` lists, each a two-letter status, a
 # space and a path, NUL-terminated.
@@ -546,11 +598,17 @@ repo_rel() {
 }
 
 # feature_bounds <state file> — what counts as inside the feature: ROOTS
-# (config.codeRoots, one "r:<root>" line each, so an empty root survives),
-# SPEC_DIR (the directory artifacts.spec sits in) and TASKS_REL.
+# (config.codeRoots, one "r:<root>" line each, so an empty root survives) and
+# ROOT_LIST (each root stripped of a leading `./` and a trailing `/`, parsed
+# once here, never once a path), SPEC_DIR (the directory artifacts.spec sits
+# in) and TASKS_REL.
 feature_bounds() {
-  local spec tf
+  local spec tf r
   ROOTS="$(jqs '.config.codeRoots? | if type == "array" then (.[] | strings | "r:" + .) elif type == "string" then "r:" + . else empty end' "$1")"
+  ROOT_LIST=()
+  while IFS= read -r r; do
+    case "$r" in r:*) r="${r#r:}"; r="${r#./}"; ROOT_LIST+=("${r%/}") ;; esac
+  done < <(printf '%s\n' "$ROOTS")
   spec="$(jqs '(.artifacts.spec? // .artifacts.tasks? // "") | strings' "$1")"
   SPEC_DIR=''
   if [ -n "$spec" ] && [ -e "$spec" ]; then
@@ -571,13 +629,60 @@ inside_feature() {
   if [ -n "$SPEC_DIR" ]; then
     case "$p" in "$SPEC_DIR"*) return 0 ;; esac
   fi
-  while IFS= read -r r; do
-    case "$r" in r:*) ;; *) continue ;; esac
-    r="${r#r:}"; r="${r#./}"; r="${r%/}"
+  for r in ${ROOT_LIST[@]+"${ROOT_LIST[@]}"}; do
     if [ -z "$r" ] || [ "$r" = . ] || [ "$p" = "$r" ]; then return 0; fi
     case "$p" in "$r"/*) return 0 ;; esac
-  done < <(printf '%s\n' "$ROOTS")
+  done
   return 1
+}
+
+# The two files a pre-flight offer may write. An accepted offer is recorded as
+# gates.<name> = {accepted: true, hash: <git hash-object of the file it
+# wrote>}; anything else — a declined offer, a string, "true" written as a
+# string — is no accepted offer.
+CONSTITUTION=".specify/memory/constitution.md"
+offer_gate() {
+  case "$1" in
+    "$CONSTITUTION") printf 'constitution' ;;
+    .gitignore) printf 'gitignore' ;;
+    *) return 1 ;;
+  esac
+}
+offer_hash() {
+  # shellcheck disable=SC2016 # a jq program: $g is jq's
+  jqs --arg g "$1" '.gates[$g]? | if type == "object" and .accepted == true and (.hash | type) == "string" then .hash else "" end' "$sf"
+}
+offer_accepted() { [ -n "$(offer_hash "$1")" ]; }
+
+# offer_matches <path> [<commit>] — the change to <path> is exactly what its
+# accepted offer wrote: the file, as <commit> holds it or as it stands now,
+# hashes to the recorded hash. A file that is gone matches nothing.
+offer_matches() {
+  local g want h
+  g="$(offer_gate "$1")" || return 1
+  want="$(offer_hash "$g")"
+  [ -n "$want" ] || return 1
+  if [ -n "${2:-}" ]; then
+    h="$(git rev-parse --verify --quiet "$2:$1" 2>/dev/null)" || return 1
+  else
+    [ -f "$1" ] || return 1
+    h="$(git hash-object -- "$1" 2>/dev/null)" || return 1
+  fi
+  [ "$h" = "$want" ]
+}
+
+# mark_of <path> [<commit>] — MARK: `-` inside the feature or `!` outside it,
+# as K reads it. A path under the state directory is outside. A change to the
+# constitution or .gitignore is inside only when it is exactly what an
+# accepted pre-flight offer wrote, wherever codeRoots reach. Sets a variable
+# rather than printing through `$( )`, which cost a process a path.
+mark_of() {
+  if in_state_dir "$1"; then MARK='!'; return 0; fi
+  if offer_gate "$1" > /dev/null; then
+    if offer_matches "$1" "${2:-}"; then MARK='-'; else MARK='!'; fi
+    return 0
+  fi
+  if inside_feature "$1"; then MARK='-'; else MARK='!'; fi
 }
 
 # A piece's task ids, and the ones not yet marked [X], walked exactly as
@@ -679,6 +784,29 @@ next_piece() {
   [ -n "$pn" ] || { HEADING=''; IDS=''; }
 }
 
+# built_or_die <commit> <heading> — a `Piece:` line read from a commit on the
+# branch is recorded only for a section of the tasks file whose every task is
+# marked [X]: the rule piece-commit holds its own commits to. A message is
+# data; without this a hand commit naming a piece marked it done, with its
+# tasks still open (measured). Sets SEC_IDS.
+built_or_die() {
+  section_of "$sf" "$2" \
+    || die "commit $1 carries 'Piece: $2', which is not a section of the tasks file: not recorded, and this stops the run"
+  [ -z "$SEC_OPEN" ] \
+    || die "commit $1 carries 'Piece: $2', but task(s) $SEC_OPEN not marked [X] in the tasks file: not recorded, and this stops the run"
+}
+
+# h5_piece_or_die <commit> <heading> — a `Late: H.5` commit's `Piece:` line
+# must also be the piece piece-next names, as converge's own commit is.
+h5_piece_or_die() {
+  built_or_die "$1" "$2"
+  local ids="$SEC_IDS"
+  next_piece "$feature"
+  [ "$2" = "$HEADING" ] \
+    || die "commit $1 carries 'Piece: $2', which is not the piece piece-next names ('$HEADING'): not recorded, and this stops the run"
+  SEC_IDS="$ids"
+}
+
 # recover_piece — a commit in <base>..HEAD that no entry records and that
 # carries `Piece: <HEADING>` as a whole line was made before a crash: record
 # it from that commit (kind converge when it also carries `Late: H.5`) and
@@ -689,10 +817,11 @@ recover_piece() {
   for c in $list; do
     msg="$(git log -1 --format=%B "$c")"
     has_line "$msg" "Piece: $HEADING" || continue
+    built_or_die "$c" "$HEADING"
     kind=piece
     if has_line "$msg" 'Late: H.5'; then kind=converge; fi
     commit_files "$c"
-    ( cmd_commit_add "$feature" "$kind" "$c" "$HEADING" "$IDS" ${CF[@]+"${CF[@]}"} )
+    ( cmd_commit_add "$feature" --files-from "$RD/diff-tree.nul" "$kind" "$c" "$HEADING" "$IDS" )
     warn "the piece '$HEADING' is already committed in $c, which no entry recorded: recorded it from that commit as kind $kind — it is not built or committed again"
     printf '%s\n' "$c"
     return 0
@@ -710,12 +839,12 @@ recover_late() {
     has_line "$msg" "Late: $phase" || continue
     h=''; i=''
     if [ "$phase" = H.5 ] && h="$(piece_of "$msg")"; then
-      if section_of "$sf" "$h"; then i="$SEC_IDS"; fi
+      h5_piece_or_die "$c" "$h"; i="$SEC_IDS"
     else
       h=''
     fi
     commit_files "$c"
-    ( cmd_commit_add "$feature" "$kind" "$c" "$h" "$i" ${CF[@]+"${CF[@]}"} )
+    ( cmd_commit_add "$feature" --files-from "$RD/diff-tree.nul" "$kind" "$c" "$h" "$i" )
     warn "phase $phase already committed $c, which no entry recorded: recorded it from that commit as kind $kind — it is not made again"
     printf '%s\n' "$c"
     return 0
@@ -735,12 +864,12 @@ piece_paths() {
   while IFS= read -r -d '' rec; do
     p="${rec:3}"
     path_ok "$p"
-    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    if in_state_dir "$p"; then continue; fi
     if has_line "$before" "$p"; then continue; fi
     if [ "$p" = "$tf" ]; then have=1; fi
     PP+=("$p")
   done < "$RD/piece-after.nul"
-  case "$tf" in "$STATE_ROOT"/*) have=1 ;; esac
+  if in_state_dir "$tf"; then have=1; fi
   if [ "$have" -eq 0 ]; then PP+=("$tf"); fi
 }
 
@@ -753,28 +882,74 @@ hash_of() {
   fi
 }
 
+# hash_paths — HH: a hash for each path in HP, in order, as hash_of gives it:
+# `git hash-object`, `deleted` for a path that is gone, or `unhashable` (a
+# directory, a dangling link). ONE git process hashes them all: a process a
+# path cost about 0.1 s a path on Windows, 104 s for 1,000 (measured). The
+# list is one path a line, safe because path_ok has refused CR and LF; a path
+# starting with a double quote is hashed alone, because --stdin-paths would
+# unquote it. Should the one process fail, each path is hashed alone, as
+# before.
+hash_paths() {
+  local i=0 n="${#HP[@]}" p h
+  local -a want
+  HH=(); want=()
+  while [ "$i" -lt "$n" ]; do
+    p="${HP[$i]}"
+    if [ -d "$p" ] || { [ -L "$p" ] && [ ! -e "$p" ]; }; then HH[i]=unhashable
+    elif [ ! -e "$p" ]; then HH[i]=deleted
+    else
+      case "$p" in '"'*) HH[i]="$(hash_of "$p")" ;; *) HH[i]=''; want+=("$i") ;; esac
+    fi
+    i=$((i + 1))
+  done
+  [ "${#want[@]}" -gt 0 ] || return 0
+  for i in "${want[@]}"; do printf '%s\n' "${HP[$i]}"; done > "$RD/hash-in.txt"
+  local -a got
+  got=()
+  if git hash-object --stdin-paths < "$RD/hash-in.txt" > "$RD/hash-out.txt" 2>/dev/null; then
+    while IFS= read -r h; do got+=("${h%$'\r'}"); done < "$RD/hash-out.txt"
+  fi
+  if [ "${#got[@]}" -eq "${#want[@]}" ]; then
+    n=0
+    for i in "${want[@]}"; do HH[i]="${got[$n]}"; n=$((n + 1)); done
+  else
+    for i in "${want[@]}"; do HH[i]="$(hash_of "${HP[$i]}")"; done
+  fi
+}
+
 # late_paths <state file> — LP: the paths git status lists now that are absent
 # from measurements.lateBefore or whose content changed since it was saved,
 # less any untracked path outside the feature, which stays for K, and never
 # one under the state directory.
 late_paths() {
-  local map rec st p h
+  local map rec p i=0 n
+  local -a st
   map="$(jqs '.measurements.lateBefore.paths[]? | objects | "\(.hash) \(.path)"' "$1")"
   feature_bounds "$1"
   status_to "$RD/late-after.nul"
-  LP=()
+  HP=(); st=()
   while IFS= read -r -d '' rec; do
-    st="${rec:0:2}"; p="${rec:3}"
+    p="${rec:3}"
     path_ok "$p"
-    case "$p" in "$STATE_ROOT"/*) continue ;; esac
-    h="$(hash_of "$p")"
-    if has_line "$map" "$h $p"; then continue; fi
-    if [ "$st" = '??' ] && ! inside_feature "$p"; then
-      warn "left uncommitted for K (untracked, outside codeRoots, the spec directory and tasks.md): $p"
-      continue
-    fi
-    LP+=("$p")
+    if in_state_dir "$p"; then continue; fi
+    HP+=("$p"); st+=("${rec:0:2}")
   done < "$RD/late-after.nul"
+  LP=()
+  n="${#HP[@]}"
+  [ "$n" -gt 0 ] || return 0
+  hash_paths
+  while [ "$i" -lt "$n" ]; do
+    p="${HP[$i]}"
+    if has_line "$map" "${HH[$i]} $p"; then
+      :
+    elif [ "${st[$i]}" = '??' ] && ! inside_feature "$p"; then
+      warn "left uncommitted for K (untracked, outside codeRoots, the spec directory and tasks.md): $p"
+    else
+      LP+=("$p")
+    fi
+    i=$((i + 1))
+  done
 }
 
 # --- snapshot -----------------------------------------------------------------
@@ -805,11 +980,10 @@ cmd_snapshot() {
         return 0
       fi
       status_to "$RD/piece-before.nul"
-      : > "$RD/piece-before.txt"
       while IFS= read -r -d '' rec; do
         p="${rec:3}"; path_ok "$p"
-        printf '%s\n' "$p" >> "$RD/piece-before.txt"; n=$((n + 1))
-      done < "$RD/piece-before.nul"
+        printf '%s\n' "$p"; n=$((n + 1))
+      done < "$RD/piece-before.nul" > "$RD/piece-before.txt"
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
       state_write "$sf" '.measurements.pieceBefore = {piece: $h, paths: ($p | split("\n") | map(select(length > 0)))}' \
         --arg h "$HEADING" --rawfile p "$RD/piece-before.txt"
@@ -817,9 +991,14 @@ cmd_snapshot() {
       ;;
     late)
       phase="${3:-}"; fresh="${4:-}"
-      kind_of_phase "$phase" >/dev/null || die "snapshot late needs a late phase: H.5, H.7, I or J (got '$phase')"
+      kind="$(kind_of_phase "$phase")" || die "snapshot late needs a late phase: H.5, H.7, I or J (got '$phase')"
       case "$fresh" in ''|--fresh) ;; *) die "unknown option '$fresh' (only --fresh)" ;; esac
       [ $# -le 4 ] || die "usage: snapshot <feature> late <phase> [--fresh]"
+      commits_ok "$sf"
+      base="$(base_of "$sf")"
+      # A re-entered late phase finds its own commit first: one made before a
+      # crash is recorded from that commit, its id printed, never made again.
+      if recover_late; then return 0; fi
       if [ -z "$fresh" ] && [ "$(jqs '.measurements.lateBefore.phase? // ""' "$sf")" = "$phase" ]; then
         warn "measurements.lateBefore already names $phase: the saved list stands"
         return 0
@@ -830,12 +1009,21 @@ cmd_snapshot() {
         skip="$(jqs --arg p "$phase" '.gates[$p].failure.paths? // [] | .[]? | strings' "$sf")"
       fi
       status_to "$RD/late-before.nul"
-      : > "$RD/late-before.txt"
+      HP=()
       while IFS= read -r -d '' rec; do
         p="${rec:3}"; path_ok "$p"
         if has_line "$skip" "$p"; then continue; fi
-        printf '%s %s\n' "$(hash_of "$p")" "$p" >> "$RD/late-before.txt"; n=$((n + 1))
+        HP+=("$p")
       done < "$RD/late-before.nul"
+      n="${#HP[@]}"
+      : > "$RD/late-before.txt"
+      if [ "$n" -gt 0 ]; then
+        hash_paths
+        local i=0
+        while [ "$i" -lt "$n" ]; do
+          printf '%s %s\n' "${HH[$i]}" "${HP[$i]}"; i=$((i + 1))
+        done > "$RD/late-before.txt"
+      fi
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
       state_write "$sf" '.measurements.lateBefore = {phase: $ph, paths: [$p | split("\n")[] | select(length > 0) | capture("^(?<hash>[^ ]+) (?<path>.*)$")]}' \
         --arg ph "$phase" --rawfile p "$RD/late-before.txt"
@@ -869,7 +1057,7 @@ cmd_spec_commit() {
     msg="$(git log -1 --format=%B "$c")"
     [ "${msg%%$'\n'*}" = "docs(spec): $feature" ] || continue
     commit_files "$c"
-    ( cmd_commit_add "$feature" spec "$c" "" "" ${CF[@]+"${CF[@]}"} )
+    ( cmd_commit_add "$feature" --files-from "$RD/diff-tree.nul" spec "$c" "" "" )
     warn "the spec commit $c is on the branch but was not recorded: recorded it from that commit — it is not made again"
     printf '%s\n' "$c"
     return 0
@@ -894,7 +1082,7 @@ cmd_spec_commit() {
   SP=()
   while IFS= read -r -d '' rec; do
     p="${rec:3}"; path_ok "$p"
-    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    if in_state_dir "$p"; then continue; fi
     SP+=("$p")
   done < "$RD/spec-status.nul"
   if [ "${#SP[@]}" -eq 0 ]; then
@@ -907,7 +1095,7 @@ cmd_spec_commit() {
   nul_file "$RD/spec-paths.nul" "${SP[@]}"
   printf 'docs(spec): %s\n' "$feature" > "$RD/spec-msg.txt"
   commit_named "$RD/spec-paths.nul" "$RD/spec-msg.txt"
-  ( cmd_commit_add "$feature" spec "$SHA" "" "" "${SP[@]}" ) \
+  ( cmd_commit_add "$feature" --files-from "$RD/spec-paths.nul" spec "$SHA" "" "" ) \
     || die "commit $SHA is made but not recorded — run record-branch $feature"
   warn "committed the spec directory as $SHA: ${#SP[@]} paths"
   printf '%s\n' "$SHA"
@@ -945,7 +1133,7 @@ cmd_piece_commit() {
   nul_file "$RD/piece-paths.nul" ${PP[@]+"${PP[@]}"}
   printf '%s\n\nTasks: %s\nPiece: %s\n' "$MSG" "$IDS" "$HEADING" > "$RD/piece-msg.txt"
   commit_named "$RD/piece-paths.nul" "$RD/piece-msg.txt"
-  ( cmd_commit_add "$feature" piece "$SHA" "$HEADING" "$IDS" "${PP[@]}" ) \
+  ( cmd_commit_add "$feature" --files-from "$RD/piece-paths.nul" piece "$SHA" "$HEADING" "$IDS" ) \
     || die "commit $SHA is made but not recorded — run record-branch $feature"
   warn "committed the piece '$HEADING' as $SHA: ${#PP[@]} paths"
   printf '%s\n' "$SHA"
@@ -981,6 +1169,14 @@ cmd_late_commit() {
     list="$(git rev-list --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
     for c in $list; do
       if has_line "$(git log -1 --format=%B "$c")" 'Late: J'; then
+        # recover_late has recorded any such commit by now: a re-entered J
+        # finds its record made, and answers with its id, as spec-commit does.
+        # shellcheck disable=SC2016 # a jq program: $s is jq's
+        if jq -e --arg s "$c" 'any(.commits[]?; type == "object" and .sha == $s)' "$sf" >/dev/null; then
+          warn "J's record is already made and recorded as $c: it is not made again"
+          printf '%s\n' "$c"
+          return 0
+        fi
         die "commit $c already carries 'Late: J': the record reaches a commit exactly once"
       fi
     done
@@ -1023,7 +1219,7 @@ cmd_late_commit() {
     printf 'Late: %s\n' "$phase"
   } > "$RD/late-msg.txt"
   commit_named "$RD/late-paths.nul" "$RD/late-msg.txt"
-  ( cmd_commit_add "$feature" "$kind" "$SHA" "$HEADING" "$IDS" "${LP[@]}" ) \
+  ( cmd_commit_add "$feature" --files-from "$RD/late-paths.nul" "$kind" "$SHA" "$HEADING" "$IDS" ) \
     || die "commit $SHA is made but not recorded — run record-branch $feature"
   warn "committed $phase as $SHA (kind $kind): ${#LP[@]} paths"
   printf '%s\n' "$SHA"
@@ -1060,12 +1256,13 @@ cmd_record_branch() {
     ids=''
     if [ "$late" = H.5 ]; then
       k=converge
-      if [ "$hasp" -eq 1 ] && section_of "$sf" "$h"; then ids="$SEC_IDS"; fi
+      if [ "$hasp" -eq 1 ]; then h5_piece_or_die "$c" "$h"; ids="$SEC_IDS"; fi
     elif [ "$hasp" -eq 1 ]; then
       next_piece "$feature"
       if [ "$HEADING" != "$h" ]; then
         die "commit $c carries 'Piece: $h', which is not the piece piece-next names ('$HEADING'): not recorded, and this stops the run ($n recorded before it)"
       fi
+      built_or_die "$c" "$h"
       k=piece; ids="$IDS"
     elif [ -n "$late" ]; then
       k="$(kind_of_phase "$late")"; h=''
@@ -1074,7 +1271,7 @@ cmd_record_branch() {
     else
       k=other; h=''
     fi
-    ( cmd_commit_add "$feature" "$k" "$c" "$h" "$ids" ${CF[@]+"${CF[@]}"} )
+    ( cmd_commit_add "$feature" --files-from "$RD/diff-tree.nul" "$k" "$c" "$h" "$ids" )
     out="$out$c"$'\n'; n=$((n + 1))
     warn "recorded $c as kind $k"
   done
@@ -1086,7 +1283,11 @@ cmd_record_branch() {
 # first, joined by its id to its commits entry. A piece name or path is a code
 # span fenced by one more backtick than its longest run of backticks, with a
 # space inside the fence when the value begins or ends with one; `|` is `\|`.
-# shellcheck disable=SC2016 # a jq program: $mode, $e, $v and $ARGS are jq's
+# The branch's ids arrive as a file ($b, one a line), never as arguments: past
+# about 780 commits they would pass a native Windows jq's command-line limit.
+# The first line is "ok", then each row's size in bytes, newline included,
+# so --parts splits without a process a row.
+# shellcheck disable=SC2016 # a jq program: $mode, $b, $e, $v and $lines are jq's
 GUIDE_JQ='
   def span: . as $v
     | ("`" * (([$v | scan("`+") | length] | max // 0) + 1)) as $f
@@ -1094,20 +1295,22 @@ GUIDE_JQ='
     | $f + $pad + ($v | gsub("\\|"; "\\|")) + $pad + $f;
   def cr: tostring | test("[\r\n]");
   [.commits[]? | objects] as $all
-  | [$ARGS.positional[] as $s | {s: $s, e: ([$all[] | select(.sha == $s)] | first)}] as $rows
+  | [$b | split("\n")[] | rtrimstr("\r") | select(length > 0) as $s
+     | {s: $s, e: ([$all[] | select(.sha == $s)] | first)}] as $rows
   | ([$rows[] | select(.e == null)] | first) as $miss
   | ([$rows[] | select(.e != null and ([.e.piece?, .e.tasks[]?, .e.files[]?] | map(select(. != null)) | any(cr)))] | first) as $bad
   | if $miss != null then "missing\u001f" + $miss.s
     elif $bad != null then "crlf\u001f" + $bad.s
-    else "ok",
-      ($rows[] | .e as $e
+    else
+      [$rows[] | .e as $e
        | "| " + .s[0:7] + " | " + ($e.kind | tostring) + " | "
          + (if (($e.piece // "") | tostring) == "" then "" else ($e.piece | tostring | span) end) + " | "
          + (($e.tasks // []) | map(tostring) | join(", ") | gsub("\\|"; "\\|")) + " | "
          + (if $mode == "counts"
             then (($e.files // []) | length) as $n | "\($n) file" + (if $n == 1 then "" else "s" end)
             else (($e.files // []) | map(tostring | span) | join("<br>")) end)
-         + " |")
+         + " |"] as $lines
+      | ("ok\u001f" + ([$lines[] | utf8bytelength + 1 | tostring] | join(" "))), $lines[]
     end'
 GUIDE_HEAD='Read this branch commit by commit, top to bottom: each row is one commit, oldest first.'
 GUIDE_COLS='| Commit | Kind | Piece | Task IDs | Files |
@@ -1116,16 +1319,17 @@ GUIDE_COLS='| Commit | Kind | Piece | Task IDs | Files |
 # kept to this many BYTES, which can only be fewer characters.
 GUIDE_PART_MAX=65000
 
-# guide_rows <mode> — ROWS: the table's rows, one per line.
+# guide_rows <mode> — ROWS: the table's rows, one per line; SIZES: each row's
+# size in bytes, newline included, space-separated.
 guide_rows() {
-  local r
-  # shellcheck disable=SC2086 # the commit ids are split into words on purpose
-  r="$(jqs --arg mode "$1" "$GUIDE_JQ" "$sf" --args -- $BRANCH)"
-  case "${r%%$'\n'*}" in
-    ok) ;;
-    missing*) die "commit ${r#*$'\x1f'} in $base..HEAD is not recorded: run record-branch first" ;;
-    crlf*) die "the entry for commit ${r#*$'\x1f'} holds a carriage return or a line feed in its piece name, task ids or a path: it would break the table — this stops L" ;;
-    *) die "guide: the table answered '${r%%$'\n'*}', which is none of ok, missing or crlf" ;;
+  local r first
+  r="$(jqs --arg mode "$1" --rawfile b "$RD/guide-ids.txt" "$GUIDE_JQ" "$sf")"
+  first="${r%%$'\n'*}"
+  case "$first" in
+    ok$'\x1f'*) SIZES="${first#*$'\x1f'}" ;;
+    missing$'\x1f'*) die "commit ${first#*$'\x1f'} in $base..HEAD is not recorded: run record-branch first" ;;
+    crlf$'\x1f'*) die "the entry for commit ${first#*$'\x1f'} holds a carriage return or a line feed in its piece name, task ids or a path: it would break the table — this stops L" ;;
+    *) die "guide: the table answered '$first', which is none of ok, missing or crlf" ;;
   esac
   case "$r" in *$'\n'*) ROWS="${r#*$'\n'}" ;; *) ROWS='' ;; esac
 }
@@ -1151,14 +1355,16 @@ cmd_guide() {
   need_git_top
   RD="$(run_dir "$feature")"
   commits_ok "$sf"
-  base="$(base_of "$sf" "$base_arg")"
+  # Before the base is read: a run that started on an older pipeline may
+  # record none, and it builds no guide, says so, and carries on.
   if jq -e 'any(.commits[]?; type == "string")' "$sf" >/dev/null; then
     warn "commits holds an old-style string entry: this run started on an older pipeline, and no guide is built"
     return 0
   fi
-  BRANCH="$(git rev-list --reverse --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
-  # shellcheck disable=SC2086,SC2016 # ids split into words on purpose; a jq program
-  stale="$(jqs '[.commits[] | objects | .sha | strings] - $ARGS.positional | join(" ")' "$sf" --args -- $BRANCH)"
+  base="$(base_of "$sf" "$base_arg")"
+  git rev-list --reverse --first-parent "$base..HEAD" > "$RD/guide-ids.txt" || die "git rev-list could not read $base..HEAD"
+  # shellcheck disable=SC2016 # a jq program: $b is jq's
+  stale="$(jqs --rawfile b "$RD/guide-ids.txt" '[.commits[] | objects | .sha | strings] - ($b | split("\n") | map(rtrimstr("\r"))) | join(" ")' "$sf")"
   [ -z "$stale" ] || die "commits records $stale, which is not in $base..HEAD: the guide never shows a row for a commit that is not on the branch — this stops the run"
   u="$(unrecorded "$sf" "$base")"
   [ -z "$u" ] || die "commit(s) $u in $base..HEAD are not recorded: run record-branch first"
@@ -1172,15 +1378,17 @@ cmd_guide() {
   mkdir -p "$pdir"
   rm -f "$pdir"/guide-*.md
   guide_rows full
+  # The block is ASCII, so its length in characters is its size in bytes;
+  # each row's size in bytes came from jq.
   block="$(printf '%s\n\n%s\n' "$GUIDE_HEAD" "$GUIDE_COLS")"$'\n'
-  part=1; size="$(printf '%s' "$block" | wc -c)"; size=$((size + 0))
+  part=1; size="${#block}"
   printf '%s' "$block" > "$pdir/guide-$part.md"
   if [ -n "$ROWS" ]; then
     while IFS= read -r row; do
-      b="$(printf '%s\n' "$row" | wc -c)"; b=$((b + 0))
+      b="${SIZES%% *}"; SIZES="${SIZES#* }"
       if [ $((size + b)) -gt "$GUIDE_PART_MAX" ]; then
         [ "$size" -gt "${#block}" ] || die "one row of the guide alone passes $GUIDE_PART_MAX bytes; it cannot be split without dropping files: ${row%% | *} |"
-        part=$((part + 1)); size="$(printf '%s' "$block" | wc -c)"; size=$((size + 0))
+        part=$((part + 1)); size="${#block}"
         printf '%s' "$block" > "$pdir/guide-$part.md"
       fi
       printf '%s\n' "$row" >> "$pdir/guide-$part.md"; size=$((size + b))
@@ -1243,7 +1451,7 @@ cmd_commit_list() {
     case "$r" in r:*) roots="$roots${roots:+, }'${r#r:}'" ;; esac
   done < <(printf '%s\n' "$ROOTS")
   [ -n "$roots" ] || roots="(none: every path outside the spec directory and tasks.md counts as outside)"
-  out="codeRoots: $roots"$'\n'"Paths are marked '-' inside the feature (codeRoots, the spec directory, tasks.md) or '!' outside it."$'\n'
+  out="codeRoots: $roots"$'\n'"Paths are marked '-' inside the feature (codeRoots, the spec directory, tasks.md) or '!' outside it; .gitignore and the constitution are inside only as an accepted pre-flight offer wrote them."$'\n'
   list="$(git rev-list --reverse --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
   for c in $list; do
     n=$((n + 1))
@@ -1258,7 +1466,8 @@ cmd_commit_list() {
     if [ "${#CF[@]}" -eq 0 ]; then out="$out    (none: J's record of a waved-through red)"$'\n'; fi
     for f in ${CF[@]+"${CF[@]}"}; do
       path_ok "$f"
-      out="$out    $(path_mark "$f") $f"$'\n'
+      mark_of "$f" "$c"
+      out="$out    $MARK $f"$'\n'
     done
   done
   out="$out"$'\n'"uncommitted:"$'\n'
@@ -1266,15 +1475,70 @@ cmd_commit_list() {
   local m=0
   while IFS= read -r -d '' rec; do
     p="${rec:3}"; path_ok "$p"
-    case "$p" in "$STATE_ROOT"/*) continue ;; esac
-    out="$out  $(path_mark "$p") $p"$'\n'; m=$((m + 1))
+    if in_state_dir "$p"; then continue; fi
+    mark_of "$p"
+    out="$out  $MARK $p"$'\n'; m=$((m + 1))
   done < "$RD/k-status.nul"
   if [ "$m" -eq 0 ]; then out="$out  (none)"$'\n'; fi
   printf '%s' "$out"
 }
-path_mark() {
-  case "$1" in "$STATE_ROOT"/*) printf '!'; return 0 ;; esac
-  if inside_feature "$1"; then printf -- '-'; else printf '!'; fi
+
+# --- remainder-commit -----------------------------------------------------------
+# remainder-commit <feature> <message-file> [--kind other|constitution] — K's
+# commits. Kind other, the default: every path git status lists, never one
+# under the state directory, less the constitution when gates records its
+# pre-flight offer accepted, for that takes its own commit. Kind
+# constitution: that file alone, and only when the offer is recorded
+# accepted. The message is the file's text, checked as the other commands
+# check theirs. Every path is named, through the same NUL path file, and a
+# remainder left empty makes no commit and says so: a commit from an empty
+# path file would take whatever is already staged. Records the commit under
+# its kind and prints its id.
+# remainder-commit <feature> --list [--kind ...] — prints the paths, commits
+# nothing.
+cmd_remainder_commit() {
+  feature="$1"; local mf="${2:-}" k=other rec p accepted=0
+  case $# in
+    2) ;;
+    4) [ "$3" = --kind ] || die "unknown option '$3' (only --kind)"; k="$4" ;;
+    *) die "usage: remainder-commit <feature> <message-file|--list> [--kind other|constitution]" ;;
+  esac
+  [ -n "$mf" ] || die "usage: remainder-commit <feature> <message-file|--list> [--kind other|constitution]"
+  case "$k" in other|constitution) ;; *) die "unknown kind '$k': remainder-commit makes kind other or constitution" ;; esac
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  if [ "$mf" != --list ]; then msg_body "$mf"; fi
+  if offer_accepted constitution; then accepted=1; fi
+  if [ "$k" = constitution ] && [ "$accepted" -eq 0 ]; then
+    die "gates.constitution records no accepted pre-flight offer ({accepted: true, hash: ...}): there is no constitution commit to make"
+  fi
+  status_to "$RD/rest-status.nul"
+  RP=()
+  while IFS= read -r -d '' rec; do
+    p="${rec:3}"; path_ok "$p"
+    if in_state_dir "$p"; then continue; fi
+    if [ "$p" = "$CONSTITUTION" ]; then
+      if [ "$k" = constitution ] || [ "$accepted" -eq 0 ]; then RP+=("$p"); fi
+    elif [ "$k" = other ]; then
+      RP+=("$p")
+    fi
+  done < "$RD/rest-status.nul"
+  if [ "$mf" = --list ]; then
+    if [ "${#RP[@]}" -gt 0 ]; then printf '%s\n' "${RP[@]}"; fi
+    return 0
+  fi
+  if [ "${#RP[@]}" -eq 0 ]; then
+    warn "nothing is left uncommitted for a kind $k commit: no commit is made"
+    return 0
+  fi
+  nul_file "$RD/rest-paths.nul" "${RP[@]}"
+  commit_named "$RD/rest-paths.nul" "$mf"
+  ( cmd_commit_add "$feature" --files-from "$RD/rest-paths.nul" "$k" "$SHA" "" "" ) \
+    || die "commit $SHA is made but not recorded — record it with commit-add $feature --files-from $RD/rest-paths.nul $k $SHA '' ''"
+  warn "committed the kind $k remainder as $SHA: ${#RP[@]} paths"
+  printf '%s\n' "$SHA"
 }
 
 # --- metrics ------------------------------------------------------------------
@@ -1383,6 +1647,7 @@ case "$cmd" in
   spec-commit)   shift 2; cmd_spec_commit "$feature_arg" "$@" ;;
   piece-commit)  shift 2; cmd_piece_commit "$feature_arg" "$@" ;;
   late-commit)   shift 2; cmd_late_commit "$feature_arg" "$@" ;;
+  remainder-commit) shift 2; cmd_remainder_commit "$feature_arg" "$@" ;;
   record-branch) shift 2; cmd_record_branch "$feature_arg" "$@" ;;
   guide)         shift 2; cmd_guide "$feature_arg" "$@" ;;
   commit-list)   shift 2; cmd_commit_list "$feature_arg" "$@" ;;
