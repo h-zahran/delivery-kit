@@ -142,3 +142,7 @@ the reads through a link, Phase 2 the lines no one masked and the
 options, Phase 3 the cost and the tests' own blind spots. The MVP is
 Phase 1, because it is the only one that stops the gate reading a file
 outside the checkout.
+
+## Phase 5: Convergence
+
+- [X] T011 Amend contract O1 in `specs/027-gate-closes-phase27-deferrals/contracts/release-gate.md` to say the house test runs the default form and quickstart SC-003 runs both forms, per contracts/release-gate.md O1 (partial)
