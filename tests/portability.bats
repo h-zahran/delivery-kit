@@ -2565,7 +2565,9 @@ gate_safe() {
 # every line that assigns one is checked too: it may be set to '' (the
 # declarations), or be pr_s, which the report line builds from p_s. Any
 # other such assignment prints as `<line>: <name>=`, and so does a name
-# ending `_s` that `printf -v`, `read` or `for` sets. A `$(` in a scanned
+# ending `_s` that `printf -v`, `norm_source`, `read` or `for` sets.
+# (norm_source sets the variable it is named, as printf -v does, and
+# masks nothing.) A `$(` in a scanned
 # line that is not `$((` prints as `<line>: $(`: a command substitution
 # prints what it runs, raw. A `die` line ending in `\` is continued onto
 # the next line, as the report line is. Comments are skipped.
@@ -2598,6 +2600,13 @@ die_raw() {
         n = substr(t, RSTART, RLENGTH)
         t = substr(t, RSTART + RLENGTH)
         sub(/^.printf[ \t]+-v[ \t]+/, "", n)
+        if (n ~ /_s$/) print NR ": " n "="
+      }
+      t = " " $0
+      while (match(t, /[^A-Za-z0-9_]norm_source[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        n = substr(t, RSTART, RLENGTH)
+        t = substr(t, RSTART + RLENGTH)
+        sub(/^.norm_source[ \t]+/, "", n)
         if (n ~ /_s$/) print NR ": " n "="
       }
       t = " " $0
@@ -2791,8 +2800,10 @@ gate_forged() {
   # X1: `##[`, which a workflow log may read as a command, is shown as
   # `#?[` wherever a printed value holds it: a plugin.json version; a
   # first heading above the release; a changelog line the walk refuses,
-  # whose text the walk prints, under the C locale and then with LANG set
-  # to a UTF-8 locale and LC_ALL unset, as runners set them.
+  # whose text the walk prints, with LANG set to a UTF-8 locale and
+  # LC_ALL unset, as runners set them (that run alone: a C-locale run of
+  # the same line took the test past its 30 s budget, and the gate sets
+  # the C locale for the walk itself).
   F='1.0.0 ##[error]x'
   gate_forged X1 x1-version "$copied/.claude-plugin/plugin.json" '.version = $v' "plugin=1.0.0 #?[error]x"
   gate_lacks X1 '##['
@@ -2805,10 +2816,6 @@ gate_forged() {
   gate_lacks X1 '##['
   gate_safe X1
   forms_put '## Notes ##[error]x'
-  gate_run "$d" --released "$copied"
-  gate_says X1 1 "holds '## Notes #?[error]x', which is not a dated version heading"
-  gate_lacks X1 '##['
-  gate_safe X1
   forms_utf8
   run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; shift 3; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' \
     _ "$utf8" "$ROOT" "$d" --released "$copied"
@@ -2824,18 +2831,20 @@ gate_forged() {
   # gate: a raw name, plain and braced, must be found by name, and the
   # allowed shapes must not. Then (T1) a name ending `_s` set by
   # `printf -v`, by `read` and by `for`, a `$(` in a die message, and a
-  # raw name on the line a die line ending in `\` continues onto; and
-  # last the gate's own shapes of each, which must not be found.
+  # raw name on the line a die line ending in `\` continues onto; then
+  # the gate's own shapes of each, which must not be found; and last a
+  # name ending `_s` set by `norm_source`.
   printf '%s\n' 'die "$p_s: $((size)) ($changelog_limit)$unreleased"' \
     'shown arg_s "$1"; die "x $p y ${pn}"' 'die "$refusal $entries $checked"' \
     'printf "%s: plugin=%s\n" \' '  "$pr_s" "$pv" "$released_state"' 'echo "$x"' \
     'die "z $1 $*"' 'size_s=$pv' $'p_s=\'\' pr_s=$x' '  # die "$q" size_s=$q' \
     'printf -v a_s %s "$x"' 'IFS= read -r b_s c' 'for c_s in x; do :; done' \
     'die "x $(id) $((n))"' 'die "y \' '  $q"' \
-    'printf -v "$1" %s "$s"; read -r en es; for dir in x; do :; done; die "could not be read$u_s"' > "$TEST_DIR/planted.sh"
+    'printf -v "$1" %s "$s"; norm_source src "$ms"; read -r en es; for dir in x; do :; done; die "could not be read$u_s"' \
+    'norm_source d_s "$x"' > "$TEST_DIR/planted.sh"
   raw="$(die_raw "$TEST_DIR/planted.sh")"
-  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv"$'\n'"7: 1"$'\n'"7: *"$'\n'"8: size_s="$'\n'"11: a_s="$'\n'"12: b_s="$'\n'"13: c_s="$'\n'"14: \$("$'\n'"16: q" ] \
-    || { echo "control: the die scan did not name exactly the planted p, pn, pv, 1, *, size_s=, a_s=, b_s=, c_s=, \$( and q. it printed: $raw"; false; }
+  [ "$raw" = "2: p"$'\n'"2: pn"$'\n'"5: pv"$'\n'"7: 1"$'\n'"7: *"$'\n'"8: size_s="$'\n'"11: a_s="$'\n'"12: b_s="$'\n'"13: c_s="$'\n'"14: \$("$'\n'"16: q"$'\n'"18: d_s=" ] \
+    || { echo "control: the die scan did not name exactly the planted p, pn, pv, 1, *, size_s=, a_s=, b_s=, c_s=, \$(, q and d_s=. it printed: $raw"; false; }
   raw="$(die_raw scripts/check-versions.sh)"
   [ -z "$raw" ] || { echo "P0: a die line prints a raw value: $raw"; false; }
 }
@@ -3161,12 +3170,17 @@ gate_refuses() {
       gate_run "$c" ${o:+--released "$copied"}
       gate_refuses N1 "check-versions.sh: $copied: plugin.json is a symbolic link$fol"
       gate_lacks N1 "OUTSIDE-NAME"
+      gate_lacks N1 "NOT released"
     done
 
     # N2: the repository's marketplace.json linked to a copy outside; its
     # .claude-plugin directory moved outside and linked back; a broken
     # marketplace.json link. Each is a link, never "run me from the
-    # repository root", which a broken link alone gave.
+    # repository root", which a broken link alone gave. N2, N3 and N4
+    # each run one plant in the release form too: nothing pins their
+    # checks' text, and each can read the form (N2's through `$#`, before
+    # the argument loop), so a check made to read it would pass the
+    # release form unseen (research R8).
     cp "$base/.claude-plugin/marketplace.json" "$out/marketplace.json"
     c="$TEST_DIR/nolink-n2-file"
     cp -r "$base" "$c"
@@ -3179,6 +3193,8 @@ gate_refuses() {
     mv "$c/.claude-plugin" "$out/n2-dir"
     nolink_make "$out/n2-dir" "$c/.claude-plugin"
     gate_run "$c"
+    gate_refuses N2 "check-versions.sh: .claude-plugin is a symbolic link$fol"
+    gate_run "$c" --released "$copied"
     gate_refuses N2 "check-versions.sh: .claude-plugin is a symbolic link$fol"
     c="$TEST_DIR/nolink-n2-broken"
     cp -r "$base" "$c"
@@ -3196,6 +3212,8 @@ gate_refuses() {
     mv "$c/$copied" "$out/n3-dir"
     nolink_make "$out/n3-dir" "$c/$copied"
     gate_run "$c"
+    gate_refuses N3 "check-versions.sh: $copied: the plugin directory is a symbolic link$fol"
+    gate_run "$c" --released "$copied"
     gate_refuses N3 "check-versions.sh: $copied: the plugin directory is a symbolic link$fol"
     c="$TEST_DIR/nolink-n3-cp"
     cp -r "$base" "$c"
@@ -3217,6 +3235,8 @@ gate_refuses() {
     json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./via/x"
     gate_run "$c"
     gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './via/x' passes through a symbolic link"
+    gate_run "$c" --released "$copied"
+    gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './via/x' passes through a symbolic link"
     c="$TEST_DIR/nolink-n4-cp"
     cp -r "$base" "$c"
     mkdir -p "$c/nest/x"
@@ -3231,11 +3251,21 @@ gate_refuses() {
     json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./nest/x"
     gate_run "$c"
     gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
+    # And a broken link as a component: nest/x points at nothing. It is a
+    # link, refused as one, never "names no plugin directory".
+    c="$TEST_DIR/nolink-n4-broken"
+    cp -r "$base" "$c"
+    mkdir -p "$c/nest"
+    nolink_make "$out/n4-missing" "$c/nest/x"
+    [ ! -e "$c/nest/x" ] || { echo "fixture: the N4 broken link reaches something"; false; }
+    json_set "$c/.claude-plugin/marketplace.json" '.plugins += [{name: "ghost", source: $v}]' "./nest/x"
+    gate_run "$c"
+    gate_refuses N4 "check-versions.sh: marketplace entry 'ghost': source './nest/x' passes through a symbolic link"
   fi
 
   # O1, after the N plants, so against an older gate the first red is an
   # N clause: a caller's xtrace, verbose, noglob or keyword changes nothing.
-  # In the default form only, as N2-N4 are (research R8): the options line
+  # In the default form only (research R8): the options line
   # is the gate's first command and reads nothing the form sets, so after
   # it both forms run with the four options off; with the line removed,
   # each option changed both forms alike, at the same line (measured at
@@ -3246,11 +3276,13 @@ gate_refuses() {
   # which runs the gate without the option (measured). Exit status and
   # standard output must equal one run without it; standard error
   # must be exactly what FR-006 allows, from the test's own copy of the
-  # gate's first two lines: the options line traced for xtrace, the `#!`
-  # line and the options line echoed for verbose, nothing for the others.
+  # gate's first two lines: the options line's set command traced for
+  # xtrace (xtrace is off before its shopt runs, measured), the `#!` line
+  # and the whole options line echoed for verbose, nothing for the others.
   # Each output goes to a file, then both are printed, so forms_no_path
   # reads them too, after the clause's own checks.
-  local optline='set +o xtrace +o verbose +o noglob +o keyword' prc unreadable
+  local optset='set +o xtrace +o verbose +o noglob +o keyword' prc unreadable
+  local optline="$optset; shopt -u dotglob nocasematch"
   local po="$TEST_DIR/o1-plain-out.txt" so="$TEST_DIR/o1-out.txt" se="$TEST_DIR/o1-err.txt" pe="$TEST_DIR/o1-want-err.txt"
   run bash -c 'r=$1 c=$2 so=$3 se=$4; shift 4; cd "$c" && bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
     _ "$ROOT" "$base" "$po" "$se"
@@ -3266,7 +3298,7 @@ gate_refuses() {
     cmp -s "$po" "$so" \
       || { echo "O1: with $o set, the default form's standard output changed. output: ${output:0:600}"; false; }
     case $o in
-      xtrace) printf '+ %s\n' "$optline" > "$pe" ;;
+      xtrace) printf '+ %s\n' "$optset" > "$pe" ;;
       verbose) printf '%s\n' '#!/usr/bin/env bash' "$optline" > "$pe" ;;
       *) : > "$pe" ;;
     esac
@@ -3275,8 +3307,47 @@ gate_refuses() {
     forms_no_path
   done
 
-  # N6, after O1, so against the gate before the open check the first red
-  # in this test is O1 on every system. Where a mode of 000 stops a read
+  # O2: a caller's dotglob or nocasematch, set through BASHOPTS on the
+  # gate's own command as O1 sets SHELLOPTS, changes nothing. Measured
+  # with the gate's line 2 holding no shopt: dotglob made the plugin loop
+  # read a hidden plugin directory, so a marketplace entry the tree's
+  # count left out passed (exit 0); nocasematch made `--RELEASED` the
+  # release form (exit 0). Each run must give the plant's own whole
+  # refusal and nothing else on standard error, exit 1, and the standard
+  # output a run without the option gives: for dotglob the plain default
+  # form's report above (the hidden plugin is no directory the loop reads,
+  # so the loop prints the same lines before the count refuses), for
+  # nocasematch nothing, as an unknown argument stops the gate before it
+  # prints. A plant refused for some other reason cannot pass, and no run
+  # without the option is made (cut to keep the test inside its budget).
+  # The hidden copy is the plugin under the name `.hid`, its entry the
+  # first one's with that name and source.
+  local hid="$TEST_DIR/o2-hidden" a wo="$TEST_DIR/o2-want-out.txt" we="$TEST_DIR/o2-want-err.txt"
+  cp -r "$base" "$hid"
+  cp -r "$hid/$copied" "$hid/.hid"
+  json_set "$hid/.hid/.claude-plugin/plugin.json" '.name = $v' ".hid"
+  json_set "$hid/.claude-plugin/marketplace.json" '.plugins += [.plugins[0] | .name = $v | .source = ("./" + $v)]' ".hid"
+  for o in dotglob nocasematch; do
+    if [ "$o" = "dotglob" ]; then
+      c=$hid a="" m="check-versions.sh: marketplace lists 2 plugins, the tree holds 1"
+    else
+      c=$base a="--RELEASED" m="check-versions.sh: unknown argument '--RELEASED' (usage: check-versions.sh [--released <plugin>])"
+    fi
+    printf '%s\n' "$m" > "$we"
+    if [ "$o" = "dotglob" ]; then cp "$po" "$wo"; else : > "$wo"; fi
+    run bash -c 'o=$1 r=$2 c=$3 so=$4 se=$5; shift 5; cd "$c" && env BASHOPTS="$o" bash "$r/scripts/check-versions.sh" "$@" > "$so" 2> "$se"; s=$?; cat "$so" "$se"; exit "$s"' \
+      _ "$o" "$ROOT" "$c" "$so" "$se" ${a:+"$a" "$copied"}
+    [ "$status" -eq 1 ] \
+      || { echo "O2: with BASHOPTS=$o set, the gate exited $status, not 1. output: ${output:0:600}"; false; }
+    cmp -s "$wo" "$so" \
+      || { echo "O2: with BASHOPTS=$o set, the gate's standard output changed. output: ${output:0:600}"; false; }
+    cmp -s "$we" "$se" \
+      || { echo "O2: with BASHOPTS=$o set, the gate's standard error is not the plant's own refusal alone. output: ${output:0:600}"; false; }
+    forms_no_path
+  done
+
+  # N6, after O1 and O2, so against the gate before the open check the
+  # first red in this test is O1 on every system. Where a mode of 000 stops a read
   # (decided as L5 decides; not on Windows, and not as root), an
   # unreadable marketplace.json is refused as unreadable, alone, and never
   # as "is not valid JSON". Its mutant can go red on Linux and macOS only.

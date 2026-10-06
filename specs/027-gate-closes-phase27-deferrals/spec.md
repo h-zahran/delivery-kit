@@ -100,8 +100,9 @@ a file outside the checkout, or judge a tree other than the one the pull
 request holds.
 
 **Independent Test**: plant each link in a fixture and run the gate (N1
-in both forms, the others in the default form: research R8); each run
-exits 1 with the gate's own line.
+in both forms, one plant each of N2, N3 and N4 in both forms too, the
+others in the default form: research R8); each run exits 1 with the
+gate's own line.
 
 **Acceptance Scenarios**:
 
@@ -138,10 +139,10 @@ only the gate's own lines, printed safely.
    no line starts with `jq:`.
 2. **Given** a `.plugins` that is a string, **When** the gate runs,
    **Then** the same holds.
-3. **Given** `SHELLOPTS=xtrace`, `verbose`, `noglob` or `keyword` in the
-   environment, **When** either form runs, **Then** it exits as without
-   it, its standard output is the same, and no value reaches standard
-   error.
+3. **Given** `SHELLOPTS=xtrace`, `verbose`, `noglob` or `keyword`, or
+   `BASHOPTS=dotglob` or `nocasematch`, in the environment, **When**
+   either form runs, **Then** it exits as without it, its standard
+   output is the same, and no value reaches standard error.
 4. **Given** a value holding `##[`, **When** the gate prints that
    value, **Then** no `##[` appears in the output.
 
@@ -188,6 +189,11 @@ helper and see its test go red.
   distinguishable from `jq` failing on a file whose shape is wrong.
 - `BASH_ENV` runs before the gate's first line; nothing inside the gate
   can stop it, and it is recorded as a limit (FR-007).
+- A caller's `BASHOPTS` sets `shopt` options before the first line:
+  `dotglob` made the plugin loop read a hidden plugin directory, so a
+  marketplace entry the count should refuse passed, and `nocasematch`
+  made `--RELEASED` the release form (measured at review). The first
+  line turns both off (FR-005).
 
 ## Requirements *(mandatory)*
 
@@ -219,15 +225,17 @@ helper and see its test go red.
   changed (the plan sets the exact form). The gate's own text holds no
   `##[`.
 - **FR-005**: At its first line, before anything it reads, the gate MUST
-  turn off every shell option a caller can set through `SHELLOPTS` that
-  prints or changes what the gate does; the research lists them, at
-  least `xtrace` and `verbose`.
-- **FR-006**: With each option of FR-005 set through `SHELLOPTS`, both
-  forms MUST exit as without it and print the same standard output; on
-  standard error only the gate's own first lines (the `#!` line and the
-  line that turns the options off, echoed or traced before it runs) MAY
-  appear, never a value (measured at D: no line of a script can stop
-  bash echoing the line that turns `verbose` off).
+  turn off every shell option a caller can set through `SHELLOPTS` or
+  `BASHOPTS` that prints or changes what the gate does; the research
+  lists them (R4: `xtrace`, `verbose`, `noglob` and `keyword`, then
+  `shopt -u dotglob nocasematch`), at least `xtrace` and `verbose`.
+- **FR-006**: With each option of FR-005 set through `SHELLOPTS` or
+  `BASHOPTS`, both forms MUST exit as without it and print the same
+  standard output; on standard error only the gate's own first lines
+  (the `#!` line and the line that turns the options off, echoed or
+  traced before it runs) MAY appear, never a value (measured at D: no
+  line of a script can stop bash echoing the line that turns `verbose`
+  off).
 - **FR-007**: `BASH_ENV` runs before any line of the gate, so no line of
   it can stop that. The research MUST record it as a limit, with the
   reason: only the caller sets `BASH_ENV`, never a fork's files, and a
@@ -305,9 +313,10 @@ helper and see its test go red.
 - **SC-002**: Across every planted shape, the output holds 0 lines the
   gate did not write, 0 bytes outside printable ASCII apart from the
   gate's own text, 0 lines starting with `::`, and 0 `##[` in any line.
-- **SC-003**: With each option of FR-005 set, both forms exit as without
-  it, standard output is byte-identical, and standard error holds no
-  value.
+- **SC-003**: With each `SHELLOPTS` option of FR-005 set, both forms
+  exit as without it, standard output is byte-identical, and standard
+  error holds no value; with each `BASHOPTS` option of FR-005 set, the
+  plant it changed exits and prints exactly as without it (contract O2).
 - **SC-004**: The walk's cost per marketplace entry falls, measured
   before and after on the same fixture.
 - **SC-005**: On the real tree both forms are byte-identical to

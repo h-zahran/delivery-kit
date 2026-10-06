@@ -51,4 +51,5 @@ the walk masks itself, gets the `##[` step in bash after the walk.
 |---|---|---|
 | `xtrace`, `verbose` | every value, or the script's text, on standard error | off at the first command; at most the first lines echoed, no value |
 | `noglob`, `keyword` | the gate refused the real tree | off at the first command |
+| `dotglob`, `nocasematch` (through `BASHOPTS`) | a planted tree's verdict flipped: a hidden plugin directory read, `--RELEASED` taken as the release form (measured at review) | off at the first command, by `shopt -u` after the `set` |
 | `noexec`, `onecmd`, and `BASH_ENV` | exit 0, nothing printed (`BASH_ENV`: a file ran first) | a recorded limit: no line of the gate runs before them |

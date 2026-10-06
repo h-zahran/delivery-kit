@@ -10,7 +10,7 @@ worktrees; block 6 needs a system that can make a symbolic link (set
 check, saying so); block 8 runs the house suite: run the file in the
 background or with a long timeout.
 
-Clause IDs: N1-N7, J1-J2, X1-X2, O1, C1, T1-T3, R1-R2 in
+Clause IDs: N1-N7, J1-J2, X1-X2, O1-O2, C1, T1-T3, R1-R2 in
 [contracts/release-gate.md](contracts/release-gate.md). `$BASE` is the
 branch's base, `5a78ea4`.
 
@@ -69,7 +69,7 @@ got=${got%% *}
 echo "R2 ok"
 ```
 
-## 4. The changed tests (N1-N7, J1-J2, X1-X2, O1, C1, T1-T3)
+## 4. The changed tests (N1-N7, J1-J2, X1-X2, O1-O2, C1, T1-T3)
 
 ```bash
 [ "$(grep -c '^@test "the gate follows no link' tests/portability.bats)" = "1" ] \
@@ -137,15 +137,19 @@ elif [ "${QS_SKIP_LINK:-}" = "1" ]; then
 else
   fail "SC-001 this system made no symbolic link; set QS_SKIP_LINK=1 to skip it on purpose"
 fi
-# What FR-006 allows on standard error, the quickstart's own copy.
-optline='set +o xtrace +o verbose +o noglob +o keyword'
+# What FR-006 allows on standard error, the quickstart's own copy: xtrace
+# traces the set command alone (it is off before the shopt runs), verbose
+# echoes the whole line. The BASHOPTS options change nothing on the real
+# tree, so their plants are the house test's O2, not run here.
+optset='set +o xtrace +o verbose +o noglob +o keyword'
+optline="$optset; shopt -u dotglob nocasematch"
 for form in "" "--released handoff"; do
   plain=$(bash "$GATE" $form 2>/dev/null); plain_rc=$?
   for o in xtrace verbose noglob keyword; do
     out=$(env SHELLOPTS=$o bash "$GATE" $form 2>"$sd/err.txt"); rc=$?
     [ "$rc" = "$plain_rc" ] && [ "$out" = "$plain" ] || fail "SC-003 SHELLOPTS=$o '${form:-default}' changed the exit ($rc) or standard output"
     case $o in
-      xtrace) want="+ $optline" ;;
+      xtrace) want="+ $optset" ;;
       verbose) want="#!/usr/bin/env bash"$'\n'"$optline" ;;
       *) want="" ;;
     esac
