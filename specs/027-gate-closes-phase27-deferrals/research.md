@@ -33,17 +33,43 @@ identical to `5a78ea4`, unless it names another place.
   there (`[ -e ]` after the `-L` test: below a missing directory nothing
   can be a link). Before that walk, a source of more than 64 components
   (`component_limit`) is refused, the count taken from `ed` itself
-  (`t=${ed//$nsl/}` with `nsl='[!/]'`, components `${#t} + 1`): a count
+  (`count_parts`: `t=${2//$nsl/}` with `nsl='[!/]'` in the C locale,
+  components `${#t} + 1`): a count
   kept inside the walk never reaches 64 on a source whose second
   component is missing, because the early stop ends the walk first
   (measured at F, round 4). A fork sets the source, so the unbounded walk
   would reopen the stall `8395cf5` closed. Measured at F, rounds 3 and
   4 (bash 5.3.9 only; bash 3.2 is first measured by macOS CI, where N7
   runs): checking every prefix with no early stop took 26 s for one
-  source of 1,024 components; the count from `ed` takes 1.8 ms on a
-  4,091-character source, which is then refused; 2,000 entries of
-  `./handoff` cost about 0.4 ms each. The walk is skipped when `ed` equals
-  the source it last checked. **Limit**: a committed 64-deep real tree
+  source of 1,024 components; 2,000 entries of
+  `./handoff` cost about 0.4 ms each. The count and the walk are both
+  skipped when `ed` equals the source it last checked: the count
+  depends on the source alone, and that source passed it.
+
+  **The count's locale (pull request review, measured 2026-10-06 at
+  `2756299` and on the working tree after it, Git Bash, bash 5.3.9,
+  `MINGW64_NT-10.0-26200`).** The count was first taken in place, in
+  the caller's locale, on every entry before the memo test; F's 1.8 ms
+  on a 4,091-character source was a C-locale figure. CI runners set
+  `LANG` to a UTF-8 locale with `LC_ALL` unset. Per count, 200 runs
+  each: on the 4,091-character `a/a/…` source, 9.2 ms under `C.UTF-8`
+  and 2.9 ms under `C`; on 16 components of 250 characters (4,015),
+  17.6 ms and 4.8 ms. `count_parts` sets the count in the C locale
+  (`local LC_ALL=C`, no process): 2.9 to 3.3 ms and 4.5 to 5.1 ms in
+  either caller locale. `/` never occurs inside a UTF-8 character, so
+  the count is the same in both locales (probe: multibyte characters,
+  a lone lead byte, `\xff`, an overlong `\xc0\xaf`; every count equal).
+  Whole gate, 2,000 entries all naming that 16-component source (a real
+  nested tree with its `plugin.json`, refused for its count), before
+  and after alternating, two rounds: under `C.UTF-8`, 79.0 and 91.3 s
+  before, 50.2 and 60.6 s after; under `C`, 55.6 and 73.6 s before,
+  50.1 and 67.8 s after (this machine varies by 10 s or more between
+  rounds). So about 15 ms an entry saved under UTF-8 and 3 under C,
+  matching the count's own cost. What remains, about 20 to 26 ms a
+  line in either locale, is the loop's `read` of a 4,000-byte line from
+  its pipe (2,001 lines, measured alone: 39.8 s under `C.UTF-8`, 52.8 s
+  under `C`); `es=${es%$'\r'}` adds 4.5 ms under UTF-8 against 1.4 in
+  C. Both are recorded, not changed, here. **Limit**: a committed 64-deep real tree
   still costs 21 to 59 ms an entry here (Windows; a stat is cheaper on
   Linux), so a fork can list many entries alternating between two deep
   sources; the walk fails closed by count, and its total cost is
@@ -170,7 +196,8 @@ identical to `5a78ea4`, unless it names another place.
   in place. Checked here on `a ##[error]b`, `###[x`, `##[##[`: none
   keeps `##[` (the replacement holds `?` before `[`, so it cannot form a
   new one). No real value or heading holds `##[`.
-- **Measurement** (FR-003): the P test prints five probe lines through
+- **Measurement** (FR-003; as planned, and now done and the probe
+  removed, see Result): the P test prints five probe lines through
   file descriptor 3, which bats writes to the CI log as they are, only
   when `GITHUB_ACTIONS` is `true`: `##[` at a line's start, `##[`
   mid-line (`# x ##[…`, a comment to bats), and `::warning::` as a
@@ -185,10 +212,34 @@ identical to `5a78ea4`, unless it names another place.
   annotations (`gh api` on each test job's check run), and what the
   runner did with each line is recorded here, with the run id. The probe
   is then removed by the first commit after that run, before merge.
-  Result: (recorded at M).
+  **Result** (2026-10-06, pull request #61's first CI run, run id
+  37405126582, head `2756299`; jobs `tests (macos-latest)`
+  112080871774, `tests (windows-latest)` 112080871813 and
+  `tests (ubuntu-latest)` 112080871831; identical on all three, and
+  CI green, 5 of 5):
+  - annotations (`gh api repos/h-zahran/delivery-kit/check-runs/<job>/annotations`):
+    three annotations per job from the probe, each a `warning`:
+    `p28 probe: start of line`, `p28 probe: mid-line` and
+    `p28 probe: control`; none for the group lines (beside them, the
+    runner's own Node.js 20 deprecation warning on each job and a notice
+    on two, unrelated);
+  - the rendered log (`gh run view 37405126582 --job <job> --log`): the
+    start-of-line line as written; the mid-line line
+    `# x ##[warning]p28 probe: mid-line` rendered as
+    `##[warning]p28 probe: mid-line`, the text before `##[` dropped and
+    the command acted on; `##[group]p28 probe: group` and
+    `##[endgroup]` as written (the web viewer folds them); the control
+    `::warning::p28 probe: control` rendered as
+    `##[warning]p28 probe: control`.
+
+  So the runner acts on `##[` anywhere in a line, not only at its
+  start: masking it everywhere, the clarify decision, is required, not
+  merely cautious. The probe was removed from `tests/portability.bats`
+  after this run (`grep -c 'p28 probe' tests/portability.bats` prints
+  `0`).
 - **Alternatives**: measure before H on a pushed probe branch (a push
-  before gate L); mask only at a line's start (wrong if the runner acts
-  mid-line, which is not yet known).
+  before gate L); mask only at a line's start (wrong, because the
+  runner acts mid-line: measured in run 37405126582, above).
 
 ## R4 — Inherited shell options
 
@@ -258,6 +309,25 @@ identical to `5a78ea4`, unless it names another place.
   limits at gate G (2026-10-06). Partly caught already: the suite's version-agreement
   test asserts a report line (`*plugin=*`), so the suite would go red
   under `noexec`; CI's version job would not.
+
+  `BASHOPTS=extdebug` is a fourth (found at pull request review,
+  measured 2026-10-06 at `2756299`, Git Bash, bash 5.3.9): bash reads it
+  before the first line and looks for its debugger, which is not
+  installed, and prints, before line 1 runs,
+  `scripts/check-versions.sh: /usr/share/bashdb/bashdb-main.inc: No such file or directory`
+  and `scripts/check-versions.sh: warning: cannot start debugger; debugging mode disabled`
+  on standard error; exit and standard output are unchanged, in both
+  forms. Each line names the script as it was invoked: run by an
+  absolute path, each line starts with the checkout's absolute path,
+  drive and all, so that path reaches the output. No line of the gate
+  can stop it, as with `BASH_ENV`; line 2's `shopt -u` runs too late,
+  and is not changed. Where the debugger is installed it would start
+  instead (not measured). It is recorded as a limit by the same
+  reasoning: only the caller sets `BASHOPTS`, never a fork's files, and
+  CI and the suite set none. The owner's rulings cover `BASH_ENV`,
+  `noexec` and `onecmd`, not `extdebug`; it is put to the owner in the
+  pull request. Which 16 `BASHOPTS` options were measured at F (above)
+  is not recorded, so whether `extdebug` was among them is not known.
 - **Alternatives**: re-run the gate under `env -i` from its own first
   line (it would still have run under `noexec`; and it changes how both
   callers see the environment); a caller-side check that the report
@@ -359,6 +429,13 @@ identical to `5a78ea4`, unless it names another place.
   goes into an existing test: the `jq` shapes and the 2,000-entry walk
   into the TRAILING test; `##[` and the P0 changes into the P test; K3
   into the K test. The suite reads `1..252`.
+- On the runners (pull request #61's first CI run, 37405126582, head
+  `2756299`, CI green, 5 of 5), the lines this phase's tests print
+  through file descriptor 3: macOS `# walk: Darwin`, `# nolinks: made`,
+  `# unreadable: made`; Windows `# walk: MINGW64_NT-10.0-26100`,
+  `# nolinks: made`, `# unreadable: not available here`; Linux
+  `# walk: Linux`, `# nolinks: made`, `# unreadable: made`. So N6 ran
+  on macOS and Linux, and the link plants on all three.
 - Times on this machine before the change are in Phase 27's records;
   T010 times every changed test on the final code, because each gate
   run now starts one or two more `jq`. A test over 30 s has its runs

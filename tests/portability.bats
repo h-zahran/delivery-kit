@@ -2656,16 +2656,6 @@ gate_forged() {
 
 @test "the gate prints every value masked, and no line starts with ::" {
   cd "$ROOT"
-  # X2, a TEMPORARY probe: on a runner only, five lines through file
-  # descriptor 3, which bats writes to the log as they are, to measure
-  # where in a line the runner acts on `##[`, with `::warning::` as a
-  # control it is known to act on. Measured once in this pull request's
-  # CI, recorded in research R3, and removed before merge. Locally it
-  # prints nothing: the suite check refuses a line that is not TAP.
-  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-    printf '%s\n' '##[warning]p28 probe: start of line' '# x ##[warning]p28 probe: mid-line' \
-      '##[group]p28 probe: group' '##[endgroup]' '::warning::p28 probe: control' >&3
-  fi
   local F E c dn want long cut o rc raw
   # The check itself, before anything leans on it: each unsafe shape must
   # fail it, with exactly 1, including an em dash that is not the gate's
