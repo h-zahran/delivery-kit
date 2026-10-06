@@ -1,7 +1,7 @@
 {
   "name": "pipeline",
-  "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine.",
-  "version": "1.3.0",
+  "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine. Requires spec-kit in the target repository.",
+  "version": "1.3.1",
   "author": {
     "name": "Haytham Zahran"
   },
