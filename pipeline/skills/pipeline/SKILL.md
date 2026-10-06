@@ -28,10 +28,12 @@ are your hands, and the state file is your memory.
   validates before it writes. Never edit the state file by hand —
   `validate` exists to catch corruption, not to excuse it.
 - **Commit mechanics are `progress.sh` subcommands** — `snapshot`,
-  `spec-commit`, `piece-commit`, `late-commit`, `record-branch`,
-  `commit-list`, `guide`. Never re-create one as a script. Each prints
+  `spec-commit`, `piece-commit`, `late-commit`, `remainder-commit`,
+  `record-branch`, `commit-list`, `guide`; every commit the run makes
+  goes through one. Never re-create one as a script. Each prints
   its answer on stdout, its reasons on stderr; a refusal is the phase's
-  stop, or a hard failure.
+  stop, or a hard failure. A message file holds no CR and no `Piece:`,
+  `Late:` or `Tasks:` line of its own.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
@@ -55,8 +57,7 @@ are your hands, and the state file is your memory.
   binds from the moment the state file exists — at pre-flight on a
   fresh run, the stop and the printed install command stand on their
   own. The install itself is the human's to run, as with the spec-tool
-  commands at pre-flight. The phase-tracking preamble below is the
-  normative statement of that timing.
+  commands at pre-flight.
 
 ## Configuration
 
@@ -70,7 +71,8 @@ Resolve once, at pre-flight, in this order — later beats earlier:
 
 There are NO environment-variable overrides for pipeline keys. Record
 the merged result in the state file's `config` key so resume does not
-re-resolve differently.
+re-resolve differently — `codeRoots` as resolved, never `null`, since
+`late-commit` and `commit-list` read it.
 
 A later layer's `null` is silence, not an override: it leaves the earlier
 layer's value standing, exactly as an absent key would. To take an
@@ -270,28 +272,24 @@ through 10 keep the numbers they have always had.
     instruction to follow.
 11. **git absent** (`capabilities.git` false): stop. This item FIRES
     FIRST — before item 1 and before every other decision on this list.
-    It is written eleventh so that items 1 through 10 keep the numbers
-    they have always had, not because it runs last; item 10 above reads
-    the same way. Name the tool, print the link
+    It is numbered eleventh only so items 1 to 10 keep their numbers,
+    as item 10 is. Name the tool, print the link
     `https://git-scm.com/downloads`, record the answer, and install
     nothing — the missing-tool ground rule at the top of this document,
     applied. That rule asks for an install command; across the three
     supported systems there is no single one, so the page listing them
     all stands in its place, and the link is what to print.
-    Why it cannot wait: items 5 and 6 call git themselves, so with git
-    absent item 5 reads a clean tree that nothing looked at and item 6
-    reads "not ignored" and then offers to write to a file in a
-    repository nobody can commit to; and phases B, K and L are git
-    operations, so no part of the run survives. git is a CAPABILITY,
+    Why it cannot wait: items 5 and 6 call git themselves, and without
+    it would read a clean, unignored tree nothing looked at; and phases
+    B, K and L are git operations, so no part of the run survives.
+    git is a CAPABILITY,
     never a `willSkip` entry: a degradation names a phase the run can
     do without, and there is no such phase here. Do not repeat the
     `Will skip` lines as findings when this item fires: without git the
     remote could not be READ, so a "no git remote" reason names a cause
     nobody established. Report that the run stops for git, and say
     nothing about a remote. The recording follows the timing every state
-    write follows — on a fresh run no state file exists yet at
-    pre-flight, and there the stop and the printed link stand on their
-    own.
+    write follows (see the missing-tool rule).
 
 **Base branch:** the resolution order is `origin/HEAD`, then the
 configured `baseBranch`, then the current branch when there is no
@@ -312,9 +310,8 @@ and re-resolving without one would silently drop a flag-supplied value.
 On a resume, print the recorded layer — unless that command line supplies
 a new `--implementer`, which wins as a flag always does and is what the
 line then names. Never guess a layer. Do NOT borrow `baseBranchSource`'s
-vocabulary here: that key collapses every configuration layer into the
-single word `configured` and has no value for a flag at all, which is
-precisely the distinction this line exists to draw. A key that
+vocabulary: its single word `configured` names no layer, and no flag.
+A key that
 pre-answers a gate changes the run's consent profile, and a tracked
 configuration file must never do that without the operator seeing which
 file it came from.
@@ -566,8 +563,8 @@ ignores is a hard failure that names it, while any other ignored file in
 that directory is left alone.
 Then H loops: `piece-next` names the next piece; H builds that piece's
 tasks; H commits exactly the paths the piece changed, plus `tasks.md`
-with the piece's `[X]` marks; and H records the commit with `commit-add`
-as kind `piece`, with the piece's name, task IDs and files. The loop
+with the piece's `[X]` marks, which `piece-commit` records as kind
+`piece`, with the piece's name, task IDs and files. The loop
 ends when `piece-next` prints nothing. A `piece-next` refusal is a hard
 failure: H stops per "When a phase fails" and never falls back to the
 single-commit flow.
@@ -591,8 +588,9 @@ takes the heading and task IDs from `piece-next` as data, refuses a
 piece whose tasks are not all `[X]`, commits exactly the piece's paths,
 never from an empty path list (that would commit whatever is staged),
 adds the lines `Tasks: <IDs>` and `Piece: <heading>`, records the commit
-as kind `piece`, and prints its id; `--list` prints the paths and
-commits nothing. The message file holds the rest: it follows
+as kind `piece`, and prints its id — so does `--list` for a piece it
+recovers (see below); else `--list` prints the paths, committing
+nothing. The message file holds the rest: it follows
 `commitStyle`, names the piece and its task range, and says so where the
 piece changed no file but `tasks.md`.
 
@@ -645,8 +643,8 @@ it; where it does not, skip like any other missing capability, saying
 so. Appended gap tasks with no dependency between them fan out as in H.
 
 In the piece flow, H.5, H.7, I and J each end with one commit of their
-own when they changed a file — a late commit — recorded with
-`commit-add` as kind `converge` (H.5), `simplify` (H.7), `review` (I) or
+own when they changed a file — a late commit — which `late-commit`
+records as kind `converge` (H.5), `simplify` (H.7), `review` (I) or
 `tests` (J). Piece commits stay exactly as built: no late phase rebases,
 fixes up, amends or rewrites a commit. In the single-commit flow the
 late phases make no commit, and their changes stay in the tree for K.
@@ -674,17 +672,18 @@ commit is a hard stop, as for a piece: the paths stay uncommitted,
 `gates` records a failure entry under the phase's letter,
 `gates.<letter>.failure` with the `paths` and the hook's `output`,
 redacted as J's carry is, and the run stops per "When a phase fails". A
-re-entered late phase first runs `progress.sh record-branch <feature>`,
-which records, from that commit, any commit in `<base>..HEAD` that
-`commits` does not record and that carries its `Late:` line, and never
-makes that commit again. Every `Piece:` and `Late:` line is matched as a
+re-entered late phase's `snapshot` first records, from that commit, any
+commit in `<base>..HEAD` that `commits` does not record and that carries
+its `Late:` line, and prints its id: that phase's commit is made, and is
+never made again. Every `Piece:` and `Late:` line is matched as a
 whole line, and a heading read from one travels as data, as H's heading
 does.
 
 H.5's entry carries, as its piece, the heading of the phase converge
 appended to `tasks.md`, as `piece-next` prints a heading, and that
 phase's task IDs, so `piece-next` never offers that phase as a piece;
-H.5's message also carries `Piece: <heading>` for it, so H's crash scan
+H.5's message also carries `Tasks:` and `Piece: <heading>` lines for
+it, so H's crash scan
 finds it too, and H records a commit carrying `Late: H.5` as kind
 `converge`.
 
@@ -760,8 +759,9 @@ exact commit message in `commitStyle` proposed for it. Wherever K, L and
 DONE speak of the commits in `<base>..HEAD`, they mean the first-parent
 list `commit-list` walks. K commits that
 remainder, less a constitution written at pre-flight, only after the
-answer, every path named as H names them, and records the commit with
-`commit-add` as kind `other`. When nothing is left uncommitted, K still
+answer, with `progress.sh remainder-commit <feature> <message file>`,
+which names every path and records the commit as kind `other`. When
+nothing is left uncommitted, K still
 shows the commit list, records under `gates.K` that there was nothing to
 commit, makes no commit, says so, and still waits for the answer unless
 `--auto` collapsed K.
@@ -798,9 +798,11 @@ carried, K has nothing to commit and no commit on the branch carries
 `Late: J` as a whole line yet, K makes the empty record commit J
 describes, after the answer, so the record reaches a commit exactly
 once. A change to `.specify/memory/constitution.md` or `.gitignore`
-counts as inside the feature for this stop only when `gates` records the
-pre-flight offer that wrote it as accepted and the change is exactly
-what that offer wrote; any other change to either is outside. A path
+counts as inside the feature for this stop only when its `gates` entry,
+`constitution` or `gitignore`, records the offer that wrote it as
+`{"accepted": true, "hash": <git hash-object of what it wrote>}` — as
+items 6 and 9 record one — and the file still hashes so; any other
+change to either is outside. A path
 under `.delivery-kit/` is never committed by the run and
 never listed in the remainder; one already in a commit on the branch is
 listed, and counts as outside the feature.
@@ -808,8 +810,9 @@ listed, and counts as outside the feature.
 A
 constitution written by an accepted pre-flight offer is its own
 separate commit here, shown the same way — a governance file never
-rides inside the feature's commits. It is recorded with `commit-add` as
-kind `constitution`.
+rides inside the feature's commits.
+`remainder-commit <feature> <message file> --kind constitution` makes it
+and records it as kind `constitution`.
 
 **L — push and open a pull request. STOPS AND ASKS.** Show the branch
 name, the PR title and the full body before anything leaves the machine.
@@ -868,8 +871,9 @@ finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
 conditional stop.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
-`testCommand` again, classify against baseline, commit fixes, push to
-the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it
+`testCommand` again, classify against baseline, commit fixes
+(`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER
+SKIPPED: without a pull request it
 still runs both commands, still classifies, still commits — it just has
 nothing to push a review fix to. The last thing this pipeline does with
 code must never be "change it and not check it".

@@ -308,10 +308,11 @@ setup() {
   # eight silently droppable under an earlier three-name assertion. Any drop,
   # and any reorder, reddens this line. (An earlier draft of this comment said
   # three names were substrings; measured, it is exactly one.) The list grew
-  # from eight to ten with commit-add and piece-next, and to twenty with the
-  # commit mechanics (snapshot to drop-stale), edited here rather than
+  # from eight to ten with commit-add and piece-next, to twenty with the
+  # commit mechanics (snapshot to drop-stale), and to twenty-one with
+  # remainder-commit, edited here rather than
   # pinned by a second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
@@ -601,6 +602,17 @@ CONTRACT_KINDS=(spec piece converge simplify review tests constitution other)
 @test "commit-add refuses a piece with no task ids" {
   ca_init
   refuses "needs its task ids" 001-demo piece "$SHA_A" "Phase 1: Setup" "" a.txt
+}
+
+@test "commit-add refuses a task id that is not a T and digits" {
+  # The review guide prints the ids in a table cell: an id is data of one
+  # known shape, never markup.
+  ca_init
+  refuses "task id '<b>x</b>'" 001-demo piece "$SHA_A" "Phase 1: Setup" 'T001,<b>x</b>' a.txt
+  refuses "task id 'T1|x'" 001-demo piece "$SHA_A" "Phase 1: Setup" 'T1|x' a.txt
+  refuses "task id 't001'" 001-demo piece "$SHA_A" "Phase 1: Setup" 't001' a.txt
+  refuses "task id 'T'" 001-demo review "$SHA_A" "" 'T' a.txt
+  refuses "task id 'T1 '" 001-demo piece "$SHA_A" "Phase 1: Setup" 'T1 ' a.txt
 }
 
 @test "commit-add refuses a piece name holding a carriage return" {

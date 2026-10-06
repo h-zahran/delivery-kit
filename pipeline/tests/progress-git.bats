@@ -26,6 +26,13 @@ setup() {
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
   export GIT_CONFIG_NOSYSTEM=1
+  # HOME alone does not cut off every global file: git also reads
+  # XDG_CONFIG_HOME and GIT_CONFIG_GLOBAL, and an identity in the environment
+  # beats the repository's own.
+  export XDG_CONFIG_HOME="$HOME/.config"
+  export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+  export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
+  export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
   F=001-demo
   SF=".delivery-kit/runs/$F/progress.json"
@@ -169,21 +176,32 @@ commit_by_hand() {
 @test "piece-commit commits what the piece changed plus tasks.md, never a state path" {
   repo
   printf 'dirt\n' > dirt.txt
+  printf 'saved\n' > src/ab.sh
   runs snapshot "$F" piece
   printf 'built\n' > src/a.sh
+  # A path the saved list holds only as part of a longer one is new: the
+  # list is matched line by line, never as a substring.
+  printf 'built\n' > ab.sh
   printf 'state\n' > ".delivery-kit/runs/$F/extra.txt"
   mark T001 T002
-  msg 'feat: the setup piece' '' 'Builds T001 to T002.'
+  # Trailing spaces and a doubled blank line: the message is kept verbatim.
+  msg 'feat: the setup piece' '' '' 'Builds T001 to T002.  '
   runs piece-commit "$F" "$MSG"
   [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
-  [ "$(files_of HEAD)" = "$(printf '%s\n' specs/001-demo/tasks.md src/a.sh)" ]
+  [ "$(files_of HEAD)" = "$(printf '%s\n' ab.sh specs/001-demo/tasks.md src/a.sh | sort)" ]
   # Dirt from before the piece stays for K; the spec, listed before the piece
   # started, is not the piece's either.
-  [ "$(git status --porcelain -- dirt.txt)" = "?? dirt.txt" ]
+  [ "$(git status --porcelain -- dirt.txt src/ab.sh)" = "$(printf '%s\n' '?? dirt.txt' '?? src/ab.sh')" ]
+  [ "$(git cat-file commit HEAD | sed '1,/^$/d' | head -n 4)" = "$(printf '%s\n' 'feat: the setup piece' '' '' 'Builds T001 to T002.  ')" ]
   [ "$(msg_tail 2)" = "$(printf '%s\n' 'Tasks: T001,T002' 'Piece: Phase 1: Setup')" ]
-  [ "$(last_entry)" = "{\"sha\":\"$(git rev-parse HEAD)\",\"kind\":\"piece\",\"piece\":\"Phase 1: Setup\",\"tasks\":[\"T001\",\"T002\"],\"files\":[\"src/a.sh\",\"specs/001-demo/tasks.md\"]}" ]
+  [ "$(last_entry)" = "{\"sha\":\"$(git rev-parse HEAD)\",\"kind\":\"piece\",\"piece\":\"Phase 1: Setup\",\"tasks\":[\"T001\",\"T002\"],\"files\":[\"ab.sh\",\"src/a.sh\",\"specs/001-demo/tasks.md\"]}" ]
   run bash "$PROG" piece-next "$F"
+  [ "$status" -eq 0 ]
   [ "${lines[0]}" = "Phase 2: Core" ]
+  # The next piece saves its own list: the first piece's never stands for it.
+  runs snapshot "$F" piece
+  [ "$(jq -r '.measurements.pieceBefore.piece' "$SF")" = "Phase 2: Core" ]
+  jq -e '.measurements.pieceBefore.paths | index("dirt.txt") and (index("src/a.sh") | not)' "$SF"
 }
 
 @test "piece-commit --list prints the paths and commits nothing" {
@@ -230,6 +248,10 @@ commit_by_hand() {
   mark T001 T002
   msg 'feat: x' '' 'Piece: Phase 2: Core'
   refuses "carries a 'Piece:' line" piece-commit "$F" "$MSG"
+  msg 'feat: x' '' 'Late: H.5'
+  refuses "carries a 'Late:' line" piece-commit "$F" "$MSG"
+  msg 'feat: x' '' 'Tasks: T003'
+  refuses "carries a 'Tasks:' line" piece-commit "$F" "$MSG"
   printf 'feat: x\r\n' > "$MSG"
   refuses "carriage return" piece-commit "$F" "$MSG"
   printf '\n\n' > "$MSG"
@@ -319,6 +341,32 @@ commit_by_hand() {
   jq -e '.measurements.pieceBefore == null' "$SF"
 }
 
+@test "a Piece line that only begins with the heading does not recover the piece" {
+  repo
+  printf 'built\n' > src/a.sh
+  mark T001 T002
+  commit_by_hand "$(printf '%s\n' 'feat: setup' '' 'Piece: Phase 1: Setup more')" src/a.sh "$TASKS"
+  runs snapshot "$F" piece
+  [ ! -s "$OUT" ]
+  [ "$(jq -r '.measurements.pieceBefore.piece' "$SF")" = "Phase 1: Setup" ]
+  [ "$(jq '.commits | length' "$SF")" -eq 0 ]
+}
+
+@test "a hand commit claiming a piece whose tasks are open is refused, never recorded" {
+  # Measured before the guard: snapshot recorded this commit as the piece and
+  # piece-next moved on, with T001 and T002 still open.
+  repo
+  printf 'tweak\n' >> README.md
+  commit_by_hand "$(printf '%s\n' 'docs: tweak' '' 'Piece: Phase 1: Setup')" README.md
+  made="$(git rev-parse HEAD)"
+  refuses "T001,T002 not marked [X]" snapshot "$F" piece
+  [[ "$(cat "$ERR")" == *"$made"* ]]
+  msg 'feat: the setup piece'
+  refuses "T001,T002 not marked [X]" piece-commit "$F" "$MSG"
+  run bash "$PROG" piece-next "$F"
+  [ "${lines[0]}" = "Phase 1: Setup" ]
+}
+
 # --- late-commit --------------------------------------------------------------
 
 @test "late-commit commits what changed since the snapshot and leaves an outside untracked path" {
@@ -337,6 +385,36 @@ commit_by_hand() {
   [[ "$(cat "$ERR")" == *"left uncommitted for K"*"outside.txt"* ]]
   [ "$(msg_tail 1)" = "Late: H.7" ]
   [ "$(jq -r '.commits[-1].kind' "$SF")" = simplify ]
+  # The next phase saves its own list: H.7's never stands for I.
+  runs snapshot "$F" late I
+  [ "$(jq -r '.measurements.lateBefore.phase' "$SF")" = I ]
+}
+
+@test "late-commit reads codeRoots as K does: root or root/, ./ and / stripped, every path for ., and only untracked paths stay" {
+  repo
+  jq '.config.codeRoots = ["./src/"]' "$SF" > t.json; mv t.json "$SF"
+  mkdir -p srcx
+  runs snapshot "$F" late H.7
+  printf 'new\n' > src/new.sh
+  printf 'sibling\n' > srcx/x.sh
+  printf 'plan\n' > specs/001-demo/plan.md
+  printf 'tracked\n' >> README.md
+  printf 'outside\n' > outside.txt
+  runs late-commit "$F" H.7 --list
+  [ "$(sort "$OUT")" = "$(printf '%s\n' README.md specs/001-demo/plan.md src/new.sh | sort)" ]
+  [[ "$(cat "$ERR")" == *"left uncommitted for K"*"outside.txt"* ]]
+  [[ "$(cat "$ERR")" == *"left uncommitted for K"*"srcx/x.sh"* ]]
+  jq '.config.codeRoots = ["."]' "$SF" > t.json; mv t.json "$SF"
+  runs late-commit "$F" H.7 --list
+  [ "$(sort "$OUT")" = "$(printf '%s\n' README.md outside.txt specs/001-demo/plan.md src/new.sh srcx/x.sh | sort)" ]
+}
+
+@test "late-commit refuses a path holding a line feed that appears after the snapshot" {
+  repo
+  runs snapshot "$F" late H.7
+  git -c core.protectNTFS=false update-index --add --cacheinfo "100644,$(git hash-object -w README.md),$(printf 'two\nlines.txt')"
+  msg 'refactor: simplify'
+  refuses "carriage return or a line feed" late-commit "$F" H.7 "$MSG"
 }
 
 @test "late-commit makes no commit when the phase changed no file, and leaves the index alone" {
@@ -399,7 +477,83 @@ commit_by_hand() {
   [ "$(msg_tail 1)" = "Late: J" ]
   [ "$(last_entry)" = "{\"sha\":\"$(git rev-parse HEAD)\",\"kind\":\"tests\",\"piece\":\"\",\"tasks\":[],\"files\":[]}" ]
   [ "$(git diff --cached --name-only)" = staged.txt ]
-  refuses "already carries 'Late: J'" late-commit "$F" J "$MSG" --record
+  # A re-entered J finds its record made and recorded: it prints that id, as
+  # spec-commit does, and makes nothing.
+  made="$(git rev-parse HEAD)"
+  runs late-commit "$F" J "$MSG" --record
+  [ "$(cat "$OUT")" = "$made" ]
+  [ "$(git rev-parse HEAD)" = "$made" ]
+  [ "$(jq '.commits | length' "$SF")" -eq 1 ]
+}
+
+@test "snapshot late records an unrecorded commit carrying the phase's Late line, and saves no list" {
+  # A re-entered late phase finds its commit first, at the phase's start,
+  # rather than redoing the phase.
+  repo
+  printf 'fix\n' > src/fix.sh
+  commit_by_hand "$(printf '%s\n' 'refactor: simplify' '' 'Late: H.7')" src/fix.sh
+  made="$(git rev-parse HEAD)"
+  runs snapshot "$F" late H.7
+  [ "$(cat "$OUT")" = "$made" ]
+  [ "$(jq -r '.commits[-1] | "\(.sha) \(.kind)"' "$SF")" = "$made simplify" ]
+  jq -e '.measurements.lateBefore == null' "$SF"
+}
+
+@test "a Late H.5 commit is refused when its piece has open tasks, is not in tasks.md, or is not the next piece" {
+  # The three shapes measured before the guard: each was recorded as converge.
+  repo
+  printf 'tweak\n' >> README.md
+  commit_by_hand "$(printf '%s\n' 'docs: tweak' '' 'Late: H.5' 'Piece: Phase 1: Setup')" README.md
+  refuses "T001,T002 not marked [X]" record-branch "$F"
+  msg 'feat: close the gaps'
+  refuses "T001,T002 not marked [X]" late-commit "$F" H.5 "$MSG"
+  mkdir -p "$BATS_TEST_TMPDIR/two"; cd "$BATS_TEST_TMPDIR/two"
+  repo
+  printf 'x\n' > src/x.sh
+  commit_by_hand "$(printf '%s\n' 'feat: x' '' 'Late: H.5' 'Piece: Phase 9: Ghost')" src/x.sh
+  refuses "is not a section of the tasks file" record-branch "$F"
+  refuses "is not a section of the tasks file" snapshot "$F" late H.5
+  mkdir -p "$BATS_TEST_TMPDIR/three"; cd "$BATS_TEST_TMPDIR/three"
+  repo
+  mark T003
+  printf 'x\n' > src/x.sh
+  commit_by_hand "$(printf '%s\n' 'feat: x' '' 'Late: H.5' 'Piece: Phase 2: Core')" src/x.sh "$TASKS"
+  refuses "not the piece piece-next names ('Phase 1: Setup')" record-branch "$F"
+}
+
+@test "late-commit J --record is refused when J changed files: the record rides in J's own commit" {
+  repo
+  runs snapshot "$F" late J
+  printf 'fixed\n' >> src/keep.sh
+  msg 'test: carry the accepted reds'
+  refuses "J changed files" late-commit "$F" J "$MSG" --record
+}
+
+@test "a recovered Late H.5 commit is recorded with its phase's task ids, by late-commit and by record-branch" {
+  repo
+  bash "$PROG" commit-add "$F" piece "$(printf 'a%039d' 1)" "Phase 1: Setup" T001,T002 "$TASKS"
+  bash "$PROG" commit-add "$F" piece "$(printf 'a%039d' 2)" "Phase 2: Core" T003 "$TASKS"
+  printf '%s\n' '' '## Phase 3: Converge gaps' '' '- [X] T004 a gap' '- [X] T005 another' >> "$TASKS"
+  printf 'gap\n' > src/gap.sh
+  commit_by_hand "$(printf '%s\n' 'feat: gaps' '' 'Piece: Phase 3: Converge gaps' 'Late: H.5')" src/gap.sh "$TASKS"
+  cp "$SF" "$BATS_TEST_TMPDIR/two.json"
+  msg 'feat: close the gaps'
+  runs late-commit "$F" H.5 "$MSG"
+  [ "$(jq -r '.commits[-1] | "\(.kind)|\(.piece)|\(.tasks | join(","))"' "$SF")" = "converge|Phase 3: Converge gaps|T004,T005" ]
+  cp "$BATS_TEST_TMPDIR/two.json" "$SF"
+  runs record-branch "$F"
+  [ "$(jq -r '.commits[-1] | "\(.kind)|\(.piece)|\(.tasks | join(","))"' "$SF")" = "converge|Phase 3: Converge gaps|T004,T005" ]
+}
+
+@test "record-branch records J's empty record commit as kind tests" {
+  repo
+  msg 'test: the record'
+  runs late-commit "$F" J "$MSG" --record
+  made="$(git rev-parse HEAD)"
+  jq '.commits = []' "$SF" > t.json; mv t.json "$SF"
+  runs record-branch "$F"
+  [ "$(cat "$OUT")" = "$made" ]
+  [ "$(last_entry)" = "{\"sha\":\"$made\",\"kind\":\"tests\",\"piece\":\"\",\"tasks\":[],\"files\":[]}" ]
 }
 
 @test "late-commit records an unrecorded commit carrying its Late line and never makes it again" {
@@ -428,10 +582,13 @@ commit_by_hand() {
   [ "$(jq -r '.commits[-1].kind' "$SF")" = spec ]
   [ "$(git status --porcelain -- outside.txt)" = "?? outside.txt" ]
   head="$(git rev-parse HEAD)"
+  # A new file in the spec directory does not make a second spec commit.
+  printf 'plan\n' > specs/001-demo/plan.md
   runs spec-commit "$F"
   [ ! -s "$OUT" ]
   [[ "$(cat "$ERR")" == *"already recorded"* ]]
   [ "$(git rev-parse HEAD)" = "$head" ]
+  [ "$(jq '[.commits[] | select(.kind == "spec")] | length' "$SF")" -eq 1 ]
 }
 
 @test "spec-commit makes no commit for a spec the owner committed" {
@@ -496,6 +653,53 @@ commit_by_hand() {
   refuses "no file and no 'Late: J' line" record-branch "$F"
 }
 
+@test "record-branch records a commit of 800 files, past the Windows command-line limit" {
+  # About 40,000 characters of paths: passed to jq as arguments, a native
+  # Windows jq could not start, and the commit could never be recorded.
+  repo
+  local d=src/generated/components/module i=0
+  mkdir -p "$d"
+  while [ "$i" -lt 800 ]; do i=$((i + 1)); printf '%s\n' "$i" > "$d/file-number-$i.ts"; done
+  git add -- src/generated
+  git commit -q -m 'feat: generated'
+  runs record-branch "$F"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(jq '.commits[-1].files | length' "$SF")" -eq 800 ]
+}
+
+# --- commit-add --files-from --------------------------------------------------
+
+# nul_paths <file> <count> — <count> synthetic paths, NUL-separated.
+nul_paths() {
+  local i=0
+  while [ "$i" -lt "$2" ]; do i=$((i + 1)); printf 'src/generated/components/module/file-number-%04d.ts\0' "$i"; done > "$1"
+}
+
+@test "commit-add --files-from records 800 paths from a NUL-separated file, and again is the same entry" {
+  repo
+  nul_paths "$BATS_TEST_TMPDIR/files.nul" 800
+  sha="$(printf 'a%039d' 1)"
+  runs commit-add "$F" --files-from "$BATS_TEST_TMPDIR/files.nul" other "$sha" "" ""
+  [ ! -s "$OUT" ]
+  [ "$(jq '.commits[-1].files | length' "$SF")" -eq 800 ]
+  [ "$(jq -r '.commits[-1].files[0]' "$SF")" = src/generated/components/module/file-number-0001.ts ]
+  [ "$(jq -r '.commits[-1].files[799]' "$SF")" = src/generated/components/module/file-number-0800.ts ]
+  runs commit-add "$F" --files-from "$BATS_TEST_TMPDIR/files.nul" other "$sha" "" ""
+  [ "$(jq '.commits | length' "$SF")" -eq 1 ]
+}
+
+@test "commit-add --files-from refuses an empty path, an empty list for a kind that needs files, and extra paths" {
+  repo
+  sha="$(printf 'a%039d' 1)"
+  printf 'a.txt\0\0b.txt\0' > "$BATS_TEST_TMPDIR/files.nul"
+  refuses "the file list holds an empty path" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/files.nul" other "$sha" "" ""
+  : > "$BATS_TEST_TMPDIR/files.nul"
+  refuses "a review entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/files.nul" review "$sha" "" ""
+  printf 'a.txt\0' > "$BATS_TEST_TMPDIR/files.nul"
+  refuses "takes no paths after" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/files.nul" other "$sha" "" "" b.txt
+  refuses "no file at" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/missing.nul" other "$sha" "" ""
+}
+
 # --- guide --------------------------------------------------------------------
 
 # guide_branch — three commits on the branch, recorded with awkward names:
@@ -550,6 +754,14 @@ guide_branch() {
   [[ "$(cat "$ERR")" == *"old-style string entry"* ]]
 }
 
+@test "guide says so for an old-style run before it reads the base, which such a run may not record" {
+  repo
+  jq '.commits = ["abc1234 feat: old"] | .baseBranch = "no-such-base"' "$SF" > t.json; mv t.json "$SF"
+  runs guide "$F"
+  [ ! -s "$OUT" ]
+  [[ "$(cat "$ERR")" == *"old-style string entry"* ]]
+}
+
 @test "guide --parts gives file counts and writes the full guide in parts under the limit" {
   repo
   printf '1\n' > src/1.sh; commit_by_hand 'one' src/1.sh; a="$(git rev-parse HEAD)"
@@ -563,7 +775,11 @@ guide_branch() {
   runs guide "$F" --parts
   [ "$(tail -n 2 "$OUT")" = "$(printf '%s\n' "| ${a:0:7} | other |  |  | 400 files |" "| ${b:0:7} | other |  |  | 400 files |")" ]
   d=".delivery-kit/runs/$F/guide-parts"
-  [ -f "$d/guide-1.md" ] && [ -f "$d/guide-2.md" ] && [ ! -e "$d/guide-3.md" ]
+  # One assertion a line: errexit fires only on the last command of an && list.
+  [ -f "$d/guide-1.md" ]
+  [ -f "$d/guide-2.md" ]
+  [ ! -e "$d/guide-3.md" ]
+  [ ! -e "$d/guide-0.md" ]
   for p in "$d"/guide-*.md; do
     [ "$(wc -c < "$p")" -le 65000 ]
     [ "$(head -n 1 "$p")" = 'Read this branch commit by commit, top to bottom: each row is one commit, oldest first.' ]
@@ -635,6 +851,192 @@ guide_branch() {
   refuses "no file and no 'Late: J' line" commit-list "$F"
 }
 
+@test "commit-list lists commits oldest first and marks a committed path outside the feature" {
+  repo
+  printf 'a\n' > src/a.sh; commit_by_hand 'feat: a' src/a.sh; c1="$(git rev-parse HEAD)"
+  printf 'n\n' > NOTES.md; commit_by_hand 'docs: notes' NOTES.md; c2="$(git rev-parse HEAD)"
+  runs commit-list "$F"
+  out="$(cat "$OUT")"
+  [[ "$out" == *"commit 1: $c1"*"commit 2: $c2"* ]]
+  [[ "$out" == *$'\n'"    - src/a.sh"$'\n'* ]]
+  [[ "$out" == *$'\n'"    ! NOTES.md"$'\n'* ]]
+}
+
+@test "a merge on the branch is walked by its first parent: record-branch, guide and commit-list, and an explicit base" {
+  repo
+  printf 'a\n' > src/a.sh; commit_by_hand 'feat: a' src/a.sh; c1="$(git rev-parse HEAD)"
+  git checkout -q -b side
+  printf 's\n' > src/side.sh; commit_by_hand 'feat: side' src/side.sh; side="$(git rev-parse HEAD)"
+  git checkout -q 001-demo
+  printf 'b\n' > src/b.sh; commit_by_hand 'feat: b' src/b.sh; c2="$(git rev-parse HEAD)"
+  git merge -q --no-ff -m 'merge side' side
+  m="$(git rev-parse HEAD)"
+  runs record-branch "$F"
+  [ "$(cat "$OUT")" = "$(printf '%s\n' "$c1" "$c2" "$m")" ]
+  # The merge's files are what it brought onto the first-parent line.
+  [ "$(jq -c '.commits[-1].files' "$SF")" = '["src/side.sh"]' ]
+  runs guide "$F"
+  [ "$(grep -c '^| [0-9a-f]\{7\} | other |' "$OUT")" -eq 3 ]
+  [[ "$(cat "$OUT")" != *"${side:0:7}"* ]]
+  runs commit-list "$F"
+  [[ "$(cat "$OUT")" == *"commit 3: $m"* ]]
+  [[ "$(cat "$OUT")" != *"$side"* ]]
+  runs commit-list "$F" "$c2"
+  [[ "$(cat "$OUT")" == *"commit 1: $m"* ]]
+  [[ "$(cat "$OUT")" != *"commit 2:"* ]]
+}
+
+# accept <gate> <path> — records the pre-flight offer as accepted, with the
+# hash of the file as the offer wrote it.
+accept() {
+  jq --arg g "$1" --arg h "$(git hash-object -- "$2")" '.gates[$g] = {accepted: true, hash: $h}' "$SF" > t.json
+  mv t.json "$SF"
+}
+
+@test "commit-list marks .gitignore and the constitution inside only for an accepted offer they still match" {
+  repo
+  # Every root: without the rule both files would be inside.
+  jq '.config.codeRoots = ["."]' "$SF" > t.json; mv t.json "$SF"
+  mkdir -p .specify/memory
+  printf 'principles\n' > .specify/memory/constitution.md
+  printf '.delivery-kit/\n' > .gitignore
+  printf 'more\n' >> README.md
+  runs commit-list "$F"
+  out="$(cat "$OUT")"
+  [[ "$out" == *$'\n'"  - README.md"$'\n'* ]]
+  [[ "$out" == *$'\n'"  ! .gitignore"$'\n'* ]]
+  [[ "$out" == *$'\n'"  ! .specify/memory/constitution.md"$'\n'* ]]
+  # A string "true" is not an accepted offer.
+  jq --arg h "$(git hash-object .gitignore)" '.gates.gitignore = {accepted: "true", hash: $h}' "$SF" > t.json; mv t.json "$SF"
+  runs commit-list "$F"
+  [[ "$(cat "$OUT")" == *$'\n'"  ! .gitignore"$'\n'* ]]
+  accept gitignore .gitignore
+  accept constitution .specify/memory/constitution.md
+  runs commit-list "$F"
+  out="$(cat "$OUT")"
+  [[ "$out" == *$'\n'"  - .gitignore"$'\n'* ]]
+  [[ "$out" == *$'\n'"  - .specify/memory/constitution.md"$'\n'* ]]
+  # Changed after the offer wrote it: no longer what the offer wrote.
+  printf 'and more\n' >> .specify/memory/constitution.md
+  commit_by_hand 'chore: ignore the state' .gitignore
+  runs commit-list "$F"
+  out="$(cat "$OUT")"
+  [[ "$out" == *$'\n'"    - .gitignore"$'\n'* ]]
+  [[ "$out" == *$'\n'"  ! .specify/memory/constitution.md"$'\n'* ]]
+}
+
+# --- remainder-commit ---------------------------------------------------------
+
+@test "remainder-commit commits every uncommitted path but the state directory, as kind other, once" {
+  repo
+  printf 'note\n' > NOTES.md
+  printf 'more\n' >> src/keep.sh
+  printf 'state\n' > ".delivery-kit/runs/$F/extra.txt"
+  want="$(printf '%s\n' NOTES.md specs/001-demo/spec.md specs/001-demo/tasks.md src/keep.sh | sort)"
+  runs remainder-commit "$F" --list
+  [ "$(sort "$OUT")" = "$want" ]
+  msg 'chore: the rest of the feature'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(files_of HEAD)" = "$want" ]
+  [ "$(msg_tail 1)" = 'chore: the rest of the feature' ]
+  [ "$(jq -r '.commits[-1] | "\(.kind) \(.files | length)"' "$SF")" = "other 4" ]
+  head="$(git rev-parse HEAD)"
+  runs remainder-commit "$F" "$MSG"
+  [ ! -s "$OUT" ]
+  [[ "$(cat "$ERR")" == *"nothing is left uncommitted"* ]]
+  [ "$(git rev-parse HEAD)" = "$head" ]
+}
+
+@test "remainder-commit gives an accepted constitution its own commit, kind constitution, outside the remainder" {
+  repo
+  mkdir -p .specify/memory
+  printf 'principles\n' > .specify/memory/constitution.md
+  printf 'note\n' > NOTES.md
+  msg 'docs: the constitution'
+  refuses "records no accepted pre-flight offer" remainder-commit "$F" "$MSG" --kind constitution
+  # Unaccepted, the constitution is part of the remainder.
+  runs remainder-commit "$F" --list
+  [ "$(grep -cxF -- .specify/memory/constitution.md "$OUT")" -eq 1 ]
+  accept constitution .specify/memory/constitution.md
+  runs remainder-commit "$F" --list
+  [ "$(grep -cxF -- .specify/memory/constitution.md "$OUT")" -eq 0 ]
+  runs remainder-commit "$F" --list --kind constitution
+  [ "$(cat "$OUT")" = .specify/memory/constitution.md ]
+  runs remainder-commit "$F" "$MSG" --kind constitution
+  [ "$(files_of HEAD)" = .specify/memory/constitution.md ]
+  [ "$(jq -r '.commits[-1].kind' "$SF")" = constitution ]
+  [ "$(git status --porcelain -- NOTES.md)" = "?? NOTES.md" ]
+  refuses "unknown kind 'piece'" remainder-commit "$F" "$MSG" --kind piece
+}
+
+@test "remainder-commit refuses a message carrying its own Late line, and stops on a rejecting hook" {
+  repo
+  printf 'note\n' > NOTES.md
+  msg 'chore: x' '' 'Late: J'
+  refuses "carries a 'Late:' line" remainder-commit "$F" "$MSG"
+  mkdir -p "$BATS_TEST_TMPDIR/hooks"
+  printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/hooks/pre-commit"
+  chmod +x "$BATS_TEST_TMPDIR/hooks/pre-commit"
+  msg 'chore: x'
+  refuses "the commit was rejected" remainder-commit "$F" "$MSG"
+}
+
+# --- the state directory in other letter case -----------------------------------
+
+@test "a state directory spelled in other letter case is never committed or listed" {
+  # Made before the run's own directory: on a file system that ignores case
+  # the run then writes into it, and git lists it under this spelling.
+  mkdir -p .Delivery-Kit
+  repo
+  runs spec-commit "$F"
+  runs snapshot "$F" piece
+  printf 'stray\n' > .Delivery-Kit/stray.txt
+  printf 'built\n' > src/a.sh
+  mark T001 T002
+  msg 'feat: the setup piece'
+  runs piece-commit "$F" "$MSG"
+  [ "$(git log --name-only --format= main..HEAD | grep -ci '^\.delivery-kit/')" -eq 0 ]
+  runs snapshot "$F" late H.7
+  printf 'stray two\n' > .Delivery-Kit/stray2.txt
+  runs late-commit "$F" H.7 --list
+  [ "$(grep -ci '^\.delivery-kit/' "$OUT")" -eq 0 ]
+  runs remainder-commit "$F" --list
+  [ "$(grep -ci '^\.delivery-kit/' "$OUT")" -eq 0 ]
+  runs commit-list "$F"
+  [ "$(grep -ci 'delivery-kit/' "$OUT")" -eq 0 ]
+}
+
+# --- cost ---------------------------------------------------------------------
+
+@test "400 dirty paths cost no process each: snapshot late, late-commit --list and commit-list stay quick" {
+  # Measured before: about 0.3 s a path on Windows, a fork for each hash and
+  # each mark — over a minute here. The hashes must still be each path's own.
+  repo
+  local i=0
+  mkdir -p vendor src/gen
+  while [ "$i" -lt 400 ]; do
+    i=$((i + 1))
+    if [ $((i % 2)) -eq 0 ]; then printf 'x%s\n' "$i" > "src/gen/f-$i.ts"; else printf 'y%s\n' "$i" > "vendor/u-$i.bin"; fi
+  done
+  git init -q nested
+  rm src/keep.sh
+  local t0=$SECONDS
+  runs snapshot "$F" late H.7
+  printf 'z\n' >> src/gen/f-2.ts
+  runs late-commit "$F" H.7 --list
+  [ "$(cat "$OUT")" = src/gen/f-2.ts ]
+  runs commit-list "$F"
+  [ $((SECONDS - t0)) -lt 30 ]
+  [ "$(grep -c '^  - src/gen/' "$OUT")" -eq 200 ]
+  [ "$(grep -c '^  ! vendor/' "$OUT")" -eq 200 ]
+  for p in src/gen/f-4.ts src/gen/f-400.ts vendor/u-1.bin vendor/u-399.bin; do
+    [ "$(jq -r --arg p "$p" '.measurements.lateBefore.paths[] | select(.path == $p) | .hash' "$SF")" = "$(git hash-object -- "$p")" ] || { echo "hash differs: $p"; false; }
+  done
+  [ "$(jq -r '.measurements.lateBefore.paths[] | select(.path == "src/keep.sh") | .hash' "$SF")" = deleted ]
+  [ "$(jq -r '.measurements.lateBefore.paths[] | select(.path == "nested/") | .hash' "$SF")" = unhashable ]
+}
+
 # --- metrics ------------------------------------------------------------------
 
 @test "metrics derives the run file, keeps the orchestrator's keys, and is idempotent" {
@@ -655,6 +1057,10 @@ guide_branch() {
   runs metrics "$F"
   cmp "$BATS_TEST_TMPDIR/first.json" "$M"
   [ "$(jq -c '.agents_dispatched' "$M")" = '{"F":3}' ]
+  # A derived key is rewritten from the state file, never kept from the old run file.
+  bash "$PROG" commit-add "$F" other "$(printf 'c%039d' 2)" "" "" b.md
+  runs metrics "$F"
+  [ "$(jq -c '.commits' "$M")" = '{"total":2,"by_kind":{"other":1,"spec":1}}' ]
   printf '[1]' > "$M"
   run bash "$PROG" metrics "$F"
   [ "$status" -ne 0 ]
