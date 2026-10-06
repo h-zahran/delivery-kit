@@ -2,6 +2,45 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- **`snapshot <feature> piece` and `snapshot <feature> late <phase>`** save
+  what the tree held when a piece or a late phase started, with the piece's
+  heading taken from `piece-next`. A list already saved stands on a resume;
+  `--fresh` saves a late phase's list afresh for a `--from`. A piece found
+  already committed is recorded instead, so it is never built again.
+- **`spec-commit <feature>`** commits the spec directory alone as
+  `docs(spec): <feature>`, once, and makes no commit for a spec the owner
+  already committed.
+- **`piece-commit <feature> <message-file>`** commits exactly the files the
+  piece changed plus the tasks file, refuses a piece with a task not marked
+  `[X]`, never commits from an empty path list (which would commit whatever is
+  staged), adds the `Tasks:` and `Piece:` lines, and records the commit. A
+  piece committed before a crash is recorded from its commit, not rebuilt.
+  `--list` shows the files without committing.
+- **`late-commit <feature> <phase> <message-file>`** makes the late commit
+  for H.5, H.7, I or J from what changed since the phase started, leaves an
+  untracked file outside the feature for K, makes no commit when nothing
+  changed, and with `--record` makes J's empty record commit, once.
+- **`record-branch <feature>`** records every unrecorded commit on the
+  branch under its kind, oldest first, and stops on a commit it cannot show.
+- **`guide <feature>`** prints the pull request's review guide. With
+  `--parts` it prints the file-count form and writes the full guide in parts,
+  each under GitHub's limit for a body or comment.
+- **`commit-list <feature>`** prints K's list: every commit with its message
+  and files, then every uncommitted path, each marked inside or outside the
+  feature.
+- **`drop-stale <feature>`** removes, on the owner's answer at L, the
+  entries for commits that are not on the branch.
+- **`metrics <feature>`** creates or refreshes `pipeline-run.json` from the
+  state file, keeping the keys the orchestrator added.
+- **`state-set <feature> <key> [<sub-key>] <json>`** writes `gates`,
+  `artifacts`, `measurements`, `config`, `analyze_changelog`,
+  `test_baseline` or `last_task`, validates the result before it replaces
+  the state file, and refuses every other key.
+
 ## [1.3.1] - 2026-10-06
 
 ### Fixed

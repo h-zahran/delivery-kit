@@ -23,10 +23,15 @@ are your hands, and the state file is your memory.
   keeps the trailing CR and every string comparison silently fails.
 - **State writes**: the phase alphabet goes through `progress.sh`
   (`phase-start` at the START of every phase, `phase-done` on
-  completion); keys no subcommand covers (`config`, `artifacts`,
-  `gates`, `measurements`) are written whole-file with `jq`, then
-  checked with `validate` straight after. Never edit the state file by
-  hand — `validate` exists to catch corruption, not to excuse it.
+  completion); other keys go through `progress.sh state-set <feature>
+  <key> [<sub-key>] <json>`, which refuses a key it does not own and
+  validates before it writes. Never edit the state file by hand —
+  `validate` exists to catch corruption, not to excuse it.
+- **Commit mechanics are `progress.sh` subcommands** — `snapshot`,
+  `spec-commit`, `piece-commit`, `late-commit`, `record-branch`,
+  `commit-list`, `guide`. Never re-create one as a script. Each prints
+  its answer on stdout, its reasons on stderr; a refusal is the phase's
+  stop, or a hard failure.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
@@ -38,11 +43,11 @@ are your hands, and the state file is your memory.
   twenty-phase run is long enough that "where are we" is a real
   question. `pipeline:status` renders the same board from the state file
   for a session that has lost the thread.
-- **Metrics:** alongside the state file, maintain
-  `.delivery-kit/runs/<feature>/pipeline-run.json` — phase timings, gate
-  answers, findings fixed per severity, loop iterations, agents
-  dispatched. Update it at each phase boundary with `jq`. This plugin
-  exists because prompts were measured; it measures itself.
+- **Metrics:** at each phase boundary run `progress.sh metrics
+  <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json`
+  from the state file and keeps keys you add with `jq` (findings fixed
+  per severity, loop iterations, agents dispatched). This plugin exists
+  because prompts were measured; it measures itself.
 - **A missing tool is its own question.** When the run needs a tool the machine lacks, stop: name the tool, show the exact install command, and record the answer in the state file. Never install anything silently.
   This rule is for a tool the run cannot continue without; an optional
   capability that merely degrades a named phase follows that phase's
@@ -551,19 +556,14 @@ The piece flow. H builds a piece by invoking `/speckit-implement`
 limited to that piece's task IDs — never unscoped, which would build
 every piece at once. Before the first piece, H commits the feature's
 spec directory alone, every path named, as `docs(spec): <feature>`, and
-records it with `commit-add` as kind `spec`. A spec commit already
-recorded is never made again; one already in `<base>..HEAD` with that
-subject but not recorded is recorded from that commit, not made again.
-When
-`git --literal-pathspecs ls-files -o --exclude-standard -- <spec dir>`
-lists nothing, `git --literal-pathspecs ls-files -- <spec dir>` lists at
-least one file, none of them is uncommitted, and no spec commit is
-recorded or found by its subject, H makes no spec commit and says so:
-the owner committed the spec already, and the first piece follows; a
-spec artefact recorded in `artifacts` that git ignores
-(`git --literal-pathspecs ls-files -o -i --exclude-standard -- <spec dir>`
-lists it) is a hard failure that names it, while any other ignored file
-in that directory is left alone.
+records it as kind `spec`: `progress.sh spec-commit <feature>` does both.
+A spec commit already recorded is never made again; one already in
+`<base>..HEAD` with that subject but not recorded is recorded from that
+commit, not made again. A spec directory the owner committed already,
+with nothing in it uncommitted, gets no spec commit, said so, and the
+first piece follows; a spec artefact recorded in `artifacts` that git
+ignores is a hard failure that names it, while any other ignored file in
+that directory is left alone.
 Then H loops: `piece-next` names the next piece; H builds that piece's
 tasks; H commits exactly the paths the piece changed, plus `tasks.md`
 with the piece's `[X]` marks; and H records the commit with `commit-add`
@@ -572,39 +572,29 @@ ends when `piece-next` prints nothing. A `piece-next` refusal is a hard
 failure: H stops per "When a phase fails" and never falls back to the
 single-commit flow.
 
-When a piece starts — unless `measurements.pieceBefore` already names
-that piece, whose saved list then stands — H saves every path
-`git status --porcelain=v1 -z --untracked-files=all --no-renames` lists
-under `measurements.pieceBefore`, with the piece's heading; the piece's
-paths are the ones that command lists after the piece and that are
-absent from the saved list, plus `tasks.md`, and a resumed piece is
-compared against the saved list, never against the tree as it stands. A
-path under `.delivery-kit/` is never a piece's path, even where that
-directory is not ignored. Read that output as NUL-separated records,
-never through `$( )`, which drops NUL bytes and runs the paths together:
-take each path after its three-character status prefix, and refuse a
-path that holds a carriage return or a line feed.
+When a piece starts, H runs `progress.sh snapshot <feature> piece`,
+which saves every path `git status` lists under
+`measurements.pieceBefore` with the heading `piece-next` names — unless
+the saved list already names that piece, and then it stands: a resumed
+piece is compared against the saved list, never against the tree as it
+stands. A snapshot that prints a commit id found the piece already
+committed and recorded it: do not build it; ask `piece-next` again. The
+piece's paths are the ones `git status` lists after the piece and that
+are absent from the saved list, plus `tasks.md`. A path under
+`.delivery-kit/` is never a piece's path, even where that directory is
+not ignored.
 
 Every commit H makes names every path it stages — no `git add -A`, no
-wildcards, no directory: write the paths NUL-separated to a file under
-`.delivery-kit/runs/<feature>/`, stage with
-`git --literal-pathspecs add --pathspec-from-file=<file> --pathspec-file-nul`
-and commit with
-`git --literal-pathspecs commit -F <message file> --pathspec-from-file=<file> --pathspec-file-nul`,
-so git reads no path as a pattern, no path is typed into a command, and
-nothing else staged rides along. A commit is never run from an empty
-path file: an empty list makes no commit, because a commit from an empty
-list takes whatever is already staged; J's empty record commit, which
-runs from no path file at all, is the one exception (see J). The message
-follows `commitStyle`,
-names the piece and its task range, says so where the piece changed no
-file but `tasks.md`, and carries, on a line of its own,
-`Piece: <heading>`. The heading travels as data: in the same shell call
-that commits and records, run `piece-next` again, split its output with
-parameter expansion, write the `Piece:` line into the message file with
-`printf '%s'`, and pass the heading quoted to `commit-add` — never
-retype it into a command, since shell state does not survive from one
-call to the next.
+wildcards, no directory — and nothing else staged rides along. H commits
+a piece with `progress.sh piece-commit <feature> <message file>`: it
+takes the heading and task IDs from `piece-next` as data, refuses a
+piece whose tasks are not all `[X]`, commits exactly the piece's paths,
+never from an empty path list (that would commit whatever is staged),
+adds the lines `Tasks: <IDs>` and `Piece: <heading>`, records the commit
+as kind `piece`, and prints its id; `--list` prints the paths and
+commits nothing. The message file holds the rest: it follows
+`commitStyle`, names the piece and its task range, and says so where the
+piece changed no file but `tasks.md`.
 
 In pause mode, after a piece is built and before it is committed, H
 stops and shows the piece name, its task IDs, the exact file list,
@@ -632,11 +622,10 @@ location, never the value — and the run stops per "When a phase fails".
 
 If a commit in `<base>..HEAD` that `commits` does not record carries, as
 a whole line, `Piece: <heading>` for the piece `piece-next` names, the
-piece was committed before a crash: record it from that commit with
-`commit-add` and move on — never rebuild it. A commit so found that also
-carries `Late: H.5` as a whole line is recorded as kind `converge` (see
-H.5); any other as kind `piece`. A recorded piece is never
-rebuilt. A piece is built when every task ID `piece-next` names for it
+piece was committed before a crash: `snapshot` and `piece-commit` record
+it from that commit — kind `converge` when it also carries `Late: H.5`
+as a whole line (see H.5), else kind `piece` — and print its id; move on
+and never rebuild it. A recorded piece is never rebuilt. A piece is built when every task ID `piece-next` names for it
 is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet
 committed is handled first and never rebuilt: a piece a hook rejected is
 shown first with its failure entry, in either mode, and then committed
@@ -662,35 +651,35 @@ own when they changed a file — a late commit — recorded with
 fixes up, amends or rewrites a commit. In the single-commit flow the
 late phases make no commit, and their changes stay in the tree for K.
 
-When a late phase starts — unless `measurements.lateBefore` already
-names that phase, whose saved list then stands — it saves every path the
-`git status` command H uses lists, read as H reads it, under
-`measurements.lateBefore` with the phase's letter and each path's
-`git hash-object` (or `deleted`); the late commit's paths are the ones
-that command lists when the phase ends and that are absent from the
-saved list or whose content changed since it was saved, less any
-untracked path outside `codeRoots`, the feature's spec directory and
-`tasks.md`; such a path stays uncommitted
-for K, which shows it, and a path under `.delivery-kit/` is never one of
-them. A late phase whose commit list, so built, is empty has changed no
-file, for this rule and for J's. A `--from` into a late phase saves its
-list afresh, less the paths a failure entry of that phase names, so a
-commit a hook rejected is still made; only a resume keeps the saved one.
-A late commit names every
-path as H's commits do — the same path file and the same
-`git --literal-pathspecs` stage and commit — and its message follows
+When a late phase starts it runs `progress.sh snapshot <feature> late
+<phase letter>`, which saves every path `git status` lists, with its
+`git hash-object` (or `deleted`), under `measurements.lateBefore` —
+unless the saved list already names that phase, and then it stands. A `--from` into a late phase adds
+`--fresh`: the list is saved afresh, less the paths its failure entry
+names, so a commit a hook rejected is still made; only a resume keeps
+the saved one. The phase ends with `progress.sh late-commit <feature>
+<phase letter> <message file>`: the late commit's paths are the ones
+`git status` lists that are absent from the saved list or whose content
+changed since it was saved, less any untracked path outside `codeRoots`
+(as recorded in `config`), the feature's spec directory and `tasks.md`;
+such a path stays uncommitted for K, which shows it, and a path under
+`.delivery-kit/` is never one of them. A late phase whose commit list,
+so built, is empty has changed no file, for this rule and for J's. A
+late commit names every path as H's commits do, and its message follows
 `commitStyle`, names the phase, and carries, on a line of its own,
-`Late: <phase letter>`. A late phase that changed no file makes no
-commit and says so; the one exception is J's record of a waved-through
-red (see J). A commit hook that rejects a late commit is a hard stop, as
-for a piece: the paths stay uncommitted, `gates` records a failure entry
-under the phase's letter that names those paths and the hook's output,
-redacted as J's carry is, and the run stops
-per "When a phase fails". A re-entered late phase first records, from
-that commit, any commit in `<base>..HEAD` that `commits` does not record
-and that carries its `Late:` line, and never makes that commit again.
-Every `Piece:` and `Late:` line is matched as a whole line, and a
-heading read from one travels as data, as H's heading does.
+`Late: <phase letter>`, which `late-commit` adds. A late phase that
+changed no file makes no commit and says so; the one exception is J's
+record of a waved-through red (see J). A commit hook that rejects a late
+commit is a hard stop, as for a piece: the paths stay uncommitted,
+`gates` records a failure entry under the phase's letter,
+`gates.<letter>.failure` with the `paths` and the hook's `output`,
+redacted as J's carry is, and the run stops per "When a phase fails". A
+re-entered late phase first runs `progress.sh record-branch <feature>`,
+which records, from that commit, any commit in `<base>..HEAD` that
+`commits` does not record and that carries its `Late:` line, and never
+makes that commit again. Every `Piece:` and `Late:` line is matched as a
+whole line, and a heading read from one travels as data, as H's heading
+does.
 
 H.5's entry carries, as its piece, the heading of the phase converge
 appended to `tasks.md`, as `piece-next` prints a heading, and that
@@ -729,9 +718,9 @@ J makes no commit, and K's commit message carries them instead. In the
 piece flow, when a waved-through red must be carried and J changed no
 file, J makes one empty commit whose message is the record, follows
 `commitStyle` and carries `Late: J` on a line of its own —
-`git commit --allow-empty --only -F <message file>`, with no path, so
-nothing staged rides along — and records it with `commit-add` as kind
-`tests` and no files; hooks run, `--no-verify` is never used, and a
+`progress.sh late-commit <feature> J <message file> --record`, with no
+path, so nothing staged rides along — and records it as kind `tests`
+and no files; hooks run, `--no-verify` is never used, and a
 re-entered J recovers it as any late commit is recovered. J is the last
 full-suite check
 before code leaves the machine, and a red that reaches a reviewer as green
@@ -764,15 +753,12 @@ name — no `git add -A`, no wildcards) and the exact commit message in
 When `<base>..HEAD` holds a commit — the piece flow, or a run switched
 to the single-commit flow after commits were made — K shows the commit
 list: every commit in `<base>..HEAD`, oldest first, each with its full
-message and every file it touched — the commits from
-`git rev-list --reverse --first-parent <base>..HEAD`, each one's files
-from
-`git diff-tree --no-commit-id --name-only -r -z --diff-merges=first-parent --root <sha>`,
-read
-NUL-separated — and then every path still uncommitted, by name, with the
+message and every file it touched, as `progress.sh commit-list
+<feature>` prints them, each path marked inside or outside the feature
+— and then every path still uncommitted, by name, with the
 exact commit message in `commitStyle` proposed for it. Wherever K, L and
-DONE speak of the commits in `<base>..HEAD`, they mean that first-parent
-list. K commits that
+DONE speak of the commits in `<base>..HEAD`, they mean the first-parent
+list `commit-list` walks. K commits that
 remainder, less a constitution written at pre-flight, only after the
 answer, every path named as H names them, and records the commit with
 `commit-add` as kind `other`. When nothing is left uncommitted, K still
@@ -784,11 +770,9 @@ When `<base>..HEAD` holds a commit, `--auto` collapses K only when no
 path in the commit list or the remainder lies outside `codeRoots`, the
 feature's spec directory and `tasks.md`; when one does, K stops even
 under `--auto`, names each such path, records them under `gates.K`, and
-waits for the answer. A path is inside a root when it equals the root or
-begins with the root followed by `/`, the root first stripped of a
-leading `./` and a trailing `/`; a root that is then `.` or empty holds
-every path, and when `codeRoots` resolves to no root at all K says so
-and every path counts as outside `codeRoots`. A commit in `<base>..HEAD`
+waits for the answer. `commit-list` marks each path inside or outside
+by `codeRoots` as recorded in `config`; when `codeRoots` resolves to no
+root at all K says so and every path counts as outside `codeRoots`. A commit in `<base>..HEAD`
 with no file and no `Late: J` line, stops K
 even under `--auto`: K names it and stops the run under the `--until`
 rule — the guide cannot be built past a commit it cannot show, and the
@@ -838,7 +822,8 @@ request to review).
 Before anything else, a run whose `commits` holds an old-style string
 entry started on an older pipeline: it builds no guide, says so, and
 carries on as that pipeline did.
-The review guide is a table with one row per commit in
+`progress.sh guide <feature>` prints the review guide, or nothing for
+such a run. The review guide is a table with one row per commit in
 `git rev-list --reverse --first-parent <base>..HEAD`, in that order,
 each joined by its
 sha to its entry in the state file's `commits`, with the columns commit,
@@ -846,30 +831,24 @@ kind, piece, task IDs and files, every row printed, never truncated. An
 entry in `commits` whose sha is not in `<base>..HEAD` is named and stops
 the run, even under `--auto`: the guide never shows a row for a commit
 that is not on the branch; on the owner's answer the run removes those
-entries whole-file with `jq`, the shas passed as data with `--args` and
-read as `$ARGS.positional`, never
-typed into the program — the one write to `commits` outside `commit-add`
-— runs `validate`, and records the removal under `gates.L`. Before
-building it, record with `commit-add`, oldest first and each before the
-next, every commit in `<base>..HEAD` that `commits` does not record,
-with its files read as K reads them, so no commit is missing from the
-guide: a commit carrying `Late: H.5` as kind `converge`, with the
-heading of its `Piece:` line and that phase's task IDs; one carrying, as
-a whole line, `Piece: <heading>` for the heading `piece-next` then
-names, as kind `piece` with that heading and its task IDs; one carrying
-`Late: <phase letter>` under that phase's kind; one with the subject
-`docs(spec): <feature>` as kind `spec`; any other as kind `other`. A
+entries with `progress.sh drop-stale <feature>` — the one write to
+`commits` outside `commit-add` — and records the removal under
+`gates.L`. Before building it, run `progress.sh record-branch
+<feature>`: it records,
+oldest first and each before the next, every commit in `<base>..HEAD`
+that `commits` does not record, with its files read as K reads them, so
+no commit is missing from the guide: its kind is read from its `Late:`
+line, its `Piece:` line for the heading `piece-next` then names, or the
+subject `docs(spec): <feature>`, and is `other` for any other. A
 `Piece:` line on a commit without `Late: H.5` whose heading is not the
 one `piece-next` then names, or a commit with no file and no `Late: J`
 line, is never recorded, and it stops L as it stops K; a path outside
 the feature is no reason to leave a commit unrecorded. The table is
 headed with one line:
 `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.`
-A `|` inside a cell is written as `\|`, a piece name or path is shown as
-a code span fenced by one more backtick than its longest run of
-backticks, with one space inside the fence when the value begins or ends
-with a backtick, and a cell whose value holds a carriage return or a
-line feed stops L and is named, so no piece name or path can break the
+It shows each piece name and path as a code span and a `|` as `\|`, and
+`guide` refuses a cell holding a carriage return or a line feed: that
+stops L and names the commit, so no piece name or path can break the
 table or add markup to the body.
 Whenever M or N pushes to the pull request, the guide table in its body
 is rebuilt as at L and swapped in, the rest of the body kept as it
@@ -877,7 +856,9 @@ stands, with `gh pr edit --body-file`, so the body never lists fewer
 commits than the branch holds. When the body would pass GitHub's limit
 of 65,536 characters, the body's guide gives each commit's file count
 instead of its files, and the full guide is posted as pull-request
-comments, each under that limit, in order, and shown with the body at L;
+comments, each under that limit, in order, and shown with the body at L
+— `guide <feature> --parts` prints the first and writes the second under
+`guide-parts/`, one file per comment;
 a later rebuild edits those comments rather than posting new ones; no
 row and no file is dropped.
 

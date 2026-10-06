@@ -4,24 +4,30 @@
 # Contract, shared with preflight.sh and inherited from the spec tool's own
 # scripts: PURE JSON (or a bare path, or nothing) on stdout, every
 # diagnostic on stderr. A warning printed into a JSON stream is a parse
-# failure that reads like a missing feature. One exception, by design:
-# piece-next prints two plain lines, a heading and its task ids.
+# failure that reads like a missing feature. The exceptions, by design, are
+# plain text that is the answer and nothing else: piece-next prints two
+# lines, a heading and its task ids; the commit commands print the commit
+# id they recorded; --list prints paths, one per line; guide prints the
+# review guide and commit-list prints K's list.
 #
-# Everything this file writes lives under .delivery-kit/. The state
-# directory is the user's to ignore; the skill (never this script) offers
-# the one gitignore line.
+# Everything this file writes lives under .delivery-kit/, and the commit
+# commands write git commits, never a path under it. The state directory is
+# the user's to ignore; the skill (never this script) offers the one
+# gitignore line.
 #
 # jq here may be a native Windows binary with text-mode stdout: command
 # substitution strips the trailing CR it emits, `read` does not (measured
 # repeatedly in this repository's suite) — so this script reads jq only
-# through command substitution and jq's exit codes, never `while read`.
+# through command substitution and jq's exit codes, never `while read`, and
+# the commit commands also pass jq -b (binary output, no CR) and strip any
+# CR left. git's path lists are read NUL-separated from a file instead.
 set -euo pipefail
 
 STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -112,6 +118,14 @@ cmd_validate() {
   need_feature "$1"
   sf="$(state_file "$1")"
   [ -f "$sf" ] || die "no state file at $sf"
+  validate_file "$sf"
+}
+
+# validate_file <path> — validate's checks on any file, so a whole-file write
+# can be judged in its temp file before it replaces the state file. Prints
+# the path, as validate always has.
+validate_file() {
+  sf="$1"
   # A jq that fails here (a parse error, or a program it cannot run) answers
   # nothing, and nothing falls through to the per-check form.
   # shellcheck disable=SC2086 # REQUIRED_KEYS is split into words on purpose
@@ -391,6 +405,966 @@ cmd_lock_release() {
   rm -f "$lf"
 }
 
+# =============================================================================
+# The commit mechanics. The orchestrator used to carry these as prose and
+# re-type them by hand on every run; each is one subcommand here, tested.
+# They run git from the repository's top level, where the state directory
+# lives. git's path lists are read NUL-separated from a file — never through
+# `$( )`, which drops the NUL bytes and runs the paths together — and a path
+# holding a CR or LF is refused, because no list here can carry it. Every
+# commit names every path it stages, through a NUL path file and
+# `git --literal-pathspecs`, so git reads no path as a pattern and nothing
+# already staged rides along.
+# =============================================================================
+
+# jqs <jq arguments...> — jq's raw answer through command substitution, with
+# -b so a native Windows jq writes no CR, and any CR left stripped anyway.
+# The SHORT -b only: jq 1.7 parses it on every platform (a no-op off
+# Windows), while the long --binary is an unknown option there.
+jqs() {
+  local v
+  v="$(jq -b -r "$@")" || return 1
+  printf '%s' "${v//$'\r'/}"
+}
+
+need_git_top() {
+  local pre
+  command -v git >/dev/null 2>&1 || die "git is required and was not found on PATH"
+  pre="$(git rev-parse --show-prefix 2>/dev/null)" || die "not inside a git work tree"
+  [ -z "$pre" ] || die "run this from the repository's top level, where $STATE_ROOT/ lives (this is '$pre' inside it)"
+}
+
+run_dir() { printf '%s/runs/%s' "$STATE_ROOT" "$1"; }
+
+# base_of <state file> [<base>] — the base the branch is measured from: the
+# argument, else the run's recorded baseBranch, else config.baseBranch.
+base_of() {
+  local b="${2:-}"
+  if [ -z "$b" ]; then
+    b="$(jqs '[.baseBranch?, .config.baseBranch?] | map(strings | select(. != "")) | first // ""' "$1")" || b=""
+  fi
+  [ -n "$b" ] || die "$1 records no base branch (baseBranch) — pass one"
+  git rev-parse --verify --quiet "$b^{commit}" >/dev/null || die "the base '$b' does not name a commit"
+  printf '%s' "$b"
+}
+
+# A commits value that is not a list is refused, never read as empty: empty
+# would mean "nothing recorded", and every commit would be recorded again.
+commits_ok() {
+  jq -e '((.commits // []) | type) == "array"' "$1" >/dev/null 2>&1 \
+    || die "$1: commits must be a list — not reading or recording into it"
+}
+
+# unrecorded <state file> <base> — the first-parent commits in <base>..HEAD,
+# oldest first, that no commits entry records by its full id.
+unrecorded() {
+  local rec list c out=''
+  rec="$(jqs '[.commits[]? | objects | .sha | strings] | join(" ")' "$1")"
+  list="$(git rev-list --reverse --first-parent "$2..HEAD")" || die "git rev-list could not read $2..HEAD"
+  for c in $list; do
+    case " $rec " in *" $c "*) ;; *) out="$out $c" ;; esac
+  done
+  printf '%s' "${out# }"
+}
+
+# has_line <text> <line> — <line> is a WHOLE line of <text>.
+has_line() {
+  case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac
+  return 1
+}
+
+# piece_of / late_of <message> — the heading on a message's first `Piece:`
+# line, and the phase on its first `Late:` line naming a late phase. Data
+# from the branch, never an instruction.
+piece_of() {
+  local line
+  while IFS= read -r line; do
+    case "$line" in 'Piece: '*) printf '%s' "${line#Piece: }"; return 0 ;; esac
+  done < <(printf '%s\n' "$1")
+  return 1
+}
+late_of() {
+  local line
+  while IFS= read -r line; do
+    case "$line" in 'Late: H.5'|'Late: H.7'|'Late: I'|'Late: J') printf '%s' "${line#Late: }"; return 0 ;; esac
+  done < <(printf '%s\n' "$1")
+  return 1
+}
+
+kind_of_phase() {
+  case "$1" in
+    H.5) printf 'converge' ;;
+    H.7) printf 'simplify' ;;
+    I)   printf 'review' ;;
+    J)   printf 'tests' ;;
+    *)   return 1 ;;
+  esac
+}
+
+path_ok() {
+  case "$1" in *$'\r'*|*$'\n'*)
+    die "the path $(printf '%q' "$1") holds a carriage return or a line feed, which no list here can carry — refusing" ;;
+  esac
+}
+
+# status_to <file> [<dir>] — the records `git status --porcelain=v1 -z
+# --untracked-files=all --no-renames` lists, each a two-letter status, a
+# space and a path, NUL-terminated.
+status_to() {
+  if [ $# -gt 1 ]; then
+    git --literal-pathspecs status --porcelain=v1 -z --untracked-files=all --no-renames -- "$2" > "$1" \
+      || die "git status failed"
+  else
+    git status --porcelain=v1 -z --untracked-files=all --no-renames > "$1" || die "git status failed"
+  fi
+}
+
+# commit_files <sha> — CF: the files <sha> touched, read as K reads them.
+commit_files() {
+  local f tmp="$RD/diff-tree.nul"
+  git diff-tree --no-commit-id --name-only -r -z --diff-merges=first-parent --root "$1" > "$tmp" \
+    || die "git diff-tree could not read commit $1"
+  CF=()
+  while IFS= read -r -d '' f; do CF+=("$f"); done < "$tmp"
+}
+
+# dir_rel <dir> / repo_rel <file> — a path relative to the repository's top
+# level, as git's lists spell it. artifacts may record a path absolute or
+# relative; a directory comes back with its trailing slash, the top as ''.
+dir_rel() {
+  local top here
+  top="$(git rev-parse --show-toplevel)"
+  here="$(cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || here=""
+  [ "$here" = "$top" ] || die "'$1' is not inside this repository"
+  (cd -- "$1" && git rev-parse --show-prefix)
+}
+repo_rel() {
+  local d b
+  case "$1" in */*) d="${1%/*}"; b="${1##*/}" ;; *) d=.; b="$1" ;; esac
+  [ -n "$d" ] || d=/
+  printf '%s%s' "$(dir_rel "$d")" "$b"
+}
+
+# feature_bounds <state file> — what counts as inside the feature: ROOTS
+# (config.codeRoots, one "r:<root>" line each, so an empty root survives),
+# SPEC_DIR (the directory artifacts.spec sits in) and TASKS_REL.
+feature_bounds() {
+  local spec tf
+  ROOTS="$(jqs '.config.codeRoots? | if type == "array" then (.[] | strings | "r:" + .) elif type == "string" then "r:" + . else empty end' "$1")"
+  spec="$(jqs '(.artifacts.spec? // .artifacts.tasks? // "") | strings' "$1")"
+  SPEC_DIR=''
+  if [ -n "$spec" ] && [ -e "$spec" ]; then
+    case "$spec" in */*) SPEC_DIR="$(dir_rel "${spec%/*}")" ;; *) SPEC_DIR="$(dir_rel .)" ;; esac
+  fi
+  TASKS_REL=''
+  tf="$(jqs '.artifacts.tasks? // "" | strings' "$1")"
+  if [ -n "$tf" ] && [ -f "$tf" ]; then TASKS_REL="$(repo_rel "$tf")"; fi
+}
+
+# inside_feature <path> — K's rule: a path is inside a root when it equals the
+# root or begins with the root and `/`, the root first stripped of a leading
+# `./` and a trailing `/`; a root that is then `.` or empty holds every path.
+# The spec directory and tasks.md are inside too.
+inside_feature() {
+  local p="$1" r
+  if [ -n "$TASKS_REL" ] && [ "$p" = "$TASKS_REL" ]; then return 0; fi
+  if [ -n "$SPEC_DIR" ]; then
+    case "$p" in "$SPEC_DIR"*) return 0 ;; esac
+  fi
+  while IFS= read -r r; do
+    case "$r" in r:*) ;; *) continue ;; esac
+    r="${r#r:}"; r="${r#./}"; r="${r%/}"
+    if [ -z "$r" ] || [ "$r" = . ] || [ "$p" = "$r" ]; then return 0; fi
+    case "$p" in "$r"/*) return 0 ;; esac
+  done < <(printf '%s\n' "$ROOTS")
+  return 1
+}
+
+# A piece's task ids, and the ones not yet marked [X], walked exactly as
+# piece-next walks the tasks file. One line: ok<US>ids<US>open, or none.
+# shellcheck disable=SC2016 # a jq program: $t, $h, $l and $c are jq's
+SECTION_JQ='
+  (reduce ($t | split("\n")[] | rtrimstr("\r")) as $l ([];
+    if ($l | startswith("## ")) then
+      . + [if ($l | test("^## Phase [0-9]+[a-z]*:"))
+           then {h: ($l | ltrimstr("## ")), ids: [], open: []} else null end]
+    elif length > 0 and .[length-1] != null then
+      [$l | capture("^- \\[(?<m>[ xX])\\] (?<id>T[0-9]+)")] as $c
+      | .[length-1].ids += [$c[].id]
+      | .[length-1].open += [$c[] | select(.m == " ") | .id]
+    else . end))
+  | [.[] | select(. != null and .h == $h)] | first
+  | if . == null then "none"
+    else "ok\u001f" + (.ids | join(",")) + "\u001f" + (.open | join(",")) end'
+
+# section_of <state file> <heading> — SEC_IDS and SEC_OPEN for that piece.
+section_of() {
+  local tf r rest
+  tf="$(jqs '.artifacts.tasks // empty' "$1")"
+  if [ -z "$tf" ] || [ ! -f "$tf" ]; then
+    die "the run's tasks file (artifacts.tasks) is not recorded, or not found: '$tf'"
+  fi
+  r="$(jqs -n --rawfile t "$tf" --arg h "$2" "$SECTION_JQ")"
+  case "${r%%$'\x1f'*}" in
+    ok) rest="${r#*$'\x1f'}"; SEC_IDS="${rest%%$'\x1f'*}"; SEC_OPEN="${rest#*$'\x1f'}" ;;
+    *)  return 1 ;;
+  esac
+}
+
+# msg_body <file> — the message the orchestrator wrote, checked: it exists,
+# is not blank, holds no CR, and has no Piece:, Late: or Tasks: line of its
+# own — this script writes those lines, from data, and a second one would
+# be matched by the crash scans.
+msg_body() {
+  local m line
+  [ -f "$1" ] || die "message file not found: $1"
+  # Counted from the file's bytes: Git Bash's `$( )` strips a CR, so a check
+  # on the captured text would pass on Windows and refuse elsewhere.
+  if [ "$(tr -cd '\r' < "$1" | wc -c)" -ne 0 ]; then
+    die "the message file $1 holds a carriage return: write it with LF line endings"
+  fi
+  m="$(cat -- "$1")"
+  [[ $m == *[![:space:]]* ]] || die "the message file $1 is empty"
+  while IFS= read -r line; do
+    case "$line" in 'Piece: '*|'Late: '*|'Tasks: '*)
+      die "the message file $1 carries a '${line%%:*}:' line of its own; this command writes that line itself" ;;
+    esac
+  done < <(printf '%s\n' "$m")
+  MSG="$m"
+}
+
+# nul_file <file> <paths...> — the paths NUL-separated, or an EMPTY file for
+# none: `printf '%s\0'` with no argument would write one empty path instead.
+nul_file() {
+  local f="$1"; shift
+  if [ $# -gt 0 ]; then printf '%s\0' "$@" > "$f"; else : > "$f"; fi
+}
+
+# commit_named <path file> <message file> — stage and commit exactly the
+# named paths. A commit is never run from an empty path file: with no
+# pathspec, git commits whatever is already staged (measured). A hook that
+# rejects the commit stops here; --no-verify is never passed.
+commit_named() {
+  [ -s "$1" ] || die "the path list is empty — a commit from an empty path file takes whatever is already staged, so no commit is made"
+  git --literal-pathspecs add --pathspec-from-file="$1" --pathspec-file-nul >&2 \
+    || die "git add refused the paths in $1 — nothing committed"
+  git --literal-pathspecs commit -q --cleanup=verbatim -F "$2" --pathspec-from-file="$1" --pathspec-file-nul >&2 \
+    || die "the commit was rejected (a commit hook?) — nothing is committed or recorded, and the paths in $1 stay uncommitted"
+  SHA="$(git rev-parse HEAD)"
+}
+
+# state_write <state file> <jq program> [jq options...] — a whole-file write:
+# into a temp file, validated there, then moved over the state file. On any
+# failure the old file stands as it was.
+state_write() {
+  local f="$1" prog="$2" tmp
+  shift 2
+  tmp="$f.tmp"
+  if ! jq "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
+  if ! ( validate_file "$tmp" ) > /dev/null; then rm -f "$tmp"; die "the write would leave $f invalid — the state file is unchanged"; fi
+  mv "$tmp" "$f"
+}
+
+piece_saved() {
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  [ "$(jqs --arg h "$2" '.measurements.pieceBefore.piece? == $h' "$1" 2>/dev/null)" = true ]
+}
+
+# The current piece, from piece-next: HEADING and IDS, as data. Empty HEADING
+# when every piece is recorded.
+next_piece() {
+  local pn
+  pn="$(cmd_piece_next "$1")" || exit 1
+  HEADING="${pn%%$'\n'*}"; IDS="${pn#*$'\n'}"
+  [ -n "$pn" ] || { HEADING=''; IDS=''; }
+}
+
+# recover_piece — a commit in <base>..HEAD that no entry records and that
+# carries `Piece: <HEADING>` as a whole line was made before a crash: record
+# it from that commit (kind converge when it also carries `Late: H.5`) and
+# print its id. It is never built or committed again.
+recover_piece() {
+  local list c msg kind
+  list="$(unrecorded "$sf" "$base")"
+  for c in $list; do
+    msg="$(git log -1 --format=%B "$c")"
+    has_line "$msg" "Piece: $HEADING" || continue
+    kind=piece
+    if has_line "$msg" 'Late: H.5'; then kind=converge; fi
+    commit_files "$c"
+    ( cmd_commit_add "$feature" "$kind" "$c" "$HEADING" "$IDS" ${CF[@]+"${CF[@]}"} )
+    warn "the piece '$HEADING' is already committed in $c, which no entry recorded: recorded it from that commit as kind $kind — it is not built or committed again"
+    printf '%s\n' "$c"
+    return 0
+  done
+  return 1
+}
+
+# recover_late — the same for a late phase: an unrecorded commit carrying
+# `Late: <phase>` is recorded from that commit, never made again.
+recover_late() {
+  local list c msg h i
+  list="$(unrecorded "$sf" "$base")"
+  for c in $list; do
+    msg="$(git log -1 --format=%B "$c")"
+    has_line "$msg" "Late: $phase" || continue
+    h=''; i=''
+    if [ "$phase" = H.5 ] && h="$(piece_of "$msg")"; then
+      if section_of "$sf" "$h"; then i="$SEC_IDS"; fi
+    else
+      h=''
+    fi
+    commit_files "$c"
+    ( cmd_commit_add "$feature" "$kind" "$c" "$h" "$i" ${CF[@]+"${CF[@]}"} )
+    warn "phase $phase already committed $c, which no entry recorded: recorded it from that commit as kind $kind — it is not made again"
+    printf '%s\n' "$c"
+    return 0
+  done
+  return 1
+}
+
+# piece_paths <state file> — PP: the paths git status lists now that are
+# absent from measurements.pieceBefore, never one under the state directory,
+# plus the tasks file.
+piece_paths() {
+  local before tf rec p have=0
+  before="$(jqs '.measurements.pieceBefore.paths[]? | strings' "$1")"
+  tf="$(repo_rel "$(jqs '.artifacts.tasks' "$1")")"
+  status_to "$RD/piece-after.nul"
+  PP=()
+  while IFS= read -r -d '' rec; do
+    p="${rec:3}"
+    path_ok "$p"
+    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    if has_line "$before" "$p"; then continue; fi
+    if [ "$p" = "$tf" ]; then have=1; fi
+    PP+=("$p")
+  done < "$RD/piece-after.nul"
+  case "$tf" in "$STATE_ROOT"/*) have=1 ;; esac
+  if [ "$have" -eq 0 ]; then PP+=("$tf"); fi
+}
+
+# hash_of <path> — `git hash-object`, or `deleted` for a path that is gone.
+hash_of() {
+  if [ -e "$1" ] || [ -L "$1" ]; then
+    git hash-object -- "$1" 2>/dev/null || printf 'unhashable'
+  else
+    printf 'deleted'
+  fi
+}
+
+# late_paths <state file> — LP: the paths git status lists now that are absent
+# from measurements.lateBefore or whose content changed since it was saved,
+# less any untracked path outside the feature, which stays for K, and never
+# one under the state directory.
+late_paths() {
+  local map rec st p h
+  map="$(jqs '.measurements.lateBefore.paths[]? | objects | "\(.hash) \(.path)"' "$1")"
+  feature_bounds "$1"
+  status_to "$RD/late-after.nul"
+  LP=()
+  while IFS= read -r -d '' rec; do
+    st="${rec:0:2}"; p="${rec:3}"
+    path_ok "$p"
+    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    h="$(hash_of "$p")"
+    if has_line "$map" "$h $p"; then continue; fi
+    if [ "$st" = '??' ] && ! inside_feature "$p"; then
+      warn "left uncommitted for K (untracked, outside codeRoots, the spec directory and tasks.md): $p"
+      continue
+    fi
+    LP+=("$p")
+  done < "$RD/late-after.nul"
+}
+
+# --- snapshot -----------------------------------------------------------------
+# snapshot <feature> piece — saves measurements.pieceBefore for the piece
+# piece-next names: every path git status lists, with the piece's heading.
+# snapshot <feature> late <phase> [--fresh] — saves measurements.lateBefore:
+# every path with its hash. A list already saved for that piece or phase
+# stands (a resume compares against it); --fresh saves a late list afresh,
+# for a --from, less the paths gates.<phase>.failure.paths names. A piece
+# found already committed is recorded instead, and its id printed: it must
+# not be built again.
+cmd_snapshot() {
+  feature="$1"; what="${2:-}"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  local rec p n=0 phase fresh
+  case "$what" in
+    piece)
+      [ $# -eq 2 ] || die "usage: snapshot <feature> piece — the heading comes from piece-next, never typed"
+      commits_ok "$sf"
+      next_piece "$feature"
+      [ -n "$HEADING" ] || die "piece-next names no piece: every piece is recorded, so there is nothing to build"
+      base="$(base_of "$sf")"
+      if recover_piece; then return 0; fi
+      if piece_saved "$sf" "$HEADING"; then
+        warn "measurements.pieceBefore already names '$HEADING': the saved list stands"
+        return 0
+      fi
+      status_to "$RD/piece-before.nul"
+      : > "$RD/piece-before.txt"
+      while IFS= read -r -d '' rec; do
+        p="${rec:3}"; path_ok "$p"
+        printf '%s\n' "$p" >> "$RD/piece-before.txt"; n=$((n + 1))
+      done < "$RD/piece-before.nul"
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      state_write "$sf" '.measurements.pieceBefore = {piece: $h, paths: ($p | split("\n") | map(select(length > 0)))}' \
+        --arg h "$HEADING" --rawfile p "$RD/piece-before.txt"
+      warn "saved measurements.pieceBefore for '$HEADING': $n paths"
+      ;;
+    late)
+      phase="${3:-}"; fresh="${4:-}"
+      kind_of_phase "$phase" >/dev/null || die "snapshot late needs a late phase: H.5, H.7, I or J (got '$phase')"
+      case "$fresh" in ''|--fresh) ;; *) die "unknown option '$fresh' (only --fresh)" ;; esac
+      [ $# -le 4 ] || die "usage: snapshot <feature> late <phase> [--fresh]"
+      if [ -z "$fresh" ] && [ "$(jqs '.measurements.lateBefore.phase? // ""' "$sf")" = "$phase" ]; then
+        warn "measurements.lateBefore already names $phase: the saved list stands"
+        return 0
+      fi
+      local skip=''
+      if [ -n "$fresh" ]; then
+        # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+        skip="$(jqs --arg p "$phase" '.gates[$p].failure.paths? // [] | .[]? | strings' "$sf")"
+      fi
+      status_to "$RD/late-before.nul"
+      : > "$RD/late-before.txt"
+      while IFS= read -r -d '' rec; do
+        p="${rec:3}"; path_ok "$p"
+        if has_line "$skip" "$p"; then continue; fi
+        printf '%s %s\n' "$(hash_of "$p")" "$p" >> "$RD/late-before.txt"; n=$((n + 1))
+      done < "$RD/late-before.nul"
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      state_write "$sf" '.measurements.lateBefore = {phase: $ph, paths: [$p | split("\n")[] | select(length > 0) | capture("^(?<hash>[^ ]+) (?<path>.*)$")]}' \
+        --arg ph "$phase" --rawfile p "$RD/late-before.txt"
+      warn "saved measurements.lateBefore for $phase: $n paths"
+      ;;
+    *) die "snapshot needs 'piece', or 'late <phase>'" ;;
+  esac
+}
+
+# --- spec-commit --------------------------------------------------------------
+# The feature's spec directory, alone, as `docs(spec): <feature>`, recorded as
+# kind spec. Never made twice: a recorded spec commit stands, and one already
+# on the branch under that subject is recorded from that commit. A spec
+# directory the owner committed already makes no commit. A recorded artefact
+# git ignores is a hard failure; any other ignored file is left alone.
+cmd_spec_commit() {
+  feature="$1"
+  [ $# -eq 1 ] || die "usage: spec-commit <feature>"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  base="$(base_of "$sf")"
+  local spec sd list c msg arts a ign rec p r
+  if jq -e 'any(.commits[]?; type == "object" and .kind == "spec")' "$sf" >/dev/null; then
+    warn "a spec commit is already recorded: it is not made again"
+    return 0
+  fi
+  list="$(unrecorded "$sf" "$base")"
+  for c in $list; do
+    msg="$(git log -1 --format=%B "$c")"
+    [ "${msg%%$'\n'*}" = "docs(spec): $feature" ] || continue
+    commit_files "$c"
+    ( cmd_commit_add "$feature" spec "$c" "" "" ${CF[@]+"${CF[@]}"} )
+    warn "the spec commit $c is on the branch but was not recorded: recorded it from that commit — it is not made again"
+    printf '%s\n' "$c"
+    return 0
+  done
+  spec="$(jqs '.artifacts.spec? // "" | strings' "$sf")"
+  if [ -z "$spec" ] || [ ! -e "$spec" ]; then die "$sf records no spec that exists (artifacts.spec: '$spec')"; fi
+  case "$spec" in */*) sd="$(dir_rel "${spec%/*}")" ;; *) sd="$(dir_rel .)" ;; esac
+  [ -n "$sd" ] || die "the spec sits at the repository's top level: there is no spec directory to commit alone"
+  # A recorded artefact that git ignores could never be committed: name it.
+  arts=''
+  while IFS= read -r a; do
+    if [ -n "$a" ] && [ -f "$a" ] && r="$(repo_rel "$a" 2>/dev/null)"; then arts="$arts$r"$'\n'; fi
+  done < <(jqs '.artifacts? // {} | .[]? | strings' "$sf"; printf '\n')
+  git --literal-pathspecs ls-files -o -i --exclude-standard -z -- "$sd" > "$RD/spec-ignored.nul" \
+    || die "git ls-files failed on $sd"
+  while IFS= read -r -d '' ign; do
+    if has_line "$arts" "$ign"; then
+      die "the recorded artefact $ign is ignored by git, so the spec commit cannot hold it — a hard failure"
+    fi
+  done < "$RD/spec-ignored.nul"
+  status_to "$RD/spec-status.nul" "$sd"
+  SP=()
+  while IFS= read -r -d '' rec; do
+    p="${rec:3}"; path_ok "$p"
+    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    SP+=("$p")
+  done < "$RD/spec-status.nul"
+  if [ "${#SP[@]}" -eq 0 ]; then
+    if [ -n "$(git --literal-pathspecs ls-files -- "$sd")" ]; then
+      warn "the spec directory $sd is committed already and nothing in it is uncommitted: no spec commit is made"
+      return 0
+    fi
+    die "the spec directory $sd holds no file to commit"
+  fi
+  nul_file "$RD/spec-paths.nul" "${SP[@]}"
+  printf 'docs(spec): %s\n' "$feature" > "$RD/spec-msg.txt"
+  commit_named "$RD/spec-paths.nul" "$RD/spec-msg.txt"
+  ( cmd_commit_add "$feature" spec "$SHA" "" "" "${SP[@]}" ) \
+    || die "commit $SHA is made but not recorded — run record-branch $feature"
+  warn "committed the spec directory as $SHA: ${#SP[@]} paths"
+  printf '%s\n' "$SHA"
+}
+
+# --- piece-commit -------------------------------------------------------------
+# piece-commit <feature> <message-file> — commits the piece piece-next names:
+# the paths git status lists that are absent from measurements.pieceBefore,
+# plus tasks.md, never a path under the state directory. Every task of the
+# piece must be marked [X]. The message is the file's text, then a
+# `Tasks: <ids>` and a `Piece: <heading>` line written from piece-next's own
+# output. Records the commit as kind piece and prints its id.
+# piece-commit <feature> --list — prints those paths and commits nothing.
+cmd_piece_commit() {
+  feature="$1"; local mf="${2:-}"
+  if [ $# -ne 2 ] || [ -z "$mf" ]; then die "usage: piece-commit <feature> <message-file|--list>"; fi
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  next_piece "$feature"
+  [ -n "$HEADING" ] || die "piece-next names no piece: every piece is recorded, so there is nothing to commit"
+  if [ "$mf" != --list ]; then msg_body "$mf"; fi
+  base="$(base_of "$sf")"
+  if recover_piece; then return 0; fi
+  piece_saved "$sf" "$HEADING" \
+    || die "measurements.pieceBefore does not name '$HEADING': run snapshot $feature piece when the piece starts, before it is built"
+  section_of "$sf" "$HEADING" || die "the piece '$HEADING' is not in the tasks file"
+  [ -z "$SEC_OPEN" ] || die "the piece '$HEADING' is not built: task(s) $SEC_OPEN not marked [X] in the tasks file"
+  piece_paths "$sf"
+  if [ "$mf" = --list ]; then
+    if [ "${#PP[@]}" -gt 0 ]; then printf '%s\n' "${PP[@]}"; fi
+    return 0
+  fi
+  nul_file "$RD/piece-paths.nul" ${PP[@]+"${PP[@]}"}
+  printf '%s\n\nTasks: %s\nPiece: %s\n' "$MSG" "$IDS" "$HEADING" > "$RD/piece-msg.txt"
+  commit_named "$RD/piece-paths.nul" "$RD/piece-msg.txt"
+  ( cmd_commit_add "$feature" piece "$SHA" "$HEADING" "$IDS" "${PP[@]}" ) \
+    || die "commit $SHA is made but not recorded — run record-branch $feature"
+  warn "committed the piece '$HEADING' as $SHA: ${#PP[@]} paths"
+  printf '%s\n' "$SHA"
+}
+
+# --- late-commit --------------------------------------------------------------
+# late-commit <feature> <phase> <message-file> — one late commit for H.5, H.7,
+# I or J, kind converge, simplify, review or tests: the paths changed since
+# measurements.lateBefore (see late_paths). The message is the file's text,
+# then `Late: <phase>`; H.5 adds `Tasks:` and `Piece:` lines for the phase
+# converge appended, as piece-next names it. A phase that changed no file
+# makes no commit and says so.
+# late-commit <feature> J <message-file> --record — J's empty record commit
+# of a waved-through red: no path, kind tests, never twice on the branch.
+# late-commit <feature> <phase> --list — prints the paths, commits nothing.
+cmd_late_commit() {
+  feature="$1"; phase="${2:-}"; local mf="${3:-}" flag="${4:-}" saved c list
+  kind="$(kind_of_phase "$phase")" || die "late-commit needs a late phase: H.5, H.7, I or J (got '$phase')"
+  if [ $# -gt 4 ] || [ -z "$mf" ]; then die "usage: late-commit <feature> <phase> <message-file|--list> [--record]"; fi
+  case "$flag" in ''|--record) ;; *) die "unknown option '$flag' (only --record)" ;; esac
+  if [ -n "$flag" ] && [ "$phase" != J ]; then die "--record makes J's empty record commit: it is for phase J only"; fi
+  if [ -n "$flag" ] && [ "$mf" = --list ]; then die "--record makes a commit; it does not go with --list"; fi
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  base="$(base_of "$sf")"
+  if [ "$mf" != --list ]; then msg_body "$mf"; fi
+  if recover_late; then return 0; fi
+  saved="$(jqs '.measurements.lateBefore.phase? // "" | strings' "$sf")"
+  HEADING=''; IDS=''
+  if [ "$flag" = --record ]; then
+    list="$(git rev-list --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
+    for c in $list; do
+      if has_line "$(git log -1 --format=%B "$c")" 'Late: J'; then
+        die "commit $c already carries 'Late: J': the record reaches a commit exactly once"
+      fi
+    done
+    if [ "$saved" = J ]; then
+      late_paths "$sf"
+      [ "${#LP[@]}" -eq 0 ] || die "J changed files: the record rides in J's own late commit — run without --record"
+    fi
+    printf '%s\n\nLate: J\n' "$MSG" > "$RD/late-msg.txt"
+    git commit -q --allow-empty --only --cleanup=verbatim -F "$RD/late-msg.txt" >&2 \
+      || die "the record commit was rejected (a commit hook?) — nothing is committed or recorded"
+    SHA="$(git rev-parse HEAD)"
+    ( cmd_commit_add "$feature" tests "$SHA" "" "" ) \
+      || die "commit $SHA is made but not recorded — run record-branch $feature"
+    warn "made J's empty record commit $SHA"
+    printf '%s\n' "$SHA"
+    return 0
+  fi
+  [ "$saved" = "$phase" ] \
+    || die "measurements.lateBefore does not name $phase: run snapshot $feature late $phase when the phase starts"
+  if [ "$phase" = H.5 ]; then
+    next_piece "$feature"
+    if [ -n "$HEADING" ]; then
+      section_of "$sf" "$HEADING" || die "the piece '$HEADING' is not in the tasks file"
+      [ -z "$SEC_OPEN" ] || die "converge's phase '$HEADING' is not built: task(s) $SEC_OPEN not marked [X] in the tasks file"
+    fi
+  fi
+  late_paths "$sf"
+  if [ "$mf" = --list ]; then
+    if [ "${#LP[@]}" -gt 0 ]; then printf '%s\n' "${LP[@]}"; fi
+    return 0
+  fi
+  if [ "${#LP[@]}" -eq 0 ]; then
+    warn "$phase changed no file: no late commit is made"
+    return 0
+  fi
+  nul_file "$RD/late-paths.nul" "${LP[@]}"
+  {
+    printf '%s\n\n' "$MSG"
+    if [ -n "$HEADING" ]; then printf 'Tasks: %s\nPiece: %s\n' "$IDS" "$HEADING"; fi
+    printf 'Late: %s\n' "$phase"
+  } > "$RD/late-msg.txt"
+  commit_named "$RD/late-paths.nul" "$RD/late-msg.txt"
+  ( cmd_commit_add "$feature" "$kind" "$SHA" "$HEADING" "$IDS" "${LP[@]}" ) \
+    || die "commit $SHA is made but not recorded — run record-branch $feature"
+  warn "committed $phase as $SHA (kind $kind): ${#LP[@]} paths"
+  printf '%s\n' "$SHA"
+}
+
+# --- record-branch ------------------------------------------------------------
+# Records, oldest first and each before the next, every first-parent commit
+# in <base>..HEAD that commits does not record, with its files read as K
+# reads them: `Late: H.5` as converge (the heading of its Piece: line and
+# that phase's task ids); a whole-line `Piece: <heading>` for the heading
+# piece-next then names as piece; `Late: <phase>` under that phase's kind;
+# the subject `docs(spec): <feature>` as spec; any other as other. Stops on a
+# Piece: line for any other heading, and on a commit with no file and no
+# `Late: J` line. Prints the ids it recorded.
+cmd_record_branch() {
+  feature="$1"
+  [ $# -le 2 ] || die "usage: record-branch <feature> [<base>]"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  base="$(base_of "$sf" "${2:-}")"
+  local list c msg late h ids k hasp out='' n=0
+  list="$(unrecorded "$sf" "$base")"
+  for c in $list; do
+    msg="$(git log -1 --format=%B "$c")"
+    commit_files "$c"
+    late="$(late_of "$msg")" || late=''
+    hasp=0; h=''
+    if h="$(piece_of "$msg")"; then hasp=1; else h=''; fi
+    if [ "${#CF[@]}" -eq 0 ] && [ "$late" != J ]; then
+      die "commit $c has no file and no 'Late: J' line: it cannot be shown, so it is not recorded and this stops the run ($n recorded before it)"
+    fi
+    ids=''
+    if [ "$late" = H.5 ]; then
+      k=converge
+      if [ "$hasp" -eq 1 ] && section_of "$sf" "$h"; then ids="$SEC_IDS"; fi
+    elif [ "$hasp" -eq 1 ]; then
+      next_piece "$feature"
+      if [ "$HEADING" != "$h" ]; then
+        die "commit $c carries 'Piece: $h', which is not the piece piece-next names ('$HEADING'): not recorded, and this stops the run ($n recorded before it)"
+      fi
+      k=piece; ids="$IDS"
+    elif [ -n "$late" ]; then
+      k="$(kind_of_phase "$late")"; h=''
+    elif [ "${msg%%$'\n'*}" = "docs(spec): $feature" ]; then
+      k=spec; h=''
+    else
+      k=other; h=''
+    fi
+    ( cmd_commit_add "$feature" "$k" "$c" "$h" "$ids" ${CF[@]+"${CF[@]}"} )
+    out="$out$c"$'\n'; n=$((n + 1))
+    warn "recorded $c as kind $k"
+  done
+  printf '%s' "$out"
+}
+
+# --- guide --------------------------------------------------------------------
+# The review guide: one row per first-parent commit in <base>..HEAD, oldest
+# first, joined by its id to its commits entry. A piece name or path is a code
+# span fenced by one more backtick than its longest run of backticks, with a
+# space inside the fence when the value begins or ends with one; `|` is `\|`.
+# shellcheck disable=SC2016 # a jq program: $mode, $e, $v and $ARGS are jq's
+GUIDE_JQ='
+  def span: . as $v
+    | ("`" * (([$v | scan("`+") | length] | max // 0) + 1)) as $f
+    | (if ($v | startswith("`")) or ($v | endswith("`")) then " " else "" end) as $pad
+    | $f + $pad + ($v | gsub("\\|"; "\\|")) + $pad + $f;
+  def cr: tostring | test("[\r\n]");
+  [.commits[]? | objects] as $all
+  | [$ARGS.positional[] as $s | {s: $s, e: ([$all[] | select(.sha == $s)] | first)}] as $rows
+  | ([$rows[] | select(.e == null)] | first) as $miss
+  | ([$rows[] | select(.e != null and ([.e.piece?, .e.tasks[]?, .e.files[]?] | map(select(. != null)) | any(cr)))] | first) as $bad
+  | if $miss != null then "missing\u001f" + $miss.s
+    elif $bad != null then "crlf\u001f" + $bad.s
+    else "ok",
+      ($rows[] | .e as $e
+       | "| " + .s[0:7] + " | " + ($e.kind | tostring) + " | "
+         + (if (($e.piece // "") | tostring) == "" then "" else ($e.piece | tostring | span) end) + " | "
+         + (($e.tasks // []) | map(tostring) | join(", ") | gsub("\\|"; "\\|")) + " | "
+         + (if $mode == "counts"
+            then (($e.files // []) | length) as $n | "\($n) file" + (if $n == 1 then "" else "s" end)
+            else (($e.files // []) | map(tostring | span) | join("<br>")) end)
+         + " |")
+    end'
+GUIDE_HEAD='Read this branch commit by commit, top to bottom: each row is one commit, oldest first.'
+GUIDE_COLS='| Commit | Kind | Piece | Task IDs | Files |
+|---|---|---|---|---|'
+# A pull-request body or comment holds at most 65,536 characters; a part is
+# kept to this many BYTES, which can only be fewer characters.
+GUIDE_PART_MAX=65000
+
+# guide_rows <mode> — ROWS: the table's rows, one per line.
+guide_rows() {
+  local r
+  # shellcheck disable=SC2086 # the commit ids are split into words on purpose
+  r="$(jqs --arg mode "$1" "$GUIDE_JQ" "$sf" --args -- $BRANCH)"
+  case "${r%%$'\n'*}" in
+    ok) ;;
+    missing*) die "commit ${r#*$'\x1f'} in $base..HEAD is not recorded: run record-branch first" ;;
+    crlf*) die "the entry for commit ${r#*$'\x1f'} holds a carriage return or a line feed in its piece name, task ids or a path: it would break the table — this stops L" ;;
+    *) die "guide: the table answered '${r%%$'\n'*}', which is none of ok, missing or crlf" ;;
+  esac
+  case "$r" in *$'\n'*) ROWS="${r#*$'\n'}" ;; *) ROWS='' ;; esac
+}
+
+# guide <feature> [<base>] — prints the guide.
+# guide <feature> [<base>] --parts — prints the guide with each commit's file
+# count instead of its files, and writes the full guide, split at row
+# boundaries into parts of at most GUIDE_PART_MAX bytes each, to
+# guide-parts/guide-<n>.md in the run directory: one pull-request comment
+# each, in order. No row and no file is dropped.
+cmd_guide() {
+  feature="$1"; shift
+  local base_arg='' parts=0 stale u part size b row pdir block
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --parts) parts=1 ;;
+      -*) die "unknown option '$1' (only --parts)" ;;
+      *) [ -z "$base_arg" ] || die "usage: guide <feature> [<base>] [--parts]"; base_arg="$1" ;;
+    esac
+    shift
+  done
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  base="$(base_of "$sf" "$base_arg")"
+  if jq -e 'any(.commits[]?; type == "string")' "$sf" >/dev/null; then
+    warn "commits holds an old-style string entry: this run started on an older pipeline, and no guide is built"
+    return 0
+  fi
+  BRANCH="$(git rev-list --reverse --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
+  # shellcheck disable=SC2086,SC2016 # ids split into words on purpose; a jq program
+  stale="$(jqs '[.commits[] | objects | .sha | strings] - $ARGS.positional | join(" ")' "$sf" --args -- $BRANCH)"
+  [ -z "$stale" ] || die "commits records $stale, which is not in $base..HEAD: the guide never shows a row for a commit that is not on the branch — this stops the run"
+  u="$(unrecorded "$sf" "$base")"
+  [ -z "$u" ] || die "commit(s) $u in $base..HEAD are not recorded: run record-branch first"
+  if [ "$parts" -eq 0 ]; then
+    guide_rows full
+    printf '%s\n\n%s\n' "$GUIDE_HEAD" "$GUIDE_COLS"
+    if [ -n "$ROWS" ]; then printf '%s\n' "$ROWS"; fi
+    return 0
+  fi
+  pdir="$RD/guide-parts"
+  mkdir -p "$pdir"
+  rm -f "$pdir"/guide-*.md
+  guide_rows full
+  block="$(printf '%s\n\n%s\n' "$GUIDE_HEAD" "$GUIDE_COLS")"$'\n'
+  part=1; size="$(printf '%s' "$block" | wc -c)"; size=$((size + 0))
+  printf '%s' "$block" > "$pdir/guide-$part.md"
+  if [ -n "$ROWS" ]; then
+    while IFS= read -r row; do
+      b="$(printf '%s\n' "$row" | wc -c)"; b=$((b + 0))
+      if [ $((size + b)) -gt "$GUIDE_PART_MAX" ]; then
+        [ "$size" -gt "${#block}" ] || die "one row of the guide alone passes $GUIDE_PART_MAX bytes; it cannot be split without dropping files: ${row%% | *} |"
+        part=$((part + 1)); size="$(printf '%s' "$block" | wc -c)"; size=$((size + 0))
+        printf '%s' "$block" > "$pdir/guide-$part.md"
+      fi
+      printf '%s\n' "$row" >> "$pdir/guide-$part.md"; size=$((size + b))
+    done < <(printf '%s\n' "$ROWS")
+  fi
+  warn "the full guide is in $part part(s): $pdir/guide-1.md to guide-$part.md, each at most $GUIDE_PART_MAX bytes"
+  guide_rows counts
+  printf '%s\n\n%s\n' "$GUIDE_HEAD" "$GUIDE_COLS"
+  if [ -n "$ROWS" ]; then printf '%s\n' "$ROWS"; fi
+}
+
+# --- drop-stale ---------------------------------------------------------------
+# On the owner's answer to L's stop: removes every commits entry whose id is
+# not in <base>..HEAD — the one write to commits outside commit-add — and
+# prints the ids removed. The branch's ids travel as data, never as program
+# text. Old-style string entries are left as they are.
+cmd_drop_stale() {
+  feature="$1"
+  [ $# -le 2 ] || die "usage: drop-stale <feature> [<base>]"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  commits_ok "$sf"
+  base="$(base_of "$sf" "${2:-}")"
+  local gone
+  git rev-list --first-parent "$base..HEAD" > "$RD/branch-ids.txt" || die "git rev-list could not read $base..HEAD"
+  # shellcheck disable=SC2016 # a jq program: $b and $s are jq's
+  gone="$(jqs --rawfile b "$RD/branch-ids.txt" '($b | split("\n")) as $on
+    | [.commits[]? | objects | .sha | strings | select(. as $s | any($on[]; . == $s) | not)] | join(" ")' "$sf")"
+  if [ -z "$gone" ]; then
+    warn "every recorded commit is on the branch: nothing removed"
+    return 0
+  fi
+  # shellcheck disable=SC2016 # a jq program: $b and $s are jq's
+  state_write "$sf" '($b | split("\n")) as $on
+    | .commits |= map(select(type != "object" or (.sha as $s | any($on[]; . == $s))))' \
+    --rawfile b "$RD/branch-ids.txt"
+  warn "removed the entries for commits not on the branch: $gone"
+  # shellcheck disable=SC2086 # one id per line: split on purpose
+  printf '%s\n' $gone
+}
+
+# --- commit-list --------------------------------------------------------------
+# K's list: every first-parent commit in <base>..HEAD, oldest first, with its
+# full message (indented, so it reads as data) and every file it touched; then
+# every path still uncommitted. Each path is marked `-` inside the feature or
+# `!` outside it; a path under the state directory is always outside, and is
+# never listed as uncommitted. A commit with no file and no `Late: J` line
+# stops K: refused, naming it.
+cmd_commit_list() {
+  feature="$1"
+  [ $# -le 2 ] || die "usage: commit-list <feature> [<base>]"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  base="$(base_of "$sf" "${2:-}")"
+  feature_bounds "$sf"
+  local list c msg line f rec p out roots='' r n=0
+  while IFS= read -r r; do
+    case "$r" in r:*) roots="$roots${roots:+, }'${r#r:}'" ;; esac
+  done < <(printf '%s\n' "$ROOTS")
+  [ -n "$roots" ] || roots="(none: every path outside the spec directory and tasks.md counts as outside)"
+  out="codeRoots: $roots"$'\n'"Paths are marked '-' inside the feature (codeRoots, the spec directory, tasks.md) or '!' outside it."$'\n'
+  list="$(git rev-list --reverse --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
+  for c in $list; do
+    n=$((n + 1))
+    msg="$(git log -1 --format=%B "$c")"
+    commit_files "$c"
+    if [ "${#CF[@]}" -eq 0 ] && ! has_line "$msg" 'Late: J'; then
+      die "commit $c has no file and no 'Late: J' line: K cannot show it — this stops the run"
+    fi
+    out="$out"$'\n'"commit $n: $c"$'\n'"  message:"$'\n'
+    while IFS= read -r line; do out="$out    $line"$'\n'; done < <(printf '%s\n' "$msg")
+    out="$out  files:"$'\n'
+    if [ "${#CF[@]}" -eq 0 ]; then out="$out    (none: J's record of a waved-through red)"$'\n'; fi
+    for f in ${CF[@]+"${CF[@]}"}; do
+      path_ok "$f"
+      out="$out    $(path_mark "$f") $f"$'\n'
+    done
+  done
+  out="$out"$'\n'"uncommitted:"$'\n'
+  status_to "$RD/k-status.nul"
+  local m=0
+  while IFS= read -r -d '' rec; do
+    p="${rec:3}"; path_ok "$p"
+    case "$p" in "$STATE_ROOT"/*) continue ;; esac
+    out="$out  $(path_mark "$p") $p"$'\n'; m=$((m + 1))
+  done < "$RD/k-status.nul"
+  if [ "$m" -eq 0 ]; then out="$out  (none)"$'\n'; fi
+  printf '%s' "$out"
+}
+path_mark() {
+  case "$1" in "$STATE_ROOT"/*) printf '!'; return 0 ;; esac
+  if inside_feature "$1"; then printf -- '-'; else printf '!'; fi
+}
+
+# --- metrics ------------------------------------------------------------------
+# .delivery-kit/runs/<feature>/pipeline-run.json, derived from the state file:
+# phases with their timestamps and seconds, gates, the commits by kind, and
+# the analyze iterations. Keys the orchestrator wrote itself (findings fixed,
+# agents dispatched, loop iterations) are kept; derived keys are rewritten.
+# Running it twice writes the same file.
+# shellcheck disable=SC2016 # a jq program: $m, $d and $s are jq's
+METRICS_JQ='
+  def secs: try fromdateiso8601 catch null;
+  ($m | if length > 0 then .[0] else {} end) + {
+    feature,
+    current_phase,
+    completed_phases,
+    phases: ((.timestamps // {}) | with_entries(.value |= (
+      if type == "object" and (.started | type) == "string" and (.done | type) == "string"
+      then (.done | secs) as $d | (.started | secs) as $s
+           | . + {seconds: (if $d != null and $s != null then $d - $s else null end)}
+      else . end))),
+    gates: (.gates // {}),
+    commits: {
+      total: ((.commits // []) | length),
+      by_kind: ((.commits // []) | map(if type == "object" then (.kind // "unknown" | tostring) else "old-style" end)
+                | group_by(.) | map({key: .[0], value: length}) | from_entries)
+    },
+    analyze_iterations: ((.analyze_changelog // []) | length)
+  }'
+
+cmd_metrics() {
+  feature="$1"
+  [ $# -eq 1 ] || die "usage: metrics <feature>"
+  sf="$(cmd_validate "$feature")"
+  commits_ok "$sf"
+  local mf tmp
+  mf="$(run_dir "$feature")/pipeline-run.json"
+  tmp="$mf.tmp"
+  if [ -f "$mf" ]; then
+    [ "$(jqs -s 'length == 1 and (.[0] | type) == "object"' "$mf" 2>/dev/null)" = true ] \
+      || die "$mf is not one JSON object — not overwriting it"
+    jq --slurpfile m "$mf" "$METRICS_JQ" "$sf" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
+  else
+    jq --argjson m '[]' "$METRICS_JQ" "$sf" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
+  fi
+  mv "$tmp" "$mf"
+  printf '%s\n' "$mf"
+}
+
+# --- state-set ----------------------------------------------------------------
+# state-set <feature> <key> [<sub-key>] <json> — the whole-key write for the
+# keys no other subcommand writes: gates, artifacts, measurements and config
+# (objects), analyze_changelog (a list), test_baseline and last_task
+# (strings). With a sub-key, only that member of the object is replaced. The
+# value travels as data (--argjson); the write goes to a temp file, is
+# validated there, and only then replaces the state file. Every other key —
+# commits, the phase alphabet, the feature's identity — has its own command
+# or is never written, and is refused.
+STATE_SET_KEYS=" gates artifacts measurements config analyze_changelog test_baseline last_task "
+cmd_state_set() {
+  feature="$1"; local key="${2:-}" sub='' json want k ok=1
+  case $# in
+    3) json="$3" ;;
+    4) sub="$3"; json="$4"; [ -n "$sub" ] || die "the sub-key is empty" ;;
+    *) die "usage: state-set <feature> <key> [<sub-key>] <json>" ;;
+  esac
+  ok=0
+  for k in $STATE_SET_KEYS; do if [ "$k" = "$key" ]; then ok=1; fi; done
+  [ "$ok" -eq 1 ] || die "state-set does not write '$key' (it writes:${STATE_SET_KEYS% })"
+  case "$key" in
+    analyze_changelog) want=array ;;
+    test_baseline|last_task) want=string ;;
+    *) want=object ;;
+  esac
+  if [ -n "$sub" ] && [ "$want" != object ]; then die "'$key' holds a $want, which has no sub-keys"; fi
+  jq -n --argjson v "$json" '$v' >/dev/null 2>&1 || die "the value is not one valid JSON document: $json"
+  if [ -z "$sub" ]; then
+    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+    [ "$(jqs -n --argjson v "$json" '$v | type')" = "$want" ] || die "'$key' must be a JSON $want"
+  fi
+  sf="$(cmd_validate "$feature")"
+  if [ -n "$sub" ]; then
+    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+    state_write "$sf" '.[$k] = ((.[$k] // {}) | if type == "object" then .[$s] = $v else error("not an object") end)' \
+      --arg k "$key" --arg s "$sub" --argjson v "$json"
+  else
+    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+    state_write "$sf" '.[$k] = $v' --arg k "$key" --argjson v "$json"
+  fi
+}
+
 cmd="${1:-}"; [ $# -ge 2 ] || usage
 feature_arg="$2"
 need_feature "$feature_arg"
@@ -405,5 +1379,15 @@ case "$cmd" in
   lock-release)  cmd_lock_release "$feature_arg" ;;
   commit-add)    shift 2; cmd_commit_add "$feature_arg" "$@" ;;
   piece-next)    cmd_piece_next "$feature_arg" ;;
+  snapshot)      shift 2; cmd_snapshot "$feature_arg" "$@" ;;
+  spec-commit)   shift 2; cmd_spec_commit "$feature_arg" "$@" ;;
+  piece-commit)  shift 2; cmd_piece_commit "$feature_arg" "$@" ;;
+  late-commit)   shift 2; cmd_late_commit "$feature_arg" "$@" ;;
+  record-branch) shift 2; cmd_record_branch "$feature_arg" "$@" ;;
+  guide)         shift 2; cmd_guide "$feature_arg" "$@" ;;
+  commit-list)   shift 2; cmd_commit_list "$feature_arg" "$@" ;;
+  metrics)       shift 2; cmd_metrics "$feature_arg" "$@" ;;
+  state-set)     shift 2; cmd_state_set "$feature_arg" "$@" ;;
+  drop-stale)    shift 2; cmd_drop_stale "$feature_arg" "$@" ;;
   *) usage ;;
 esac
