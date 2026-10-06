@@ -164,12 +164,13 @@ becomes unusable for everyone else.
   reads rather than carrying a list, so a shell file you add is analysed the
   day it lands. What is excluded, and why, is written into the job itself —
   read it there rather than looking for a second copy here.
-- **The analyser version that governs is CI's, not yours.** It comes from the
-  runner image and is printed at the top of that job. Measured: the image has
-  shipped an older release than a developer machine had, and the older one
-  reported a check the newer one does not have at all — so a local green does
-  not imply a green gate, and the risk runs in the direction that flatters you.
-  Read the version from the job log and analyse with the same one before
+- **The analyser version that governs is CI's, not yours.** The job installs a
+  pinned shellcheck release (`SHELLCHECK_VERSION` in that job, currently
+  v0.11.0), verifies its checksum, and refuses to analyse under any other
+  version. It used to take whatever the runner image carried. Measured: the
+  image shipped an older release than a developer machine had, and the older
+  one reported a check the newer one does not have at all, so a local green
+  did not imply a green gate. Install the pinned release locally before
   concluding anything from a local run.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.

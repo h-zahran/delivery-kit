@@ -57,14 +57,46 @@ defaults:
 permissions:
   contents: read
 
+# A newer push to the same pull request makes the older run's answer worthless,
+# so that run is cancelled rather than left to occupy a runner — the windows
+# leg alone is several minutes. Push runs (main) and tag runs are NOT cancelled
+# in progress: a main run is the record of what landed, and a tag run is the
+# release gate, so neither may be stopped by whatever arrives after it.
+#
+# Be exact about the limit, because "never cancelled" would overstate it: the
+# group is per ref, and GitHub keeps at most ONE PENDING run per group. A main
+# run that is still QUEUED when another push to main arrives is replaced by
+# the newer one, which checks a superset of it. A RUNNING main run is never
+# touched, and each tag is its own ref, so its group holds only itself.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# EVERY JOB CARRIES A timeout-minutes. The default is 360, so a hung step —
+# a test waiting on stdin, a network fetch that never returns — would hold a
+# runner for six hours before anything went red. Limits are about three times
+# the slowest duration measured over the last ten runs (2026-10-06), so an
+# ordinary slow runner never trips them and a hang is reported in minutes.
 jobs:
   test:
     name: tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Per OS, because the legs differ tenfold. Measured, ten runs: windows
+    # 275-511 s, macOS 83-159 s, ubuntu 30-45 s. Windows gets 30 (about 3.5x
+    # its slowest); macOS and ubuntu get 10, which also absorbs a bats cache
+    # miss and a package install on the jq fallback path.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            timeout: 10
+          - os: macos-latest
+            timeout: 10
+          - os: windows-latest
+            timeout: 30
     env:
       # bats-core v1.11.0.
       #
@@ -211,8 +243,18 @@ jobs:
   version:
     name: version agreement
     runs-on: ubuntu-latest
+    # Measured 4-7 s over ten runs; 5 minutes is generous and still bounded.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+
+      # The jq this job reads manifests with comes from the runner image and
+      # is not pinned, so its version is printed for the log. The three test
+      # legs print theirs in "Ensure jq"; measured 2026-10-06 they differ
+      # (ubuntu 1.7, macOS 1.8.2, windows 1.8.1), and a red that appears on
+      # one platform only is diagnosable in one look when the log names it.
+      - name: Print the jq version
+        run: jq --version
 
       # ONE implementation, TWO callers. This step and the suite gate in
       # tests/portability.bats used to hold two copies of the walk this line
@@ -311,37 +353,63 @@ jobs:
   shell-analysis:
     name: shell analysis
     runs-on: ubuntu-latest
+    # Measured 4-7 s over ten runs, before the analyser was downloaded here.
+    # 10 minutes leaves room for the download's retries on a bad network day.
+    timeout-minutes: 10
+    # Declared once, at job level, because two steps read them: the install
+    # step fetches and verifies this release, and the analysis step refuses to
+    # run under any other version. Same reasoning as BATS_PIN above.
+    #
+    # The checksum is of the release asset shellcheck-v0.11.0.linux.x86_64.tar.xz
+    # from the koalaman/shellcheck GitHub release. Derived 2026-10-06 by
+    # downloading the asset and hashing it, and cross-checked against the
+    # sha256 digest GitHub records for that asset in the release API — the two
+    # agreed. Re-derive both when bumping the version; never copy a checksum
+    # from anywhere that did not hash the file.
+    env:
+      SHELLCHECK_VERSION: v0.11.0
+      SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
     steps:
       - uses: actions/checkout@v7
 
-      # Same shape as "Ensure jq" in the test job: use what the image provides,
-      # install it if absent, and always print the version. Be exact about how
-      # far that uniformity goes — the `version` job below deliberately does
-      # NEITHER, consuming jq straight from the runner image with no ensure
-      # step, because it runs only on ubuntu where jq is guaranteed. So this
-      # file carries two patterns, not one: ensure-then-use where a tool might
-      # be missing, assume-the-image where it cannot be.
+      # PINNED, not taken from the runner image, and this is why. Measured
+      # 2026-08-30, the hard way: this image shipped 0.9.0 while the machine
+      # the job was written on had 0.11.0, and 0.9.0 reports a check 0.11.0
+      # does not have at any severity. The job went red on a tree that was
+      # clean locally, twice over — once on new code and once on a line that
+      # predated the job entirely. Note the direction, because it is the
+      # dangerous one: a contributor with a NEWER analyser saw FEWER findings
+      # than this gate did. An image upgrade could equally move the analyser
+      # under unchanged code. A pin makes the governing version a line in this
+      # file that a contributor can read and match (see CONTRIBUTING.md).
       #
-      # The version print is what makes a red on unchanged code diagnosable in
-      # one look: the analyser is the runner image's, and an image upgrade can
-      # move it.
+      # FAIL CLOSED on the checksum: a tarball that hashes to anything else is
+      # never unpacked, let alone executed. The comparison is explicit, and
+      # names both values, rather than resting on errexit alone.
       #
-      # THE VERSION HERE IS THE ONE THAT GOVERNS, and it is not necessarily the
-      # one a contributor has. Measured 2026-08-30, the hard way: this image
-      # shipped 0.9.0 while the machine the job was written on had 0.11.0, and
-      # 0.9.0 reports a check 0.11.0 does not have at any severity. The job went
-      # red on a tree that was clean locally, twice over — once on new code and
-      # once on a line that predated the job entirely.
-      #
-      # Note the direction, because it is the dangerous one: a contributor with
-      # a NEWER analyser sees FEWER findings than this gate does. Read the
-      # version this step prints before concluding a local green means anything,
-      # and see CONTRIBUTING.md for how to match it.
-      - name: Ensure shellcheck
+      # The install directory is put on GITHUB_PATH, which takes effect in
+      # LATER steps only, so the version printed here is the extracted binary's
+      # by absolute path. A bare `shellcheck --version` in this step would
+      # still print the image's copy and mislead the reader of this log. The
+      # analysis step below asserts the version it actually resolves.
+      - name: Install the pinned shellcheck
         run: |
-          if shellcheck --version; then exit 0; fi
-          sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck --version
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          tarball="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          # From stdin, not by name: GNU sha256sum prefixes the hash with a
+          # backslash when the FILENAME contains one, which made this exact
+          # comparison refuse a correct tarball in a local rehearsal (2026-10-06).
+          got="$(sha256sum < "$tarball" | cut -d' ' -f1)"
+          [ "$got" = "$SHELLCHECK_SHA256" ] || {
+            echo "shellcheck ${SHELLCHECK_VERSION} tarball hashes to $got, expected $SHELLCHECK_SHA256; refusing to install it" >&2
+            exit 1
+          }
+          echo "shellcheck ${SHELLCHECK_VERSION} tarball matches $SHELLCHECK_SHA256"
+          tar -xJf "$tarball" -C "$RUNNER_TEMP"
+          dir="$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}"
+          "$dir/shellcheck" --version
+          echo "$dir" >> "$GITHUB_PATH"
 
       # WHAT IS ANALYSED, and why the boundary sits where it does. Read this
       # before widening or narrowing it.
@@ -356,9 +424,9 @@ jobs:
       # OUT: .specify/scripts/bash/ — vendored scaffold, not authored here and
       # regenerated whenever its upstream tool is re-run, so a fix made to it is
       # discarded on the next upgrade. Measured 2026-08-30 WITH ANALYSER 0.9.0,
-      # the version this image ships — every count in this comment is relative
-      # to it, and a different version yields different numbers, as this job
-      # learned on its first run: about ten finding
+      # the version this image shipped before the pin above — every count in
+      # this comment is relative to it, and a different version yields
+      # different numbers, as this job learned on its first run: about ten finding
       # lines across four identifiers, and it already carries the repository's
       # only pre-existing suppression directive. Fixing code that will be
       # overwritten produces nothing.
@@ -406,8 +474,21 @@ jobs:
       # NUL-delimited into an array, never a whitespace-split string: a tracked
       # path containing a space would otherwise be analysed as two files that do
       # not exist, and shellcheck would fail for the wrong reason.
+      #
+      # The version assertion comes FIRST: GITHUB_PATH prepends, so the pinned
+      # copy should win over the image's, but "should" is the word this
+      # repository does not accept from a gate. If anything resolved the
+      # image's analyser instead, this fails by name rather than analysing
+      # under a version nobody chose.
       - name: Analyse the first-party shell files
         run: |
+          want="${SHELLCHECK_VERSION#v}"
+          have="$(shellcheck --version | sed -n 's/^version: //p')"
+          [ "$have" = "$want" ] || {
+            echo "shellcheck on PATH is '$have' at $(command -v shellcheck), expected the pinned $want" >&2
+            exit 1
+          }
+          echo "analysing with shellcheck $have from $(command -v shellcheck)"
           mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/')
           if [ "${#files[@]}" -eq 0 ]; then
             echo "the discovery matched no shell file; this job examined NOTHING" >&2
