@@ -25,7 +25,8 @@ Twenty phases, from specification to release:
 
 ```
 preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* → DONE
-            └── specify & plan ──┘ └─ build ─┘ └ review ┘ └── ship ──┘
+            └─── specify & plan ────┘ └── build ──┘ └──┘  └───── ship ─────┘
+                                                   review
 
 * = stops and asks you first
 ```
@@ -147,8 +148,20 @@ cleanup is your call.
 
 - [spec-kit](https://github.com/github/spec-kit) initialised in the target
   repository. The pipeline drives it; it does not replace it, and it stops with
-  instructions when it is absent. Tested against 0.15.x through 0.16.x; other
-  versions warn and continue.
+  instructions when it is absent. Set it up with the same two commands that
+  stop prints — the first needs [uv](https://docs.astral.sh/uv/), the second
+  runs from the target repository's root:
+
+  ```
+  uv tool install specify-cli
+  specify init --here --integration claude
+  ```
+
+  When scripting the setup, pin the version —
+  `uv tool install "specify-cli==<version>"` — and note that
+  `--non-interactive` exists only from 0.16.x: a 0.15.x scripted init needs an
+  explicit `--script sh|ps` or the interactive picker fires. Tested against
+  0.15.x through 0.16.x; other versions warn and continue.
 - `jq`, on every platform.
 - `git`, on every platform. Unlike the optional tools below, an absent `git`
   does not degrade a phase — it stops the run at pre-flight, because branching,

@@ -66,7 +66,8 @@ Twenty phases run from specification to release:
 
 ```
 preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* → DONE
-            └ specify & plan ┘ └ build ┘ └ review ┘ └ ship ┘
+            └─── specify & plan ────┘ └── build ──┘ └──┘  └───── ship ─────┘
+                                                   review
 
 * = stops and asks you first
 ```
@@ -136,7 +137,18 @@ to defaults rather than failing. `pipeline` is the one that stops.
 
 `pipeline` drives [spec-kit](https://github.com/github/spec-kit); it does not
 replace it. The target repository needs spec-kit initialised, or the run stops
-at pre-flight and prints the two setup commands.
+at pre-flight and prints the two setup commands. Run them yourself first, the
+second one from the target repository's root:
+
+```
+uv tool install specify-cli
+specify init --here --integration claude
+```
+
+The first needs [uv](https://docs.astral.sh/uv/). When scripting the setup, pin
+the version — `uv tool install "specify-cli==<version>"` — and note that
+`--non-interactive` exists only from 0.16.x: a 0.15.x scripted init needs an
+explicit `--script sh|ps` or the interactive picker fires.
 Tested against 0.15.x through 0.16.x; other versions warn and continue.
 
 `handoff` has no such dependency. Someone who wants only a context guard never
@@ -274,15 +286,16 @@ It never starts on its own. The command is the only way in.
 Pre-flight prints what it detected before doing anything:
 
 ```
-Project type : web  (detected from the project's own manifest)
-spec tool    : 0.16.5 at .specify/ — in range
+Project type : mobile-android  (override)
+spec tool    : 0.16.5 at .specify/ — hyphen-skills — sh scripts — in range
 Constitution : set
 git          : present
 Base branch  : main  (from origin/HEAD)
 Implementer  : claude  (from ~/.delivery-kit.json)
 Remote       : github  (gh present)
+Available    : jq, git, gh, handoff, code-review, simplify, browser tools
 Missing      : adb
-Will skip    : N.5 — no device strategy on this project type
+Will skip    : N.5 — no adb on PATH — the device strategy cannot run
 ```
 
 Read the `Will skip` lines. Every degradation is named here, before work starts,
