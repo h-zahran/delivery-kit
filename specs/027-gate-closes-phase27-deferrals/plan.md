@@ -12,10 +12,12 @@ path it reads, before any tool reads through it (research R1); checks
 each JSON file's shape once with `jq`'s own errors discarded, so no `jq`
 line reaches the output and "not JSON", "wrong shape" and "could not be
 read" stay distinct (R2); shows `##[` as `#?[` in every printed value,
-with a probe measuring the runner once in this pull request's CI (R3);
+with a probe that measured the runner once in this pull request's CI,
+run 37405126582, and was then removed (R3);
 turns off `xtrace`, `verbose`, `noglob` and `keyword`, then `dotglob`
 and `nocasematch` (`shopt -u`, added at review), at its first command,
-and records `noexec`, `onecmd` and `BASH_ENV` as limits (R4);
+and records `noexec`, `onecmd` and `BASH_ENV` as limits, and
+`BASHOPTS=extdebug` with them, found at review (R4);
 and normalises a marketplace source with no process (R5). Three test
 helpers are made to check what they claim (R6). The walk does not
 change, so the Phase 26 proof stands (R7). One test is added; the suite
@@ -57,8 +59,8 @@ others), no document outside the spec directory
 
 | Principle | How this plan meets it |
 |---|---|
-| I. Silence is the failure | `SHELLOPTS=noexec` and `onecmd` make the gate exit 0 having printed nothing (measured at D). No line of the gate can stop that, so it is recorded as a limit beside `BASH_ENV` (the owner's ruling covers `BASH_ENV`, and the owner confirmed these two at gate G, 2026-10-06), and named in the pull request; every case the gate can reach now ends with its own line. |
-| II. Measure; never assert | Each deferral was measured at `5a78ea4`; R2's `jq` statuses, R4's options table and R5's cost were measured here; the `##[` behaviour is measured on a runner by this pull request's CI and recorded before merge. |
+| I. Silence is the failure | `SHELLOPTS=noexec` and `onecmd` make the gate exit 0 having printed nothing (measured at D). No line of the gate can stop that, so it is recorded as a limit beside `BASH_ENV` (the owner's ruling covers `BASH_ENV`, and the owner confirmed these two at gate G, 2026-10-06), and named in the pull request. `BASHOPTS=extdebug`, found at pull request review, prints the script's path as invoked before the first line; it is recorded as a limit by the same reasoning and put to the owner in the pull request (R4). Every case the gate can reach now ends with its own line. |
+| II. Measure; never assert | Each deferral was measured at `5a78ea4`; R2's `jq` statuses, R4's options table and R5's cost were measured here; the `##[` behaviour was measured on a runner by this pull request's CI (run 37405126582) and recorded before merge. |
 | III. A gate must be shown able to go red | The base-gate mutant (quickstart block 5) and one mutant per new rule and per changed test helper (tasks). |
 | IV. One implementation, many callers | The rules stay inside the one gate both callers run; the callers do not change. |
 | V. Derive coverage | The read-path table and the `jq`-read list are derived from the script; the P0 scan derives print sites from the script rather than listing them. |
@@ -110,6 +112,6 @@ Re-checked after research, data model, contract and quickstart: PASS.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |---|---|---|
-| A temporary probe in the P test (X2) | FR-003 needs a runner's own behaviour, and nothing may be pushed before gate L | A probe branch pushed before H is a push before gate L; measuring nowhere leaves FR-003 unmet |
+| A temporary probe in the P test (X2; measured in run 37405126582, then removed) | FR-003 needs a runner's own behaviour, and nothing may be pushed before gate L | A probe branch pushed before H is a push before gate L; measuring nowhere leaves FR-003 unmet |
 | A shape check before the reads | `jq -e` exits 5 both for "not JSON" and for a lookup on a string (measured), so the lookup alone cannot name the fault | Discarding `jq`'s errors at each read would turn a malformed file into "no entry named …" |
 | Link checks placed by hand at each read path (Principle V) | The read paths are expressions in the script (`./$p/…`, `./$ed/…`), not names a scan can collect as the P0 scan collects `die` lines | A derived scan of every `-f`, `jq` and redirect path is left for a later phase (research R1); the read-path table is derived from the script once, at this phase |

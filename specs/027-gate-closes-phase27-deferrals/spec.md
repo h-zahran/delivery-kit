@@ -188,7 +188,9 @@ helper and see its test go red.
 - `jq` failing because a file is missing or unreadable stays
   distinguishable from `jq` failing on a file whose shape is wrong.
 - `BASH_ENV` runs before the gate's first line; nothing inside the gate
-  can stop it, and it is recorded as a limit (FR-007).
+  can stop it, and it is recorded as a limit (FR-007). So does
+  `BASHOPTS=extdebug`: bash prints the script's path, as invoked, before
+  the first line (found at pull request review), recorded the same way.
 - A caller's `BASHOPTS` sets `shopt` options before the first line:
   `dotglob` made the plugin loop read a hidden plugin directory, so a
   marketplace entry the count should refuse passed, and `nocasematch`
@@ -219,7 +221,9 @@ helper and see its test go red.
   test (so the count stays as FR-016 fixes it), the run and what the
   runner did are recorded in research, and the probe is removed before
   the pull request merges. The measurement records; it does not narrow
-  FR-004.
+  FR-004. Done: measured in pull request #61's first CI run,
+  37405126582 (the runner acts on `##[` mid-line too; research R3), and
+  the probe then removed.
 - **FR-004**: Every value the gate prints MUST be shown so that `##[`
   never appears in it, wherever in the line: the masking shows it
   changed (the plan sets the exact form). The gate's own text holds no
@@ -245,7 +249,12 @@ helper and see its test go red.
   2026-10-06), for `SHELLOPTS=noexec` and
   `SHELLOPTS=onecmd`: with either, the gate exited 0 printing nothing
   (measured at D), and no line of it can stop that, because none runs
-  (a first-line `set +o onecmd` printed nothing either).
+  (a first-line `set +o onecmd` printed nothing either). It is recorded
+  the same way, by the same reasoning, for `BASHOPTS=extdebug`: bash
+  prints two lines naming the script as invoked, an absolute path when
+  run by one, before the gate's first line (measured at pull request
+  review; research R4). The owner has not ruled on `extdebug`; it is
+  put to the owner in the pull request.
 - **FR-008**: `norm_source` MUST set a variable, as `shown` does, and
   the walks MUST start no process per entry for it. No per-entry check
   this phase adds MAY grow with a source's length unbounded: the reverse

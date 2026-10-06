@@ -10,10 +10,13 @@ set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 # runs. A caller sets shopt options through BASHOPTS: dotglob made the
 # plugin loop read a hidden directory, so a marketplace entry the count
 # should refuse passed, and nocasematch made `--RELEASED` the release
-# form (measured). noexec, onecmd and BASH_ENV cannot be stopped from in here:
-# under the first two no line of this file runs, and BASH_ENV runs a file
-# before the first. Only a caller sets them, and a caller who does controls
-# the shell already (specs/027-gate-closes-phase27-deferrals/research.md R4).
+# form (measured). noexec, onecmd, BASH_ENV and BASHOPTS=extdebug cannot be
+# stopped from in here: under the first two no line of this file runs,
+# BASH_ENV runs a file before the first, and extdebug makes bash print this
+# script's path, as invoked, before the first (measured: it looks for a
+# debugger file that is not there). Only a caller sets them, and a caller
+# who does controls the shell already
+# (specs/027-gate-closes-phase27-deferrals/research.md R4).
 #
 # check-versions.sh — every plugin's manifest, marketplace entry and changelog
 # agree. ONE implementation, TWO callers: the suite gate in
@@ -99,6 +102,21 @@ norm_source() {
 }
 # The two variables norm_source sets, declared here, as shown()'s are.
 src='' ed=''
+
+# count_parts <name> <value> sets the named variable to the number of
+# components in the value: its separators, plus one. In the C locale, as
+# norm_source works: under a UTF-8 locale the substitution cost 9.2 ms on
+# a 4,091-character source and 17.6 ms on 16 parts of 250, against 2.9
+# and 4.5 ms in C (measured, research R1). A separator byte never occurs
+# inside a UTF-8 character, so the count is the same in either locale.
+# The pattern is held in a variable, as norm_source holds its own.
+count_parts() {
+  local LC_ALL=C nsl='[!/]' t
+  t=${2//$nsl/}
+  printf -v "$1" '%s' "$(( ${#t} + 1 ))"
+}
+# The variable count_parts sets.
+parts=0
 
 # The working directory IS the contract. Assert it before reading anything, so
 # a caller that starts somewhere unexpected gets a named refusal instead of a
@@ -745,9 +763,7 @@ entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plug
 # holds no plugin directory — two zeroes agree.
 [ -n "$entries_tsv" ] || die "the marketplace manifest lists no plugin entries at all"
 entries=0
-# What the link walk below needs: every byte but a separator, held in a
-# variable as norm_source holds its patterns, and the source it last walked.
-nsl='[!/]'
+# The source the link walk below last walked.
 walked=''
 while IFS=$'\t' read -r en es; do
   es="${es%$'\r'}"
@@ -784,13 +800,17 @@ while IFS=$'\t' read -r en es; do
   # walk ends when the part is the whole rest. The walk runs on to
   # .claude-plugin and plugin.json, the last two parts of the same path,
   # and stops at the first part that is not there; the count is of the
-  # source alone. Entries naming the source walked last walk it once.
+  # source alone. Entries naming the source walked last are neither
+  # counted nor walked again: the count depends on the source alone, and
+  # that source passed it. The count is taken in the C locale
+  # (count_parts): under a UTF-8 locale, 2,000 entries naming one long
+  # source cost about 30 s in the count alone (research R1).
   if [ -n "$ed" ]; then
-    slashes=${ed//$nsl/}
-    if [ $(( ${#slashes} + 1 )) -gt "$component_limit" ]; then
-      die "marketplace entry '$en_s': source '$es_s' has more than $component_limit components"
-    fi
     if [ "$ed" != "$walked" ]; then
+      count_parts parts "$ed"
+      if [ "$parts" -gt "$component_limit" ]; then
+        die "marketplace entry '$en_s': source '$es_s' has more than $component_limit components"
+      fi
       left=$ed/.claude-plugin/plugin.json
       pfx=.
       while :; do

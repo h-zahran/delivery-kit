@@ -53,3 +53,4 @@ the walk masks itself, gets the `##[` step in bash after the walk.
 | `noglob`, `keyword` | the gate refused the real tree | off at the first command |
 | `dotglob`, `nocasematch` (through `BASHOPTS`) | a planted tree's verdict flipped: a hidden plugin directory read, `--RELEASED` taken as the release form (measured at review) | off at the first command, by `shopt -u` after the `set` |
 | `noexec`, `onecmd`, and `BASH_ENV` | exit 0, nothing printed (`BASH_ENV`: a file ran first) | a recorded limit: no line of the gate runs before them |
+| `extdebug` (through `BASHOPTS`, found at review) | exit and standard output unchanged; two lines on standard error naming the script as invoked, before the first line | a recorded limit, as `BASH_ENV`; put to the owner in the pull request (research R4) |
