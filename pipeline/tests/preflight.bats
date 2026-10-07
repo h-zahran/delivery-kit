@@ -187,6 +187,94 @@ stub() {
   [[ "$stderr" == *"--base-branch-override"* ]]
 }
 
+@test "feature branch and spec folder: without the arguments both are reported empty" {
+  # The default path is unchanged: the spec tool names the feature, and the
+  # branch and the folder follow that name. An empty value is that default.
+  T="$BATS_TEST_TMPDIR/names-absent"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.featureBranch' <<<"$output")" = "" ]
+  [ "$(jq -r '.specDir' <<<"$output")" = "" ]
+}
+
+@test "feature branch: a typed name is reported, slashes and all" {
+  T="$BATS_TEST_TMPDIR/branch-named"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --feature-branch 'team/one/003-thing'
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.featureBranch' <<<"$output")" = "team/one/003-thing" ]
+}
+
+@test "feature branch: a name git would not accept as a branch name is refused, naming it" {
+  T="$BATS_TEST_TMPDIR/branch-bad"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --feature-branch 'two..dots'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'two..dots'"* ]]
+  [[ "$stderr" == *"--feature-branch"* ]]
+}
+
+@test "feature branch: the base branch's own name is refused, naming both" {
+  # B cuts the feature branch FROM the base. The same name for both is a
+  # run that commits straight onto its integration branch.
+  T="$BATS_TEST_TMPDIR/branch-is-base"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --base-branch-override integration --feature-branch integration
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'integration'"* ]]
+  [[ "$stderr" == *"--feature-branch"* ]]
+  [[ "$stderr" == *"base branch"* ]]
+}
+
+@test "spec folder: a nested folder relative to the repository is reported" {
+  T="$BATS_TEST_TMPDIR/specdir-named"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --spec-dir 'specs/team/one/003-thing'
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.specDir' <<<"$output")" = "specs/team/one/003-thing" ]
+}
+
+@test "spec folder: a path outside the repository, or one with no legal run name, is refused, naming it" {
+  # One case per check in the script. Each value passes every check but
+  # its own, so skipping any one check turns exactly one case green.
+  T="$BATS_TEST_TMPDIR/specdir-bad"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in '/abs/003-thing' 'C:/specs/003-thing' 'specs/../003-thing' \
+             './specs/003-thing' 'specs//003-thing' 'specs\team/003-thing' \
+             '.delivery-kit/runs/003-thing' 'specs/003 thing'; do
+    probe --dir "$T" --spec-dir "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    [[ "$stderr" == *"--spec-dir"* ]] || { echo "argument not named: $bad"; false; }
+  done
+}
+
+@test "spec folder: a folder that is already there is refused, naming it" {
+  # The spec tool writes spec.md into the folder it is given. An existing
+  # folder is an existing feature, and its spec would be overwritten.
+  T="$BATS_TEST_TMPDIR/specdir-exists"
+  mkdir -p "$T/specs/003-thing"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --spec-dir 'specs/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'specs/003-thing'"* ]]
+  [[ "$stderr" == *"already exists"* ]]
+}
+
+@test "spec folder: a run name that already has a state file is refused, naming it" {
+  # The folder's last segment is the run's name. progress.sh init finds an
+  # existing state file and keeps it, so a fresh run under a used name
+  # would silently continue another run.
+  T="$BATS_TEST_TMPDIR/specdir-run-exists"
+  mkdir -p "$T/.delivery-kit/runs/003-thing"; cd "$T"; git init -q -b work .
+  printf '{}\n' > "$T/.delivery-kit/runs/003-thing/progress.json"
+  probe --dir "$T" --spec-dir 'specs/other/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'003-thing'"* ]]
+  [[ "$stderr" == *".delivery-kit/runs/003-thing/progress.json"* ]]
+}
+
 @test "stdout is pure JSON even when stderr is talking" {
   probe --dir "$FIX/other" --base-branch main
   jq -e . <<<"$output" > /dev/null

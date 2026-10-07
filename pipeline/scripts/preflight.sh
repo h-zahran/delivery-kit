@@ -25,13 +25,16 @@ die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
 dir="."; ptype_override=""; base_configured=""; base_override=""
+feature_branch=""; spec_dir=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)          dir="${2:?--dir needs a path}"; shift 2 ;;
     --project-type) ptype_override="${2:?--project-type needs a value}"; shift 2 ;;
     --base-branch)  base_configured="${2:?--base-branch needs a name}"; shift 2 ;;
     --base-branch-override) base_override="${2:?--base-branch-override needs a name}"; shift 2 ;;
-    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override)" ;;
+    --feature-branch) feature_branch="${2:?--feature-branch needs a name}"; shift 2 ;;
+    --spec-dir)     spec_dir="${2:?--spec-dir needs a path}"; shift 2 ;;
+    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir)" ;;
   esac
 done
 # The override is what a person typed for this run, so it is checked here
@@ -41,7 +44,42 @@ if [ -n "$base_override" ] && command -v git >/dev/null 2>&1 \
    && ! git check-ref-format --branch "$base_override" >/dev/null 2>&1; then
   die "'$base_override' is not a legal branch name (--base-branch-override)"
 fi
+# The feature branch's name, typed for this run, is checked the same way.
+if [ -n "$feature_branch" ] && command -v git >/dev/null 2>&1 \
+   && ! git check-ref-format --branch "$feature_branch" >/dev/null 2>&1; then
+  die "'$feature_branch' is not a legal branch name (--feature-branch)"
+fi
+# The spec folder is handed to the spec tool, which creates it and writes
+# into it, and its last segment becomes the run's name under
+# .delivery-kit/runs/. So it must be one relative spelling inside the
+# repository, outside the state directory, ending in a name progress.sh
+# accepts. One check per way a path can break that, each naming the value.
+if [ -n "$spec_dir" ]; then
+  case "$spec_dir" in
+    /*|[A-Za-z]:*) die "'$spec_dir' is not relative to the repository root (--spec-dir)" ;;
+    *\\*)          die "'$spec_dir' holds a backslash; separate folders with / (--spec-dir)" ;;
+  esac
+  spec_dir="${spec_dir%/}"
+  case "/$spec_dir/" in
+    */../*)        die "'$spec_dir' climbs out with .. (--spec-dir)" ;;
+    */./*|*//*)    die "'$spec_dir' has an empty or . segment; write each path one way (--spec-dir)" ;;
+    /.delivery-kit/*) die "'$spec_dir' is inside the state directory .delivery-kit/ (--spec-dir)" ;;
+  esac
+  case "${spec_dir##*/}" in
+    *[!A-Za-z0-9._-]*) die "'$spec_dir' ends in '${spec_dir##*/}'; a run name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
+  esac
+fi
 cd "$dir" 2>/dev/null || die "cannot enter '$dir'"
+# Checked inside the repository. A fresh run's folder must not exist: the
+# spec tool would write over that feature's spec. And its run name must
+# not have a state file: progress.sh init keeps an existing one, so the
+# new run would silently continue the old one.
+if [ -n "$spec_dir" ]; then
+  [ ! -e "$spec_dir" ] || die "'$spec_dir' already exists (--spec-dir)"
+  spec_run=".delivery-kit/runs/${spec_dir##*/}/progress.json"
+  [ ! -e "$spec_run" ] \
+    || die "run name '${spec_dir##*/}' already has a state file, $spec_run (--spec-dir)"
+fi
 
 # --- project type ----------------------------------------------------------
 # pubspec.yaml + android/ is the mobile shape; a package.json whose
@@ -184,6 +222,11 @@ elif [ -n "$base_configured" ]; then
 else
   base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"; base_source="current branch"
 fi
+# B cuts the feature branch FROM the base. A feature branch with the base's
+# own name is a run that commits straight onto its integration branch.
+if [ -n "$feature_branch" ] && [ "$feature_branch" = "$base" ]; then
+  die "'$feature_branch' is the base branch; the feature branch needs its own name (--feature-branch)"
+fi
 
 remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
@@ -240,6 +283,7 @@ jq -n \
   --arg  sk_scripts_dir "$sk_scripts_dir" --arg sk_form "$sk_form" \
   --argjson sk_const "$sk_const" \
   --arg  base "$base" --arg base_source "$base_source" \
+  --arg  feature_branch "$feature_branch" --arg spec_dir "$spec_dir" \
   --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
   --argjson adb "$adb_present" \
   --argjson git "$git_present" \
@@ -252,6 +296,7 @@ jq -n \
     constitutionSet: $sk_const
   },
   baseBranch: $base, baseBranchSource: $base_source,
+  featureBranch: $feature_branch, specDir: $spec_dir,
   remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
   capabilities: { jq: true, git: $git, gh: $gh, adb: $adb },
   willSkip: $skips,

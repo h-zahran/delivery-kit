@@ -124,6 +124,52 @@ What the run does with the override:
   names a different branch is never applied silently — say that the
   recorded base stands, and name both.
 
+## Feature branch and spec folder
+
+By default the spec tool names each feature `NNN-slug`, and the feature
+branch, the spec folder and the run's name all follow that name. Two
+flags change it for one run: `--branch <name>` names the feature branch,
+and `--spec-dir <path>` names the spec folder, relative to the
+repository root. The spec folder's last segment becomes the run's name,
+so it holds letters, digits, dot, dash and underscore only; the branch
+name may hold `/`. They are flags only, with no configuration key: each
+names one feature, so a value set once would name the same feature on
+every run. A caller that builds the names from its own settings passes
+them as flags. Pre-flight stops on a bad value, naming it: a branch name
+git would not accept, or the base branch's own name; a spec folder that
+is absolute, climbs out with `..`, sits under `.delivery-kit/`, already
+exists, or whose run name already has a state file. Both are read on a
+fresh run only. A resume keeps the branch and the folder the run
+recorded, and a different value on a resume is reported, never applied
+silently. A second fresh run with the same `--spec-dir` stops at
+pre-flight, because the folder exists: to continue a run, type
+`--resume`.
+
+What the run does with the two flags:
+
+- It passes `--feature-branch <name>` and `--spec-dir <path>` to
+  `preflight.sh` only on a fresh run where `--branch` and `--spec-dir`
+  were typed.
+- The probe block prints a `Branch` line and a `Spec folder` line, each
+  only when its value (`featureBranch`, `specDir`) is not empty. When git
+  is absent, the `Branch` line is typed and IS established, but git did
+  not check that it is a legal branch name: print it, and add that it was
+  not checked. `Spec folder` needs no mark: its checks never ask git.
+- The run name and the branch are separate values in the state file, so
+  a branch name may hold `/` where a run name may not.
+- In B, with `--spec-dir`, hand the folder to the spec tool with the
+  seed, as `SPECIFY_FEATURE_DIRECTORY`: the tool then uses it as given
+  and numbers nothing, and the feature's name is the folder's last
+  segment. Before going on, check that `<folder>/spec.md` exists; a spec
+  written anywhere else stops the run, naming both paths.
+- B runs `progress.sh init` with the branch name about to be created:
+  `--branch` when it was typed, else the feature's name. B cuts the
+  feature branch with that name.
+- B records the branch in the state file and the folder in
+  `artifacts.spec`, and a resume uses the record. A `--branch` or
+  `--spec-dir` on a resume that differs from the record is never applied
+  silently — say that the record stands, and name both.
+
 ## The implementer key
 
 `implementer` answers the first of the implementer gate's two questions

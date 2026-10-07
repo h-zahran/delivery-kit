@@ -18,7 +18,7 @@
 
 ## Phase 3: User Story 3 — documentation and the resume rule (P3)
 
-- [X] T005 [US3] In `pipeline/skills/pipeline/SKILL.md`: the Configuration row for `baseBranchOverride`, the Flags row, the pre-flight invocation sentence, the git-absent marking for `override`, and a short **Base branch:** paragraph: the resolution order, and a pointer to `pipeline/docs/configuration.md`. The skill stays under 65,536 bytes, so the full rules live in the docs page. To make room, the "null is silence" and "Resolution validates" paragraphs move, word for word, to the docs page's "Resolving the layers" section, and the skill points there.
+- [X] T005 [US3] In `pipeline/skills/pipeline/SKILL.md`: the Configuration row for `baseBranchOverride`, the Flags row, the git-absent marking for `override`, and a short **Base branch:** paragraph: the resolution order, and a pointer to `pipeline/docs/configuration.md`. The skill stays under 65,536 bytes, so the full rules live in the docs page. To make room, the "null is silence" and "Resolution validates" paragraphs move, word for word, to the docs page's "Resolving the layers" section, and the skill points there.
 - [X] T006 [US3] `pipeline/docs/configuration.md`: the JSON block, the key table, the Base branch section with what the run does with the override (the pre-flight argument, the layer, the resume rule), and the "Resolving the layers" section; one flag row in `pipeline/README.md` and in `README.md`.
 - [X] T007 [US3] `pipeline/CHANGELOG.md`: `[Unreleased]` → Added, and → Changed for the moved rules. `scripts/check-versions.sh` passes.
 - [X] T008 [US3] In `pipeline/tests/prose.bats`, add "the base-branch override is pinned where the operator reads it", pinning the five sites in `contracts/flag-contract.md`.
