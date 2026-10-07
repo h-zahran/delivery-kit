@@ -28,6 +28,14 @@ STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
+
+# Every invocation removes what it made, on any exit: suite-key's scratch
+# file, a text file's checked copy, and the state lock this process holds.
+on_exit() {
+  rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}"
+  if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
+}
+trap on_exit EXIT
 usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
@@ -174,11 +182,14 @@ cmd_phase_start() {
   # Written at the START of the phase, so a crash still records which phase
   # to re-enter. Re-entering a completed phase is safe by design; this
   # write is an in-place update either way.
-  tmp="$sf.tmp"
-  jq --arg p "$phase" --arg t "$(now)" \
+  state_lock "$sf"
+  tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
+  if ! jq --arg p "$phase" --arg t "$(now)" \
      '.current_phase = $p
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {started: $t})' \
-     "$sf" > "$tmp" && mv "$tmp" "$sf"
+     "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
+  mv "$tmp" "$sf"
+  state_unlock
 }
 
 cmd_phase_done() {
@@ -186,11 +197,14 @@ cmd_phase_done() {
   [ -n "$phase" ] || die "phase-done needs a phase"
   phase_known "$phase" || die "unknown phase '$phase'"
   sf="$(cmd_validate "$feature")"
-  tmp="$sf.tmp"
-  jq --arg p "$phase" --arg t "$(now)" \
+  state_lock "$sf"
+  tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
+  if ! jq --arg p "$phase" --arg t "$(now)" \
      '.completed_phases = (if (.completed_phases | index($p)) then .completed_phases else .completed_phases + [$p] end)
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {done: $t})' \
-     "$sf" > "$tmp" && mv "$tmp" "$sf"
+     "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
+  mv "$tmp" "$sf"
+  state_unlock
 }
 
 # --from <phase> is offered by the resume prompt and validated against
@@ -340,8 +354,11 @@ cmd_commit_add() {
     *) die "commit-add: the duplicate check answered '$verdict', which is none of new, same, conflict, legacy, notlist, emptypath or nofiles — nothing written" ;;
   esac
 
-  tmp="$sf.tmp"
-  jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp" && mv "$tmp" "$sf"
+  state_lock "$sf"
+  tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — nothing recorded"
+  if ! jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — nothing recorded"; fi
+  mv "$tmp" "$sf"
+  state_unlock
 }
 
 # piece-next names the next piece to build: the first `## Phase <N>:` section
@@ -762,13 +779,45 @@ commit_named() {
 # state_write <state file> <jq program> [jq options...] — a whole-file write:
 # into a temp file, validated there, then moved over the state file. On any
 # failure the old file stands as it was.
+# state_lock <state file> — one writer at a time. Every write to a state file
+# happens while this process holds <file>.lock, a directory, because mkdir
+# either makes it or fails, on every system. A second call while this
+# process holds it does nothing, so a command can hold it across its own
+# read and write. A lock older than a minute belongs to a writer that died —
+# no write takes that long — so it is broken, and that is said.
+# PROGRESS_LOCK_TRIES bounds the wait, in tenths of a second (default 100).
+state_lock() {
+  local l="$1.lock" n=0 max="${PROGRESS_LOCK_TRIES:-100}"
+  [ "${STATE_LOCK:-}" != "$l" ] || return 0
+  case "$max" in ''|*[!0-9]*) max=100 ;; esac
+  until mkdir "$l" 2>/dev/null; do
+    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$l" 2>/dev/null; then
+      warn "broke a stale lock on $1: its writer has not run for over a minute"
+      continue
+    fi
+    n=$((n + 1))
+    [ "$n" -le "$max" ] || die "$1 is locked by another write ($l): if no other progress.sh is running, remove that directory"
+    sleep 0.1
+  done
+  STATE_LOCK="$l"
+}
+state_unlock() {
+  if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; STATE_LOCK=''; fi
+}
+
+# state_write <state file> <jq program> [jq args] — the program's output
+# replaces the state file, read and written under the lock, through a
+# temporary file of this write's own, and only when it validates.
 state_write() {
-  local f="$1" prog="$2" tmp
+  local f="$1" prog="$2" tmp held=0
   shift 2
-  tmp="$f.tmp"
+  if [ "${STATE_LOCK:-}" = "$f.lock" ]; then held=1; fi
+  state_lock "$f"
+  tmp="$(mktemp "$f.XXXXXX")" || die "could not make a temporary file beside $f — the state file is unchanged"
   if ! jq "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
   if ! ( validate_file "$tmp" ) > /dev/null; then rm -f "$tmp"; die "the write would leave $f invalid — the state file is unchanged"; fi
   mv "$tmp" "$f"
+  if [ "$held" -eq 0 ]; then state_unlock; fi
 }
 
 piece_saved() {
@@ -1622,11 +1671,13 @@ cmd_state_set() {
   sf="$(cmd_validate "$feature")"
   # gates.pending belongs to ask-later and answer: a sub-key write could
   # forge or drop a question, and a whole-gates write could wipe the queue.
+  # The comparison and the write are made under one hold of the lock.
+  state_lock "$sf"
   if [ "$key" = gates ]; then
     [ "$sub" != pending ] || die "gates.pending is written only by ask-later and answer"
     if [ -z "$sub" ]; then
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      jq -e --argjson v "$json" '(.gates.pending // null) == ($v.pending // null)' "$sf" > /dev/null \
+      jq -e --argjson v "$json" '((.gates | has("pending")) == ($v | has("pending"))) and (.gates.pending == $v.pending)' "$sf" > /dev/null \
         || die "a whole-gates write must keep gates.pending as it is: it is written only by ask-later and answer"
     fi
   fi
@@ -1654,19 +1705,38 @@ cmd_state_set() {
 # readable, hold no control character but tab and line feed (counted from
 # the bytes, so a CR is refused on every system, and an ESC sequence cannot
 # reach the owner's terminal through pending), and not be blank.
+#
+# The file is read ONCE, into a copy every check reads, so nothing can swap
+# it between the checks and the read. At most 16384 bytes: the text travels
+# as one argument to jq, and Windows refuses an argument list past 32 KB.
+# A C1 control, a bidi override or isolate, a zero-width character and a
+# byte-order mark are refused too: a terminal can act on them, or they can
+# make a question read as something else.
 text_file() {
+  local size
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then die "the $2 file does not exist or cannot be read: $1"; fi
-  if [ "$(LC_ALL=C tr -cd '\000-\010\013-\037\177' < "$1" | wc -c)" -ne 0 ]; then
+  TEXT_COPY="$(mktemp)" || die "could not make a temporary file to read the $2 file"
+  cat -- "$1" > "$TEXT_COPY" || die "the $2 file could not be read: $1"
+  size="$(wc -c < "$TEXT_COPY")"; size=$((size + 0))
+  [ "$size" -le 16384 ] || die "the $2 file $1 is longer than 16384 bytes ($size)"
+  if [ "$(LC_ALL=C tr -cd '\000-\010\013-\037\177' < "$TEXT_COPY" | wc -c)" -ne 0 ]; then
     die "the $2 file $1 holds a control character: only tab and line feed are allowed"
   fi
-  TEXT="$(cat -- "$1")"
+  TEXT="$(cat -- "$TEXT_COPY")"
+  rm -f "$TEXT_COPY"; TEXT_COPY=''
   [[ $TEXT == *[![:space:]]* ]] || die "the $2 file $1 is empty"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  [ "$(jqs -n --arg t "$TEXT" '$t | test("[\u0080-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")')" = false ] \
+    || die "the $2 file $1 holds a character that can disguise text in a terminal (a C1 control, a bidi or zero-width character, or a byte-order mark)"
 }
 
-# pending_ok <state file> — dies unless gates.pending is absent or a list of
-# entries, each an object with a string id, phase and question, and a string
-# answer when it has one. A queue that cannot be read is never read as empty.
-PENDING_OK_JQ='(.gates.pending? // []) | if type == "array" and all(.[]; type == "object" and (.id | type) == "string" and (.phase | type) == "string" and (.question | type) == "string" and ((has("answer") | not) or (.answer | type) == "string")) then "ok" else "bad" end'
+# pending_ok <state file> — dies unless gates is an object and gates.pending
+# is absent or a list of entries, each an object with a string id, phase and
+# question, and a non-blank string answer when it has one; every id is P<n>
+# and appears once. Presence is tested, never
+# defaulted: a pending of false or null is a queue that cannot be read, and
+# such a queue is never read as empty.
+PENDING_OK_JQ='if (.gates | type) != "object" then "bad" elif (.gates | has("pending") | not) then "ok" elif (.gates.pending | type) == "array" and all(.gates.pending[]; type == "object" and (.id | type) == "string" and (.id | test("^P[1-9][0-9]*$")) and (.phase | type) == "string" and (.question | type) == "string" and ((has("answer") | not) or ((.answer | type) == "string" and (.answer | test("[^[:space:]]"))))) and ([.gates.pending[].id] | length) == ([.gates.pending[].id] | unique | length) then "ok" else "bad" end'
 pending_ok() {
   local v
   v="$(jqs "$PENDING_OK_JQ" "$1")" || die "$1 could not be read for gates.pending"
@@ -1679,10 +1749,17 @@ pending_ok() {
 cmd_ask_later() {
   feature="$1"; local phase="${2:-}" qf="${3:-}" qtext id n
   [ $# -eq 3 ] || die "usage: ask-later <feature> <phase> <question-file>"
+  case "$phase" in *[[:space:]]*|'') die "unknown phase '$phase'" ;; esac
   if ! phase_known "$phase" || [ "$phase" = DONE ]; then die "unknown phase '$phase'"; fi
+  # pending-check runs before L pushes, and nothing after L checks again: a
+  # question raised at M, N, N.5 or O would never meet it.
+  case "$phase" in M|N|N.5|O) die "after L, a question cannot wait: phase $phase stops the run to ask it now" ;; esac
   sf="$(cmd_validate "$feature")"
-  pending_ok "$sf"
   text_file "$qf" question; qtext="$TEXT"
+  # Held from the first read to the write: two calls at once never mint one
+  # id twice, nor lose a question.
+  state_lock "$sf"
+  pending_ok "$sf"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
   id="$(jqs --arg p "$phase" --arg q "$qtext" '[(.gates.pending? // [])[] | select(.phase == $p and .question == $q) | .id][0] // ""' "$sf")" \
     || die "$sf could not be read for gates.pending"
@@ -1690,7 +1767,9 @@ cmd_ask_later() {
     warn "that question is already queued as $id: it is not queued again"
     printf '%s\n' "$id"; return 0
   fi
-  n="$(jqs '(.gates.pending? // []) | length' "$sf")" || die "$sf could not be read for gates.pending"
+  # One past the highest id, never the count: an entry removed by hand
+  # would otherwise make the next id one that is already taken.
+  n="$(jqs '[(.gates.pending? // [])[].id | ltrimstr("P") | tonumber] | max // 0' "$sf")" || die "$sf could not be read for gates.pending"
   id="P$((n + 1))"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
   state_write "$sf" '.gates.pending = ((.gates.pending // []) + [{id: $id, phase: $p, question: $q, askedAt: $at}])' \
@@ -1716,8 +1795,10 @@ cmd_pending() {
 cmd_answer() {
   feature="$1"; local id="${2:-}" af="${3:-}" atext st
   [ $# -eq 3 ] || die "usage: answer <feature> <id> <answer-file>"
-  case "$id" in P[1-9]|P[1-9][0-9]|P[1-9][0-9][0-9]) ;; *) die "'$id' is not a question id (P1, P2, ...)" ;; esac
+  case "$id" in P[1-9]|P[1-9]*[0-9]) ;; *) die "'$id' is not a question id (P1, P2, ...)" ;; esac
+  case "${id#P}" in *[!0-9]*) die "'$id' is not a question id (P1, P2, ...)" ;; esac
   sf="$(cmd_validate "$feature")"
+  state_lock "$sf"
   pending_ok "$sf"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
   st="$(jqs --arg id "$id" '[(.gates.pending? // [])[] | select(.id == $id)] | if length == 0 then "none" elif length > 1 then "many" elif (.[0] | has("answer")) then "answered" else "open" end' "$sf")" \
@@ -1741,13 +1822,16 @@ cmd_answer() {
 # read. Run before L pushes: an open question stops the run there, and
 # --auto does not collapse that stop.
 cmd_pending_check() {
-  feature="$1"; local open
+  feature="$1"; local open n
   [ $# -eq 1 ] || die "usage: pending-check <feature>"
   sf="$(cmd_validate "$feature")"
   pending_ok "$sf"
-  open="$(jqs '[(.gates.pending? // [])[] | select(has("answer") | not) | .id] | join(" ")' "$sf")" \
+  n="$(jqs '[(.gates.pending? // [])[] | select(has("answer") | not)] | length' "$sf")" \
     || die "$sf could not be read for gates.pending"
-  [ -z "$open" ] || die "waiting questions are still open: $open — ask them, and record each answer, before anything leaves the machine"
+  case "$n" in ''|*[!0-9]*) die "$sf could not be read for gates.pending" ;; esac
+  [ "$n" -eq 0 ] && return 0
+  open="$(jqs '[(.gates.pending? // [])[] | select(has("answer") | not) | .id] | join(" ")' "$sf")" || open='(unreadable ids)'
+  die "waiting questions are still open: $open — ask them, and record each answer, before anything leaves the machine"
 }
 
 # --- suite results ------------------------------------------------------------
@@ -1788,7 +1872,6 @@ suite_key() {
   # This call's own scratch file: two calls at once must never truncate or
   # remove each other's, which would read as a clean answer.
   SK_SCRATCH="$(mktemp "$(run_dir "$1")/suite-scratch.XXXXXX")" || die "could not make a scratch file"
-  trap 'rm -f "${SK_SCRATCH:-}"' EXIT
   if ! suite_key_check "$SK_SCRATCH"; then rm -f "$SK_SCRATCH"; return 1; fi
   rm -f "$SK_SCRATCH"
   SK_PLAT="$(uname -s) $(uname -m)"
