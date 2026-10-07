@@ -26,19 +26,42 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
 # A commit trailer goes onto every commit the run makes, and commits leave
 # the machine, so each one is checked here, in the order given, and named
-# when refused. The shape is `<token>: <value>`, one line. Piece, Late and
+# when refused. It may come from the commitTrailers key or the --trailer
+# flag; this script cannot tell which, so its errors name neither. The
+# shape is `<token>: <value>`, one line with no control character. The
+# token starts with a letter, ends with a letter or a digit, and holds
+# letters, digits and dash: git strips a token's trailing non-alphanumerics,
+# so `---` or `Piece-` would be read as another token. Piece, Late and
 # Tasks are the run's own markers: its crash scans read those lines as
-# records, and progress.sh writes them itself.
+# records, and progress.sh writes them itself. The rest would act on GitHub
+# or claim another person's work: skip-checks and the `[skip ci]` family
+# hide the pull request's checks, Co-authored-by and Signed-off-by name
+# someone who did not write the commit, and a closing keyword closes an
+# issue on merge. progress.sh refuses the same set before each commit.
 add_trailer() {
-  local t="$1" token value
-  case "$t" in *$'\n'*|*$'\r'*) die "'$t' holds a line break; a trailer is one line (--trailer)" ;; esac
-  case "$t" in *:*) ;; *) die "'$t' has no ':'; write <token>: <value> (--trailer)" ;; esac
+  local t="$1" token value lc
+  case "$t" in *$'\n'*|*$'\r'*) die "'$t' holds a line break; a trailer is one line (a commit trailer)" ;; esac
+  case "$t" in *[[:cntrl:]]*) die "'$t' holds a control character (a commit trailer)" ;; esac
+  case "$t" in *:*) ;; *) die "'$t' has no ':'; write <token>: <value> (a commit trailer)" ;; esac
   token="${t%%:*}"; value="${t#*:}"
-  case "$token" in ''|*[!A-Za-z0-9-]*) die "'$t' has the token '$token'; a token holds letters, digits and dash only (--trailer)" ;; esac
-  case "$value" in *[![:space:]]*) ;; *) die "'$t' has an empty value (--trailer)" ;; esac
   case "$token" in
-    [Pp][Ii][Ee][Cc][Ee]|[Ll][Aa][Tt][Ee]|[Tt][Aa][Ss][Kk][Ss]) die "'$t' uses the token '$token', reserved for the run's own markers (--trailer)" ;;
+    ""|*[!A-Za-z0-9-]*|[!A-Za-z]*|*[!A-Za-z0-9]|?)
+      die "'$t' has the token '$token'; a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only (a commit trailer)" ;;
   esac
+  case "$value" in *[![:space:]]*) ;; *) die "'$t' has an empty value (a commit trailer)" ;; esac
+  lc="$(jq -rn --arg t "$t" '$t | ascii_downcase')"
+  case "${lc%%:*}" in
+    piece|late|tasks) die "'$t' uses the token '$token', reserved for the run's own markers (a commit trailer)" ;;
+    skip-checks|co-authored-by|signed-off-by|close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)
+      die "'$t' uses the token '$token', which acts on GitHub or names another author (a commit trailer)" ;;
+  esac
+  case "$lc" in
+    *'[skip ci]'*|*'[ci skip]'*|*'[no ci]'*|*'[skip actions]'*|*'[actions skip]'*)
+      die "'$t' asks GitHub to skip the checks (a commit trailer)" ;;
+  esac
+  if printf '%s\n' "${lc#*:}" | grep -Eq '(^|[^a-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([a-z0-9_.-]+/[a-z0-9_.-]+)?#[0-9]'; then
+    die "'$t' would close an issue (a commit trailer)"
+  fi
   trailers="$(jq -n --argjson a "$trailers" --arg t "$t" '$a + [$t]')"
 }
 

@@ -311,10 +311,10 @@ setup() {
   # from eight to ten with commit-add and piece-next, to twenty with the
   # commit mechanics (snapshot to drop-stale), to twenty-one with
   # remainder-commit, to twenty-four with suite-key, suite-record and
-  # suite-lookup, and to twenty-eight with ask-later, pending, answer and
-  # pending-check, edited here rather than
+  # suite-lookup, to twenty-five with show-message, and to twenty-nine with
+  # ask-later, pending, answer and pending-check, edited here rather than
   # pinned by a second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {

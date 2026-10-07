@@ -189,9 +189,18 @@ and never replaces it**: the list is the key's trailers, then the
 flags', in order. Between configuration files the key behaves as every
 key does: a later file's list replaces an earlier one's. Pre-flight
 prints each trailer and the layer that set it, and stops on a bad one,
-naming it: no `:`, a token with characters outside letters, digits and
-dash, an empty value, a line break, or the token `Piece`, `Late` or
-`Tasks` in any letter case, which the run uses as its own markers. Every
+naming it: no `:`, a token that does not start with a
+letter, end with a letter or a digit and hold only letters, digits and
+dash, an empty value, a line break or other control character, or the
+token `Piece`, `Late` or
+`Tasks` in any letter case, which the run uses as its own markers.
+It also stops, from any layer, on a trailer that would act on GitHub or
+name another author: the token `skip-checks`, `Co-authored-by` or
+`Signed-off-by`; a closing keyword (`Close`, `Closes`, `Closed`, `Fix`,
+`Fixes`, `Fixed`, `Resolve`, `Resolves`, `Resolved`) as the token, or
+before an issue number in the value; and a value holding `[skip ci]`,
+`[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each is
+matched in any letter case. The commit subcommands refuse the same set. Every
 commit the run makes carries the list, the spec commit included, and
 the same trailer is never added twice. The list is read on a fresh run
 only. A resume keeps the list the run recorded, and a different list on
@@ -212,8 +221,11 @@ What the run does with trailers:
 - The commit subcommands add the list themselves: `spec-commit`,
   `piece-commit`, `late-commit` (J's `--record` included) and
   `remainder-commit`. They read it from the state file as data. The run
-  never adds a trailer by hand. A message shown at a gate before its
-  commit does not show the trailers; the commit carries them. A trailer
+  never adds a trailer by hand. A message shown at a gate before its commit is shown with the
+trailers, as `progress.sh show-message <feature> <message file>`
+prints it, so the answer covers every line the commit carries. The
+subcommands append the lines themselves, so no `trailer.*` setting in
+git's configuration renames, moves or runs on them. A trailer
   joins the `Tasks:`, `Piece:` or `Late:` lines when the message ends
   with them, so each stays a whole line.
 - Commits an external implementer makes on the handoff path are its own,

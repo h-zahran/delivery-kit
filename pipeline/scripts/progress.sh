@@ -36,7 +36,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -763,41 +763,91 @@ nul_file() {
   if [ $# -gt 0 ]; then printf '%s\0' "$@" > "$f"; else : > "$f"; fi
 }
 
+# trailer_ok <trailer> — dies unless the recorded trailer is one this run may
+# put on a commit, naming it; pre-flight refuses the same set. The shape is
+# `<token>: <value>`; the token starts with a letter, ends with a letter or a
+# digit, and holds letters, digits and dash, because git strips a token's
+# trailing non-alphanumerics and would read `---` or `Piece-` as another
+# token. Piece, Late and Tasks are the run's own markers: a second such line
+# would be matched by the crash scans. The rest would act on GitHub or claim
+# another person's work: skip-checks and the `[skip ci]` family hide the
+# pull request's checks, Co-authored-by and Signed-off-by name someone who
+# did not write the commit, and a closing keyword closes an issue on merge.
+trailer_ok() {
+  local t="$1" token lc LC_ALL=C
+  case "$t" in *:*) ;; *) die "the recorded trailer '$t' has no ':' — no commit is made" ;; esac
+  token="${t%%:*}"
+  case "$token" in
+    ""|*[!A-Za-z0-9-]*|[!A-Za-z]*|*[!A-Za-z0-9]|?)
+      die "the recorded trailer '$t' has the token '$token'; a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only — no commit is made" ;;
+  esac
+  case "${t#*:}" in *[![:space:]]*) ;; *) die "the recorded trailer '$t' has an empty value — no commit is made" ;; esac
+  lc="$(printf '%s' "$t" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  case "${lc%%:*}" in
+    piece|late|tasks)
+      die "the recorded trailer '$t' uses the token '$token', reserved for the run's own markers — no commit is made" ;;
+    skip-checks|co-authored-by|signed-off-by|close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)
+      die "the recorded trailer '$t' uses the token '$token', which acts on GitHub or names another author — no commit is made" ;;
+  esac
+  case "$lc" in
+    *'[skip ci]'*|*'[ci skip]'*|*'[no ci]'*|*'[skip actions]'*|*'[actions skip]'*)
+      die "the recorded trailer '$t' asks GitHub to skip the checks — no commit is made" ;;
+  esac
+  if printf '%s\n' "${lc#*:}" | LC_ALL=C grep -Eq '(^|[^a-z0-9_])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([a-z0-9_.-]+/[a-z0-9_.-]+)?#[0-9]'; then
+    die "the recorded trailer '$t' would close an issue — no commit is made"
+  fi
+}
+
 # with_trailers <message file> — the run's commit trailers, added to a copy
 # of the message. The list is the state file's config.commitTrailers: an
 # array of `<token>: <value>` strings the orchestrator recorded from
-# pre-flight's report. It is read as data, never typed into a command. Sets
-# MF to the file to commit: the message file itself when the run records no
-# trailer, else the copy under the run directory, so a caller's own file is
-# never rewritten. Every caller sets sf and RD first. The tokens Piece, Late
-# and Tasks are the run's own markers, refused here as pre-flight refuses
-# them: a second such line would be matched by the crash scans. Each
-# placement is named on the command line, so no trailer.* setting in the
-# owner's git configuration moves or drops one, and a `---` line in the body
-# is not read as the end of the message.
+# pre-flight's report. It is read as data, never typed into a command, and
+# every entry passes trailer_ok. Sets MF to the file to commit: the message
+# file itself when the run records no trailer, else the copy under the run
+# directory, so a caller's own file is never rewritten. Every caller sets sf
+# and RD first. The lines are appended here, not by git interpret-trailers:
+# git's trailer.* configuration can rename a token (trailer.<x>.key) or run
+# a command (trailer.<x>.cmd), so no git setting may touch them. A message
+# whose last paragraph, after the subject, is all `<token>: <value>` lines
+# gets the trailers joined to it; any other message gets a blank line first.
+# A trailer is not added when the same line is already in that block or
+# earlier in the list. show-message prints the result K shows.
 with_trailers() {
-  local n t token TR=()
+  local n t l m block=0 LC_ALL=C TR=() HAVE=() last=() i seen
   MF="$1"
-  n="$(jqs '.config.commitTrailers? // [] | if type == "array" and all(.[]; type == "string" and length > 0 and (test("[\r\n]") | not)) then length else "bad" end' "$sf")" \
+  n="$(jqs '.config.commitTrailers? // [] | if type == "array" and all(.[]; type == "string" and length > 0 and (test("[[:cntrl:]]") | not)) then length else "bad" end' "$sf")" \
     || die "$sf could not be read for config.commitTrailers — no commit is made"
-  [ "$n" != bad ] || die "$sf: config.commitTrailers must be an array of non-empty one-line strings — no commit is made"
+  [ "$n" != bad ] || die "$sf: config.commitTrailers must be an array of non-empty one-line strings with no control character — no commit is made"
   [ "$n" -gt 0 ] || return 0
   while IFS= read -r t || [ -n "$t" ]; do
-    case "$t" in *:*) ;; *) die "the recorded trailer '$t' has no ':' — no commit is made" ;; esac
-    token="${t%%:*}"
-    case "$token" in ''|*[!A-Za-z0-9-]*) die "the recorded trailer '$t' has the token '$token'; a token holds letters, digits and dash only — no commit is made" ;; esac
-    case "${t#*:}" in *[![:space:]]*) ;; *) die "the recorded trailer '$t' has an empty value — no commit is made" ;; esac
-    case "$token" in
-      [Pp][Ii][Ee][Cc][Ee]|[Ll][Aa][Tt][Ee]|[Tt][Aa][Ss][Kk][Ss])
-        die "the recorded trailer '$t' uses the token '$token', reserved for the run's own markers — no commit is made" ;;
-    esac
-    TR+=(--trailer "$t")
+    trailer_ok "$t"
+    TR+=("$t")
   done < <(jqs '.config.commitTrailers[]' "$sf")
+  # The message without its trailing blank lines; the last paragraph, when
+  # it is not the subject's, is a trailer block if every line is shaped so.
+  m="$(cat -- "$1")" || die "could not read the message $1 — no commit is made"
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in *[![:space:]]*) last+=("$l") ;; *) last=(); seen=1 ;; esac
+  done < <(printf '%s\n' "$m")
+  if [ "${seen:-0}" = 1 ] && [ "${#last[@]}" -gt 0 ]; then
+    block=1
+    for l in "${last[@]}"; do
+      case "${l%%: *}" in
+        "$l"|""|*[!A-Za-z0-9-]*|[!A-Za-z]*) block=0; break ;;
+      esac
+    done
+  fi
+  if [ "$block" = 1 ]; then HAVE=("${last[@]}"); fi
   MF="$RD/trailers-msg.txt"
-  cp -- "$1" "$MF" || die "could not copy the message $1 to $MF — no commit is made"
-  git -c trailer.separators=: interpret-trailers --in-place --no-divider --where end \
-    --if-exists addIfDifferent --if-missing add "${TR[@]}" "$MF" >&2 \
-    || die "git interpret-trailers could not add the trailers to $MF — no commit is made"
+  {
+    printf '%s\n' "$m"
+    i=0
+    for t in "${TR[@]}"; do
+      for l in ${HAVE[@]+"${HAVE[@]}"}; do [ "$l" != "$t" ] || continue 2; done
+      if [ "$i" = 0 ] && [ "$block" = 0 ]; then printf '\n'; fi
+      printf '%s\n' "$t"; HAVE+=("$t"); i=1
+    done
+  } > "$MF" || die "could not write the message copy $MF — no commit is made"
 }
 
 # commit_named <path file> <message file> — stage and commit exactly the
@@ -1633,6 +1683,21 @@ cmd_remainder_commit() {
   printf '%s\n' "$SHA"
 }
 
+# show-message <feature> <message file> — prints the message exactly as a
+# commit subcommand would commit it: the run's recorded trailers added by the
+# same with_trailers path, the caller's file left alone. K shows a message
+# this way, so the owner's answer covers every line that leaves at L.
+cmd_show_message() {
+  feature="$1"
+  [ $# -eq 2 ] && [ -n "$2" ] || die "usage: show-message <feature> <message-file>"
+  sf="$(cmd_validate "$feature")"
+  need_git_top
+  RD="$(run_dir "$feature")"
+  msg_body "$2"
+  with_trailers "$2"
+  cat -- "$MF"
+}
+
 # --- metrics ------------------------------------------------------------------
 # .delivery-kit/runs/<feature>/pipeline-run.json, derived from the state file:
 # phases with their timestamps and seconds, gates, the commits by kind, and
@@ -2112,6 +2177,7 @@ case "$cmd" in
   piece-commit)  shift 2; cmd_piece_commit "$feature_arg" "$@" ;;
   late-commit)   shift 2; cmd_late_commit "$feature_arg" "$@" ;;
   remainder-commit) shift 2; cmd_remainder_commit "$feature_arg" "$@" ;;
+  show-message)  shift 2; cmd_show_message "$feature_arg" "$@" ;;
   record-branch) shift 2; cmd_record_branch "$feature_arg" "$@" ;;
   guide)         shift 2; cmd_guide "$feature_arg" "$@" ;;
   commit-list)   shift 2; cmd_commit_list "$feature_arg" "$@" ;;

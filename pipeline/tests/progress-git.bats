@@ -1202,7 +1202,7 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   [ "$(body)" = "$(printf '%s\n' 'chore: the rest' '' 'Plan-Item: DEPENDENCY-02')" ]
 }
 
-@test "trailers: no recorded list leaves every message as written" {
+@test "trailers: no recorded list leaves remainder-commit's message as written" {
   repo
   printf 'note\n' > NOTES.md
   msg 'chore: the rest'
@@ -1211,21 +1211,142 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   [ ! -e ".delivery-kit/runs/$F/trailers-msg.txt" ]
 }
 
-@test "trailers: a recorded list that is not one-line strings, or that uses a run marker, is refused, naming it" {
+@test "trailers: a recorded list that is not an array of non-empty strings is refused" {
   repo
   local bad
-  for bad in '"Plan-Item: x"' '[1]' '["Plan-Item: a\nb"]' '[""]'; do
+  for bad in '"Plan-Item: x"' '[1]' '[""]'; do
     trailers "$bad"
     refuses "must be an array of non-empty one-line strings" spec-commit "$F"
   done
+}
+
+@test "trailers: a line break or any other control character in a recorded trailer is refused" {
+  # jqs strips a CR from what it prints, so a CR the filter let through would
+  # be silently rewritten: `a\rb` would commit as `ab`.
+  repo
+  local bad
+  for bad in '["Plan-Item: a\nb"]' '["Plan-Item: a\rb"]' '["Note: a\u001b[31mb"]' '["Note: a\tb"]'; do
+    trailers "$bad"
+    refuses "must be an array of non-empty one-line strings with no control character" spec-commit "$F"
+  done
+}
+
+@test "trailers: a run marker, no colon or an empty value is refused, naming it" {
+  repo
+  local bad
   for bad in 'Tasks: T001' 'piece: Phase 1: Setup' 'LATE: J'; do
     trailers "[\"$bad\"]"
     refuses "'$bad' uses the token" spec-commit "$F"
   done
   trailers '["no colon"]'
   refuses "'no colon' has no ':'" spec-commit "$F"
-  trailers '["Bad token: x"]'
-  refuses "a token holds letters, digits and dash only" spec-commit "$F"
   trailers '["Plan-Item:   "]'
   refuses "has an empty value" spec-commit "$F"
+}
+
+@test "trailers: a token git would read differently is refused" {
+  # Which case proves which part of the pattern: `: x` the empty token;
+  # `Bad token` and `Bad_token` a character outside letters, digits and dash;
+  # `---`, `-` and `--foo` a first character that is not a letter; `Piece-` a
+  # last character that is not a letter or a digit; `A` a one-character
+  # token. Git strips a token's trailing non-alphanumerics, so `---: x` was
+  # dropped and `Piece-: x` would commit as a run marker.
+  repo
+  local bad
+  for bad in ': x' 'Bad token: x' 'Bad_token: x' '---: x' '-: x' '--foo: x' 'Piece-: x' 'A: x'; do
+    trailers "[\"$bad\"]"
+    refuses "a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only" spec-commit "$F"
+  done
+}
+
+@test "trailers: a trailer that skips GitHub's checks is refused, in any letter case" {
+  repo
+  trailers '["skip-checks: true"]'
+  refuses "'skip-checks: true' uses the token 'skip-checks'" spec-commit "$F"
+  local bad
+  for bad in 'Note: [skip ci]' 'Note: a [CI Skip] b' 'Note: [no ci]' 'Note: [Skip Actions]' 'Note: [actions skip]'; do
+    trailers "[\"$bad\"]"
+    refuses "'$bad' asks GitHub to skip the checks" spec-commit "$F"
+  done
+}
+
+@test "trailers: a trailer that names another author or closes an issue is refused" {
+  repo
+  local bad
+  for bad in 'Co-authored-by: A <a@example.invalid>' 'signed-off-by: A <a@example.invalid>' 'Fixes: #1' 'Closes: owner/repo#1'; do
+    trailers "[\"$bad\"]"
+    refuses "which acts on GitHub or names another author" spec-commit "$F"
+  done
+  trailers '["Note: this fixes #12"]'
+  refuses "would close an issue" spec-commit "$F"
+}
+
+@test "trailers: a token that only holds a run marker's letters commits exactly" {
+  # A reserved-token match by prefix or substring would refuse these.
+  repo
+  trailers '["Pieces: x","Related: y","XPiece: z"]'
+  runs spec-commit "$F"
+  [ "$(body)" = "$(printf '%s\n' 'docs(spec): 001-demo' '' 'Pieces: x' 'Related: y' 'XPiece: z')" ]
+}
+
+@test "trailers: another value under the same token is added; the same line is not" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02"]'
+  printf 'one\n' > NOTES.md
+  msg 'chore: one' '' 'Plan-Item: OTHER'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: one' '' 'Plan-Item: OTHER' 'Plan-Item: DEPENDENCY-02')" ]
+  trailers '["Plan-Item: X"]'
+  printf 'two\n' > MORE.md
+  msg 'chore: two' '' 'Plan-Item: X'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: two' '' 'Plan-Item: X')" ]
+}
+
+@test "trailers: no trailer setting in the repository's git configuration moves, renames or runs on them" {
+  repo
+  git config trailer.where start
+  git config trailer.ifexists replace
+  git config trailer.separators '='
+  git config trailer.zz.key Piece
+  git config trailer.zz.cmd "touch '$BATS_TEST_TMPDIR/ran'"
+  trailers '["zz: x","Plan-Item: DEPENDENCY-02"]'
+  runs snapshot "$F" late H.7
+  printf 'changed\n' >> src/keep.sh
+  msg 'refactor: simplify'
+  runs late-commit "$F" H.7 "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'refactor: simplify' '' 'Late: H.7' 'zz: x' 'Plan-Item: DEPENDENCY-02')" ]
+  [ ! -e "$BATS_TEST_TMPDIR/ran" ]
+}
+
+@test "show-message prints the exact message the commit then carries, and leaves the file alone" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02","Reviewed-by: a-reviewer"]'
+  printf 'note\n' > NOTES.md
+  msg 'chore: the rest of the feature' '' 'Plan-Item: DEPENDENCY-02'
+  cp "$MSG" "$BATS_TEST_TMPDIR/msg.before"
+  runs show-message "$F" "$MSG"
+  cp "$OUT" "$BATS_TEST_TMPDIR/shown"
+  cmp "$BATS_TEST_TMPDIR/msg.before" "$MSG"
+  runs remainder-commit "$F" "$MSG"
+  git cat-file commit HEAD | sed '1,/^$/d' > "$BATS_TEST_TMPDIR/committed"
+  cmp "$BATS_TEST_TMPDIR/shown" "$BATS_TEST_TMPDIR/committed"
+  [ "$(body)" = "$(printf '%s\n' 'chore: the rest of the feature' '' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
+}
+
+@test "show-message refuses a run marker in the message, a bad recorded trailer, and a subdirectory" {
+  repo
+  msg 'chore: x' '' 'Piece: Phase 1: Setup'
+  refuses "carries a 'Piece:' line of its own" show-message "$F" "$MSG"
+  trailers '["Note: [skip ci]"]'
+  msg 'chore: x'
+  refuses "asks GitHub to skip the checks" show-message "$F" "$MSG"
+  # The state directory is relative: from a subdirectory holding its own
+  # copy, the preview would read another run than the commit, so it refuses
+  # there as the commit does.
+  trailers '["Plan-Item: X"]'
+  mkdir -p src/.delivery-kit/runs
+  cp -R ".delivery-kit/runs/$F" src/.delivery-kit/runs/
+  cd src
+  refuses "run this from the repository's top level" show-message "$F" "$MSG"
 }
