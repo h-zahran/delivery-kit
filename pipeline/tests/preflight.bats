@@ -14,6 +14,10 @@ load ../../tests/helper
 
 setup() {
   FIX="$ROOT/pipeline/tests/fixtures"
+  # PREFLIGHT_UNDER_TEST points the suite at another copy of the script, for
+  # mutation runs: mutate a copy, point the suite at it, watch a test go red.
+  PROBE="${PREFLIGHT_UNDER_TEST:-$PROBE}"
+  [ -f "$PROBE" ] || { echo "no script at $PROBE"; return 1; }
 }
 
 # The six external commands the probe actually invokes, read out of the script
@@ -293,18 +297,62 @@ stub() {
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: one","Task: T-12 (second part)"]' ]
 }
 
-@test "trailers: a malformed trailer is refused, naming it" {
+@test "trailers: a malformed trailer is refused, naming it, one case per check" {
   # One case per check in the script. Each value passes every check but
-  # its own, so skipping any one check turns exactly one case green.
+  # its own, so skipping any one check turns exactly one case green. The
+  # error names no flag: the value may have come from the key.
   T="$BATS_TEST_TMPDIR/trailers-bad"
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   local bad
-  for bad in 'Noseparator' 'Bad token: x' ': no token' 'Empty:' 'Empty:   ' \
-             $'Two: lines\nhere' $'Return: here\rthere'; do
+  for bad in 'Noseparator' 'Bad token: x' 'Bad_token: x' ': no token' '9x: y' 'Piece-: x' 'A: x' \
+             'Empty:' 'Empty:   ' $'Two: lines\nhere' $'Return: here\rthere' $'Tab: a\tb' $'Esc: a\e[31mb'; do
     probe --dir "$T" --trailer "$bad"
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
     [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
-    [[ "$stderr" == *"--trailer"* ]] || { echo "argument not named: $bad"; false; }
+    [[ "$stderr" == *"(a commit trailer)"* ]] || { echo "source not named: $bad"; false; }
+    # A line break is also a control character; its own reason must win.
+    case "$bad" in
+      *$'\n'*|*$'\r'*) [[ "$stderr" == *"holds a line break"* ]] || { echo "line break not named: $bad"; false; } ;;
+    esac
+  done
+}
+
+@test "trailers: dashed tokens and tokens holding a marker's letters are accepted, in order" {
+  # A reserved-token match by prefix or substring would refuse these, and no
+  # other test passes a dashed token.
+  T="$BATS_TEST_TMPDIR/trailers-dashed"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --trailer 'Plan-Item: a' --trailer 'Pieces: b' --trailer 'XPiece: c' --trailer 'Related: d'
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Plan-Item: a","Pieces: b","XPiece: c","Related: d"]' ]
+}
+
+@test "trailers: a value holding a colon is reported whole" {
+  # The token ends at the FIRST colon; taking it up to the last would cut
+  # the URL.
+  T="$BATS_TEST_TMPDIR/trailers-url"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --trailer 'Ref: https://example.invalid/a'
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Ref: https://example.invalid/a"]' ]
+}
+
+@test "trailers: one that skips GitHub's checks, names another author or closes an issue is refused" {
+  T="$BATS_TEST_TMPDIR/trailers-github"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad want
+  for bad in 'skip-checks: true' 'Note: [skip ci]' 'Note: a [CI Skip] b' 'Note: [no ci]' \
+             'Note: [Skip Actions]' 'Note: [actions skip]' 'Co-authored-by: A <a@example.invalid>' \
+             'signed-off-by: A <a@example.invalid>' 'Fixes: #1' 'Closes: owner/repo#1' 'Note: this fixes #12'; do
+    case "$bad" in
+      skip-checks*|Co-*|signed-*|Fixes*|Closes*) want='which acts on GitHub or names another author' ;;
+      *'#12') want='would close an issue' ;;
+      *) want='asks GitHub to skip the checks' ;;
+    esac
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "reason not named: $bad: $stderr"; false; }
   done
 }
 

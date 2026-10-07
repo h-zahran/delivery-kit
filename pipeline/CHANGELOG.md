@@ -100,8 +100,13 @@ All notable changes to the `pipeline` plugin.
   `late-commit` and `remainder-commit` add it from the state file's
   `config.commitTrailers`, never adding one twice. Pre-flight prints each
   trailer with its layer, and stops on a malformed one or on the run's
-  own `Piece`, `Late` and `Tasks` tokens, naming it. The commit
-  subcommands refuse those too. The list is read on a fresh run only.
+  own `Piece`, `Late` and `Tasks` tokens, naming it. It also refuses,
+  from every layer, a trailer that would act on GitHub or name another
+  author: `skip-checks`, `Co-authored-by`, `Signed-off-by`, a closing
+  keyword, or a value holding `[skip ci]` or its spellings. The commit
+  subcommands refuse the same set, and append the lines themselves, so no
+  git `trailer.*` setting touches them. K shows each message with the
+  trailers, as the new `progress.sh show-message` prints it. The list is read on a fresh run only.
 
 ### Fixed
 

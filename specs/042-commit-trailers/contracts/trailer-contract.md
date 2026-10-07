@@ -11,15 +11,19 @@ The orchestrator passes the resolved list to pre-flight as `--trailer <text>`, o
 
 ## Refusals
 
-Each exits non-zero. Each message names the trailer and `--trailer`.
+Each exits non-zero and names the trailer. Pre-flight's messages end `(a commit trailer)`: the value may come from the key or the flag, and the script cannot tell which. The commit subcommands refuse the same set before each commit, from every layer.
 
 | Trailer | Message part |
 |---|---|
 | holds CR or LF | `holds a line break; a trailer is one line` |
+| holds another control character | `holds a control character` |
 | no `:` | `has no ':'; write <token>: <value>` |
-| token empty or outside `[A-Za-z0-9-]` | `a token holds letters, digits and dash only` |
+| token not `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$` | `a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only` |
 | value empty or only spaces | `has an empty value` |
 | token `Piece`, `Late` or `Tasks`, any letter case | `reserved for the run's own markers` |
+| token `skip-checks`, `Co-authored-by`, `Signed-off-by`, or a closing keyword (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved`), any letter case | `which acts on GitHub or names another author` |
+| value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`, any letter case | `asks GitHub to skip the checks` |
+| value holding a closing keyword before an issue number (`fixes #12`, `closes owner/repo#3`) | `would close an issue` |
 
 ## Commits that carry the list
 
@@ -33,17 +37,14 @@ Every commit a `progress.sh` subcommand makes: `spec-commit` (subject unchanged)
 
 `with_trailers <message file>` in `progress.sh`, called by `commit_named` and by J's `--record` commit:
 
-1. Read `config.commitTrailers`. Anything but an array of one-line strings stops, naming the state file. No commit is made.
-2. Check each entry as pre-flight does. A bad one stops, naming it.
+1. Read `config.commitTrailers`. Anything but an array of non-empty strings with no control character stops, naming the state file. No commit is made. The check is in the jq filter, because `jqs` strips a CR from what it prints.
+2. Check each entry with `trailer_ok`, the same set pre-flight refuses. A bad one stops, naming it.
 3. Copy the message to `<run dir>/trailers-msg.txt`, and commit the copy. The caller's file is never rewritten.
-4. Add every trailer in one call:
+4. Append the lines in the script itself. When the message's last paragraph, after the subject, is all `<token>: <value>` lines, the trailers join it. Otherwise a blank line comes first. A trailer is skipped when the same line is already in that paragraph, or earlier in the list.
 
-```
-git -c trailer.separators=: interpret-trailers --in-place --no-divider --where end \
-  --if-exists addIfDifferent --if-missing add --trailer <t1> --trailer <t2> ... <copy>
-```
+`git interpret-trailers` is not used (review 2, item 4). Git's `trailer.<x>.key` can rename a token past the reserved check, and `trailer.<x>.cmd` runs a command on every commit. No `trailer.*` setting reaches the lines now.
 
-Each placement is named on the command line, so no `trailer.*` setting in the owner's git configuration changes the result.
+`progress.sh show-message <feature> <message file>` prints the copy step 4 makes, and commits nothing. K shows each uncommitted message this way, so the owner's answer covers every line the commit carries.
 
 ## Pinned strings
 
@@ -52,6 +53,7 @@ Each placement is named on the command line, so no `trailer.*` setting in the ow
 | SKILL.md Configuration table | the whole `commitTrailers` row |
 | SKILL.md Flags table | the whole `--trailer` row |
 | SKILL.md probe block | the `Trailers` line |
+| SKILL.md K | the sentence that K shows each uncommitted message as `show-message` prints it |
 | SKILL.md **Base branch:** pointer | `commitTrailers` and `--trailer` in the list of names that send the run to the docs page |
-| `pipeline/docs/configuration.md` | the bold add rule and its sentence, the reserved-token rule, the pre-flight argument, the recorded shape, the list of commits, the no-hand-trailer rule, the resume rule |
+| `pipeline/docs/configuration.md` | the bold add rule and its sentence, the reserved-token rule, the pre-flight argument, the recorded shape, the list of commits, the no-hand-trailer rule, the resume rule, the gate shows the trailers, the refused-trailer rule, the skip-ci rule; the old "does not show" sentence must not return |
 | `pipeline/CHANGELOG.md` | the bold lead of the entry |

@@ -79,4 +79,11 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 - Between configuration files the key behaves as every key does: a later file's list replaces an earlier one's.
 - The mechanism is `git interpret-trailers`, run by `progress.sh` on a copy of the message file, not `git commit --trailer`. Since `main` = `33bd148` every run commit goes through a `progress.sh` subcommand, and the run never re-creates one by hand.
 - A message shown at a gate before its commit does not show the trailers. The commit carries them. The gate wording is not changed: the CTO plans work there.
+
+### Changed after review 2 (2026-10-08)
+
+- A message shown at K is shown WITH the trailers, through `progress.sh show-message`. The bullet above no longer holds. Reason: K's contract is "commits only what was shown", and a tracked `.delivery-kit.json` could add lines nobody saw.
+- `git interpret-trailers` is replaced by lines the script appends itself. The same trailer is still added once.
+- Refused from every layer, in any letter case: `skip-checks`, `Co-authored-by`, `Signed-off-by`, closing keywords as a token or before an issue number, the `[skip ci]` family, control characters, and tokens outside `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$`. The full table is in `contracts/trailer-contract.md`.
+- Pre-flight's errors end `(a commit trailer)`, not `(--trailer)`: the value may come from the key. Acceptance scenario 1 reads that way now.
 - `Tasks` is reserved too. `piece-commit` and `late-commit H.5` write a `Tasks:` line, and `msg_body` already refuses one in a message.
