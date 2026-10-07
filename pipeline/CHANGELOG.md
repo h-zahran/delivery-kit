@@ -47,13 +47,15 @@ All notable changes to the `pipeline` plugin.
   `test_baseline` or `last_task`, validates the result before it replaces
   the state file, and refuses every other key.
 - **`suite-key`, `suite-record` and `suite-lookup`** keep each full run of the
-  test command per exact tree, so J, N and a later run's F.5 can cite a green
+  test command on a clean tree, so J, N and a later run's F.5 can cite a green
   result instead of running the suite again. A result is reused only for a
-  clean working tree whose committed tree, test command and platform are the
-  ones it was recorded on, and only when its TAP is green: exit 0, a plan line
-  first, exactly that many `ok` lines, no `not ok` and no stray line. A tree
-  that changed while the suite ran is not recorded, and a red result is never
-  reused.
+  clean working tree with no submodule whose committed tree, tracked files'
+  bytes on disk, test command and platform are the ones it was recorded on,
+  and only when its TAP is green: exit 0, a plan line first, exactly that many
+  `ok` lines numbered 1 to N, no `not ok` and no stray line. A tree that no
+  longer has its key when the result is recorded is not recorded, and a red
+  result is never reused. Files git ignores, the environment and the tools'
+  versions are not in the key: a reuse assumes them unchanged.
 
 ## [1.3.1] - 2026-10-06
 

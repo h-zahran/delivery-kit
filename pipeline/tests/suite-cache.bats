@@ -359,3 +359,106 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   printf 'not json' > "$rec"
   refuses "is not one readable record" suite-lookup "$F"
 }
+
+@test "suite-key refuses, never issues a key, when the index-tag check itself fails" {
+  repo
+  git update-index --assume-unchanged README.md
+  printf 'hidden\n' >> README.md
+  # A grep that errors (exit 2) — the shape a scratch file removed under it
+  # gives. Read as "no match", it would issue a key over the hidden change.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\nexit 2\n' > "$BATS_TEST_TMPDIR/bin/grep"
+  chmod +x "$BATS_TEST_TMPDIR/bin/grep"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" refuses "could not read the index tags" suite-key "$F"
+}
+
+@test "suite-key has no key in a repository with a submodule" {
+  repo
+  git update-index --add --cacheinfo "160000,$(git rev-parse HEAD),sub"
+  git commit -q -m 'a submodule'
+  mkdir -p sub
+  # An uninitialised submodule: git status shows nothing.
+  [ -z "$(git status --porcelain --ignore-submodules=none -- sub)" ]
+  refuses "the tree holds a submodule (sub)" suite-key "$F"
+}
+
+@test "suite-key has no key when a tracked file under .delivery-kit/ is changed" {
+  repo
+  mkdir -p .delivery-kit/fixtures
+  printf 'good\n' > .delivery-kit/fixtures/in.txt
+  git add .delivery-kit/fixtures/in.txt
+  git commit -q -m 'a tracked fixture'
+  key
+  printf 'bad\n' > .delivery-kit/fixtures/in.txt
+  refuses "(.delivery-kit/fixtures/in.txt)" suite-key "$F"
+}
+
+@test "the key sees a file's bytes when a line-ending conversion hides them from git status" {
+  repo
+  git config core.autocrlf true
+  verdict_is green 0 '1..1' 'ok 1 one'
+  printf 'base\r\n' > README.md
+  git add README.md
+  [ -z "$(git status --porcelain -- README.md)" ]
+  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+}
+
+@test "the key sees a file's bytes when a clean filter hides them from git status" {
+  repo
+  git config filter.strip.clean "sed 's/^v=.*/v=1/'"
+  git config filter.strip.smudge cat
+  printf 'README.md filter=strip\n' > .git/info/attributes
+  printf 'v=1\n' > README.md
+  git add README.md
+  git commit -q -m 'v=1'
+  verdict_is green 0 '1..1' 'ok 1 one'
+  printf 'v=999\n' > README.md
+  git add README.md
+  [ -z "$(git status --porcelain -- README.md)" ]
+  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+}
+
+@test "the key sees a file's bytes when its size and time are what the index holds" {
+  repo
+  git config core.trustctime false
+  git config core.checkStat minimal
+  touch -d '2020-01-02 03:04:05' README.md
+  git update-index --refresh > /dev/null
+  verdict_is green 0 '1..1' 'ok 1 one'
+  # Same size, same time: the stat cache calls it unchanged.
+  printf 'case\n' > README.md
+  touch -d '2020-01-02 03:04:05' README.md
+  [ -z "$(git status --porcelain -- README.md)" ]
+  [ "$(cat README.md)" = case ]
+  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+}
+
+@test "a test number repeated, missing or out of range is red; the order is not judged" {
+  repo
+  verdict_is red 0 '1..3' 'ok 1 one' 'ok 1 one' 'ok 1 one'
+  verdict_is red 0 '1..2' 'ok 1 one' 'ok 3 three'
+  verdict_is red 0 '1..1' 'ok - unnumbered'
+  verdict_is red 0 '1..2' 'ok 1 one' 'ok 2x two'
+  verdict_is red 0 '1..2' 'ok 1 one' 'ok 0 zero'
+  # A parallel runner prints in the order tests finish.
+  verdict_is green 0 '1..3' 'ok 2 two' 'ok 3 three' 'ok 1 one'
+}
+
+@test "suite-lookup refuses counts that are not whole numbers, and another byte digest" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json"
+  cp "$rec" "$BATS_TEST_TMPDIR/green.json"
+  jq '.plan = 1.5 | .ok = 1.5' "$rec" > t.json && mv t.json "$rec"
+  refuses "is red" suite-lookup "$F"
+  jq '.skipped = -1' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "is red" suite-lookup "$F"
+  jq '.ok = "1"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "is red" suite-lookup "$F"
+  jq '.bytes = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "records another tree, command or platform" suite-lookup "$F"
+  jq '.tree = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "records another tree, command or platform" suite-lookup "$F"
+  cp "$BATS_TEST_TMPDIR/green.json" "$rec"
+  runs suite-lookup "$F"
+}
