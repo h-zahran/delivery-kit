@@ -119,12 +119,17 @@ a doubt never makes a question wait.
 
 A waiting question is queued with `progress.sh ask-later <feature> <phase>
 <question-file>`, which prints its id (`P1`, `P2`, …); the same question from
-the same phase is queued once. At every stop — a gate, a cap, a failure, a
-pause, the resume prompt — `progress.sh pending <feature>` prints the open
-questions, and they are asked with the stop's own. `progress.sh answer
-<feature> <id> <answer-file>` records each reply: an answered question is
-never asked again, and its answer is never replaced. A question the owner
-leaves unanswered stays open.
+the same phase is queued once. After L nothing waits: a question raised at
+M, N, N.5 or O stops the run, and `ask-later` refuses it. At every stop — a
+gate, a cap, a failure, a pause, the resume prompt — `progress.sh pending
+<feature>` prints the open questions, and they are asked with the stop's
+own, and a run that stops for good — `--until`, the park at H, a run with no
+remote — shows them before it stops. `progress.sh answer <feature> <id>
+<answer-file>` records each reply: an answered question is never asked
+again, and its answer is never replaced. The answer is the owner's own
+words, never the run's, and on a re-entry the run reads the recorded
+answers before the phase they affect. A question the owner leaves
+unanswered stays open.
 
 Before L pushes, `pending-check` must pass, under `--auto` too: it exits 1,
 naming the open ids, while any question waits, so no unanswered question

@@ -61,9 +61,16 @@ All notable changes to the `pipeline` plugin.
   answer changes nothing before the run's next stop; in doubt it stops the
   run at once. Every open question is asked at the next stop, and
   `pending-check` stops the run before L pushes while one is open, under
-  `--auto` too. An answer stands and is never asked again; `state-set`
-  cannot write the queue. The handoff package's parts move to
+  `--auto` too; after L nothing waits. An answer stands, and the same
+  question from the same phase is never asked again; `state-set` cannot
+  write the queue. The handoff package's parts move to
   `docs/handoff-package.md`, and `git stash` joins the never-bend rules.
+
+### Fixed
+
+- **State writes no longer race.** Every write to a run's state file holds
+  a lock and a temporary file of its own. Two writes at the same moment
+  could lose one another's change, or leave the state file empty.
 
 ## [1.3.1] - 2026-10-06
 
