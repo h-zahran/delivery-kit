@@ -90,6 +90,27 @@ Like `verifyCommand`, the key can be replaced by a later layer but not
 returned to unset, because `null` is silence: remove it from the file
 that set it.
 
+## Feature branch and spec folder
+
+By default the spec tool names each feature `NNN-slug`, and the feature
+branch, the spec folder and the run's name all follow that name. Two
+flags change it for one run: `--branch <name>` names the feature branch,
+and `--spec-dir <path>` names the spec folder, relative to the
+repository root. The spec folder's last segment becomes the run's name,
+so it holds letters, digits, dot, dash and underscore only; the branch
+name may hold `/`. They are flags only, with no configuration key: each
+names one feature, so a value set once would name the same feature on
+every run. A caller that builds the names from its own settings passes
+them as flags. Pre-flight stops on a bad value, naming it: a branch name
+git would not accept, or the base branch's own name; a spec folder that
+is absolute, climbs out with `..`, sits under `.delivery-kit/`, already
+exists, or whose run name already has a state file. Both are read on a
+fresh run only. A resume keeps the branch and the folder the run
+recorded, and a different value on a resume is reported, never applied
+silently. A second fresh run with the same `--spec-dir` stops at
+pre-flight, because the folder exists: to continue a run, type
+`--resume`.
+
 ## The implementer key
 
 `implementer` answers the first of the implementer gate's two questions

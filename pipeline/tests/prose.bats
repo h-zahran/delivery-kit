@@ -1451,3 +1451,47 @@ ROWS
   grep -qF '**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**' <<<"$changelog" \
     || { echo "the changelog lost the override entry"; false; }
 }
+
+@test "the feature-branch and spec-folder flags are pinned where the operator reads them" {
+  # Feature 032. The two flags are the only way to choose the feature
+  # branch and the spec folder, so each site that states them is pinned:
+  # deleting any one leaves a reader with the old "the spec tool names
+  # everything" picture, or with no resume rule, and nothing goes red.
+  local flags preflight rule b docs changelog
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --branch and --spec-dir flags' <<'ROWS'
+| `--branch <name>` | The feature branch's name, for this run. Without it, the branch takes the run's name. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
+| `--spec-dir <path>` | The feature's spec folder, relative to the repository root, for this run. B hands it to the spec tool, and its last segment is the run's name. Without it, the spec tool picks the folder. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
+ROWS
+  preflight="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
+  rows_in "$preflight" 'the probe lines' <<'ROWS'
+Branch       : <featureBranch>  (from --branch)
+Spec folder  : <specDir>  (from --spec-dir)
+ROWS
+  grep -qF '`--feature-branch <name>` and `--spec-dir <path>` only on a fresh run' <<<"$(tr '\n' ' ' <<<"$preflight" | tr -s ' ')" \
+    || { echo "pre-flight no longer passes the two arguments on a fresh run only"; false; }
+  rule="$(prose_slice '^\*\*Feature branch and spec folder:\*\*' '^\*\*Seed forms\.\*\*' flat 'feature branch and spec folder')" || return 1
+  grep -qF '`--spec-dir` names the spec folder, and the run'"'"'s name is that folder'"'"'s last segment;' <<<"$rule" \
+    || { echo "the run name no longer comes from the spec folder"; false; }
+  grep -qF 'They are flags only, with no configuration key: each names one feature, so a value set once would name the same feature on every run.' <<<"$rule" \
+    || { echo "the flags-only reason altered"; false; }
+  grep -qF 'A `--branch` or `--spec-dir` on a resume that differs from the record is never applied silently — say that the record stands, and name both.' <<<"$rule" \
+    || { echo "the resume rule for the two flags altered"; false; }
+  grep -qF 'A second fresh run with the same `--spec-dir` stops at pre-flight, because the folder exists: to continue a run, type `--resume`.' <<<"$rule" \
+    || { echo "the orchestrator lost the re-run note"; false; }
+  b="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  grep -qF 'With `--spec-dir`, hand the folder to the spec tool with the seed, as `SPECIFY_FEATURE_DIRECTORY`:' <<<"$b" \
+    || { echo "B no longer hands the folder to the spec tool"; false; }
+  grep -qF 'Before going on, check that `<folder>/spec.md` exists; a spec written anywhere else stops the run, naming both paths.' <<<"$b" \
+    || { echo "B no longer checks where the spec was written"; false; }
+  grep -qF 'named `--branch` when it was typed, else with the feature'"'"'s name:' <<<"$b" \
+    || { echo "B no longer names the branch from --branch"; false; }
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  grep -qF 'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.' <<<"$docs" \
+    || { echo "the configuration page lost the two flags"; false; }
+  grep -qF 'A second fresh run with the same `--spec-dir` stops at pre-flight, because the folder exists: to continue a run, type `--resume`.' <<<"$docs" \
+    || { echo "the configuration page lost the re-run note"; false; }
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  grep -qF '**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**' <<<"$changelog" \
+    || { echo "the changelog lost the two flags entry"; false; }
+}

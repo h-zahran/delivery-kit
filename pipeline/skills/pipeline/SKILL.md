@@ -124,6 +124,8 @@ rather than silent.
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 | `--base-branch <name>` | The branch the feature branch is cut from, for this run. Beats the `baseBranchOverride` key, `origin/HEAD` and the `baseBranch` key. Read on a fresh run only — see **Base branch:** under Pre-flight. |
+| `--branch <name>` | The feature branch's name, for this run. Without it, the branch takes the run's name. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
+| `--spec-dir <path>` | The feature's spec folder, relative to the repository root, for this run. B hands it to the spec tool, and its last segment is the run's name. Without it, the spec tool picks the folder. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -134,9 +136,13 @@ this tool does, and one flag must not mean both "commit for me" and
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
 `--project-type`/`--base-branch` only when configuration set them, and
 `--base-branch-override <name>` only when `--base-branch` was typed or
-`baseBranchOverride` resolves to a value — the flag's value when both),
+`baseBranchOverride` resolves to a value — the flag's value when both;
+`--feature-branch <name>` and `--spec-dir <path>` only on a fresh run
+where `--branch` and `--spec-dir` were typed),
 parse its stdout as JSON, and render the probe block — the Implementer
-line only when the key resolves to a value, per **Implementer:** below:
+line only when the key resolves to a value, per **Implementer:** below,
+and the Branch and Spec folder lines each only when its value
+(`featureBranch`, `specDir`) is not empty:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
@@ -144,6 +150,8 @@ spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <
 Constitution : <set / not set — plan gates run against an empty document>
 git          : <present / ABSENT — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
+Branch       : <featureBranch>  (from --branch)
+Spec folder  : <specDir>  (from --spec-dir)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
@@ -165,6 +173,9 @@ it has to not be printed here. But over-marking is its own lie, so be exact:
   print it, and add that it was not checked against the repository. The
   same holds for `override`: the name was typed or configured, so print
   it, name its layer, and add that it was not checked.
+- `Branch`: typed, and IS established, but git did not check that it is a
+  legal branch name: print it, and add that it was not checked. `Spec
+  folder` needs no mark: its checks never ask git.
 - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
   on the same line is not: it comes from looking for `gh` and is unaffected.
   Keep it.
@@ -331,6 +342,26 @@ pre-answers a gate changes the run's consent profile, and a tracked
 configuration file must never do that without the operator seeing which
 file it came from.
 
+**Feature branch and spec folder:** by default the spec tool names the
+feature `NNN-slug`, and the branch, the spec folder and the run's name
+all follow it. `--branch` names the branch alone. `--spec-dir` names the
+spec folder, and the run's name is that folder's last segment; the run
+name and the branch are separate values in the state file, so a branch
+name may hold `/` where a run name may not. They are flags only, with no
+configuration key: each names one feature, so a value set once would
+name the same feature on every run. A caller that builds the names from
+its own settings passes them as flags. `preflight.sh` checks both and
+stops on a bad value, naming it: a branch name git refuses, or the base
+branch's own name; a spec folder that is absolute, climbs out with `..`,
+sits under `.delivery-kit/`, already exists, or ends in a run name that
+is illegal or already has a state file. Both are read on a fresh run
+only: B records the branch in the state file and the folder in
+`artifacts.spec`, and a resume uses the record. A `--branch` or
+`--spec-dir` on a resume that differs from the record is never applied
+silently — say that the record stands, and name both. A second fresh run
+with the same `--spec-dir` stops at pre-flight, because the folder
+exists: to continue a run, type `--resume`.
+
 **Seed forms.** The seed is interpreted three ways, in order:
 
 1. Text matching `Phase <N>: <title>` — read that section out of
@@ -366,9 +397,15 @@ result aside in a scratch file, then write it into the run directory as
 **B — specify.** Invoke `/speckit-specify` (derive the dot form if
 recorded) with the seed FIRST — the spec tool names the feature
 (`NNN-slug`) and creates no git branch itself; that contract is recorded
-in the spec-tool verification document. The feature now has its name:
+in the spec-tool verification document. With `--spec-dir`, hand the
+folder to the spec tool with the seed, as `SPECIFY_FEATURE_DIRECTORY`:
+the tool then uses it as given and numbers nothing, and the feature's
+name is the folder's last segment. Before going on, check that
+`<folder>/spec.md` exists; a spec written anywhere else stops the run,
+naming both paths. The feature now has its name:
 run `progress.sh init <feature> <branch> <base> <projectType>` (the
-branch argument is the `NNN-slug` branch name about to be created —
+branch argument is the branch name about to be created, `--branch` when
+it was typed, else the feature's name —
 `init` is idempotent, so a resume re-running it finds the run rather
 than clobbering it). A state file `init` finds already there is checked
 first, as Resume says, before anything in it is used. Then take the lock
@@ -379,8 +416,8 @@ aside at pre-flight is written into `gates.constitution` here, in the
 same breath as the seed. A `.gitignore` answer held aside at pre-flight
 is written into `gates.gitignore` the same way. THEN create the feature
 branch
-off the detected base branch, named with the tool's `NNN-slug` feature
-identity: the spec files are still uncommitted, and uncommitted work
+off the detected base branch, named `--branch` when it was typed, else
+with the feature's name: the spec files are still uncommitted, and uncommitted work
 travels with `git checkout -b`. Record `artifacts.spec`.
 
 **C — clarify, looped.** Invoke `/speckit-clarify`. The tool asks one

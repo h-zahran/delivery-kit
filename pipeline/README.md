@@ -143,6 +143,8 @@ cleanup is your call.
 | `--dry-run` | Run the spec phases for real, then print what the rest would do and stop. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it. |
 | `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
+| `--branch <name>` | Name the feature branch. Default: the run's name. |
+| `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
 | `--config <path>` | Merge a JSON file over the resolved settings. |
 
 ## Requirements
