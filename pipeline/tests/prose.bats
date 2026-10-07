@@ -1567,3 +1567,50 @@ ROWS
   grep -qF '**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**' <<<"$changelog" \
     || { echo "the changelog lost the two flags entry"; false; }
 }
+
+@test "the commit trailers are pinned where the operator reads them" {
+  # Feature 042. Trailers leave the machine on every commit, and the flag
+  # ADDS to the key where Phase 40's flag beat its key. Each site that
+  # states the rule is pinned: deleting one leaves a reader with the
+  # replace picture, or with no list of the commits that carry them. The
+  # skill keeps the rows, the probe line and the pointer; the full rules
+  # live in configuration.md. progress-git.bats pins the mechanism.
+  local config flags preflight base docs changelog
+  config="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  rows_in "$config" 'the commitTrailers key' <<'ROWS'
+| `commitTrailers` | unset | Trailers on every commit the run makes |
+ROWS
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --trailer flag' <<'ROWS'
+| `--trailer <token: value>` | One more trailer; adds to `commitTrailers` |
+ROWS
+  preflight="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
+  rows_in "$preflight" 'the probe line' <<'ROWS'
+Trailers     : <each trailer>  (from <its layer>)
+ROWS
+  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  local ptr="${base#*When any of }"
+  ptr="${ptr%% is set, read*}"
+  [[ $ptr == *'`commitTrailers`'* && $ptr == *'`--trailer`'* ]] \
+    || { echo "the skill no longer sends the run to the trailers' rules"; false; }
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  grep -qF '**The flag adds to the key and never replaces it**: the list is the key'"'"'s trailers, then the flags'"'"', in order.' <<<"$docs" \
+    || { echo "the configuration page lost the add rule"; false; }
+  grep -qF 'or the token `Piece`, `Late` or `Tasks` in any letter case, which the run uses as its own markers.' <<<"$docs" \
+    || { echo "the reserved-token rule altered"; false; }
+  grep -qF 'On a fresh run it passes `--trailer <text>` to `preflight.sh` once per trailer: the key'"'"'s first, then the flags'"'"', in order.' <<<"$docs" \
+    || { echo "the pre-flight argument for trailers altered"; false; }
+  grep -qF 'It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers '"'"'<json array>'"'"'`, and each entry'"'"'s layer, in the same order, as `config.commitTrailersFrom`.' <<<"$docs" \
+    || { echo "the recorded shape altered"; false; }
+  grep -qF 'This record replaces the key'"'"'s own list in `config`: it holds the key'"'"'s trailers and the flags'"'"', never the key'"'"'s alone.' <<<"$docs" \
+    || { echo "the record no longer holds the flags' trailers"; false; }
+  grep -qF 'The commit subcommands add the list themselves: `spec-commit`, `piece-commit`, `late-commit` (J'"'"'s `--record` included) and `remainder-commit`.' <<<"$docs" \
+    || { echo "the list of commits that carry trailers altered"; false; }
+  grep -qF 'The run never adds a trailer by hand.' <<<"$docs" \
+    || { echo "the no-hand-trailer rule altered"; false; }
+  grep -qF 'On a resume, pre-flight gets no `--trailer`, so print the Trailers line from the recorded list, each entry with its recorded layer. A different list on a resume is never applied silently — say that the record stands, and name both.' <<<"$docs" \
+    || { echo "the resume rule for trailers altered"; false; }
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  grep -qF '**Trailers on every commit the run makes: the `commitTrailers` key and the `--trailer <token: value>` flag.**' <<<"$changelog" \
+    || { echo "the changelog lost the trailers entry"; false; }
+}

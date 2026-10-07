@@ -745,15 +745,53 @@ nul_file() {
   if [ $# -gt 0 ]; then printf '%s\0' "$@" > "$f"; else : > "$f"; fi
 }
 
+# with_trailers <message file> — the run's commit trailers, added to a copy
+# of the message. The list is the state file's config.commitTrailers: an
+# array of `<token>: <value>` strings the orchestrator recorded from
+# pre-flight's report. It is read as data, never typed into a command. Sets
+# MF to the file to commit: the message file itself when the run records no
+# trailer, else the copy under the run directory, so a caller's own file is
+# never rewritten. Every caller sets sf and RD first. The tokens Piece, Late
+# and Tasks are the run's own markers, refused here as pre-flight refuses
+# them: a second such line would be matched by the crash scans. Each
+# placement is named on the command line, so no trailer.* setting in the
+# owner's git configuration moves or drops one, and a `---` line in the body
+# is not read as the end of the message.
+with_trailers() {
+  local n t token TR=()
+  MF="$1"
+  n="$(jqs '.config.commitTrailers? // [] | if type == "array" and all(.[]; type == "string" and length > 0 and (test("[\r\n]") | not)) then length else "bad" end' "$sf")" \
+    || die "$sf could not be read for config.commitTrailers — no commit is made"
+  [ "$n" != bad ] || die "$sf: config.commitTrailers must be an array of non-empty one-line strings — no commit is made"
+  [ "$n" -gt 0 ] || return 0
+  while IFS= read -r t || [ -n "$t" ]; do
+    case "$t" in *:*) ;; *) die "the recorded trailer '$t' has no ':' — no commit is made" ;; esac
+    token="${t%%:*}"
+    case "$token" in ''|*[!A-Za-z0-9-]*) die "the recorded trailer '$t' has the token '$token'; a token holds letters, digits and dash only — no commit is made" ;; esac
+    case "${t#*:}" in *[![:space:]]*) ;; *) die "the recorded trailer '$t' has an empty value — no commit is made" ;; esac
+    case "$token" in
+      [Pp][Ii][Ee][Cc][Ee]|[Ll][Aa][Tt][Ee]|[Tt][Aa][Ss][Kk][Ss])
+        die "the recorded trailer '$t' uses the token '$token', reserved for the run's own markers — no commit is made" ;;
+    esac
+    TR+=(--trailer "$t")
+  done < <(jqs '.config.commitTrailers[]' "$sf")
+  MF="$RD/trailers-msg.txt"
+  cp -- "$1" "$MF" || die "could not copy the message $1 to $MF — no commit is made"
+  git -c trailer.separators=: interpret-trailers --in-place --no-divider --where end \
+    --if-exists addIfDifferent --if-missing add "${TR[@]}" "$MF" >&2 \
+    || die "git interpret-trailers could not add the trailers to $MF — no commit is made"
+}
+
 # commit_named <path file> <message file> — stage and commit exactly the
-# named paths. A commit is never run from an empty path file: with no
+# named paths, the message carrying the run's trailers (with_trailers). A commit is never run from an empty path file: with no
 # pathspec, git commits whatever is already staged (measured). A hook that
 # rejects the commit stops here; --no-verify is never passed.
 commit_named() {
   [ -s "$1" ] || die "the path list is empty — a commit from an empty path file takes whatever is already staged, so no commit is made"
+  with_trailers "$2"
   git --literal-pathspecs add --pathspec-from-file="$1" --pathspec-file-nul >&2 \
     || die "git add refused the paths in $1 — nothing committed"
-  git --literal-pathspecs commit -q --cleanup=verbatim -F "$2" --pathspec-from-file="$1" --pathspec-file-nul >&2 \
+  git --literal-pathspecs commit -q --cleanup=verbatim -F "$MF" --pathspec-from-file="$1" --pathspec-file-nul >&2 \
     || die "the commit was rejected (a commit hook?) — nothing is committed or recorded, and the paths in $1 stay uncommitted"
   SHA="$(git rev-parse HEAD)"
 }
@@ -1185,7 +1223,8 @@ cmd_late_commit() {
       [ "${#LP[@]}" -eq 0 ] || die "J changed files: the record rides in J's own late commit — run without --record"
     fi
     printf '%s\n\nLate: J\n' "$MSG" > "$RD/late-msg.txt"
-    git commit -q --allow-empty --only --cleanup=verbatim -F "$RD/late-msg.txt" >&2 \
+    with_trailers "$RD/late-msg.txt"
+    git commit -q --allow-empty --only --cleanup=verbatim -F "$MF" >&2 \
       || die "the record commit was rejected (a commit hook?) — nothing is committed or recorded"
     SHA="$(git rev-parse HEAD)"
     ( cmd_commit_add "$feature" tests "$SHA" "" "" ) \

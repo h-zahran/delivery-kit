@@ -3145,3 +3145,34 @@ Not in this phase: commit trailers.
 ```
 /pipeline Phase 41: the feature branch and the spec folder can be named for one run
 ```
+
+## Phase 42: every commit the run makes can carry trailers
+
+A team that tags its commits (`Task: <id>`, `Reviewed-by: <name>`) has
+no way to make the run add the tags. Every message must be edited by
+hand after the run, which rewrites the branch the run recorded.
+
+Measured 2026-10-07 at `032-branch-and-spec-dir-flags` = `8c48ddf` (the first version of Phase 41), git
+2.43.0: `git interpret-trailers --in-place --if-exists addIfDifferent
+--trailer 'Task: T-1' <file>` on a message whose last paragraph is
+`Piece: Phase 1: a thing` adds the trailer on the next line and keeps the
+`Piece:` line whole; on a message that ends in prose it adds a blank line,
+then the trailer; run twice, it adds the trailer once. This needs only
+`interpret-trailers --in-place`, not `git commit --trailer` (2.32+).
+
+The change: a `commitTrailers` key, set once, and a `--trailer` flag that
+ADDS to it for one run. This is the opposite of Phase 40's "flag beats
+key": a team's fixed trailers must stay on every run while a run adds its
+own. `preflight.sh` gains `--trailer <text>`, checks each, reports
+`commitTrailers`, and refuses the run's own `Piece`, `Late` and `Tasks`
+tokens. The orchestrator records the list in the state file's `config`.
+Since `main` = `33bd148`, every commit goes through a `progress.sh`
+subcommand, so the trailers are added there: one helper, `with_trailers`,
+used by the shared `commit_named` and by J's `--record` commit. It reads
+the list from the state file as data, and refuses a bad entry by name.
+
+**Invocation:**
+
+```
+/pipeline Phase 42: every commit the run makes can carry trailers
+```

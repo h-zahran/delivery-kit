@@ -69,6 +69,18 @@ All notable changes to the `pipeline` plugin.
   base branch's own name, or a spec folder that is absolute, climbs out
   with `..`, sits under `.delivery-kit/`, already exists, or whose run
   name already has a state file. Both are read on a fresh run only.
+- **Trailers on every commit the run makes: the `commitTrailers` key and
+  the `--trailer <token: value>` flag.** A team that tags its commits
+  had to edit every message by hand. Set `commitTrailers` once in the
+  repository's `.delivery-kit.json` for the team's fixed trailers, and
+  type `--trailer` for one run's own; the flag adds to the key and never
+  replaces it. Every commit the run makes carries the list, the spec
+  commit and J's empty record included: `spec-commit`, `piece-commit`,
+  `late-commit` and `remainder-commit` add it from the state file's
+  `config.commitTrailers`, never adding one twice. Pre-flight prints each
+  trailer with its layer, and stops on a malformed one or on the run's
+  own `Piece`, `Late` and `Tasks` tokens, naming it. The commit
+  subcommands refuse those too. The list is read on a fresh run only.
 
 ### Changed
 

@@ -1093,3 +1093,118 @@ accept() {
   refuses "must be a JSON object" state-set "$F" gates '"claude"'
   refuses "has no sub-keys" state-set "$F" last_task K '"T001"'
 }
+
+# --- commit trailers ------------------------------------------------------------
+# Feature 042. Every commit the run makes carries the trailers the run
+# recorded in config.commitTrailers: each subcommand adds them through the one
+# shared path, read from the state file as data.
+
+# trailers <json> — records the run's trailer list, as the orchestrator does.
+trailers() { runs state-set "$F" config commitTrailers "$1"; }
+
+# body — HEAD's whole message, exactly as stored.
+body() { git cat-file commit HEAD | sed '1,/^$/d'; }
+
+@test "trailers: spec-commit carries them after its subject, which stays exact" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02","Reviewed-by: a-reviewer"]'
+  runs spec-commit "$F"
+  [ "$(body)" = "$(printf '%s\n' 'docs(spec): 001-demo' '' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
+  [ "$(jq -r '.commits[-1].kind' "$SF")" = spec ]
+}
+
+@test "trailers: piece-commit joins them to its Tasks and Piece lines, the body kept byte for byte" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02","Reviewed-by: a-reviewer"]'
+  runs snapshot "$F" piece
+  printf 'built\n' > src/a.sh
+  mark T001 T002
+  # Trailing spaces, a doubled blank line and a `---` line: the body is kept
+  # as written, and the `---` line does not end the message.
+  msg 'feat: the setup piece' '' '' 'Builds T001 to T002.  ' '---' 'after the line'
+  runs piece-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'feat: the setup piece' '' '' 'Builds T001 to T002.  ' '---' 'after the line' '' \
+    'Tasks: T001,T002' 'Piece: Phase 1: Setup' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
+  [ "$(jq -r '.commits[-1].piece' "$SF")" = "Phase 1: Setup" ]
+  run bash "$PROG" piece-next "$F"
+  [ "${lines[0]}" = "Phase 2: Core" ]
+}
+
+@test "trailers: late-commit carries them after its Late line" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02"]'
+  runs snapshot "$F" late H.7
+  printf 'changed\n' >> src/keep.sh
+  msg 'refactor: simplify'
+  runs late-commit "$F" H.7 "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'refactor: simplify' '' 'Late: H.7' 'Plan-Item: DEPENDENCY-02')" ]
+  [ "$(jq -r '.commits[-1].kind' "$SF")" = simplify ]
+}
+
+@test "trailers: J's empty record commit carries them, and is still read as J's record" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02"]'
+  msg 'test: carry the accepted reds'
+  runs late-commit "$F" J "$MSG" --record
+  made="$(git rev-parse HEAD)"
+  [ -z "$(files_of HEAD)" ]
+  [ "$(body)" = "$(printf '%s\n' 'test: carry the accepted reds' '' 'Late: J' 'Plan-Item: DEPENDENCY-02')" ]
+  # A re-entered J still finds its record by the whole `Late: J` line.
+  runs late-commit "$F" J "$MSG" --record
+  [ "$(cat "$OUT")" = "$made" ]
+  [ "$(git rev-parse HEAD)" = "$made" ]
+  # An unrecorded copy, as after a crash, is still read as kind tests.
+  jq '.commits = []' "$SF" > t.json && mv t.json "$SF"
+  runs record-branch "$F"
+  [ "$(jq -r '.commits[-1] | "\(.sha) \(.kind)"' "$SF")" = "$made tests" ]
+}
+
+@test "trailers: remainder-commit carries them, never adds one twice, and leaves the caller's file alone" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02","Reviewed-by: a-reviewer"]'
+  printf 'note\n' > NOTES.md
+  # The message already ends with one of the two trailers.
+  msg 'chore: the rest of the feature' '' 'Plan-Item: DEPENDENCY-02'
+  cp "$MSG" "$BATS_TEST_TMPDIR/msg.before"
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: the rest of the feature' '' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
+  cmp "$BATS_TEST_TMPDIR/msg.before" "$MSG"
+  [ "$(jq -r '.commits[-1].kind' "$SF")" = other ]
+}
+
+@test "trailers: a one-line subject shaped like a trailer stays the subject" {
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02"]'
+  printf 'note\n' > NOTES.md
+  msg 'chore: the rest'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: the rest' '' 'Plan-Item: DEPENDENCY-02')" ]
+}
+
+@test "trailers: no recorded list leaves every message as written" {
+  repo
+  printf 'note\n' > NOTES.md
+  msg 'chore: the rest'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = 'chore: the rest' ]
+  [ ! -e ".delivery-kit/runs/$F/trailers-msg.txt" ]
+}
+
+@test "trailers: a recorded list that is not one-line strings, or that uses a run marker, is refused, naming it" {
+  repo
+  local bad
+  for bad in '"Plan-Item: x"' '[1]' '["Plan-Item: a\nb"]' '[""]'; do
+    trailers "$bad"
+    refuses "must be an array of non-empty one-line strings" spec-commit "$F"
+  done
+  for bad in 'Tasks: T001' 'piece: Phase 1: Setup' 'LATE: J'; do
+    trailers "[\"$bad\"]"
+    refuses "'$bad' uses the token" spec-commit "$F"
+  done
+  trailers '["no colon"]'
+  refuses "'no colon' has no ':'" spec-commit "$F"
+  trailers '["Bad token: x"]'
+  refuses "a token holds letters, digits and dash only" spec-commit "$F"
+  trailers '["Plan-Item:   "]'
+  refuses "has an empty value" spec-commit "$F"
+}
