@@ -33,6 +33,16 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 14 | Reword the override paragraph's lead | `pipeline/docs/configuration.md` | the base-branch override is pinned where the operator reads it |
 | 15 | Reword the entry's bold lead | `pipeline/CHANGELOG.md` | same |
 | 16 | Lower the size limit to 60,000 | `pipeline/tests/prose.bats` | the skill stays under the size Git Bash can read in a herestring |
+| 17 | Accept a name git prints back changed | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | base branch: an override that is not an existing branch's plain name is refused |
+| 18 | Accept a lone `@` | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
+| 19 | Skip the existing-branch check | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
+| 20 | Drop the `origin` lookup | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
+| 21 | `--allow-onelevel` in place of `--branch` | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | feature branch: the base from origin/HEAD is refused too, with no override |
+| 22 | Allow the word `override` on the Base branch line | `pipeline/skills/pipeline/SKILL.md` | pre-flight gets every argument, and each probe line names a layer, never override |
+| 23 | Pass the `--base-branch` flag as `--base-branch` | `pipeline/skills/pipeline/SKILL.md` | same |
+| 24 | Let a name git expands pass | `pipeline/docs/configuration.md` | the base-branch override is pinned where the operator reads it |
+| 25 | Accept a base that exists only on `origin` | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | base branch: an override that exists only on origin is refused, naming the command that fixes it |
+| 26 | Drop the `git branch --track` message | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
 
 ## 3. Record
 
@@ -40,6 +50,8 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 |---|---|---|---|
 | 2026-10-07 | Linux | `1..280`, all `ok` | 9 of 9 landed and went red (first version, on `67db081`) |
 | 2026-10-07 | Linux | `1..347`, all `ok` | 16 of 16 landed and went red (rebuilt on `33bd148`) |
+| 2026-10-08 | Linux | `1..436`, all `ok`, before review 3 | After review 2, on `main` `4076ecf`: rows 7, 8 and 17-24 landed and went red. Row 8 first survived: the new existing-branch check also refused `two..dots`, for another reason. The test now checks the reason, and row 8 goes red. |
+| 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 25 and 26 landed and went red. |
 
 Before the move, the size test went red on its own: `SKILL.md` was 65,771 bytes.
 

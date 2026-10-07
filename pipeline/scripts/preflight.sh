@@ -79,23 +79,13 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer)" ;;
   esac
 done
-# The override is what a person typed for this run, so it is checked here
-# rather than trusted: git decides what a legal branch name is. Without git
-# the run stops at decision 11 anyway, and the name is reported unchecked.
-if [ -n "$base_override" ] && command -v git >/dev/null 2>&1 \
-   && ! git check-ref-format --branch "$base_override" >/dev/null 2>&1; then
-  die "'$base_override' is not a legal branch name (--base-branch-override)"
-fi
-# The feature branch's name, typed for this run, is checked the same way.
-if [ -n "$feature_branch" ] && command -v git >/dev/null 2>&1 \
-   && ! git check-ref-format --branch "$feature_branch" >/dev/null 2>&1; then
-  die "'$feature_branch' is not a legal branch name (--feature-branch)"
-fi
 # The spec folder is handed to the spec tool, which creates it and writes
 # into it, and its last segment becomes the run's name under
-# .delivery-kit/runs/. So it must be one relative spelling inside the
-# repository, outside the state directory, ending in a name progress.sh
-# accepts. One check per way a path can break that, each naming the value.
+# .delivery-kit/runs/ and, without --feature-branch, the branch's name. So
+# it must be one relative spelling inside the repository, outside the state
+# directory and outside .git, and every segment must be a plain folder name.
+# These checks read the text only; the ones that need the repository run
+# after the cd below. One check per way a path can break, each naming it.
 if [ -n "$spec_dir" ]; then
   case "$spec_dir" in
     /*|[A-Za-z]:*) die "'$spec_dir' is not relative to the repository root (--spec-dir)" ;;
@@ -105,19 +95,106 @@ if [ -n "$spec_dir" ]; then
   case "/$spec_dir/" in
     */../*)        die "'$spec_dir' climbs out with .. (--spec-dir)" ;;
     */./*|*//*)    die "'$spec_dir' has an empty or . segment; write each path one way (--spec-dir)" ;;
-    /.delivery-kit/*) die "'$spec_dir' is inside the state directory .delivery-kit/ (--spec-dir)" ;;
   esac
-  case "${spec_dir##*/}" in
-    *[!A-Za-z0-9._-]*) die "'$spec_dir' ends in '${spec_dir##*/}'; a run name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
-  esac
+  # Letter case is compared loosely: on a file system that ignores case,
+  # .Delivery-Kit is the state directory and .GIT is git's own.
+  rest="$spec_dir"; first=1
+  while :; do
+    seg="${rest%%/*}"
+    case "$seg" in
+      -*) die "'$spec_dir' has the segment '$seg', which starts with a dash (--spec-dir)" ;;
+      *[!A-Za-z0-9._-]*) die "'$spec_dir' has the segment '$seg'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
+      .[Gg][Ii][Tt]) die "'$spec_dir' is inside git's own directory .git (--spec-dir)" ;;
+    esac
+    if [ "$first" = 1 ]; then
+      case "$seg" in
+        .[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]) die "'$spec_dir' is inside the state directory .delivery-kit/ (--spec-dir)" ;;
+      esac
+    fi
+    [ "$rest" != "$seg" ] || break
+    rest="${rest#*/}"; first=0
+  done
 fi
 cd "$dir" 2>/dev/null || die "cannot enter '$dir'"
-# Checked inside the repository. A fresh run's folder must not exist: the
-# spec tool would write over that feature's spec. And its run name must
-# not have a state file: progress.sh init keeps an existing one, so the
-# new run would silently continue the old one.
+# Every check that asks git runs here, inside the repository, so a name
+# like @{-1} is never read from the caller's. Without git the run stops at
+# decision 11 anyway, and the names are reported unchecked.
+have_git=false; command -v git >/dev/null 2>&1 && have_git=true
+# branch_ok <name> <argument> — git decides what a legal branch name is, and
+# it must print the name back unchanged: @{-1} expands to another name, and
+# a name it expands is not the name that was typed. A lone @ passes both
+# (measured, git 2.43.0), and git even creates the branch, but in a revision
+# @ means HEAD, so <base>..HEAD would read nothing: it is refused by name.
+branch_ok() {
+  local out
+  [ "$1" != @ ] || die "'@' is not a legal branch name here: git reads it as HEAD ($2)"
+  out="$(git check-ref-format --branch "$1" 2>/dev/null)" && [ "$out" = "$1" ] \
+    || die "'$1' is not a legal branch name ($2)"
+}
+# branch_like <name> — the local or origin branch that <name> collides
+# with, or nothing: one equal to it in any letter case (a file system that
+# ignores case stores refs/heads/Main and refs/heads/main in one file), or
+# one that is a folder of it or has it as a folder, since git cannot hold
+# refs/heads/team beside refs/heads/team/x.
+branch_like() {
+  git for-each-ref --format='%(refname)' refs/heads refs/remotes/origin 2>/dev/null \
+    | awk -v n="$1" 'BEGIN { n = tolower(n) }
+        { r = $0; sub(/^refs\/heads\//, "", r); sub(/^refs\/remotes\/origin\//, "", r)
+          l = tolower(r)
+          if (r != "HEAD" && (l == n || index(l, n "/") == 1 || index(n, l "/") == 1)) { print r; exit } }'
+}
+# The override is what a person typed, or a key somebody wrote, for this
+# run, so it is checked rather than trusted: a legal name, and a LOCAL
+# branch. B runs `git checkout -b <feature> <base>` and later phases read
+# `<base>..HEAD`; both fail on a name that exists only as origin/<base>
+# (measured, git 2.43.0: rc 128), which is a fresh clone's usual state, so
+# that case names the one command that fixes it. A tag, a commit id,
+# origin/main or refs/heads/main is not a branch's name.
+if [ -n "$base_override" ] && [ "$have_git" = true ]; then
+  branch_ok "$base_override" --base-branch-override
+  if ! git show-ref --verify --quiet "refs/heads/$base_override"; then
+    if git show-ref --verify --quiet "refs/remotes/origin/$base_override"; then
+      die "'$base_override' exists only on origin; create the local branch first: git branch --track $base_override origin/$base_override (--base-branch-override)"
+    fi
+    die "'$base_override' is not a branch here or on origin (--base-branch-override)"
+  fi
+fi
+# The feature branch B will cut: --feature-branch, else the spec folder's
+# last segment, which B names the branch after. It must be a legal name;
+# below, once the base is known, it must also differ from the base and be
+# new: `git checkout -b` refuses a name that exists, and on a file system
+# that ignores case, one that differs only in letter case.
+fb=""; fb_arg=""
+if [ -n "$feature_branch" ]; then fb="$feature_branch"; fb_arg="--feature-branch"
+elif [ -n "$spec_dir" ]; then fb="${spec_dir##*/}"; fb_arg="--spec-dir"; fi
+if [ -n "$fb" ] && [ "$have_git" = true ]; then
+  branch_ok "$fb" "$fb_arg"
+fi
+# A fresh run's folder must not exist: the spec tool would write over that
+# feature's spec. Its parent, followed through any symbolic link, must stay
+# inside the repository and out of .git and the state directory. And its
+# run name must not have a state file: progress.sh init keeps an existing
+# one, so the new run would silently continue the old one.
 if [ -n "$spec_dir" ]; then
-  [ ! -e "$spec_dir" ] || die "'$spec_dir' already exists (--spec-dir)"
+  [ ! -e "$spec_dir" ] && [ ! -L "$spec_dir" ] || die "'$spec_dir' already exists (--spec-dir)"
+  p="$spec_dir"
+  while [ "$p" != . ] && [ ! -e "$p" ]; do
+    case "$p" in */*) p="${p%/*}" ;; *) p=. ;; esac
+  done
+  [ -d "$p" ] || die "'$spec_dir' runs through '$p', which is not a folder (--spec-dir)"
+  real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p' (--spec-dir)"
+  top="$(pwd -P)"
+  if [ "$have_git" = true ] && t="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    top="$(cd -P -- "$t" && pwd -P)" || top="$(pwd -P)"
+  fi
+  case "$real/" in
+    "$top"/*) ;;
+    *) die "'$spec_dir' leads outside the repository, to $real (--spec-dir)" ;;
+  esac
+  case "$real/" in
+    "$top"/.[Gg][Ii][Tt]/*|"$top"/.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]/*)
+      die "'$spec_dir' leads into $real, git's or the run's own directory (--spec-dir)" ;;
+  esac
   spec_run=".delivery-kit/runs/${spec_dir##*/}/progress.json"
   [ ! -e "$spec_run" ] \
     || die "run name '${spec_dir##*/}' already has a state file, $spec_run (--spec-dir)"
@@ -265,9 +342,20 @@ else
   base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"; base_source="current branch"
 fi
 # B cuts the feature branch FROM the base. A feature branch with the base's
-# own name is a run that commits straight onto its integration branch.
-if [ -n "$feature_branch" ] && [ "$feature_branch" = "$base" ]; then
-  die "'$feature_branch' is the base branch; the feature branch needs its own name (--feature-branch)"
+# own name is a run that commits straight onto its integration branch, and
+# so is one that names it in another letter case, or as origin/<base>,
+# heads/<base> or refs/heads/<base>.
+if [ -n "$fb" ] && [ -n "$base" ]; then
+  if awk -v f="$fb" -v b="$base" 'BEGIN {
+        f = tolower(f); b = tolower(b)
+        sub(/^refs\//, "", f); sub(/^(heads|remotes)\//, "", f); sub(/^origin\//, "", f)
+        exit !(f == b) }'; then
+    die "'$fb' is the base branch '$base'; the feature branch needs its own name ($fb_arg)"
+  fi
+fi
+if [ -n "$fb" ] && [ "$have_git" = true ]; then
+  hit="$(branch_like "$fb")"
+  [ -z "$hit" ] || die "'$fb' already exists as the branch '$hit', or collides with it as a folder; the feature branch needs a new name ($fb_arg)"
 fi
 
 remote="none"

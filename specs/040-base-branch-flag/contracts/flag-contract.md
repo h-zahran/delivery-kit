@@ -4,7 +4,7 @@
 
 | Spelling | Layer | Where |
 |---|---|---|
-| `baseBranchOverride` key | 2 or 3 (a configuration file) | `~/.delivery-kit.json` or the repository's `.delivery-kit.json`, key `pipeline` |
+| `baseBranchOverride` key | 2, 3 or 4 (a configuration file) | `~/.delivery-kit.json` or the repository's `.delivery-kit.json`, key `pipeline`; or the file `--config <path>` names |
 | `--base-branch <name>` flag | 5 (individual flags) | the `/pipeline` command line; beats the key |
 
 The orchestrator passes the winner to pre-flight as `--base-branch-override <name>`. It is read on a fresh run only.
@@ -18,15 +18,18 @@ The orchestrator passes the winner to pre-flight as `--base-branch-override <nam
 | 3 | `--base-branch` (the `baseBranch` key) | `configured` |
 | 4 | the current branch | `current branch` |
 
-`preflight.sh` never reads configuration, so it cannot tell the key from the flag. The orchestrator's probe line names the layer: the flag, or the configuration file by path.
+`preflight.sh` never reads configuration, so it cannot tell the key from the flag. The orchestrator's probe line names the layer: the flag, `~/.delivery-kit.json`, the repository's `.delivery-kit.json`, or `--config`. It never prints the word `override` (review 2, item 11).
 
 ## Refusal
 
-A value `git check-ref-format --branch` refuses exits non-zero with:
+Checked inside the repository, after the cd into `--dir` (review 2, item 7). Each exits non-zero.
 
-```
-preflight: '<value>' is not a legal branch name (--base-branch-override)
-```
+| Value | Message part |
+|---|---|
+| refused by `git check-ref-format --branch`, or printed back changed (`@{-1}`) | `is not a legal branch name (--base-branch-override)` |
+| a lone `@`, which git 2.43.0 accepts and creates, but reads as `HEAD` in a revision | `is not a legal branch name here: git reads it as HEAD (--base-branch-override)` |
+| `refs/remotes/origin/<value>` exists but `refs/heads/<value>` does not (a fresh clone) | `exists only on origin; create the local branch first: git branch --track <value> origin/<value> (--base-branch-override)` |
+| neither exists (a tag, a commit id, `origin/main`, `refs/heads/main`, a missing branch) | `is not a branch here or on origin (--base-branch-override)` |
 
 ## Pinned strings
 

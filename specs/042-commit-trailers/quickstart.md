@@ -74,6 +74,11 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 55 | Drop `[no ci]` from the skip-ci values | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
 | 56 | Take the token up to the last colon | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | trailers: a value holding a colon is reported whole |
 | 57 | Reserve `Piece` by substring | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | trailers: dashed tokens and tokens holding a marker's letters are accepted, in order |
+| 58 | Drop the `owner/repo` part of the closing pattern | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: a trailer that names another author or closes an issue is refused |
+| 59 | Count a one-word last paragraph as a trailer block | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: a one-word last paragraph is not a trailer block, and a spaces-only line splits paragraphs |
+| 60 | Forget the trailers already added from the list | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: the same trailer twice in the list is added once |
+| 61 | Count a spaces-only line as text | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: a one-word last paragraph is not a trailer block, and a spaces-only line splits paragraphs |
+| 62 | Drop the `:?` from the closing pattern | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | trailers: one that skips GitHub's checks, names another author or closes an issue is refused |
 
 Two `progress.sh` mutations (rows 2 and 3) first left `MF` empty. They went red because the commit failed, not because a trailer was missing. They were rerun in the form above, and went red for the right reason.
 
@@ -83,4 +88,5 @@ Two `progress.sh` mutations (rows 2 and 3) first left `MF` empty. They went red 
 |---|---|---|---|
 | 2026-10-07 | Linux | `1..294`, all `ok` | 20 of 20 landed and went red (first version) |
 | 2026-10-07 | Linux | `1..369`, all `ok` | 36 of 36 landed and went red (rebuilt on Phase 41) |
-| 2026-10-08 | Linux | `1..425`, all `ok` | After review 2, on `main` `4076ecf`: rows 1-22, 35 and 37-57 (the script rows) landed and went red. Row 15 first survived: the new control-character check also catches a line break. The test now checks the line-break reason, and row 15 goes red. Row 9 goes red on the message: without the `:` check, the token check refuses the value with another reason. Rows 23-34 and 36 test text this change did not touch. |
+| 2026-10-08 | Linux | `1..425`, all `ok`, at `30344a8` | After review 2, on `main` `4076ecf`: rows 1-22, 35 and 37-57 (the script rows) landed and went red. Row 15 first survived: the new control-character check also catches a line break. The test now checks the line-break reason, and row 15 goes red. Row 9 goes red on the message: without the `:` check, the token check refuses the value with another reason. Rows 23-34 and 36 test text this change did not touch. |
+| 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 58-62 landed and went red. Each had survived review 3's fresh mutants; each now has a case. |

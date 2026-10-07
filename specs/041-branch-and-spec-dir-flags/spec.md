@@ -82,3 +82,10 @@ A developer who resumes a run, typing a different `--branch` or `--spec-dir`, is
 - The orchestrator flag is `--branch`. The script argument is `--feature-branch`, because the script's `--base-branch` already exists and a bare `--branch` beside it reads as the same thing.
 - The run's name is the spec folder's last segment. `progress.sh` already refuses `/` in a run name and keeps the branch as a separate value, so no change is needed there.
 - The spec tool's `SPECIFY_FEATURE_DIRECTORY` is described in its specify command in 0.15.2 and 0.16.5, the two ends of the tested range.
+
+## Changed after review 2 (2026-10-08)
+
+- Without `--branch`, the spec folder's last segment gets the branch checks, under `(--spec-dir)` (item 8).
+- The feature branch is refused when it equals the base in any letter case, or behind `origin/`, `heads/`, `remotes/origin/` or `refs/heads/`, and when it already exists here or on `origin` in any letter case (item 10). Review 3 added: a name that clashes with an existing branch as a folder (`team` beside `team/x`) is refused too, since `git checkout -b` cannot create it. A lone `@` and `@{-1}` are refused.
+- Every spec-folder segment is checked: no leading dash, only letters, digits, dot, dash and underscore, no `.git` in any letter case, and no `.delivery-kit` first segment in any letter case. An existing parent must resolve inside the repository and outside `.git` and `.delivery-kit` (items 6 and 9).
+- `artifacts.spec` is the path of `spec.md`; the Spec folder line is the folder that holds it (item 12).

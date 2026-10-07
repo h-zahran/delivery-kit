@@ -72,11 +72,12 @@ All notable changes to the `pipeline` plugin.
   the `baseBranch` key, so a team that cuts its feature branches from an
   integration branch had no way to say so. Set `baseBranchOverride` once
   in the repository's `.delivery-kit.json`, or type `--base-branch` for
-  one run; the flag beats the key. Pre-flight reports the source as
-  `override` and names the layer that set it. The override is read on a
+  one run; the flag beats the key. Pre-flight reports the source as `override`, and the probe line names
+  the layer that set it. The override is read on a
   fresh run only: a resume keeps the base the run recorded, and a
-  different name on a resume is reported, not applied. A name git would
-  not accept as a branch name stops pre-flight, naming it. The
+  different name on a resume is reported, not applied. A name that is
+  not a local branch, or a name git would not accept as a branch name,
+  stops pre-flight, naming it. The
   `baseBranch` key is unchanged.
 - **A feature branch and a spec folder named for one run: the
   `--branch <name>` and `--spec-dir <path>` flags.** The spec tool's
@@ -86,9 +87,12 @@ All notable changes to the `pipeline` plugin.
   and its last segment becomes the run's name. Both are flags only: each
   names one feature, so there is no configuration key. Pre-flight stops
   on a bad value, naming it: a branch name git would not accept, the
-  base branch's own name, or a spec folder that is absolute, climbs out
-  with `..`, sits under `.delivery-kit/`, already exists, or whose run
-  name already has a state file. Both are read on a fresh run only. On a
+  base branch's own name in any spelling, a branch that already exists,
+  or a spec folder that is absolute, climbs out with `..`, holds an odd
+  segment, sits under `.delivery-kit/` or `.git` in any letter case,
+  leads out through a symbolic link, already exists, or whose run name
+  already has a state file. Without `--branch`, the folder's last segment
+  gets the branch checks. Both are read on a fresh run only. On a
   resume, pre-flight prints the branch and the folder the run recorded.
 - **Trailers on every commit the run makes: the `commitTrailers` key and
   the `--trailer <token: value>` flag.** A team that tags its commits

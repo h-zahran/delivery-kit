@@ -30,3 +30,10 @@ An operator resumes a run that was started with `--branch` and `--spec-dir`. The
 
 - The sentence mirrors Phase 42's rule for the Trailers line, word for word where the subject allows.
 - `pipeline/CHANGELOG.md` gains one sentence in the Phase 41 entry, still under `[Unreleased]`: the gap was never released.
+
+## Changed after review 2 (2026-10-08)
+
+- A plain `--resume` types none of the names, so the pointer never fired and FR-001 was not met (review 2, item 3). The pointer now also fires when a resumed run's state file records one, and the probe block prints the lines "only when set or recorded". FR-002's "`SKILL.md` does not change" no longer holds: these two edits are in it.
+- `artifacts.spec` is the path of `spec.md`, so the Spec folder line is the folder that holds it (item 12).
+- On a resume the Base branch line prints the recorded base, marked as recorded. The Trailers line already had its resume rule (Phase 42).
+- `plan.md`, `contracts/resume-contract.md` and `checklists/requirements.md` were added (item 14).

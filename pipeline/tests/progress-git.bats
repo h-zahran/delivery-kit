@@ -1277,8 +1277,33 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
     trailers "[\"$bad\"]"
     refuses "which acts on GitHub or names another author" spec-commit "$F"
   done
-  trailers '["Note: this fixes #12"]'
-  refuses "would close an issue" spec-commit "$F"
+  local val
+  for val in 'Note: this fixes #12' 'Note: closes o/r#1'; do
+    trailers "[\"$val\"]"
+    refuses "would close an issue" spec-commit "$F"
+  done
+}
+
+@test "trailers: a one-word last paragraph is not a trailer block, and a spaces-only line splits paragraphs" {
+  # Git reads a line of only spaces as blank, and a last paragraph whose
+  # line has no "token: " is prose: the trailers then need a blank line.
+  repo
+  trailers '["Plan-Item: X"]'
+  printf 'one\n' > NOTES.md
+  msg 'chore: one' '' 'word'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: one' '' 'word' '' 'Plan-Item: X')" ]
+  printf 'two\n' > MORE.md
+  msg 'chore: two' '' 'Body.' '   ' 'Note: y'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: two' '' 'Body.' '   ' 'Note: y' 'Plan-Item: X')" ]
+}
+
+@test "trailers: the same trailer twice in the list is added once" {
+  repo
+  trailers '["Ab: x","Ab: x"]'
+  runs spec-commit "$F"
+  [ "$(body)" = "$(printf '%s\n' 'docs(spec): 001-demo' '' 'Ab: x')" ]
 }
 
 @test "trailers: a token that only holds a run marker's letters commits exactly" {
