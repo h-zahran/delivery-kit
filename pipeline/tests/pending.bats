@@ -196,3 +196,131 @@ checks() {
   runs state-set "$F" gates C '"again"'
   [ "$(pending_json)" = "$keep" ]
 }
+
+@test "after L a question cannot wait: ask-later refuses M, N, N.5 and O" {
+  q a 'A late question?'
+  local p
+  for p in M N N.5 O; do
+    refuses "after L, a question cannot wait" ask-later "$F" "$p" "$BATS_TEST_TMPDIR/a"
+  done
+  runs ask-later "$F" L "$BATS_TEST_TMPDIR/a"
+  [ "$(cat "$OUT")" = P1 ]
+}
+
+@test "ask-later refuses a phase that is two phases joined by a space" {
+  q a 'A question?'
+  refuses "unknown phase 'F F.5'" ask-later "$F" 'F F.5' "$BATS_TEST_TMPDIR/a"
+}
+
+@test "a queue that is present but not a list, or gates that is not an object, never reads as empty" {
+  local v
+  for v in false null '{}' '"P1"' 0; do
+    jq --argjson v "$v" '.gates.pending = $v' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+    checks 1 pending-check "$F"
+    [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || { echo "pending = $v: $(cat "$ERR")"; false; }
+  done
+  jq '.gates = "C"' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || false
+}
+
+@test "a whole-gates write cannot add a queue where there was none" {
+  refuses "must keep gates.pending as it is" state-set "$F" gates '{"pending": false}'
+  refuses "must keep gates.pending as it is" state-set "$F" gates '{"pending": []}'
+  runs state-set "$F" gates '{"C": "done"}'
+  [ "$(jq '.gates | has("pending")' "$SF" | tr -d '\r')" = false ]
+}
+
+@test "answer takes an id past P999" {
+  local i
+  jq '.gates.pending = [range(1; 1001) | {id: "P\(.)", phase: "F", question: "Q\(.)?"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  q yes 'Yes.'
+  runs answer "$F" P1000 "$BATS_TEST_TMPDIR/yes"
+  [ "$(jq -r '.gates.pending[999].answer' "$SF" | tr -d '\r')" = Yes. ]
+  refuses "is not a question id" answer "$F" P01 "$BATS_TEST_TMPDIR/yes"
+  refuses "is not a question id" answer "$F" P1x "$BATS_TEST_TMPDIR/yes"
+}
+
+@test "a hand-edited id or answer that hides an open question is refused, never read as closed" {
+  local v
+  for v in '[{"id": "", "phase": "F", "question": "Q?"}]' \
+           '[{"id": "\n", "phase": "F", "question": "Q?"}]' \
+           '[{"id": "P1", "phase": "F", "question": "Q?"}, {"id": "P1", "phase": "F", "question": "R?"}]' \
+           '[{"id": "P01", "phase": "F", "question": "Q?"}]' \
+           '[{"id": "P1", "phase": "F", "question": "Q?", "answer": ""}]' \
+           '[{"id": "P1", "phase": "F", "question": "Q?", "answer": "  "}]'; do
+    jq --argjson v "$v" '.gates.pending = $v' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+    checks 1 pending-check "$F"
+    [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || { echo "pending = $v: $(cat "$ERR")"; false; }
+  done
+}
+
+@test "a new id is one past the highest, so an id is never minted twice" {
+  jq '.gates.pending = [{"id": "P2", "phase": "F", "question": "Q?"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  q a 'Another?'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  [ "$(cat "$OUT")" = P3 ]
+}
+
+@test "text that can disguise itself in a terminal, or is too long, is refused" {
+  local c
+  for c in '\xe2\x80\xae' '\xe2\x80\x8b' '\xc2\x9b' '\xef\xbb\xbf'; do
+    printf "approve $c this?\n" > "$BATS_TEST_TMPDIR/u"
+    refuses "a character that can disguise text" ask-later "$F" F "$BATS_TEST_TMPDIR/u"
+  done
+  head -c 20000 /dev/zero | tr '\0' 'a' > "$BATS_TEST_TMPDIR/long"
+  refuses "is longer than 16384 bytes" ask-later "$F" F "$BATS_TEST_TMPDIR/long"
+  printf 'Café, 中文 and 😀 are fine?\n' > "$BATS_TEST_TMPDIR/ok"
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/ok"
+}
+
+@test "questions queued at the same moment are all kept, each with its own id" {
+  local i round ids pids
+  for round in 1 2 3; do
+    pids=()
+    bash "$PROG" init "r$round" "r$round" main other > /dev/null
+    for i in 1 2 3 4 5 6; do
+      q "p$round-$i" "Question $round.$i?"
+      bash "$PROG" ask-later "r$round" F "$BATS_TEST_TMPDIR/p$round-$i" > "$BATS_TEST_TMPDIR/o$round-$i" 2>&1 &
+      pids+=("$!")
+    done
+    # Only these PIDs: a bare wait would also wait for bats' own timeout watcher.
+    wait "${pids[@]}" || true
+    ids="$(jq -r '[.gates.pending[].id] | sort | join(" ")' ".delivery-kit/runs/r$round/progress.json" | tr -d '\r')"
+    [ "$ids" = "P1 P2 P3 P4 P5 P6" ] || { echo "round $round stored: $ids"; cat "$BATS_TEST_TMPDIR"/o"$round"-*; false; }
+  done
+}
+
+@test "writers running at the same moment never empty the state file or drop the queue" {
+  local round i pids
+  q a 'Kept?'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  for round in 1 2 3 4; do
+    pids=()
+    for i in 1 2 3; do
+      bash "$PROG" phase-start "$F" C > /dev/null 2>&1 &
+      pids+=("$!")
+      bash "$PROG" phase-done "$F" C > /dev/null 2>&1 &
+      pids+=("$!")
+      bash "$PROG" state-set "$F" gates C "\"r$round-$i\"" > /dev/null 2>&1 &
+      pids+=("$!")
+    done
+    wait "${pids[@]}" || true
+    [ -s "$SF" ] || { echo "round $round: the state file is empty"; false; }
+    jq -e . "$SF" > /dev/null || { echo "round $round: the state file is not JSON"; false; }
+    [ "$(jq -r '.gates.pending[0].question' "$SF" | tr -d '\r')" = 'Kept?' ] || { echo "round $round: the queue was dropped"; false; }
+  done
+}
+
+@test "a lock left by a dead writer is broken after a minute; a live one makes a write wait, then refuse" {
+  q a 'After a crash?'
+  mkdir "$SF.lock"
+  touch -d "@$(( $(date +%s) - 120 ))" "$SF.lock"
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  [[ "$(cat "$ERR")" == *"broke a stale lock"* ]] || false
+  [ ! -e "$SF.lock" ]
+  mkdir "$SF.lock"
+  q b 'While locked?'
+  PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" ask-later "$F" F "$BATS_TEST_TMPDIR/b"
+  rmdir "$SF.lock"
+}
