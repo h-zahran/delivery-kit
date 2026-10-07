@@ -56,6 +56,14 @@ All notable changes to the `pipeline` plugin.
   longer has its key when the result is recorded is not recorded, and a red
   result is never reused. Files git ignores, the environment and the tools'
   versions are not in the key: a reuse assumes them unchanged.
+- **`ask-later`, `pending`, `answer` and `pending-check`** keep a queue of
+  waiting questions in `gates.pending`. A question may wait only when its
+  answer changes nothing before the run's next stop; in doubt it stops the
+  run at once. Every open question is asked at the next stop, and
+  `pending-check` stops the run before L pushes while one is open, under
+  `--auto` too. An answer stands and is never asked again; `state-set`
+  cannot write the queue. The handoff package's parts move to
+  `docs/handoff-package.md`, and `git stash` joins the never-bend rules.
 
 ## [1.3.1] - 2026-10-06
 

@@ -786,7 +786,8 @@ The body carries the review guide, shown in full with the rest of the
 body.
 Degradations: no remote — stop after K and say so. Non-GitHub remote, or
 no `gh` — push, print the comparison URL, and skip M (there is no pull
-request to review).
+request to review). Before the push, `progress.sh pending-check
+<feature>` must exit 0 (see Gates).
 
 Before anything else, a run whose `commits` holds an old-style string
 entry started on an older pipeline: it builds no guide, says so, and
@@ -929,8 +930,9 @@ A gate is a safe handoff point: the state file records which gate waits.
 Conditional stops: the resume prompt, a cap breach in C, F, J or M, a
 missing required tool, any hard failure, a failed runtime check, K's
 stop for a path outside the feature, K's or L's stop for a commit it
-cannot show or a stale `commits` entry (see K and L), and a run whose
-state file is tracked in git (see Resume).
+cannot show or a stale `commits` entry (see K and L), a run whose
+state file is tracked in git (see Resume), and a waiting question still
+open when L would push.
 The pre-flight constitution offer (decision item 9) is one of them,
 and `--auto` does not collapse it. `--auto` collapses none of the stops
 K, L and a tracked state file add to that list: K and L stop for them
@@ -938,6 +940,15 @@ even when `--auto` collapsed the gate, and the stop for a tracked state
 file comes before any recorded answer is used. Record every gate's
 answer in
 the state file's `gates` key.
+
+A question may wait only when its answer changes nothing the run does
+before its next stop; in doubt, it stops the run now. `progress.sh
+ask-later <feature> <phase> <file>` queues it. At every stop, run
+`progress.sh pending <feature>` first and ask its questions beside the
+stop's own; record each reply with `answer <feature> <id> <file>`.
+Before L pushes, `pending-check <feature>` must exit 0: an open question
+stops the run there, and `--auto` never collapses that stop. See
+`docs/phases.md`.
 
 A pause (H, pause mode) is a stop the developer chose, not a sixth gate,
 and `--auto` never collapses it.

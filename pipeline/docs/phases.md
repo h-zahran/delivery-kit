@@ -109,6 +109,29 @@ green run on a clean, committed tree: N citing J when J's run was clean and
 green and nothing was committed after it, a phase re-entered on the same
 tree, or a later run's F.5 on a tree an earlier run passed.
 
+## Questions that wait
+
+A run asks the owner things at many points, and stopping for each one is
+costly. A question may wait only when its answer changes nothing the run does
+before its next stop — "record this as a known limit?", "say this in the
+pull request?". When the run cannot tell, the question stops the run at once:
+a doubt never makes a question wait.
+
+A waiting question is queued with `progress.sh ask-later <feature> <phase>
+<question-file>`, which prints its id (`P1`, `P2`, …); the same question from
+the same phase is queued once. At every stop — a gate, a cap, a failure, a
+pause, the resume prompt — `progress.sh pending <feature>` prints the open
+questions, and they are asked with the stop's own. `progress.sh answer
+<feature> <id> <answer-file>` records each reply: an answered question is
+never asked again, and its answer is never replaced. A question the owner
+leaves unanswered stays open.
+
+Before L pushes, `pending-check` must pass, under `--auto` too: it exits 1,
+naming the open ids, while any question waits, so no unanswered question
+reaches a pull request. The queue lives in the state file under
+`gates.pending`, so it survives a handoff and a resume; only these commands
+write it, and `state-set` refuses to.
+
 ## Using them with the flags
 
 `--until <phase>` stops cleanly after that phase, with the state file intact and
