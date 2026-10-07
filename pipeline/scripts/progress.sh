@@ -1620,6 +1620,16 @@ cmd_state_set() {
     [ "$(jqs -n --argjson v "$json" '$v | type')" = "$want" ] || die "'$key' must be a JSON $want"
   fi
   sf="$(cmd_validate "$feature")"
+  # gates.pending belongs to ask-later and answer: a sub-key write could
+  # forge or drop a question, and a whole-gates write could wipe the queue.
+  if [ "$key" = gates ]; then
+    [ "$sub" != pending ] || die "gates.pending is written only by ask-later and answer"
+    if [ -z "$sub" ]; then
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      jq -e --argjson v "$json" '(.gates.pending // null) == ($v.pending // null)' "$sf" > /dev/null \
+        || die "a whole-gates write must keep gates.pending as it is: it is written only by ask-later and answer"
+    fi
+  fi
   if [ -n "$sub" ]; then
     # shellcheck disable=SC2016 # a jq program: its $ names are jq's
     state_write "$sf" '.[$k] = ((.[$k] // {}) | if type == "object" then .[$s] = $v else error("not an object") end)' \
@@ -1724,6 +1734,20 @@ cmd_answer() {
   state_write "$sf" '.gates.pending |= map(if .id == $id then . + {answer: $a, answeredAt: $at} else . end)' \
     --arg id "$id" --arg a "$atext" --arg at "$(now)"
   printf '%s\n' "$id"
+}
+
+# pending-check <feature> — exit 0, printing nothing, when no question is
+# open; exit 1 naming the open ids when one is, and on a queue it cannot
+# read. Run before L pushes: an open question stops the run there, and
+# --auto does not collapse that stop.
+cmd_pending_check() {
+  feature="$1"; local open
+  [ $# -eq 1 ] || die "usage: pending-check <feature>"
+  sf="$(cmd_validate "$feature")"
+  pending_ok "$sf"
+  open="$(jqs '[(.gates.pending? // [])[] | select(has("answer") | not) | .id] | join(" ")' "$sf")" \
+    || die "$sf could not be read for gates.pending"
+  [ -z "$open" ] || die "waiting questions are still open: $open — ask them, and record each answer, before anything leaves the machine"
 }
 
 # --- suite results ------------------------------------------------------------
@@ -1968,5 +1992,6 @@ case "$cmd" in
   ask-later)     shift 2; cmd_ask_later "$feature_arg" "$@" ;;
   pending)       shift 2; cmd_pending "$feature_arg" "$@" ;;
   answer)        shift 2; cmd_answer "$feature_arg" "$@" ;;
+  pending-check) shift 2; cmd_pending_check "$feature_arg" "$@" ;;
   *) usage ;;
 esac

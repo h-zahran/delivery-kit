@@ -148,3 +148,49 @@ pending_json() { jq -c '.gates.pending' "$SF" | tr -d '\r'; }
   [ "$(jq -r '.gates.pending | length' "$SF" | tr -d '\r')" = 1 ]
   [ "$(jq -r '.gates.pending[0].answer' "$SF" | tr -d '\r')" = 'Yes.' ]
 }
+
+# checks <rc> <args...> — the exact exit code, never just "non-zero".
+checks() {
+  local want="$1" rc=0; shift
+  bash "$PROG" "$@" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq "$want" ] || { echo "exit $rc, expected $want: $(cat "$ERR")"; return 1; }
+}
+
+@test "pending-check passes with no queue and with every question answered, and fails naming the open ones" {
+  checks 0 pending-check "$F"
+  [ ! -s "$OUT" ]
+  q a 'First?'; q b 'Second?'; q yes 'Yes.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  runs ask-later "$F" I "$BATS_TEST_TMPDIR/b"
+  checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"still open: P1 P2"* ]] || false
+  runs answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"still open: P2"* ]] || false
+  runs answer "$F" P2 "$BATS_TEST_TMPDIR/yes"
+  checks 0 pending-check "$F"
+}
+
+@test "pending-check never passes on a queue it cannot read" {
+  jq '.gates.pending = "P1"' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || false
+  jq '.gates.pending = [{"id": "P1", "phase": "F"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  checks 1 pending-check "$F"
+  jq '.gates.pending = [{"id": "P1", "phase": "F", "question": "Q?", "answer": true}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  checks 1 pending-check "$F"
+  rm "$SF"
+  checks 1 pending-check "$F"
+}
+
+@test "state-set never writes the queue: not as a sub-key, not through a whole-gates write" {
+  q a 'First?'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  refuses "gates.pending is written only by ask-later and answer" state-set "$F" gates pending '[]'
+  refuses "must keep gates.pending as it is" state-set "$F" gates '{"C": "done"}'
+  local keep; keep="$(pending_json)"
+  runs state-set "$F" gates "$(jq -c '.gates + {"C": "done"}' "$SF" | tr -d '\r')"
+  [ "$(pending_json)" = "$keep" ]
+  runs state-set "$F" gates C '"again"'
+  [ "$(pending_json)" = "$keep" ]
+}
