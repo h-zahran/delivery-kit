@@ -3072,3 +3072,39 @@ them. **Changelog routing: none.** This run uses the INSTALLED pipeline
 ```
 /pipeline Phase 28: the release gate closes what Phase 27 deferred --auto --implementer claude
 ```
+
+## Phase 40: the base branch can be set once, or named for one run
+
+Where the remote publishes a default branch, `preflight.sh` resolves the
+base branch to it, and the `baseBranch` key cannot override it: the
+order is `origin/HEAD`, then the key, then the current branch, and the
+orchestrator says so "by design". That is right for most repositories.
+It leaves no way for a team that cuts feature branches from an
+integration branch, while the remote's default is another branch: every
+run cuts from the wrong base.
+
+Measured 2026-10-07 at `main` = `67db081`: a scratch repository with
+`origin/HEAD` -> `origin/main` and `--base-branch trunk` reports
+`baseBranch: main`, `baseBranchSource: origin/HEAD` (the existing test
+`base branch: origin/HEAD first, then the override, each with its
+source` pins exactly that).
+
+The change: an override that beats `origin/HEAD`, with two spellings.
+The `baseBranchOverride` key is set once in a repository's
+`.delivery-kit.json`, so a team needs no per-run typing; the
+`--base-branch <name>` flag is for one run, and beats the key. The
+`baseBranch` key keeps its meaning; changing a shipped key's precedence
+would change every current user's runs. `preflight.sh` gains
+`--base-branch-override <name>`, reports `baseBranchSource: override`,
+and refuses a name `git check-ref-format --branch` refuses; the
+orchestrator names the layer that set the override. The override is read
+on a fresh run only: B records the base, and a resume keeps the record.
+
+Not in this phase: naming the feature branch, the spec directory, and
+commit trailers. Each is its own phase.
+
+**Invocation:**
+
+```
+/pipeline Phase 40: the base branch can be set once, or named for one run
+```
