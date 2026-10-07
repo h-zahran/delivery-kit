@@ -364,7 +364,10 @@ only: B records the branch in the state file and the folder in
 `--spec-dir` on a resume that differs from the record is never applied
 silently — say that the record stands, and name both. A second fresh run
 with the same `--spec-dir` stops at pre-flight, because the folder
-exists: to continue a run, type `--resume`.
+exists: to continue a run, type `--resume`. On a resume pre-flight gets
+no `--feature-branch` or `--spec-dir`, so print the Branch and Spec
+folder lines from the record: the branch from the state file and the
+folder from `artifacts.spec`, each marked as recorded.
 
 **Trailers:** a trailer is one `<token>: <value>` line at the end of a
 commit message. The list is the resolved `commitTrailers` key, then each

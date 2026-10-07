@@ -3240,3 +3240,18 @@ and never decides who is at the keyboard from the git email.
 /pipeline Phase 35: a member starts the next task, and anyone sees where the work stands
 ```
 
+## Phase 36: a resume shows the branch and the folder it recorded
+
+Phase 32 passes `--feature-branch` and `--spec-dir` to pre-flight on a
+fresh run only, and prints the Branch and Spec folder lines only when
+those values are not empty. On a resume both are empty, so the probe
+block, the first thing the operator reads, leaves out the two names the
+run is working under. Phase 33 found the same gap for trailers and closed
+it with one sentence; this phase closes it for the branch and the folder
+the same way: on a resume, print both lines from the record.
+
+**Invocation:**
+
+```
+/pipeline Phase 36: a resume shows the branch and the folder it recorded
+```

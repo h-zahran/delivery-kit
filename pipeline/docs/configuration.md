@@ -111,7 +111,8 @@ fresh run only. A resume keeps the branch and the folder the run
 recorded, and a different value on a resume is reported, never applied
 silently. A second fresh run with the same `--spec-dir` stops at
 pre-flight, because the folder exists: to continue a run, type
-`--resume`.
+`--resume`. On a resume, pre-flight prints the branch and the folder the
+run recorded.
 
 ## Commit trailers
 

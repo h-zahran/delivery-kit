@@ -28,7 +28,8 @@ All notable changes to the `pipeline` plugin.
   on a bad value, naming it: a branch name git would not accept, the
   base branch's own name, or a spec folder that is absolute, climbs out
   with `..`, sits under `.delivery-kit/`, already exists, or whose run
-  name already has a state file. Both are read on a fresh run only.
+  name already has a state file. Both are read on a fresh run only. On a
+  resume, pre-flight prints the branch and the folder the run recorded.
 - **Trailers on every commit the run makes: the `commitTrailers` key and
   the `--trailer <token: value>` flag.** A team that tags its commits
   had to edit every message by hand. Set `commitTrailers` once in the
