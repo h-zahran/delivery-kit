@@ -11,12 +11,14 @@ The orchestrator passes the resolved list to pre-flight as `--trailer <text>`, o
 
 ## Refusals
 
-Each exits non-zero and names the trailer. Pre-flight's messages end `(a commit trailer)`: the value may come from the key or the flag, and the script cannot tell which. The commit subcommands refuse the same set before each commit, from every layer.
+The rule is one file, `pipeline/scripts/trailer-check.sh`, which takes the trailer as a JSON string. Pre-flight runs it on each trailer, and `with_trailers` runs it on each recorded trailer before every commit, so the two can never disagree (constitution, principle IV; review 3 found two hand-kept copies that already differed on U+0085). A test pins that both run the file and that neither holds a copy.
+
+Each refusal exits non-zero and names the trailer: quoted, or as JSON when it holds a control character, so no control character reaches a terminal. Pre-flight's messages end `(a commit trailer)`: the value may come from the key or the flag, and the script cannot tell which. `progress.sh` frames the same text as `the recorded trailer … — no commit is made`.
 
 | Trailer | Message part |
 |---|---|
 | holds CR or LF | `holds a line break; a trailer is one line` |
-| holds another control character | `holds a control character` |
+| holds another control character, in Unicode's sense: C0, DEL and the C1 range U+0080-U+009F (NEL among them), read by jq | `holds a control character` |
 | no `:` | `has no ':'; write <token>: <value>` |
 | token not `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$` | `a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only` |
 | value empty or only spaces | `has an empty value` |
@@ -37,14 +39,14 @@ Every commit a `progress.sh` subcommand makes: `spec-commit` (subject unchanged)
 
 `with_trailers <message file>` in `progress.sh`, called by `commit_named` and by J's `--record` commit:
 
-1. Read `config.commitTrailers`. Anything but an array of non-empty strings with no control character stops, naming the state file. No commit is made. The check is in the jq filter, because `jqs` strips a CR from what it prints.
-2. Check each entry with `trailer_ok`, the same set pre-flight refuses. A bad one stops, naming it.
+1. Read `config.commitTrailers`. Anything but an array of non-empty strings stops, naming the state file. No commit is made.
+2. Pass each entry, as JSON, to `trailer-check.sh`. JSON, because `jqs` strips a CR and a shell argument cannot hold NUL. A bad one stops, naming it.
 3. Copy the message to `<run dir>/trailers-msg.txt`, and commit the copy. The caller's file is never rewritten.
 4. Append the lines in the script itself. When the message's last paragraph, after the subject, is all `<token>: <value>` lines, the trailers join it. Otherwise a blank line comes first. A trailer is skipped when the same line is already in that paragraph, or earlier in the list.
 
 `git interpret-trailers` is not used (review 2, item 4). Git's `trailer.<x>.key` can rename a token past the reserved check, and `trailer.<x>.cmd` runs a command on every commit. No `trailer.*` setting reaches the lines now.
 
-`progress.sh show-message <feature> <message file>` prints the copy step 4 makes, and commits nothing. K shows each uncommitted message this way, so the owner's answer covers every line the commit carries.
+`progress.sh show-message <feature> <message file>` prints the copy step 4 makes, and commits nothing. With `--record` it prints J's empty record commit, built by the same `j_record_msg` that `late-commit J --record` uses. K shows each uncommitted message this way, so the owner's answer covers every line the commit carries.
 
 ## Pinned strings
 
@@ -53,7 +55,8 @@ Every commit a `progress.sh` subcommand makes: `spec-commit` (subject unchanged)
 | SKILL.md Configuration table | the whole `commitTrailers` row |
 | SKILL.md Flags table | the whole `--trailer` row |
 | SKILL.md probe block | the `Trailers` line |
-| SKILL.md K | the sentence that K shows each uncommitted message as `show-message` prints it |
+| SKILL.md K | the sentence that K shows each uncommitted message as `show-message` prints it, `--record` for J's record commit |
+| `pipeline/scripts/preflight.sh`, `pipeline/scripts/progress.sh` | each runs `trailer-check.sh`, and neither holds a copy of the rule (`prose.bats`, "the trailer rule lives in one file, and both callers run it") |
 | SKILL.md **Base branch:** pointer | `commitTrailers` and `--trailer` in the list of names that send the run to the docs page |
-| `pipeline/docs/configuration.md` | the bold add rule and its sentence, the reserved-token rule, the pre-flight argument, the recorded shape, the list of commits, the no-hand-trailer rule, the resume rule, the gate shows the trailers, the refused-trailer rule, the skip-ci rule; the old "does not show" sentence must not return |
+| `pipeline/docs/configuration.md` | the bold add rule and its sentence, the reserved-token rule, the pre-flight argument, the recorded shape, the list of commits, the no-hand-trailer rule, the resume rule, the gate shows the trailers, the refused-trailer rule, the skip-ci rule, the one-file sentence; the old "does not show" sentence must not return |
 | `pipeline/CHANGELOG.md` | the bold lead of the entry |

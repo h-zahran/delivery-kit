@@ -214,12 +214,15 @@ a trailer that would act on GitHub or name another author: the token
 (`Close`, `Closes`, `Closed`, `Fix`, `Fixes`, `Fixed`, `Resolve`,
 `Resolves`, `Resolved`) as the token, or before an issue number in the
 value; and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip
-actions]` or `[actions skip]`. Each is matched in any letter case. The
-commit subcommands refuse the same set. Every commit the run makes
-carries the list, the spec commit included, and the same trailer is
-never added twice. The list is read on a fresh run only. A resume keeps
-the list the run recorded, and a different list on a resume is reported,
-never applied silently.
+actions]` or `[actions skip]`. Each of these is matched in any letter
+case. Pre-flight and the commit subcommands run one file for all of
+this, `scripts/trailer-check.sh`, so the two can never disagree. A
+control character is one in Unicode's sense, the C1 range (U+0080 to
+U+009F) included, and a refusal shows such a trailer as JSON. Every
+commit the run makes carries the list, the spec commit included, and the
+same trailer is never added twice. The list is read on a fresh run only.
+A resume keeps the list the run recorded, and a different list on a
+resume is reported, never applied silently.
 
 What the run does with trailers:
 
@@ -237,8 +240,8 @@ What the run does with trailers:
   `piece-commit`, `late-commit` (J's `--record` included) and
   `remainder-commit`. They read it from the state file as data. The run
   never adds a trailer by hand. A message shown at a gate before its
-  commit is shown with the trailers, as `progress.sh show-message
-  <feature> <message file>` prints it, so the answer covers every line
+  commit is shown with the trailers, as `progress.sh show-message <feature> <message file>` prints it
+(with `--record`, J's empty record commit), so the answer covers every line
   the commit carries. The subcommands append the lines themselves, so no
   `trailer.*` setting in git's configuration renames, moves or runs on
   them. A trailer joins the `Tasks:`, `Piece:` or `Late:` lines when the

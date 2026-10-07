@@ -102,15 +102,18 @@ All notable changes to the `pipeline` plugin.
   replaces it. Every commit the run makes carries the list, the spec
   commit and J's empty record included: `spec-commit`, `piece-commit`,
   `late-commit` and `remainder-commit` add it from the state file's
-  `config.commitTrailers`, never adding one twice. Pre-flight prints each
-  trailer with its layer, and stops on a malformed one or on the run's
-  own `Piece`, `Late` and `Tasks` tokens, naming it. It also refuses,
-  from every layer, a trailer that would act on GitHub or name another
-  author: `skip-checks`, `Co-authored-by`, `Signed-off-by`, a closing
-  keyword, or a value holding `[skip ci]` or its spellings. The commit
-  subcommands refuse the same set, and append the lines themselves, so no
-  git `trailer.*` setting touches them. K shows each message with the
-  trailers, as the new `progress.sh show-message` prints it. The list is read on a fresh run only.
+  `config.commitTrailers`, never adding one twice. Pre-flight prints
+  each trailer with its layer, and stops on a malformed one or on the
+  run's own `Piece`, `Late` and `Tasks` tokens, naming it. It also
+  refuses, from every layer, a trailer that would act on GitHub or name
+  another author: `skip-checks`, `Co-authored-by`, `Signed-off-by`, a
+  closing keyword, or a value holding `[skip ci]` or its spellings.
+  Pre-flight and the commit subcommands run one file for the rule,
+  `scripts/trailer-check.sh`, and the subcommands append the lines
+  themselves, so no git `trailer.*` setting touches them. K shows each
+  message with the trailers, as the new `progress.sh show-message`
+  prints it (`--record` for J's record commit). The list is read on a
+  fresh run only.
 
 ### Fixed
 

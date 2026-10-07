@@ -1216,7 +1216,7 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   local bad
   for bad in '"Plan-Item: x"' '[1]' '[""]'; do
     trailers "$bad"
-    refuses "must be an array of non-empty one-line strings" spec-commit "$F"
+    refuses "must be an array of non-empty strings" spec-commit "$F"
   done
 }
 
@@ -1225,9 +1225,18 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   # be silently rewritten: `a\rb` would commit as `ab`.
   repo
   local bad
-  for bad in '["Plan-Item: a\nb"]' '["Plan-Item: a\rb"]' '["Note: a\u001b[31mb"]' '["Note: a\tb"]'; do
+  # The refusal shows the trailer as JSON, so no control character reaches
+  # the terminal raw. NEL (U+0085) and NUL are refused here exactly as
+  # pre-flight refuses them: both run trailer-check.sh.
+  local want
+  for bad in '["Plan-Item: a\nb"]' '["Plan-Item: a\rb"]' '["Note: a\u001b[31mb"]' '["Note: a\tb"]' \
+             '["Note: a\u0085b"]' '["Note: a\u0000b"]'; do
+    case "$bad" in *'\n'*|*'\r'*) want='holds a line break' ;; *) want='holds a control character' ;; esac
     trailers "$bad"
-    refuses "must be an array of non-empty one-line strings with no control character" spec-commit "$F"
+    refuses "$want" spec-commit "$F"
+    [[ "$(cat "$ERR")" == *'the recorded trailer "'* ]] || { echo "not shown as JSON: $(cat "$ERR")"; false; }
+    ! LC_ALL=C grep -q $'[\x01-\x08\x0b-\x1f\x7f]\|\xc2[\x80-\x9f]' "$ERR" \
+      || { echo "a control character reached stderr raw: $(od -c "$ERR")"; false; }
   done
 }
 
@@ -1357,6 +1366,22 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   git cat-file commit HEAD | sed '1,/^$/d' > "$BATS_TEST_TMPDIR/committed"
   cmp "$BATS_TEST_TMPDIR/shown" "$BATS_TEST_TMPDIR/committed"
   [ "$(body)" = "$(printf '%s\n' 'chore: the rest of the feature' '' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
+}
+
+@test "show-message --record prints J's record commit exactly as late-commit J --record makes it" {
+  # Review 3: in the single-commit flow K makes J's record commit after the
+  # answer. Its message gains `Late: J` before the trailers, so the plain
+  # preview was not the commit.
+  repo
+  trailers '["Plan-Item: DEPENDENCY-02"]'
+  msg 'test: carry the accepted reds'
+  runs show-message "$F" "$MSG" --record
+  cp "$OUT" "$BATS_TEST_TMPDIR/shown"
+  runs late-commit "$F" J "$MSG" --record
+  git cat-file commit HEAD | sed '1,/^$/d' > "$BATS_TEST_TMPDIR/committed"
+  cmp "$BATS_TEST_TMPDIR/shown" "$BATS_TEST_TMPDIR/committed"
+  [ "$(cat "$BATS_TEST_TMPDIR/shown")" = "$(printf '%s\n' 'test: carry the accepted reds' '' 'Late: J' 'Plan-Item: DEPENDENCY-02')" ]
+  refuses "unknown option '--late'" show-message "$F" "$MSG" --late
 }
 
 @test "show-message refuses a run marker in the message, a bad recorded trailer, and a subdirectory" {
