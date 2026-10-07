@@ -177,8 +177,10 @@ checks() {
   [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || false
   jq '.gates.pending = [{"id": "P1", "phase": "F"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
   checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || false
   jq '.gates.pending = [{"id": "P1", "phase": "F", "question": "Q?", "answer": true}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
   checks 1 pending-check "$F"
+  [[ "$(cat "$ERR")" == *"is not a list of questions"* ]] || false
   rm "$SF"
   checks 1 pending-check "$F"
 }
