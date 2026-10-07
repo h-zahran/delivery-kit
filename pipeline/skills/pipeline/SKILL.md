@@ -404,8 +404,8 @@ this feature's failures, and J classifies against this record.
 Every full `testCommand` run is bracketed: `progress.sh suite-key
 <feature>` before it, its stdout and stderr in one file in the run
 directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a
-refusal, only means nothing is kept). F.5, J and N may cite, by path and counts,
-a `suite-lookup <feature>` that exits 0 — a GREEN result for this
+refusal, only means nothing is kept). F.5, J and N may cite, quoting its two
+lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for this
 identical clean tree and command — instead of running; red or missing,
 run.
 
@@ -708,7 +708,7 @@ message — contract compliance, security, tests — per that skill's
 contract. Fixes fan out, and I ends with its late commit (see H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
-`testCommand`, or cite as F.5 allows. Classify every failure against
+`testCommand` (or cite the suite, as F.5 allows). Classify every failure against
 `test_baseline`:
 pre-existing failures are reported, not owned; new failures are this
 run's to fix. Fixes for independent failures fan out. Loop until clean
@@ -879,11 +879,11 @@ finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
 conditional stop.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
-`testCommand` again (or cite, as F.5 allows), classify against
+`testCommand` again (or cite the suite, as F.5 allows), classify against
 baseline, commit fixes
 (`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER
 SKIPPED: without a pull request it
-still runs both commands, still classifies, still commits — it just has
+still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has
 nothing to push a review fix to. The last thing this pipeline does with
 code must never be "change it and not check it".
 

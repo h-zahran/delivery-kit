@@ -55,41 +55,59 @@ this page exists:
 
 ## Reusing a suite run
 
-The full test command can take a long time, and J and N often run it on a tree
-it has already passed on. Each full run is therefore recorded, and a phase may
-cite a recorded result instead of running the command again — only when all of
-these hold:
+The full test command can take a long time, and a phase often runs it on a
+tree it has already passed on. Each full run on a clean tree is therefore
+recorded, and F.5, J and N may cite a recorded result instead of running the
+command again — only when all of these hold:
 
-- the working tree is **clean**: no change outside `.delivery-kit/`, tracked,
-  staged or untracked (ignored files are not seen, as git does not see them),
-  and no file hidden from `git status` by `assume-unchanged` or
-  `skip-worktree`;
-- the committed tree is **identical** to the one the result was recorded on;
+- the working tree is **clean**: no change, tracked, staged or untracked,
+  except an untracked file under `.delivery-kit/` (ignored files are not
+  seen, as git does not see them); no file hidden from `git status` by
+  `assume-unchanged` or `skip-worktree`; and no submodule;
+- the committed tree is **identical** to the one the result was recorded on,
+  and so are the **bytes** of every tracked file as they sit on disk, read
+  with no filter and no line-ending conversion — a file `git status` calls
+  unchanged still counts when its bytes differ;
 - the **test command** is the same string, and the **platform** (`uname -s` and
   `uname -m`) is the same;
 - the result is **green**: exit code 0, a plan line `1..N` first, exactly N
-  `ok` lines (a skip counts and is reported), no `not ok`, and no line that is
-  neither TAP nor a `#` comment.
+  `ok` lines numbered 1 to N in any order (a skip counts and is reported), no
+  `not ok`, and no other line but a `#` comment or a blank one.
 
-A red result is never reused: F.5 needs its failures verbatim, and J and N need
-to see them. A suite that does not print TAP is never green by this rule, so it
-always runs. The analyzer always runs.
+The green rule reads TAP as bats prints it. Other TAP shapes — a
+`TAP version` header, a plan line at the end, a `# TODO` test, a subtest —
+are red by this rule, and so is any output that is not TAP. Red only means
+the suite runs again: a red result is never reused, because F.5 needs its
+failures verbatim, and J and N need to see them. The analyzer is never
+cited; it always runs.
 
-The state helper does the keeping. `progress.sh suite-key <feature>` prints the
-key before a run, or exits 1 and says why there is none.
+What the key cannot see, a reuse assumes unchanged: files git ignores (a
+dependency directory, a `.env` file), the environment, the tools' versions,
+and a file's mode where git ignores it (`core.fileMode` false). Records have
+no age limit and are shared by every run in the repository, so after a change
+to any of these, delete `.delivery-kit/suite-results/` and the next phase
+runs the suite.
+
+The state helper does the keeping. `progress.sh suite-key <feature>` prints
+the key before a run, or exits 1 and says why there is none.
 `progress.sh suite-record <feature> <key> <tap-file> <rc>` records the run and
-prints `green` or `red`; it refuses when the tree, the command or the platform
-changed while the suite ran — a test that leaves a file behind included — so
-the run's output belongs under `.delivery-kit/runs/<feature>/`.
-`progress.sh suite-lookup <feature>` exits 0, printing the record's path and
-counts, only for a green result on the current key. Records live in
-`.delivery-kit/suite-results/`, shared by every run in the repository, so a
-later run's F.5 can reuse an earlier one. A tree with uncommitted work has no
-key, so a phase that runs on one always runs the suite. That includes most
-F.5 runs: the feature's spec directory is not committed until H, so F.5 has a
-key only when it is already committed or ignored. The usual reuse is N citing
-J's result when nothing changed in between, or a phase re-entered on the same
-tree.
+prints `green` or `red`. It refuses when the tree no longer has the key it had
+before the run — a commit made meanwhile, or a file a test left behind outside
+`.delivery-kit/` — so the run's output belongs under
+`.delivery-kit/runs/<feature>/`. A file a test changed and then restored, or
+wrote where git ignores it, is not seen. `progress.sh suite-lookup <feature>`
+exits 0, printing the record's path and counts, only for a green result on the
+current key. A phase that cites quotes those two lines verbatim; at F.5 they
+are the `test_baseline`. Records live in `.delivery-kit/suite-results/`, so a
+later run's F.5 can reuse an earlier one.
+
+A tree with uncommitted work has no key, so a phase that runs on one always
+runs the suite and records nothing. That rules out most F.5 runs — the
+feature's spec directory is not committed until H — and every J iteration
+that runs on a fix not yet committed. Reuse fires when nothing changed since a
+green run on a clean, committed tree: N citing J when J's run was clean and
+green and nothing was committed after it, a phase re-entered on the same
+tree, or a later run's F.5 on a tree an earlier run passed.
 
 ## Using them with the flags
 
