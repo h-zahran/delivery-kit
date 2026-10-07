@@ -1484,3 +1484,40 @@ PINS
 Record the merged result in the state file's `config` key so resume does not re-resolve differently — `codeRoots` as resolved, never `null`, since `late-commit` and `commit-list` read it.
 PINS
 }
+
+# The user-facing account of suite reuse lives in docs/phases.md, not in
+# SKILL.md. Its rules are pinned here through the clauses that bound a reuse:
+# a mutant that turns "never reused" into "may be reused", or "clean" into
+# "may be dirty", tells the reader a result stands for code it never ran on.
+@test "phases.md states the suite reuse rules the state helper enforces" {
+  local doc="$ROOT/pipeline/docs/phases.md" flat rows
+  [ -f "$doc" ] && [ -r "$doc" ] || { echo "cannot read $doc"; false; }
+  flat="$(awk '/^## Reusing a suite run$/ { on = 1 } on && /^## / && !/^## Reusing a suite run$/ { exit } on' "$doc" \
+    | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$flat" ] || { echo 'phases.md has no "## Reusing a suite run" section'; false; }
+  local want
+  for want in \
+    'the working tree is **clean**: no change, tracked, staged or untracked, except an untracked file under `.delivery-kit/`' \
+    'no file hidden from `git status` by `assume-unchanged` or `skip-worktree`; and no submodule;' \
+    'the committed tree is **identical** to the one the result was recorded on, and so are the **bytes** of every tracked file as they sit on disk, read with no filter and no line-ending conversion' \
+    'the result is **green**: exit code 0, a plan line `1..N` first, exactly N `ok` lines numbered 1 to N in any order' \
+    'a red result is never reused, because F.5 needs its failures verbatim, and J and N need to see them.' \
+    'The analyzer is never cited; it always runs.' \
+    'What the key cannot see, a reuse assumes unchanged: files git ignores' \
+    'A phase that cites quotes those two lines verbatim; at F.5 they are the `test_baseline`.' \
+    'A tree with uncommitted work has no key, so a phase that runs on one always runs the suite and records nothing.'
+  do
+    grep -qF -- "$want" < <(printf '%s\n' "$flat") \
+      || { echo "phases.md's reuse section no longer says: $want"; false; }
+  done
+  # The phase table: F.5, J and N reuse only a green result on the identical tree.
+  rows="$(tr -d '\r' < "$doc")"
+  for want in \
+    '| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature'"'"'s, and phase J classifies against this record. May reuse a green result on the identical tree instead' \
+    '| J | analyzer and full suite | Runs both commands (or reuses a green suite result on the identical tree) and classifies' \
+    '| N | re-verify | Runs the analyzer and the suite again (or reuses a green suite result on the identical tree), classifies'
+  do
+    grep -qF -- "$want" < <(printf '%s\n' "$rows") \
+      || { echo "phases.md's phase table no longer says: $want"; false; }
+  done
+}

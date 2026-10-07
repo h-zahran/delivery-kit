@@ -303,7 +303,7 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   verdict_is green 0 '1..2' 'ok 1 one' 'ok 2 two'
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = ".delivery-kit/suite-results/$K.json" ]
-  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F" ]]
+  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F" ]] || false
   # A later run on the same tree, with the same command, reuses it.
   state 002-later
   runs suite-lookup 002-later
@@ -461,4 +461,99 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   refuses "records another tree, command or platform" suite-lookup "$F"
   cp "$BATS_TEST_TMPDIR/green.json" "$rec"
   runs suite-lookup "$F"
+}
+
+# fake_uname <dir> <s> <m> — a uname that answers -s and -m apart.
+fake_uname() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\ncase "$1" in -s) echo %s ;; -m) echo %s ;; *) echo x ;; esac\n' "$2" "$3" > "$1/uname"
+  chmod +x "$1/uname"
+}
+
+@test "the key changes with the machine alone" {
+  repo
+  fake_uname "$BATS_TEST_TMPDIR/b1" SameOS arch1
+  fake_uname "$BATS_TEST_TMPDIR/b2" SameOS arch2
+  PATH="$BATS_TEST_TMPDIR/b1:$PATH" key
+  local a="$K"
+  PATH="$BATS_TEST_TMPDIR/b2:$PATH" key
+  [ "$K" != "$a" ]
+}
+
+@test "suite-key has no key on an unborn HEAD" {
+  git init -q .
+  git symbolic-ref HEAD refs/heads/main
+  git config core.autocrlf false
+  state "$F"
+  refuses "HEAD names no commit yet" suite-key "$F"
+}
+
+@test "a tracked file name with a space is not read as a hidden index entry" {
+  repo
+  printf 'x\n' > 'my file.txt'
+  git add 'my file.txt'
+  git commit -q -m spaced
+  key
+}
+
+@test "suite-key names the first change git lists" {
+  repo
+  printf 'x\n' >> README.md
+  printf 'y\n' >> src/keep.sh
+  refuses "(README.md)" suite-key "$F"
+}
+
+@test "suite-lookup refuses a record whose key or platform was edited" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json" o="$BATS_TEST_TMPDIR/orig.json"
+  cp "$rec" "$o"
+  jq '.platform = "OtherOS x"' "$o" > "$rec"
+  refuses "records another tree, command or platform" suite-lookup "$F"
+  jq '.key = "0000000000000000000000000000000000000000"' "$o" > "$rec"
+  refuses "records another tree, command or platform" suite-lookup "$F"
+}
+
+@test "suite-lookup refuses a hand-edited green whose counts are not a green run's" {
+  repo
+  verdict_is green 0 '1..2' 'ok 1 one' 'ok 2 two'
+  local rec=".delivery-kit/suite-results/$K.json" o="$BATS_TEST_TMPDIR/orig.json"
+  cp "$rec" "$o"
+  jq '.notOk = 1' "$o" > "$rec";              refuses "is red" suite-lookup "$F"
+  jq '.nonTap = 1' "$o" > "$rec";             refuses "is red" suite-lookup "$F"
+  jq '.plan = 0 | .ok = 0' "$o" > "$rec";     refuses "is red" suite-lookup "$F"
+  jq '.plan = "2" | .ok = "2"' "$o" > "$rec"; refuses "is red" suite-lookup "$F"
+  jq '.ok = 3' "$o" > "$rec";                 refuses "is red" suite-lookup "$F"
+  cat "$o" "$o" > "$rec";                     refuses "is not one readable record" suite-lookup "$F"
+  cp "$o" "$rec"
+  runs suite-lookup "$F"
+}
+
+@test "an exit code with a leading zero is read in base ten" {
+  repo
+  verdict_is red 08 '1..1' 'ok 1 one'
+  [ "$(jq -r .rc ".delivery-kit/suite-results/$K.json" | tr -d '\r')" = 8 ]
+}
+
+@test "a record holds no CR byte" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  [ "$(tr -cd '\r' < ".delivery-kit/suite-results/$K.json" | wc -c | tr -d ' ')" = 0 ]
+}
+
+@test "a line that starts ok without a space is not an ok" {
+  repo
+  verdict_is red 0 '1..2' 'ok 1 one' 'okay'
+}
+
+@test "blank and whitespace-only lines before the plan are skipped" {
+  repo
+  verdict_is green 0 '' '1..1' 'ok 1 one'
+  verdict_is green 0 '1..1' '   ' 'ok 1 one'
+}
+
+@test "an upper-case SKIP is counted" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one # SKIP not here'
+  [ "$(jq -r .skipped ".delivery-kit/suite-results/$K.json" | tr -d '\r')" = 1 ]
 }
