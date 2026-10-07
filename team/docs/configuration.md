@@ -17,7 +17,6 @@ the repository, so `~/.delivery-kit.json` is never read for it.
       "alpha": {
         "roster": "plan/alpha/roster.json",
         "tasks": "plan/alpha/{member}/tasks.json",
-        "progress": "plan/alpha/{member}/progress.json",
         "progressView": "plan/alpha/{member}/progress.md"
       }
     }
@@ -30,8 +29,10 @@ the repository, so `~/.delivery-kit.json` is never read for it.
 | `teams` | yes | One entry per team. The key is the team's name: letters, digits, dot, dash and underscore only. |
 | `roster` | yes | The team's roster file. One file for the whole team, so it holds no `{member}`. |
 | `tasks` | yes | Each member's task file. Holds `{member}`, which is replaced with the member's id. |
-| `progress` | yes | Each member's progress record. Holds `{member}`. |
-| `progressView` | no | A readable copy of the progress. Holds `{member}`. |
+| `progressView` | no | Each member's readable progress page, written by `team:status` when asked. Holds `{member}`. |
+
+There is no key for a stored status. Status is read from git and the pull
+requests each time; see "Status" below.
 
 Every path is relative to the repository root, uses `/` between folders,
 has no `..`, `.` or empty segment, and is not under `.delivery-kit/`. Any
@@ -70,11 +71,12 @@ silently ignored.
 | `id` | yes | The task's id. Unique in the file. |
 | `branch` | yes | Passed to the pipeline as `--branch`. |
 | `specDir` | yes | Passed to the pipeline as `--spec-dir`. |
-| `seed` | yes | The feature description the pipeline specifies from. |
+| `seed` | yes | The feature description the pipeline specifies from. One line. |
 | `trailers` | no | Each one passed to the pipeline as `--trailer`. |
 | `flags` | no | More pipeline flags for this task, passed as written. |
 | `number` | no | The task's number, as shown to people. |
 | `title` | no | The task's title, as shown to people. |
+| `blocked` | no | A note saying why the task cannot go on. A task with a note is blocked until it is in review or done. |
 
 The order of the list is the order the tasks are worked. A task the pipeline
 does not run, such as a machine setup, is not in this file.
@@ -83,3 +85,52 @@ does not run, such as a machine setup, is not in this file.
 has the right type, and no id appears twice. It does not check what a value
 means. The pipeline's pre-flight checks the branch name, the spec folder and
 each trailer, so those rules live in one place.
+
+## Who is at the keyboard
+
+`team:start` asks each member once for their team and id, and keeps the
+answer in `.delivery-kit/team.json`. That file is per clone and must be
+ignored by git: `team.sh iam` refuses to write it otherwise. The roster's
+`emails` only suggest the answer.
+
+## Status
+
+Status is never stored. Each time, `team.sh status <team> <member>` reads
+these facts for every task, and the first that answers wins:
+
+| Fact | Status | `source` |
+|---|---|---|
+| A merged pull request for the task's branch | done | `pull request` |
+| An open pull request for the task's branch | in review | `pull request` |
+| The pipeline's run on this machine recorded a pull request | in review | `run state` |
+| The task file has a `blocked` note | blocked | `task file` |
+| The pipeline's run on this machine exists | in progress | `run state` |
+| The branch exists on this machine | in progress | `local branch` |
+| The branch exists on `origin` | in progress | `origin branch` |
+| None | not started | |
+
+The run is found at `.delivery-kit/runs/<last segment of specDir>/`, the
+name the pipeline gives it. `origin` is read with `git ls-remote`, never
+fetched. Pull requests are read with `gh`, probed as `gh`, `gh.exe` and
+`gh.cmd`. The output says `originRead` and `prRead`: a source that could
+not be read is reported as not read, never taken as "no". Without `gh`, a
+merged task never shows as done.
+
+## The commands
+
+| Command | Prints |
+|---|---|
+| `team.sh config` | the team block |
+| `team.sh roster <team>` | the members |
+| `team.sh tasks <team> <member>` | the member's tasks, defaults filled |
+| `team.sh suggest <team>` | git's email and the roster ids it matches |
+| `team.sh iam <team> <member>` | the answer, after writing `.delivery-kit/team.json` |
+| `team.sh whoami` | the answer, checked against today's roster |
+| `team.sh status <team> <member>` | each task with its status, its source, and what was not read |
+| `team.sh next <team> <member>` | `start`, `resume`, `elsewhere` or `none`, with the task |
+| `team.sh command <team> <member> <id>` | the `/pipeline` line for the task |
+| `team.sh render <team> <member>` | the path of the progress page it wrote |
+
+`--dir <repo>` first runs any of them against another directory. Each one
+exits 0 with its answer on stdout, or 1 with one `team.sh:` line on
+stderr naming the fault.

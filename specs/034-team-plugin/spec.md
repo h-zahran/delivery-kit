@@ -78,4 +78,5 @@ The plugin appears in the marketplace, the root README (link and install line), 
 
 - The project writes the task file. The owner chose this (2026-10-07): a JSON file per member, beside any readable copy, so the plugin never parses a project's markdown.
 - Progress is a JSON record the plugin owns, with a readable copy written from it (owner's choice, 2026-10-07). Its format is fixed in Phase 35, which writes it.
+- **Changed by Phase 35.** A stored progress record would make the working tree dirty, and the pipeline's pre-flight refuses a dirty tree. Phase 35 removes the `progress` key: status is read from git and the pull requests each time, and `progressView` is written only when asked. See `specs/035-team-start/spec.md`.
 - The changelog's first heading is dated 2026-10-07. The release date is the maintainer's to set at release.

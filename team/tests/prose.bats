@@ -9,6 +9,8 @@ setup() {
   SETUP_SKILL="$ROOT/team/skills/setup/SKILL.md"
   DOCS="$ROOT/team/docs/configuration.md"
   CHANGELOG="$ROOT/team/CHANGELOG.md"
+  START_SKILL="$ROOT/team/skills/start/SKILL.md"
+  STATUS_SKILL="$ROOT/team/skills/status/SKILL.md"
 }
 
 # flat <file> — the file on one line, runs of spaces made one.
@@ -48,5 +50,48 @@ PINS
 @test "the changelog keeps its entry's lead" {
   pinned "$(flat "$CHANGELOG")" 'the changelog' <<'PINS'
 - **The `team` plugin, with `team:setup`.**
+- **`team:start`: the next task, ready to paste.**
+- **`team:status`: status read, never stored.**
+PINS
+}
+
+@test "team:start never starts the pipeline, never cleans the tree, never decides who you are" {
+  # Each line is a rule that keeps the pipeline's own gates in charge: the
+  # pipeline is typed by a person, a changed tree is the person's, and the
+  # git email is a hint.
+  pinned "$(flat "$START_SKILL")" 'team:start' <<'PINS'
+**It never starts the pipeline itself.** The pipeline is started by the `/pipeline` command and by nothing else:
+never checks out a branch, never pulls, and never runs `git stash`:
+**Never decide from the email.** The member answers.
+Never stash, reset or check out to clean the tree.
+the pipeline's pre-flight refuses a changed tree, so a line pasted now would stop there.
+| `elsewhere` | A task in progress, with a branch but no run on this machine | Show the task, its branch and where the branch was seen (`source`). Stop. Starting it again would fight the work already on that branch. |
+When the flags include `--implementer` or leave out `--auto`, do not add or remove anything: the task's flags are the project's decision, passed as written.
+Check that the `/pipeline` command is available in this session
+PINS
+}
+
+@test "team:status reads status, says what it could not read, and writes only when asked" {
+  pinned "$(flat "$STATUS_SKILL")" 'team:status' <<'PINS'
+Status is read, never stored.
+| A merged pull request | done |
+| A closed pull request that was not merged is not done:
+**Say what was not read.**
+a merged task shows as in progress or in review, never as done.
+It never fetches, pulls or changes the tree.
+## 3. Write the progress page, only when asked
+the page belongs in its own commit, never inside a feature branch's work.
+PINS
+}
+
+@test "the configuration page states that status is read and in what order" {
+  pinned "$(flat "$DOCS")" 'the configuration page' <<'PINS'
+There is no key for a stored status.
+| A merged pull request for the task's branch | done | `pull request` |
+| The pipeline's run on this machine recorded a pull request | in review | `run state` |
+| The task file has a `blocked` note | blocked | `task file` |
+| The branch exists on `origin` | in progress | `origin branch` |
+a source that could not be read is reported as not read, never taken as "no".
+`team.sh iam` refuses to write it otherwise.
 PINS
 }

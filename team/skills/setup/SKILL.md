@@ -5,8 +5,9 @@ description: Use when the user says "set up the team", "team setup", "add a team
 
 # team:setup — write the team block once
 
-The team block tells the other team skills where each team's roster is, and
-where each member's task file and progress file are. It is written once, in
+The team block tells the other team skills where each team's roster is,
+where each member's task file is, and where a readable copy of each
+member's progress goes. It is written once, in
 the repository's `.delivery-kit.json`, and committed, so the whole team
 shares it. The format is in `docs/configuration.md` beside this plugin.
 
@@ -39,9 +40,9 @@ answer before the next question.
    `{member}`.
 3. Each member's task file path, with `{member}` where the member's id
    goes.
-4. Each member's progress file path, with `{member}`.
-5. Optionally, a path for a readable copy of the progress, with
-   `{member}`. No answer leaves it out.
+4. Optionally, a path for each member's readable progress page, with
+   `{member}`. `team:status` writes it when asked. No answer leaves it
+   out.
 
 You may suggest a path you see in the repository. Say where you saw it.
 Never fill an answer in without asking.
@@ -52,8 +53,8 @@ Keep the file's current text first, so it can be put back exactly. Then
 write the new block with `jq`, changing only `.team.teams.<key>`:
 
 ```bash
-jq --arg t "<key>" --arg r "<roster>" --arg k "<tasks>" --arg p "<progress>" \
-  '.team.teams[$t] = {roster: $r, tasks: $k, progress: $p}' \
+jq --arg t "<key>" --arg r "<roster>" --arg k "<tasks>" \
+  '.team.teams[$t] = {roster: $r, tasks: $k}' \
   .delivery-kit.json > .delivery-kit.json.new && mv .delivery-kit.json.new .delivery-kit.json
 ```
 
