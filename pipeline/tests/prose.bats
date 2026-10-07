@@ -1422,3 +1422,32 @@ git --literal-pathspecs ls-files --error-unmatch
 | `codeRoots` | from project type | Where implementation lives; H.7's scope |
 ABSENT
 }
+
+@test "the base-branch override is pinned where the operator reads it" {
+  # Feature 031. The override is the only way to branch from an integration
+  # branch where the remote publishes another default, so each site that
+  # states it is pinned: deleting any one of them leaves a reader with the
+  # old "origin/HEAD always wins" picture and nothing goes red.
+  local flags config base docs changelog
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --base-branch flag' <<'ROWS'
+| `--base-branch <name>` | The branch the feature branch is cut from, for this run. Beats the `baseBranchOverride` key, `origin/HEAD` and the `baseBranch` key. Read on a fresh run only — see **Base branch:** under Pre-flight. |
+ROWS
+  config="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  rows_in "$config" 'the baseBranchOverride key' <<'ROWS'
+| `baseBranchOverride` | unset | A base branch that beats `origin/HEAD`. See "Base branch" under Pre-flight |
+ROWS
+  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  grep -qF '**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.' <<<"$base" \
+    || { echo "the base-branch resolution order altered"; false; }
+  grep -qF 'so the probe line names the layer that set it — the flag, or the configuration file by path, never a guess.' <<<"$base" \
+    || { echo "the override's layer is no longer named"; false; }
+  grep -qF 'An override on a resume that names a different branch is never applied silently — say that the recorded base stands, and name both.' <<<"$base" \
+    || { echo "the resume rule for the override altered"; false; }
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  grep -qF 'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.' <<<"$docs" \
+    || { echo "the configuration page lost the override"; false; }
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  grep -qF '**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**' <<<"$changelog" \
+    || { echo "the changelog lost the override entry"; false; }
+}

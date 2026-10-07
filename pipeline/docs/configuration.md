@@ -23,6 +23,7 @@ a question, and the pipeline can always ask.
     "analyzeCommand": null,
     "codeRoots": null,
     "baseBranch": null,
+    "baseBranchOverride": null,
     "projectType": null,
     "commitStyle": "conventional",
     "maxClarifyPasses": 3,
@@ -52,6 +53,7 @@ before it spends it.
 | `analyzeCommand` | Static analysis; phases J and N run it. |
 | `codeRoots` | Where implementation lives: the simplify phase's scope, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
+| `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
@@ -73,6 +75,20 @@ pre-flight report names which source won. Note the consequence plainly:
 **in a repository whose remote publishes a default branch, that default
 wins over this key.** Set the key for repositories without a remote
 default; everywhere else it is documentation of intent, not an override.
+
+The override beats the remote's default and this key. It has two
+spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
+flag, which beats the key. Pre-flight reports the override's source as
+`override` and names the layer that set it. Set the key once, in the
+repository's `.delivery-kit.json`, when a team cuts feature branches
+from an integration branch while the remote publishes another default;
+type the flag for a single run. The override is read on a fresh run
+only. The run records the base it used, and a resume keeps that record;
+a different name on a resume is reported, never applied silently. A
+name git would not accept as a branch name stops pre-flight, naming it.
+Like `verifyCommand`, the key can be replaced by a later layer but not
+returned to unset, because `null` is silence: remove it from the file
+that set it.
 
 ## The implementer key
 

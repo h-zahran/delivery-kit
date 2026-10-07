@@ -91,6 +91,7 @@ item 10 anchors that rule; this is where it fires.
 | `analyzeCommand` | from project type | Static analysis |
 | `codeRoots` | from project type | Where implementation lives: H.7's scope, where a late commit may add a new file, and the boundary K stops at under `--auto` |
 | `baseBranch` | worked out | See "Base branch" under Pre-flight |
+| `baseBranchOverride` | unset | A base branch that beats `origin/HEAD`. See "Base branch" under Pre-flight |
 | `projectType` | detected | `web`, `mobile-android`, `other` |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
 | `maxClarifyPasses` | 3 | Phase C cap |
@@ -122,6 +123,7 @@ rather than silent.
 | `--from <phase>` | Offered by the resume prompt; validated by `progress.sh from-validate` against which artefacts exist. |
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
+| `--base-branch <name>` | The branch the feature branch is cut from, for this run. Beats the `baseBranchOverride` key, `origin/HEAD` and the `baseBranch` key. Read on a fresh run only — see **Base branch:** under Pre-flight. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -130,7 +132,9 @@ this tool does, and one flag must not mean both "commit for me" and
 ## Pre-flight
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
-`--project-type`/`--base-branch` only when configuration set them),
+`--project-type`/`--base-branch` only when configuration set them, and
+`--base-branch-override <name>` only when `--base-branch` was typed or
+`baseBranchOverride` resolves to a value — the flag's value when both),
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below:
 
@@ -158,7 +162,9 @@ it has to not be printed here. But over-marking is its own lie, so be exact:
 - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
   `current branch` — print `— not read, git is absent`. When the source is
   `configured` the name came from a configuration file and IS established:
-  print it, and add that it was not checked against the repository.
+  print it, and add that it was not checked against the repository. The
+  same holds for `override`: the name was typed or configured, so print
+  it, name its layer, and add that it was not checked.
 - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
   on the same line is not: it comes from looking for `gh` and is unaffected.
   Keep it.
@@ -288,11 +294,22 @@ through 10 keep the numbers they have always had.
     pre-flight, and there the stop and the printed link stand on their
     own.
 
-**Base branch:** the resolution order is `origin/HEAD`, then the
-configured `baseBranch`, then the current branch when there is no
-remote. `baseBranchSource` names the winner — print it. Note the
-consequence honestly: where `origin/HEAD` exists, it wins over
-configuration by design.
+**Base branch:** the resolution order is the override, then
+`origin/HEAD`, then the configured `baseBranch`, then the current branch
+when there is no remote. The override is a typed `--base-branch` or,
+without one, the `baseBranchOverride` key; `preflight.sh` reports it as
+`override` and cannot tell which, so the probe line names the layer that
+set it — the flag, or the configuration file by path, never a guess.
+`baseBranchSource` names the winner — print it. Note the consequence
+honestly: where `origin/HEAD` exists, it wins over the `baseBranch` key
+by design, and only the override beats it. A team that cuts its feature
+branches from an integration branch, while its remote publishes another
+default, sets `baseBranchOverride` once in the repository's
+`.delivery-kit.json`; `--base-branch` is for one run. The override is
+read on a fresh run only: B records the base in the state file, the
+feature branch is cut from it, and a resume uses the recorded base. An
+override on a resume that names a different branch is never applied
+silently — say that the recorded base stands, and name both.
 
 **Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this
 line is rendered from the RESOLVED configuration, not from the script's

@@ -2,6 +2,23 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- **A base branch that beats the remote's default: the
+  `baseBranchOverride` key and the `--base-branch <name>` flag.** Where
+  the remote publishes a default branch, that default has always won over
+  the `baseBranch` key, so a team that cuts its feature branches from an
+  integration branch had no way to say so. Set `baseBranchOverride` once
+  in the repository's `.delivery-kit.json`, or type `--base-branch` for
+  one run; the flag beats the key. Pre-flight reports the source as
+  `override` and names the layer that set it. The override is read on a
+  fresh run only: a resume keeps the base the run recorded, and a
+  different name on a resume is reported, not applied. A name git would
+  not accept as a branch name stops pre-flight, naming it. The
+  `baseBranch` key is unchanged.
+
 ## [1.3.1] - 2026-10-06
 
 ### Fixed
