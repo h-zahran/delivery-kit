@@ -150,18 +150,26 @@ PARTS
   grep -qF 'unset is not a value and never stops anything): stop and name the value — never coerced, never treated as unset.' <<<"$walk" \
     || { echo 'pre-flight item 10 altered — check the ACTION, not just the unset carve-out'; false; }
 
+  # Resolution-time validation and the merge semantic moved, word for word, to
+  # the docs page's "Resolving the layers" section (feature 040), to keep the
+  # skill under 65,536 bytes. The skill sends the run there; both are pinned.
+  local layers
+  layers="$(awk '/^## Resolving the layers$/,/^## Keys$/' "$docs" | tr '\n' ' ' | tr -s ' ')"
+  grep -qF 'For how layers merge and when a value stops the run, follow "Resolving the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.' < <(printf '%s\n' "$flat") \
+    || { echo 'the skill no longer sends the run to "Resolving the layers"'; false; }
+
   # Resolution-time validation, pinned through the ordering guarantee. Without
   # the tail a mutant inverted it to "after the decision walk has completed and
   # both of its offered writes have landed" — the dirty-tree bug it prevents.
-  grep -qF 'unset is not a value and never stops anything — stops the run HERE, before pre-flight'"'"'s decision walk begins' < <(printf '%s\n' "$flat") \
+  grep -qF 'unset is not a value and never stops anything — stops the run HERE, before pre-flight'"'"'s decision walk begins' < <(printf '%s\n' "$layers") \
     || { echo 'the resolution-time enum check or its ordering guarantee altered'; false; }
 
   # The merge semantic, and the consequence for the keys that have no `ask`.
-  grep -qF "A later layer's \`null\` is silence, not an override" < <(printf '%s\n' "$flat") \
+  grep -qF "A later layer's \`null\` is silence, not an override" < <(printf '%s\n' "$layers") \
     || { echo 'the null-merge semantic altered'; false; }
-  grep -qF 'it is the only spelling that overrides toward the stop.' < <(printf '%s\n' "$flat") \
+  grep -qF 'it is the only spelling that overrides toward the stop.' < <(printf '%s\n' "$layers") \
     || { echo 'the ask-is-the-only-override rule altered'; false; }
-  grep -qF 'can be REPLACED by a later layer but never returned to unset' < <(printf '%s\n' "$flat") \
+  grep -qF 'can be REPLACED by a later layer but never returned to unset' < <(printf '%s\n' "$layers") \
     || { echo 'the command-keys consequence altered'; false; }
 
   # The disclosure line. Pinned WITH its print rule: a mutant kept the template
@@ -1605,4 +1613,49 @@ PARA
   flat="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
   grep -qF '`pending-check` stops the run before L pushes while one is open, under `--auto` too; after L nothing waits.' < <(printf '%s\n' "$flat") \
     || { echo "the changelog's pending-check claim altered"; false; }
+}
+
+@test "the base-branch override is pinned where the operator reads it" {
+  # Feature 040. The override is the only way to branch from an integration
+  # branch where the remote publishes another default, so each site that
+  # states it is pinned: deleting any one of them leaves a reader with the
+  # old "origin/HEAD always wins" picture and nothing goes red. The skill
+  # keeps the rows, the order and a pointer; the full rules live in
+  # configuration.md, which the pointer sends the run to.
+  local flags config base docs changelog
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --base-branch flag' <<'ROWS'
+| `--base-branch <name>` | The base branch; beats `baseBranchOverride` |
+ROWS
+  config="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  rows_in "$config" 'the baseBranchOverride key' <<'ROWS'
+| `baseBranchOverride` | unset | Beats `origin/HEAD` |
+ROWS
+  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  grep -qF '**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.' <<<"$base" \
+    || { echo "the base-branch resolution order altered"; false; }
+  grep -qF 'When `baseBranchOverride` or `--base-branch` is set, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' <<<"$base" \
+    || { echo "the skill no longer sends the run to the override's rules"; false; }
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  grep -qF 'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.' <<<"$docs" \
+    || { echo "the configuration page lost the override"; false; }
+  grep -qF 'It passes `--base-branch-override <name>` to `preflight.sh` only when `--base-branch` was typed or `baseBranchOverride` resolves to a value, the flag'"'"'s value when both.' <<<"$docs" \
+    || { echo "the configuration page lost the pre-flight argument"; false; }
+  grep -qF 'so the probe line names the layer that set it — the flag, or the configuration file by path, never a guess.' <<<"$docs" \
+    || { echo "the override's layer is no longer named"; false; }
+  grep -qF 'An override on a resume that names a different branch is never applied silently — say that the recorded base stands, and name both.' <<<"$docs" \
+    || { echo "the resume rule for the override altered"; false; }
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  grep -qF '**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**' <<<"$changelog" \
+    || { echo "the changelog lost the override entry"; false; }
+}
+
+@test "the skill stays under the size Git Bash can read in a herestring" {
+  # Git Bash 5.3.9 hangs a herestring of 65,536 to about 65,700 bytes. The
+  # skill is read whole by tools that may use one, so it stays below 65,536.
+  local size
+  size="$(wc -c < "$ORCH")"
+  size="${size//[[:space:]]/}"
+  [ "$size" -lt 65536 ] \
+    || { echo "SKILL.md is $size bytes; keep it under 65,536 — move long rules to pipeline/docs/configuration.md"; false; }
 }

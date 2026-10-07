@@ -66,12 +66,33 @@ All notable changes to the `pipeline` plugin.
   write the queue. The handoff package's parts move to
   `docs/handoff-package.md`, and `git stash` joins the never-bend rules.
   `pipeline:status` names every open question.
+- **A base branch that beats the remote's default: the
+  `baseBranchOverride` key and the `--base-branch <name>` flag.** Where
+  the remote publishes a default branch, that default has always won over
+  the `baseBranch` key, so a team that cuts its feature branches from an
+  integration branch had no way to say so. Set `baseBranchOverride` once
+  in the repository's `.delivery-kit.json`, or type `--base-branch` for
+  one run; the flag beats the key. Pre-flight reports the source as
+  `override` and names the layer that set it. The override is read on a
+  fresh run only: a resume keeps the base the run recorded, and a
+  different name on a resume is reported, not applied. A name git would
+  not accept as a branch name stops pre-flight, naming it. The
+  `baseBranch` key is unchanged.
 
 ### Fixed
 
 - **State writes no longer race.** Every write to a run's state file holds
   a lock and a temporary file of its own. Two writes at the same moment
   could lose one another's change, or leave the state file empty.
+
+### Changed
+
+- **Two configuration rules moved from the skill to
+  `docs/configuration.md`, word for word.** How a later layer's `null`
+  merges, and when an `implementer` value stops the run, are now in the
+  page's "Resolving the layers" section. The skill sends the run there.
+  The move keeps `SKILL.md` under 65,536 bytes, the size Git Bash 5.3.9
+  can read in a herestring. A test now pins that size.
 
 ## [1.3.1] - 2026-10-06
 

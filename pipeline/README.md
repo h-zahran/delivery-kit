@@ -142,6 +142,7 @@ cleanup is your call.
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
 | `--dry-run` | Run the spec phases for real, then print what the rest would do and stop. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it. |
+| `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
 | `--config <path>` | Merge a JSON file over the resolved settings. |
 
 ## Requirements
