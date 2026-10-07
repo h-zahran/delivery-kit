@@ -520,10 +520,18 @@ stub() {
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   local bad
   for bad in 'Noseparator' 'Bad token: x' 'Bad_token: x' ': no token' '9x: y' 'Piece-: x' 'A: x' \
-             'Empty:' 'Empty:   ' $'Two: lines\nhere' $'Return: here\rthere' $'Tab: a\tb' $'Esc: a\e[31mb'; do
+             'Empty:' 'Empty:   ' $'Two: lines\nhere' $'Return: here\rthere' $'Tab: a\tb' $'Esc: a\e[31mb' \
+             $'Nel: a\xc2\x85b'; do
     probe --dir "$T" --trailer "$bad"
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
-    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    # A control character is named as JSON, never printed raw.
+    case "$bad" in
+      *[[:cntrl:]]*|Nel*)
+        [[ "$stderr" == *"\"${bad%%:*}:"* ]] || { echo "not named as JSON: $bad"; false; }
+        ! printf '%s' "$stderr" | LC_ALL=C grep -q $'[\x01-\x08\x0b-\x1f\x7f]\|\xc2[\x80-\x9f]' \
+          || { echo "a control character reached stderr raw: $bad"; false; } ;;
+      *) [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; } ;;
+    esac
     [[ "$stderr" == *"(a commit trailer)"* ]] || { echo "source not named: $bad"; false; }
     # A line break is also a control character; its own reason must win.
     case "$bad" in
@@ -754,6 +762,20 @@ stub() {
 # see; on every CI runner it is present. The device tool is the reverse. A test
 # that relied on either would pass on one platform and fail on the other — or,
 # worse, pass on both for different reasons. Each builds its own search path.
+
+@test "trailers are checked with only the probe's own tools on the search path" {
+  # trailer-check.sh says it needs jq and grep only, because these tests give
+  # the probe nothing else. This proves it: an accepted trailer and a
+  # refused one, with exactly PROBE_TOOLS findable.
+  d="$BATS_TEST_TMPDIR/trailer-tools"
+  shimdir "$d" $PROBE_TOOLS
+  probe --path "$d" --dir "$FIX/web" --base-branch main --trailer 'Plan-Item: a'
+  [ "$status" -eq 0 ] || { echo "refused with only PROBE_TOOLS: $stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Plan-Item: a"]' ]
+  probe --path "$d" --dir "$FIX/web" --base-branch main --trailer 'Note: [skip ci]'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"asks GitHub to skip the checks"* ]]
+}
 
 @test "the runtime-check phase is announced skipped when a mobile project has no device tool" {
   d="$BATS_TEST_TMPDIR/no-device"

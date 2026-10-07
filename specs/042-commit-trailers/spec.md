@@ -87,3 +87,8 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 - Refused from every layer, in any letter case: `skip-checks`, `Co-authored-by`, `Signed-off-by`, closing keywords as a token or before an issue number, the `[skip ci]` family, control characters, and tokens outside `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$`. The full table is in `contracts/trailer-contract.md`.
 - Pre-flight's errors end `(a commit trailer)`, not `(--trailer)`: the value may come from the key. Acceptance scenario 1 and FR-003 now read that way.
 - `Tasks` is reserved too. `piece-commit` and `late-commit H.5` write a `Tasks:` line, and `msg_body` already refuses one in a message.
+
+### Changed after review 3 (2026-10-08)
+
+- The trailer rule is one file, `pipeline/scripts/trailer-check.sh`, run by pre-flight and by every commit. The two hand-kept copies had drifted: pre-flight accepted U+0085, the commits refused it. A control character is now one in Unicode's sense for both, and a refusal shows such a trailer as JSON.
+- `show-message --record` prints J's empty record commit, `Late: J` line and trailers included, so K can show it exactly.

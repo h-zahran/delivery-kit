@@ -79,8 +79,20 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 60 | Forget the trailers already added from the list | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: the same trailer twice in the list is added once |
 | 61 | Count a spaces-only line as text | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | trailers: a one-word last paragraph is not a trailer block, and a spaces-only line splits paragraphs |
 | 62 | Drop the `:?` from the closing pattern | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | trailers: one that skips GitHub's checks, names another author or closes an issue is refused |
+| 63 | Refuse C0 only, not the C1 range | `pipeline/scripts/trailer-check.sh` (through both hooks) | the control-character test in `progress-git.bats`, and the malformed test in `preflight.bats` (U+0085) |
+| 64 | Allow `skip-checks` | `pipeline/scripts/trailer-check.sh` (through both hooks) | the skip-checks test in each suite |
+| 65 | Allow `Co-authored-by` | `pipeline/scripts/trailer-check.sh` (through both hooks) | the another-author test in each suite |
+| 66 | Drop `[no ci]` | `pipeline/scripts/trailer-check.sh` (through both hooks) | the skip-checks test in each suite |
+| 67 | Drop the `owner/repo` part of the closing pattern | `pipeline/scripts/trailer-check.sh` (through both hooks) | the closes-an-issue test in each suite |
+| 68 | Allow a one-character token | `pipeline/scripts/trailer-check.sh` (through both hooks) | the token test in each suite |
+| 69 | Drop `Tasks` from the reserved tokens | `pipeline/scripts/trailer-check.sh` (through both hooks) | the run-marker test in each suite |
+| 70 | Allow an empty value | `pipeline/scripts/trailer-check.sh` (through both hooks) | the run-marker test in `progress-git.bats`, the malformed test in `preflight.bats` |
+| 71 | Show a refused trailer raw, not as JSON | `pipeline/scripts/trailer-check.sh` (through both hooks) | the control-character test in each suite |
+| 72 | `show-message --record` leaves out `Late: J` | `pipeline/scripts/progress.sh` (through `PROGRESS_SH_UNDER_TEST`) | show-message --record prints J's record commit exactly as late-commit J --record makes it |
 
 Two `progress.sh` mutations (rows 2 and 3) first left `MF` empty. They went red because the commit failed, not because a trailer was missing. They were rerun in the form above, and went red for the right reason.
+
+After review 3 the rule is one file, `pipeline/scripts/trailer-check.sh`. Rows 6-11, 14-20, 35, 37-47, 49-58 and 62 named the copies in `progress.sh` and `preflight.sh`; their strings now live in `trailer-check.sh`. A mutation of that file must turn BOTH suites red, so rows 63-71 copy the whole `pipeline/scripts/` folder, mutate `trailer-check.sh` in the copy, and point `PROGRESS_SH_UNDER_TEST` and `PREFLIGHT_UNDER_TEST` at the copies of the two callers. Pointing a hook at a lone copied script no longer works: its sibling `trailer-check.sh` would be missing, and the test would go red for that reason.
 
 ## 3. Record
 
@@ -90,3 +102,4 @@ Two `progress.sh` mutations (rows 2 and 3) first left `MF` empty. They went red 
 | 2026-10-07 | Linux | `1..369`, all `ok` | 36 of 36 landed and went red (rebuilt on Phase 41) |
 | 2026-10-08 | Linux | `1..425`, all `ok`, at `30344a8` | After review 2, on `main` `4076ecf`: rows 1-22, 35 and 37-57 (the script rows) landed and went red. Row 15 first survived: the new control-character check also catches a line break. The test now checks the line-break reason, and row 15 goes red. Row 9 goes red on the message: without the `:` check, the token check refuses the value with another reason. Rows 23-34 and 36 test text this change did not touch. |
 | 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 58-62 landed and went red. Each had survived review 3's fresh mutants; each now has a case. |
+| 2026-10-08 | Linux | `1..442`, all `ok`, review 3, commit B | Rows 63-72 landed. Rows 63-71 went red in both suites, row 72 in `progress-git.bats`. |

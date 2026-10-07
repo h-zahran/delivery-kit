@@ -705,7 +705,8 @@ shows the exact file list (every path by
 name — no `git add -A`, no wildcards) and the exact commit message in
 `commitStyle`, and commits only what was shown, only after the answer.
 Each uncommitted message K shows is as `progress.sh show-message
-<feature> <file>` prints it, with the run's trailers.
+<feature> <file>` prints it, with the run's trailers (`--record` for
+J's record commit).
 
 When `<base>..HEAD` holds a commit — the piece flow, or a run switched
 to the single-commit flow after commits were made — K shows the commit
