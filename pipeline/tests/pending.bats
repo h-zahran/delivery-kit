@@ -97,3 +97,54 @@ pending_json() { jq -c '.gates.pending' "$SF" | tr -d '\r'; }
   runs ask-later "$F" F "$BATS_TEST_TMPDIR/meta"
   [ "$(jq -r '.gates.pending[0].question' "$SF" | tr -d '\r')" = "$(cat "$BATS_TEST_TMPDIR/meta")" ]
 }
+
+@test "pending prints every open question with its id and phase, and nothing when none is open" {
+  runs pending "$F"
+  [ ! -s "$OUT" ]
+  q a 'First question?'; q b 'Second question?'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  runs ask-later "$F" I "$BATS_TEST_TMPDIR/b"
+  runs pending "$F"
+  [ "$(grep -c '^P[0-9]* (raised at ' "$OUT")" = 2 ]
+  grep -q '^P1 (raised at F, ' "$OUT"
+  grep -qx 'First question?' "$OUT"
+  grep -q '^P2 (raised at I, ' "$OUT"
+  grep -qx 'Second question?' "$OUT"
+}
+
+@test "answer records the answer and its time; the question is no longer pending" {
+  q a 'First question?'; q b 'Second question?'; q yes 'Yes, record it.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  runs ask-later "$F" I "$BATS_TEST_TMPDIR/b"
+  runs answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  [ "$(cat "$OUT")" = P1 ]
+  [ "$(jq -r '.gates.pending[0].answer' "$SF" | tr -d '\r')" = 'Yes, record it.' ]
+  [[ "$(jq -r '.gates.pending[0].answeredAt' "$SF" | tr -d '\r')" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]] || false
+  runs pending "$F"
+  if grep -q '^P1 ' "$OUT"; then echo "P1 is still pending after its answer"; false; fi
+  grep -q '^P2 ' "$OUT"
+}
+
+@test "answer refuses a bad id, an unknown id, a second answer and an empty answer" {
+  q a 'First question?'; q yes 'Yes.'; q no 'No.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  refuses "usage: answer" answer "$F" P1
+  refuses "is not a question id" answer "$F" 1 "$BATS_TEST_TMPDIR/yes"
+  refuses "is not a question id" answer "$F" P0 "$BATS_TEST_TMPDIR/yes"
+  refuses "no question P7 is queued" answer "$F" P7 "$BATS_TEST_TMPDIR/yes"
+  printf '\n' > "$BATS_TEST_TMPDIR/blank"
+  refuses "is empty" answer "$F" P1 "$BATS_TEST_TMPDIR/blank"
+  runs answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  refuses "P1 is already answered" answer "$F" P1 "$BATS_TEST_TMPDIR/no"
+  [ "$(jq -r '.gates.pending[0].answer' "$SF" | tr -d '\r')" = 'Yes.' ]
+}
+
+@test "an answered question queued again gets its id back and stays answered" {
+  q a 'First question?'; q yes 'Yes.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  runs answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  [ "$(cat "$OUT")" = P1 ]
+  [ "$(jq -r '.gates.pending | length' "$SF" | tr -d '\r')" = 1 ]
+  [ "$(jq -r '.gates.pending[0].answer' "$SF" | tr -d '\r')" = 'Yes.' ]
+}

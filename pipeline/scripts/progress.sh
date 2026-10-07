@@ -1688,6 +1688,44 @@ cmd_ask_later() {
   printf '%s\n' "$id"
 }
 
+# pending <feature> — every open question, ready to show at a stop: a line
+# "<id> (raised at <phase>, <time>):", the question, then a blank line.
+# Prints nothing when none is open.
+cmd_pending() {
+  feature="$1"; local out
+  [ $# -eq 1 ] || die "usage: pending <feature>"
+  sf="$(cmd_validate "$feature")"
+  pending_ok "$sf"
+  out="$(jqs '[(.gates.pending? // [])[] | select(has("answer") | not) | "\(.id) (raised at \(.phase), \(.askedAt // "time not recorded")):\n\(.question)\n"] | join("\n")' "$sf")" \
+    || die "$sf could not be read for gates.pending"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+}
+
+# answer <feature> <id> <answer file> — records the owner's answer to an
+# open question and prints its id. An answer stands: a second one is refused.
+cmd_answer() {
+  feature="$1"; local id="${2:-}" af="${3:-}" atext st
+  [ $# -eq 3 ] || die "usage: answer <feature> <id> <answer-file>"
+  case "$id" in P[1-9]|P[1-9][0-9]|P[1-9][0-9][0-9]) ;; *) die "'$id' is not a question id (P1, P2, ...)" ;; esac
+  sf="$(cmd_validate "$feature")"
+  pending_ok "$sf"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  st="$(jqs --arg id "$id" '[(.gates.pending? // [])[] | select(.id == $id)] | if length == 0 then "none" elif length > 1 then "many" elif (.[0] | has("answer")) then "answered" else "open" end' "$sf")" \
+    || die "$sf could not be read for gates.pending"
+  case "$st" in
+    open) ;;
+    none) die "no question $id is queued" ;;
+    answered) die "$id is already answered: an answer stands and is never replaced" ;;
+    many) die "$sf: gates.pending holds $id more than once — no answer is recorded" ;;
+    *) die "$sf could not be read for $id" ;;
+  esac
+  text_file "$af" answer; atext="$TEXT"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  state_write "$sf" '.gates.pending |= map(if .id == $id then . + {answer: $a, answeredAt: $at} else . end)' \
+    --arg id "$id" --arg a "$atext" --arg at "$(now)"
+  printf '%s\n' "$id"
+}
+
 # --- suite results ------------------------------------------------------------
 # suite-key, suite-record and suite-lookup keep a full run of testCommand
 # per exact tree, so J, N and a later run's F.5 can cite a GREEN result on a
@@ -1928,5 +1966,7 @@ case "$cmd" in
   suite-record)  shift 2; cmd_suite_record "$feature_arg" "$@" ;;
   suite-lookup)  shift 2; cmd_suite_lookup "$feature_arg" "$@" ;;
   ask-later)     shift 2; cmd_ask_later "$feature_arg" "$@" ;;
+  pending)       shift 2; cmd_pending "$feature_arg" "$@" ;;
+  answer)        shift 2; cmd_answer "$feature_arg" "$@" ;;
   *) usage ;;
 esac
