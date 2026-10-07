@@ -1634,7 +1634,13 @@ ROWS
   base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   grep -qF '**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.' <<<"$base" \
     || { echo "the base-branch resolution order altered"; false; }
-  grep -qF 'When `baseBranchOverride` or `--base-branch` is set, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' <<<"$base" \
+  # The pointer's list grows with each feature, so each feature pins its own
+  # names in it, and the sentence's tail.
+  grep -qF 'is set, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' <<<"$base" \
+    || { echo "the skill no longer sends the run to the docs page"; false; }
+  local ptr="${base#*When any of }"
+  ptr="${ptr%% is set, read*}"
+  [[ $ptr == *'`baseBranchOverride`'* && $ptr == *'`--base-branch`'* ]] \
     || { echo "the skill no longer sends the run to the override's rules"; false; }
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
   grep -qF 'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.' <<<"$docs" \
@@ -1658,4 +1664,52 @@ ROWS
   size="${size//[[:space:]]/}"
   [ "$size" -lt 65536 ] \
     || { echo "SKILL.md is $size bytes; keep it under 65,536 — move long rules to pipeline/docs/configuration.md"; false; }
+}
+
+@test "the feature-branch and spec-folder flags are pinned where the operator reads them" {
+  # Feature 041. The two flags are the only way to choose the feature
+  # branch and the spec folder, so each site that states them is pinned:
+  # deleting any one leaves a reader with the old "the spec tool names
+  # everything" picture, or with no resume rule, and nothing goes red. The
+  # skill keeps the rows, the probe lines and pointers; the full rules live
+  # in configuration.md.
+  local flags preflight base b docs changelog
+  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  rows_in "$flags" 'the --branch and --spec-dir flags' <<'ROWS'
+| `--branch <name>` | The feature branch's name |
+| `--spec-dir <path>` | The spec folder; its last segment names the run |
+ROWS
+  preflight="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
+  rows_in "$preflight" 'the probe lines' <<'ROWS'
+Branch       : <featureBranch>  (from --branch)
+Spec folder  : <specDir>  (from --spec-dir)
+ROWS
+  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  local ptr="${base#*When any of }"
+  ptr="${ptr%% is set, read*}"
+  [[ $ptr == *'`--branch`'* && $ptr == *'`--spec-dir`'* ]] \
+    || { echo "the skill no longer sends the run to the two flags' rules"; false; }
+  b="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  grep -qF 'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.' <<<"$b" \
+    || { echo "B no longer sends the run to its --spec-dir rule"; false; }
+  grep -qF 'named `--branch`, else the feature'"'"'s name:' <<<"$b" \
+    || { echo "B no longer names the branch from --branch"; false; }
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  grep -qF 'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.' <<<"$docs" \
+    || { echo "the configuration page lost the two flags"; false; }
+  grep -qF 'They are flags only, with no configuration key: each names one feature, so a value set once would name the same feature on every run.' <<<"$docs" \
+    || { echo "the flags-only reason altered"; false; }
+  grep -qF 'A second fresh run with the same `--spec-dir` stops at pre-flight, because the folder exists: to continue a run, type `--resume`.' <<<"$docs" \
+    || { echo "the configuration page lost the re-run note"; false; }
+  grep -qF 'It passes `--feature-branch <name>` and `--spec-dir <path>` to `preflight.sh` only on a fresh run where `--branch` and `--spec-dir` were typed.' <<<"$docs" \
+    || { echo "pre-flight no longer passes the two arguments on a fresh run only"; false; }
+  grep -qF 'In B, with `--spec-dir`, hand the folder to the spec tool with the seed, as `SPECIFY_FEATURE_DIRECTORY`:' <<<"$docs" \
+    || { echo "B no longer hands the folder to the spec tool"; false; }
+  grep -qF 'Before going on, check that `<folder>/spec.md` exists; a spec written anywhere else stops the run, naming both paths.' <<<"$docs" \
+    || { echo "B no longer checks where the spec was written"; false; }
+  grep -qF 'A `--branch` or `--spec-dir` on a resume that differs from the record is never applied silently — say that the record stands, and name both.' <<<"$docs" \
+    || { echo "the resume rule for the two flags altered"; false; }
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  grep -qF '**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**' <<<"$changelog" \
+    || { echo "the changelog lost the two flags entry"; false; }
 }

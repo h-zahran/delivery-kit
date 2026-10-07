@@ -35,7 +35,7 @@ One new configuration key (`baseBranchOverride`), one new orchestrator flag that
 | File | Change |
 |---|---|
 | `pipeline/scripts/preflight.sh` | New argument, name check, resolution order |
-| `pipeline/skills/pipeline/SKILL.md` | Configuration row, Flags row, pre-flight invocation, git-absent marking, a short **Base branch:** paragraph with a pointer to the docs page; two configuration paragraphs move out, to stay under 65,536 bytes |
+| `pipeline/skills/pipeline/SKILL.md` | Configuration row, Flags row, git-absent marking, a short **Base branch:** paragraph with a pointer to the docs page; two configuration paragraphs move out, to stay under 65,536 bytes |
 | `pipeline/docs/configuration.md` | JSON block, key table, Base branch section with the run's rules, "Resolving the layers" section |
 | `pipeline/README.md`, `README.md` | One flag row each |
 | `pipeline/CHANGELOG.md` | `[Unreleased]` → Added and Changed |

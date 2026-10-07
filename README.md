@@ -393,6 +393,8 @@ resume.
 | `--auto-release` | Collapse release as well. Never implied by `--auto`. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it with `ask`. |
 | `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
+| `--branch <name>` | Name the feature branch. Default: the run's name. |
+| `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
 | `--until <phase>` | Stop cleanly after that phase. State intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
 | `--resume` | Re-enter a live run at the phase it recorded. |
