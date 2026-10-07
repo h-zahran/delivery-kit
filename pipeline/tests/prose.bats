@@ -625,13 +625,13 @@ SPAN
 
 span_l() {
   cat <<'SPAN'
-**L — push and open a pull request. STOPS AND ASKS.** Show the branch name, the PR title and the full body before anything leaves the machine. The body carries the review guide, shown in full with the rest of the body. Degradations: no remote — stop after K and say so. Non-GitHub remote, or no `gh` — push, print the comparison URL, and skip M (there is no pull request to review). Before anything else, a run whose `commits` holds an old-style string entry started on an older pipeline: it builds no guide, says so, and carries on as that pipeline did. `progress.sh guide <feature>` prints the review guide, or nothing for such a run. The review guide is a table with one row per commit in `git rev-list --reverse --first-parent <base>..HEAD`, in that order, each joined by its sha to its entry in the state file's `commits`, with the columns commit, kind, piece, task IDs and files, every row printed, never truncated. An entry in `commits` whose sha is not in `<base>..HEAD` is named and stops the run, even under `--auto`: the guide never shows a row for a commit that is not on the branch; on the owner's answer the run removes those entries with `progress.sh drop-stale <feature>` — the one write to `commits` outside `commit-add` — and records the removal under `gates.L`. Before building it, run `progress.sh record-branch <feature>`: it records, oldest first and each before the next, every commit in `<base>..HEAD` that `commits` does not record, with its files read as K reads them, so no commit is missing from the guide: its kind is read from its `Late:` line, its `Piece:` line for the heading `piece-next` then names, or the subject `docs(spec): <feature>`, and is `other` for any other. A `Piece:` line on a commit without `Late: H.5` whose heading is not the one `piece-next` then names, or a commit with no file and no `Late: J` line, is never recorded, and it stops L as it stops K; a path outside the feature is no reason to leave a commit unrecorded. The table is headed with one line: `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.` It shows each piece name and path as a code span and a `|` as `\|`, and `guide` refuses a cell holding a carriage return or a line feed: that stops L and names the commit, so no piece name or path can break the table or add markup to the body. Whenever M or N pushes to the pull request, the guide table in its body is rebuilt as at L and swapped in, the rest of the body kept as it stands, with `gh pr edit --body-file`, so the body never lists fewer commits than the branch holds. When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped. **M — PR review, capped loop.**
+**L — push and open a pull request. STOPS AND ASKS.** Show the branch name, the PR title and the full body before anything leaves the machine. The body carries the review guide, shown in full with the rest of the body. Degradations: no remote — stop after K and say so. Non-GitHub remote, or no `gh` — push, print the comparison URL, and skip M (there is no pull request to review). Before the push, `progress.sh pending-check <feature>` must exit 0 (see Gates). Before anything else, a run whose `commits` holds an old-style string entry started on an older pipeline: it builds no guide, says so, and carries on as that pipeline did. `progress.sh guide <feature>` prints the review guide, or nothing for such a run. The review guide is a table with one row per commit in `git rev-list --reverse --first-parent <base>..HEAD`, in that order, each joined by its sha to its entry in the state file's `commits`, with the columns commit, kind, piece, task IDs and files, every row printed, never truncated. An entry in `commits` whose sha is not in `<base>..HEAD` is named and stops the run, even under `--auto`: the guide never shows a row for a commit that is not on the branch; on the owner's answer the run removes those entries with `progress.sh drop-stale <feature>` — the one write to `commits` outside `commit-add` — and records the removal under `gates.L`. Before building it, run `progress.sh record-branch <feature>`: it records, oldest first and each before the next, every commit in `<base>..HEAD` that `commits` does not record, with its files read as K reads them, so no commit is missing from the guide: its kind is read from its `Late:` line, its `Piece:` line for the heading `piece-next` then names, or the subject `docs(spec): <feature>`, and is `other` for any other. A `Piece:` line on a commit without `Late: H.5` whose heading is not the one `piece-next` then names, or a commit with no file and no `Late: J` line, is never recorded, and it stops L as it stops K; a path outside the feature is no reason to leave a commit unrecorded. The table is headed with one line: `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.` It shows each piece name and path as a code span and a `|` as `\|`, and `guide` refuses a cell holding a carriage return or a line feed: that stops L and names the commit, so no piece name or path can break the table or add markup to the body. Whenever M or N pushes to the pull request, the guide table in its body is rebuilt as at L and swapped in, the rest of the body kept as it stands, with `gh pr edit --body-file`, so the body never lists fewer commits than the branch holds. When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped. **M — PR review, capped loop.**
 SPAN
 }
 
 span_g() {
   cat <<'SPAN'
-Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), and a run whose state file is tracked in git (see Resume). The pre-flight constitution offer (decision item 9) is one of them, and `--auto` does not collapse it. `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used. Record every gate's answer in the state file's `gates` key.
+Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push. The pre-flight constitution offer (decision item 9) is one of them, and `--auto` does not collapse it. `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used. Record every gate's answer in the state file's `gates` key.
 SPAN
 }
 
@@ -1347,7 +1347,7 @@ PINS
   raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   pins_in "$flat" 'gates' <<'PINS'
-Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), and a run whose state file is tracked in git (see Resume).
+Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push.
 `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used.
 PINS
   assert_span span_g "$flat" 'the conditional-stops paragraph gained, lost or reworded text. An appended exception ("under --auto, K'"'"'s stop for a path outside the feature is collapsed") repeals a stop while leaving its pin intact.' || false
@@ -1528,5 +1528,40 @@ PINS
   do
     grep -qF -- "$want" < <(printf '%s\n' "$rows") \
       || { echo "phases.md's phase table no longer says: $want"; false; }
+  done
+}
+
+# The waiting-question rule, pinned through what bounds it: a question waits
+# only when nothing before the next stop depends on it, a doubt stops the run
+# now, and the queue must be empty before L pushes, under --auto too. A
+# mutant that drops "in doubt" or lets --auto skip the check lets an
+# unanswered question ride into a pull request.
+@test "questions wait only when nothing before the next stop needs them, and never past L" {
+  local raw flat
+  raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  pins_in "$flat" 'questions that wait' <<'PINS'
+A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now.
+At every stop, run `progress.sh pending <feature>` first and ask its questions beside the stop's own; record each reply with `answer <feature> <id> <file>`.
+Before L pushes, `pending-check <feature>` must exit 0: an open question stops the run there, and `--auto` never collapses that stop.
+and a waiting question still open when L would push.
+PINS
+  flat="$(prose_slice '^\*\*L — push and open a pull request\. STOPS AND ASKS\.\*\*' '^\*\*M — ' flat 'phase L')" || return 1
+  grep -qF 'Before the push, `progress.sh pending-check <feature>` must exit 0 (see Gates).' <<<"$flat" \
+    || { echo "phase L no longer runs pending-check before the push"; false; }
+}
+
+@test "phases.md explains the questions that wait" {
+  local doc="$ROOT/pipeline/docs/phases.md" flat want
+  flat="$(awk '/^## Questions that wait$/ { on = 1 } on && /^## / && !/^## Questions that wait$/ { exit } on' "$doc" \
+    | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$flat" ] || { echo 'phases.md has no "## Questions that wait" section'; false; }
+  for want in \
+    'A question may wait only when its answer changes nothing the run does before its next stop' \
+    'When the run cannot tell, the question stops the run at once: a doubt never makes a question wait.' \
+    'an answered question is never asked again, and its answer is never replaced' \
+    'Before L pushes, `pending-check` must pass, under `--auto` too'
+  do
+    grep -qF -- "$want" < <(printf '%s\n' "$flat") || { echo "phases.md's questions section no longer says: $want"; false; }
   done
 }
