@@ -277,6 +277,29 @@ came from, and where it is unset that line is omitted. A key that
 answers a gate's question in advance belongs in the operator's output,
 not only in a file.
 
+## The Implementer line
+
+The run reads this section to render the probe block, as the skill says.
+
+**Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this
+line is rendered from the RESOLVED configuration, not from the script's
+report. Print it whenever the key resolves to a value; omit the line
+entirely when the key is unset. `<implementerSource>` must name the
+LAYER that won, from the resolution order above — print one of
+`~/.delivery-kit.json`, the repository's `.delivery-kit.json`,
+`--config`, or `--implementer`. Record that winning layer beside the
+merged value in the state file's `config` key, the same way the merged
+result itself is recorded: a resume has no command line left to read,
+and re-resolving without one would silently drop a flag-supplied value.
+On a resume, print the recorded layer — unless that command line supplies
+a new `--implementer`, which wins as a flag always does and is what the
+line then names. Never guess a layer. Do NOT borrow `baseBranchSource`'s
+vocabulary: its single word `configured` names no layer, and no flag.
+A key that
+pre-answers a gate changes the run's consent profile, and a tracked
+configuration file must never do that without the operator seeing which
+file it came from.
+
 ## The state directory
 
 Everything the pipeline writes lives under `.delivery-kit/` — one run

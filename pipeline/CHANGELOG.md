@@ -111,10 +111,12 @@ All notable changes to the `pipeline` plugin.
 
 ### Changed
 
-- **Two configuration rules moved from the skill to
+- **Three configuration rules moved from the skill to
   `docs/configuration.md`, word for word.** How a later layer's `null`
   merges, and when an `implementer` value stops the run, are now in the
-  page's "Resolving the layers" section. The skill sends the run there.
+  page's "Resolving the layers" section. How the pre-flight `Implementer`
+  line is rendered is now in its section "The Implementer line". The
+  skill sends the run to both.
   The move keeps `SKILL.md` under 65,536 bytes, the size Git Bash 5.3.9
   can read in a herestring. A test now pins that size.
 

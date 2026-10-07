@@ -177,11 +177,18 @@ PARTS
   # need it", deleting the design's whole safety argument, and stayed green.
   grep -qF 'Implementer  : <claude|handoff|ask>  (from <implementerSource>)' <<<"$probe" \
     || { echo 'the pre-flight Implementer probe line altered or left its block'; false; }
-  grep -qF 'Print it whenever the key resolves to a value; omit the line entirely when the key is unset.' < <(printf '%s\n' "$flat") \
+  # The print rule, the layer rule and the rationale moved, word for word, to
+  # the docs page's "The Implementer line" section, to keep the skill under
+  # 65,536 bytes. The skill's **Implementer:** pointer sends the run there.
+  local implline
+  implline="$(awk '/^## The Implementer line$/,/^## The state directory$/' "$docs" | tr '\n' ' ' | tr -s ' ')"
+  grep -qF '**Implementer:** render this line as "The Implementer line" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says.' < <(printf '%s\n' "$flat") \
+    || { echo 'the skill no longer sends the run to "The Implementer line"'; false; }
+  grep -qF 'Print it whenever the key resolves to a value; omit the line entirely when the key is unset.' < <(printf '%s\n' "$implline") \
     || { echo 'the probe line print rule altered'; false; }
-  grep -qF '`<implementerSource>` must name the LAYER that won' < <(printf '%s\n' "$flat") \
+  grep -qF '`<implementerSource>` must name the LAYER that won' < <(printf '%s\n' "$implline") \
     || { echo 'the implementerSource layer rule altered'; false; }
-  grep -qF 'a tracked configuration file must never do that without the operator seeing which file it came from.' < <(printf '%s\n' "$flat") \
+  grep -qF 'a tracked configuration file must never do that without the operator seeing which file it came from.' < <(printf '%s\n' "$implline") \
     || { echo 'the disclosure rationale altered'; false; }
 
   # Both STRICT surfaces, by whole sentence. Heading-and-fragment coverage let
