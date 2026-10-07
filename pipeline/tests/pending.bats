@@ -239,6 +239,7 @@ checks() {
   [ "$(jq -r '.gates.pending[999].answer' "$SF" | tr -d '\r')" = Yes. ]
   refuses "is not a question id" answer "$F" P01 "$BATS_TEST_TMPDIR/yes"
   refuses "is not a question id" answer "$F" P1x "$BATS_TEST_TMPDIR/yes"
+  refuses "is not a question id" answer "$F" P1a2 "$BATS_TEST_TMPDIR/yes"
 }
 
 @test "a hand-edited id or answer that hides an open question is refused, never read as closed" {
