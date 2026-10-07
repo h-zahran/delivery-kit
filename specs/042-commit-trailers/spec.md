@@ -45,13 +45,13 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 
 **Acceptance Scenarios**:
 
-1. **Given** a trailer with no `:`, a token with characters outside letters, digits and dash, an empty value, or a line break, **When** pre-flight runs, **Then** it exits non-zero and names the trailer and `--trailer`.
+1. **Given** a trailer with no `:`, a token outside `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$`, an empty value, a line break or another control character, **When** pre-flight runs, **Then** it exits non-zero and names the trailer and `(a commit trailer)`. *(Was: names `--trailer`; changed after review 2.)*
 2. **Given** the token `Piece`, `Late` or `Tasks` in any letter case, **When** pre-flight runs, **Then** it exits non-zero and says the token is reserved.
 
 ## Edge Cases
 
 - **A message that already ends in trailers** (`Piece:`, `Late:`). The new trailer joins that paragraph. The `Piece:` or `Late:` line stays whole. Measured.
-- **The same trailer twice.** It is added once (`--if-exists addIfDifferent`). Measured.
+- **The same trailer twice.** It is added once: the script skips a line already in the message's trailer block or earlier in the list. *(Was: `--if-exists addIfDifferent`, measured on `git interpret-trailers`; replaced after review 2.)*
 - **The handoff path.** Commits an external implementer makes are not touched.
 - **git absent.** Decision 11 stops the run. The trailer checks never ask git.
 
@@ -61,7 +61,7 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 
 - **FR-001**: The pipeline MUST accept a `commitTrailers` key and a repeatable `--trailer <token: value>` flag, documented in the orchestrator's Configuration and Flags tables, `pipeline/docs/configuration.md`, `pipeline/README.md` and the repository `README.md`.
 - **FR-002**: The list MUST be the key's trailers, then each flag's, in order. The flag MUST NOT replace the key.
-- **FR-003**: `preflight.sh` MUST accept `--trailer <text>` repeatedly, report `commitTrailers` in order, and refuse a malformed or reserved trailer, naming it and `--trailer`.
+- **FR-003**: `preflight.sh` MUST accept `--trailer <text>` repeatedly, report `commitTrailers` in order, and refuse a malformed, reserved or GitHub-acting trailer, naming it and `(a commit trailer)`. *(Was: `--trailer`; changed after review 2.)*
 - **FR-004**: Every commit the run makes MUST carry the list: the spec commit, each piece, each late commit, J's empty record, K's commits and the constitution's commit.
 - **FR-005**: The `progress.sh` commit subcommands MUST add the list, read from the state file's `config.commitTrailers` as data, through one shared helper. They MUST refuse an entry that is not a one-line string, is malformed, or uses a reserved token, naming it, with no commit made. They MUST NOT rewrite a message file the caller owns.
 - **FR-006**: The list MUST be recorded with each entry's layer, read on a fresh run only, and a different list on a resume MUST be reported, never applied. On a resume the probe line MUST print the recorded list.
@@ -77,7 +77,7 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 
 - The flag ADDS. This is the opposite of Phase 40's "flag beats key". A team's fixed trailers would be lost on every run that tags a task if the flag replaced the key.
 - Between configuration files the key behaves as every key does: a later file's list replaces an earlier one's.
-- The mechanism is `git interpret-trailers`, run by `progress.sh` on a copy of the message file, not `git commit --trailer`. Since `main` = `33bd148` every run commit goes through a `progress.sh` subcommand, and the run never re-creates one by hand.
+- The mechanism is `progress.sh` appending the lines to a copy of the message file, not `git commit --trailer`. *(Was: `git interpret-trailers`; replaced after review 2, item 4.)* Since `main` = `33bd148` every run commit goes through a `progress.sh` subcommand, and the run never re-creates one by hand.
 - A message shown at a gate before its commit does not show the trailers. The commit carries them. The gate wording is not changed: the CTO plans work there.
 
 ### Changed after review 2 (2026-10-08)
@@ -85,5 +85,5 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 - A message shown at K is shown WITH the trailers, through `progress.sh show-message`. The bullet above no longer holds. Reason: K's contract is "commits only what was shown", and a tracked `.delivery-kit.json` could add lines nobody saw.
 - `git interpret-trailers` is replaced by lines the script appends itself. The same trailer is still added once.
 - Refused from every layer, in any letter case: `skip-checks`, `Co-authored-by`, `Signed-off-by`, closing keywords as a token or before an issue number, the `[skip ci]` family, control characters, and tokens outside `^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$`. The full table is in `contracts/trailer-contract.md`.
-- Pre-flight's errors end `(a commit trailer)`, not `(--trailer)`: the value may come from the key. Acceptance scenario 1 reads that way now.
+- Pre-flight's errors end `(a commit trailer)`, not `(--trailer)`: the value may come from the key. Acceptance scenario 1 and FR-003 now read that way.
 - `Tasks` is reserved too. `piece-commit` and `late-commit H.5` write a `Tasks:` line, and `msg_body` already refuses one in a message.

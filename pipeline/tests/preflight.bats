@@ -44,6 +44,13 @@ shimdir() {
   done
 }
 
+# seed — one empty commit in the current repository, so branches can exist.
+# The identity is given on the command line: these repositories have none.
+seed() {
+  git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+    commit -q --allow-empty -m seed
+}
+
 # stub <path> — a program that exists and does nothing. The probe asks only
 # whether a capability can be FOUND, so presence is the whole behaviour.
 stub() {
@@ -164,9 +171,10 @@ stub() {
   # without the override the answer is main — the test above pins that
   # direction — and only the override can make it integration.
   T="$BATS_TEST_TMPDIR/base-override"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   git remote add origin https://github.com/example/thing.git
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git branch integration
   probe --dir "$T" --base-branch trunk --base-branch-override integration
   [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
@@ -174,7 +182,7 @@ stub() {
 
 @test "base branch: the override beats the configured name where there is no remote" {
   T="$BATS_TEST_TMPDIR/base-override-local"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch integration
   probe --dir "$T" --base-branch trunk --base-branch-override integration
   [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
@@ -187,7 +195,7 @@ stub() {
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   probe --dir "$T" --base-branch-override 'two..dots'
   [ "$status" -ne 0 ]
-  [[ "$stderr" == *"'two..dots'"* ]]
+  [[ "$stderr" == *"'two..dots' is not a legal branch name"* ]] || false
   [[ "$stderr" == *"--base-branch-override"* ]]
 }
 
@@ -215,7 +223,7 @@ stub() {
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   probe --dir "$T" --feature-branch 'two..dots'
   [ "$status" -ne 0 ]
-  [[ "$stderr" == *"'two..dots'"* ]]
+  [[ "$stderr" == *"'two..dots'"* ]] || false
   [[ "$stderr" == *"--feature-branch"* ]]
 }
 
@@ -223,11 +231,11 @@ stub() {
   # B cuts the feature branch FROM the base. The same name for both is a
   # run that commits straight onto its integration branch.
   T="$BATS_TEST_TMPDIR/branch-is-base"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch integration
   probe --dir "$T" --base-branch-override integration --feature-branch integration
   [ "$status" -ne 0 ]
-  [[ "$stderr" == *"'integration'"* ]]
-  [[ "$stderr" == *"--feature-branch"* ]]
+  [[ "$stderr" == *"'integration'"* ]] || false
+  [[ "$stderr" == *"--feature-branch"* ]] || false
   [[ "$stderr" == *"base branch"* ]]
 }
 
@@ -245,13 +253,25 @@ stub() {
   T="$BATS_TEST_TMPDIR/specdir-bad"
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   local bad
+  # Later checks catch several of these too, so each case checks its own
+  # reason: a drive letter is also an odd character, for example.
+  local want
   for bad in '/abs/003-thing' 'C:/specs/003-thing' 'specs/../003-thing' \
              './specs/003-thing' 'specs//003-thing' 'specs\team/003-thing' \
              '.delivery-kit/runs/003-thing' 'specs/003 thing'; do
+    case "$bad" in
+      /*|C:*)       want='is not relative to the repository root' ;;
+      *..*)         want='climbs out with ..' ;;
+      ./*|*//*)     want='has an empty or . segment' ;;
+      *\\*)        want='holds a backslash' ;;
+      .delivery-*)  want='is inside the state directory' ;;
+      *)            want='a folder name holds letters, digits, dot, dash, underscore only' ;;
+    esac
     probe --dir "$T" --spec-dir "$bad"
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
     [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
     [[ "$stderr" == *"--spec-dir"* ]] || { echo "argument not named: $bad"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
   done
 }
 
@@ -262,7 +282,7 @@ stub() {
   mkdir -p "$T/specs/003-thing"; cd "$T"; git init -q -b work .
   probe --dir "$T" --spec-dir 'specs/003-thing'
   [ "$status" -ne 0 ]
-  [[ "$stderr" == *"'specs/003-thing'"* ]]
+  [[ "$stderr" == *"'specs/003-thing'"* ]] || false
   [[ "$stderr" == *"already exists"* ]]
 }
 
@@ -275,8 +295,203 @@ stub() {
   printf '{}\n' > "$T/.delivery-kit/runs/003-thing/progress.json"
   probe --dir "$T" --spec-dir 'specs/other/003-thing'
   [ "$status" -ne 0 ]
-  [[ "$stderr" == *"'003-thing'"* ]]
+  [[ "$stderr" == *"'003-thing'"* ]] || false
   [[ "$stderr" == *".delivery-kit/runs/003-thing/progress.json"* ]]
+}
+
+@test "base branch: an override that is not an existing branch's plain name is refused" {
+  # check-ref-format --branch checks syntax only, and expands @ and @{-1}.
+  # Review 2, item 7: the name must come back unchanged, and must be a local
+  # branch or a branch on origin. HEAD is refused by --branch itself; the
+  # looser --allow-onelevel would let it through.
+  T="$BATS_TEST_TMPDIR/base-override-kinds"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git checkout -q -b other; git checkout -q work
+  git tag v1
+  git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/main HEAD
+  local bad
+  for bad in '@' '@{-1}' 'HEAD' 'v1' "$(git rev-parse HEAD)" 'origin/main' 'refs/heads/work' 'nosuch'; do
+    probe --dir "$T" --base-branch-override "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    [[ "$stderr" == *"(--base-branch-override)"* ]] || { echo "argument not named: $bad"; false; }
+    # git expands @ and @{-1} to another name: that is not the typed name.
+    case "$bad" in
+      @*) [[ "$stderr" == *"is not a legal branch name"* ]] || { echo "wrong reason: $bad: $stderr"; false; } ;;
+    esac
+  done
+}
+
+@test "base branch: an override that exists only on origin is refused, naming the command that fixes it" {
+  # B's `git checkout -b <feature> <base>` and every later `<base>..HEAD`
+  # fail on a name that is only origin/<base>: both are measured here, so
+  # the refusal is shown to protect a real step. A fresh clone is in this
+  # state for every branch but the default.
+  T="$BATS_TEST_TMPDIR/base-override-origin-only"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/develop HEAD
+  run git checkout -q -b feat develop
+  [ "$status" -ne 0 ]
+  run git rev-list develop..HEAD
+  [ "$status" -ne 0 ]
+  probe --dir "$T" --base-branch-override develop
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'develop' exists only on origin"* ]] || false
+  [[ "$stderr" == *"git branch --track develop origin/develop"* ]] || false
+  # After that command the same override is accepted.
+  git branch -q --track develop origin/develop
+  probe --dir "$T" --base-branch-override develop
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "develop" ]
+}
+
+@test "base branch: the override is checked in the repository, not in the caller's" {
+  # The check once ran before the cd into --dir, so a branch that existed
+  # only where the caller stood was accepted.
+  T="$BATS_TEST_TMPDIR/base-override-where"
+  mkdir -p "$T/caller" "$T/repo"
+  cd "$T/repo"; git init -q -b work .; seed
+  cd "$T/caller"; git init -q -b work .; seed; git branch only-here
+  probe --dir "$T/repo" --base-branch-override only-here
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'only-here' is not a branch here or on origin"* ]]
+}
+
+@test "feature branch: HEAD, and a name git expands to another, are refused" {
+  T="$BATS_TEST_TMPDIR/branch-head"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git checkout -q -b other; git checkout -q work
+  local bad
+  for bad in 'HEAD' '@{-1}' '@'; do
+    probe --dir "$T" --feature-branch "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad' is not a legal branch name"*"(--feature-branch)"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+}
+
+@test "feature branch: the base from origin/HEAD is refused too, with no override" {
+  # The only other test of the base's own name uses the override path.
+  T="$BATS_TEST_TMPDIR/branch-is-origin-head"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git remote add origin https://github.com/example/thing.git
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  probe --dir "$T" --feature-branch main
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'main' is the base branch 'main'"* ]]
+}
+
+@test "feature branch: the base in another letter case or behind a prefix is refused" {
+  T="$BATS_TEST_TMPDIR/branch-is-base-spelled"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch main
+  local bad
+  for bad in 'MAIN' 'Main' 'origin/main' 'heads/main' 'refs/heads/main' 'remotes/origin/main'; do
+    probe --dir "$T" --base-branch-override main --feature-branch "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad' is the base branch 'main'"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+}
+
+@test "feature branch: a name that exists here or on origin, in any letter case, or clashes as a folder, is refused" {
+  T="$BATS_TEST_TMPDIR/branch-exists"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git branch 003-local
+  git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/003-remote HEAD
+  local bad
+  git branch team
+  git branch deep/one
+  for bad in '003-local' '003-LOCAL' '003-remote' '003-Remote' 'team/x' 'TEAM/x' 'deep'; do
+    probe --dir "$T" --feature-branch "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad' already exists as the branch"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+}
+
+@test "spec folder: without --feature-branch, its last segment gets the branch checks" {
+  # Review 2, item 8. B names the branch after the folder's last segment, so
+  # a segment git refuses as a branch name failed late, at git checkout -b,
+  # and specs/master passed with base master.
+  T="$BATS_TEST_TMPDIR/specdir-as-branch"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch master; git branch 004-taken
+  local bad want
+  for bad in 'specs/foo.lock' 'specs/a..b' 'specs/.hidden' 'specs/master' 'specs/004-taken'; do
+    case "$bad" in
+      */master) want="is the base branch 'master'" ;;
+      */004-taken) want='already exists as the branch' ;;
+      *) want='is not a legal branch name (--spec-dir)' ;;
+    esac
+    probe --dir "$T" --base-branch-override master --spec-dir "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+  # With --feature-branch the folder's segment is not the branch's name.
+  probe --dir "$T" --base-branch-override master --spec-dir 'specs/master' --feature-branch 005-ok
+  [ "$status" -eq 0 ]
+}
+
+@test "spec folder: .git, the state directory in any case, a leading dash and odd characters are refused" {
+  # Review 2, items 6 and 9: every segment is checked, not only the last.
+  T="$BATS_TEST_TMPDIR/specdir-places"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local bad want
+  for bad in '.Delivery-Kit/runs/x' '.delivery-kit/003-thing' '.git/x' '.GIT/hooks/post-commit' 'specs/.git/x' \
+             '-x' 'specs/-x/y' '~/x' 'specs/x:y/z' $'specs/a\tb/c' $'specs/a\eb/c'; do
+    case "$bad" in
+      .[Dd]elivery-[Kk]it/*) want='inside the state directory' ;;
+      *.[Gg][Ii][Tt]/*)      want="inside git's own directory" ;;
+      -*|*/-*)               want='starts with a dash' ;;
+      *)                     want='a folder name holds letters, digits, dot, dash, underscore only' ;;
+    esac
+    probe --dir "$T" --spec-dir "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+}
+
+@test "spec folder: a symbolic link out of the repository, into .git or the state directory, or dangling, is refused" {
+  T="$BATS_TEST_TMPDIR/specdir-link"
+  mkdir -p "$T/repo" "$T/outside"; cd "$T/repo"; git init -q -b work .; seed
+  ln -s "$T/outside" out
+  ln -s .git gitlink
+  probe --dir "$T/repo" --spec-dir 'out/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"leads outside the repository"* ]] || false
+  probe --dir "$T/repo" --spec-dir 'gitlink/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"git's or the run's own directory"* ]] || false
+  # A sibling folder whose name starts with the repository's is outside it.
+  mkdir -p "$T/repo-evil"; ln -s "$T/repo-evil" sibling
+  probe --dir "$T/repo" --spec-dir 'sibling/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"leads outside the repository"* ]] || false
+  # A link into the state directory.
+  mkdir -p .delivery-kit/x; ln -s .delivery-kit/x statelink
+  probe --dir "$T/repo" --spec-dir 'statelink/003-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"git's or the run's own directory"* ]] || false
+  # A link that points nowhere, in the folder's own place.
+  mkdir -p specs; ln -s "$T/nowhere" specs/004-dangling
+  probe --dir "$T/repo" --spec-dir 'specs/004-dangling'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'specs/004-dangling' already exists"* ]]
+}
+
+@test "spec folder: a trailing slash is dropped; a file in its place is refused" {
+  T="$BATS_TEST_TMPDIR/specdir-shapes"
+  mkdir -p "$T/specs"; cd "$T"; git init -q -b work .; seed
+  probe --dir "$T" --spec-dir 'specs/003-thing/'
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.specDir' <<<"$output")" = "specs/003-thing" ]
+  printf 'x\n' > specs/004-file
+  probe --dir "$T" --spec-dir 'specs/004-file'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'specs/004-file' already exists"* ]] || false
+  printf 'x\n' > specs/notdir
+  probe --dir "$T" --spec-dir 'specs/notdir/005-thing'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"which is not a folder"* ]]
 }
 
 @test "trailers: without the argument the list is reported empty" {
@@ -343,10 +558,11 @@ stub() {
   local bad want
   for bad in 'skip-checks: true' 'Note: [skip ci]' 'Note: a [CI Skip] b' 'Note: [no ci]' \
              'Note: [Skip Actions]' 'Note: [actions skip]' 'Co-authored-by: A <a@example.invalid>' \
-             'signed-off-by: A <a@example.invalid>' 'Fixes: #1' 'Closes: owner/repo#1' 'Note: this fixes #12'; do
+             'signed-off-by: A <a@example.invalid>' 'Fixes: #1' 'Closes: owner/repo#1' 'Note: this fixes #12' \
+             'Note: fixes: #1' 'Note: closes o/r#1'; do
     case "$bad" in
       skip-checks*|Co-*|signed-*|Fixes*|Closes*) want='which acts on GitHub or names another author' ;;
-      *'#12') want='would close an issue' ;;
+      *'#12'|*'#1') want='would close an issue' ;;
       *) want='asks GitHub to skip the checks' ;;
     esac
     probe --dir "$T" --trailer "$bad"

@@ -71,7 +71,8 @@ Resolve once, at pre-flight, in this order — later beats earlier:
 There are NO environment-variable overrides for pipeline keys. Record
 the merged result in the state file's `config` key so resume does not
 re-resolve differently — `codeRoots` as resolved, never `null`, since
-`late-commit` and `commit-list` read it.
+`late-commit` and `commit-list` read it. Record `commitTrailers` as
+pre-flight reports it, never the key's list alone.
 
 For how layers merge and when a value stops the run, follow "Resolving
 the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
@@ -128,10 +129,14 @@ this tool does, and one flag must not mean both "commit for me" and
 ## Pre-flight
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
-`--project-type`/`--base-branch` only when configuration set them),
+`--project-type`/`--base-branch` only when configuration set them; add
+`--base-branch-override`, `--feature-branch`, `--spec-dir` and
+`--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read
+before this call — the `--base-branch` flag goes as
+`--base-branch-override`, never as `--base-branch`),
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below,
-and the Branch, Spec folder and Trailers lines only when set:
+and the Branch, Spec folder and Trailers lines only when set or recorded:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
@@ -290,9 +295,11 @@ through 10 keep the numbers they have always had.
 
 **Base branch:** the resolution order is the override, then
 `origin/HEAD`, then the configured `baseBranch`, then the current branch
-when there is no remote. `baseBranchSource` names the winner — print it.
+when there is no remote. `baseBranchSource` names the winner — print it,
+except `override`: print the layer that set it, never that word.
 When any of `baseBranchOverride`, `--base-branch`, `--branch`,
-`--spec-dir`, `commitTrailers` or `--trailer` is set, read
+`--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed
+run's state file records one, read
 `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.
 
 **Implementer:** render this line as "The Implementer line" in
@@ -900,6 +907,8 @@ The `implementer` key can arrive from a tracked `.delivery-kit.json`
 somebody else wrote, in a repository just cloned, and it removes the
 implementer question without anyone at the keyboard choosing that.
 That gap is why pre-flight prints the Implementer line and its layer.
+`baseBranchOverride` and `commitTrailers` can arrive the same way, so
+the Base branch and Trailers lines name their layer too.
 `--auto-release` is
 still required before anything publishes unasked.
 

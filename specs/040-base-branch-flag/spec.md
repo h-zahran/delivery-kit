@@ -75,3 +75,9 @@ An operator who resumes a run, typing a different `--base-branch`, is told that 
 
 - A NEW key, not a change to `baseBranch`. A base branch is a fact about a repository, so it belongs in a committed configuration file, set once. But changing the existing key's precedence would change the meaning of every tracked `.delivery-kit.json` that sets it today.
 - The orchestrator flag is named `--base-branch`, and the script argument `--base-branch-override`. The script's existing `--base-branch` already means "configured", and loses to `origin/HEAD` by design. The script reports `override` for both spellings because it never reads configuration; the orchestrator, which resolved the layers, names the layer.
+
+## Changed after review 2 (2026-10-08)
+
+- The override must be a LOCAL branch. Review 2 asked for "here or on `origin`", but review 3 measured that `git checkout -b <f> <base>` and `<base>..HEAD` fail (rc 128) on a name that is only `origin/<base>`. That case is refused with the command `git branch --track <base> origin/<base>`. Also, and `git check-ref-format --branch` must print it back unchanged. A lone `@` is refused by name: git creates the branch, but reads `@` as `HEAD` in a revision. A tag, a commit id, `origin/main` and `refs/heads/main` are refused. The check runs after the cd into `--dir` (item 7).
+- The Base branch line names the layer that set the override, never the word `override` (item 11). The layers are the flag, `~/.delivery-kit.json`, the repository's `.delivery-kit.json` and `--config` (item 12).
+- `SKILL.md`'s pre-flight call names `--base-branch-override`, and says the `--base-branch` flag goes as that argument (item 2).

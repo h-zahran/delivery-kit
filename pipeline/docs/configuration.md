@@ -102,14 +102,20 @@ default; everywhere else it is documentation of intent, not an override.
 The override beats the remote's default and this key. It has two
 spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
 flag, which beats the key. Pre-flight reports the override's source as
-`override` and names the layer that set it. Set the key once, in the
-repository's `.delivery-kit.json`, when a team cuts feature branches
-from an integration branch while the remote publishes another default;
-type the flag for a single run. The override is read on a fresh run
-only. The run records the base it used, and a resume keeps that record;
-a different name on a resume is reported, never applied silently. A
-name git would not accept as a branch name stops pre-flight, naming it.
-Like `verifyCommand`, the key can be replaced by a later layer but not
+`override`, and the probe line names the layer that set it. Set the key
+once, in the repository's `.delivery-kit.json`, when a team cuts feature
+branches from an integration branch while the remote publishes another
+default; type the flag for a single run. The override is read on a fresh
+run only. The run records the base it used, and a resume keeps that
+record; a different name on a resume is reported, never applied
+silently. A name git would not accept as a branch name stops pre-flight,
+naming it, and so does a name git expands to another, such as `@{-1}`, a
+lone `@`, which git reads as `HEAD`, and a name that is not a local
+branch: a tag, a commit id, `origin/main` or `refs/heads/main` is not
+one. A branch that exists only on `origin`, as in a fresh clone, is
+refused with the command that creates it, `git branch --track <name>
+origin/<name>`: B cuts the feature branch from the local branch. Like
+`verifyCommand`, the key can be replaced by a later layer but not
 returned to unset, because `null` is silence: remove it from the file
 that set it.
 
@@ -138,15 +144,22 @@ name may hold `/`. They are flags only, with no configuration key: each
 names one feature, so a value set once would name the same feature on
 every run. A caller that builds the names from its own settings passes
 them as flags. Pre-flight stops on a bad value, naming it: a branch name
-git would not accept, or the base branch's own name; a spec folder that
-is absolute, climbs out with `..`, sits under `.delivery-kit/`, already
-exists, or whose run name already has a state file. Both are read on a
-fresh run only. A resume keeps the branch and the folder the run
-recorded, and a different value on a resume is reported, never applied
-silently. A second fresh run with the same `--spec-dir` stops at
-pre-flight, because the folder exists: to continue a run, type
-`--resume`. On a resume, pre-flight prints the branch and the folder the
-run recorded.
+git would not accept or would expand, the base branch's own name in any
+letter case or behind `origin/`, `heads/` or `refs/heads/`, or a branch
+that already exists here or on `origin`, in any letter case, or that
+clashes with one as a folder (`team` and `team/x`); a spec folder that
+is absolute, climbs out with `..`, has a segment that starts with a dash
+or holds a character other than letters, digits, dot, dash and
+underscore, sits under `.delivery-kit/` or `.git` in any letter case,
+leads through a symbolic link out of the repository or into either of
+those two, already exists, or whose run name already has a state file.
+Without `--branch`, the folder's last segment names the branch, so it
+gets the branch checks too. Both are read on a fresh run only. A resume
+keeps the branch and the folder the run recorded, and a different value
+on a resume is reported, never applied silently. A second fresh run with
+the same `--spec-dir` stops at pre-flight, because the folder exists: to
+continue a run, type `--resume`. On a resume, pre-flight prints the
+branch and the folder the run recorded.
 
 What the run does with the two flags:
 
@@ -154,10 +167,11 @@ What the run does with the two flags:
   `preflight.sh` only on a fresh run where `--branch` and `--spec-dir`
   were typed.
 - The probe block prints a `Branch` line and a `Spec folder` line, each
-  only when its value (`featureBranch`, `specDir`) is not empty. When git
-  is absent, the `Branch` line is typed and IS established, but git did
-  not check that it is a legal branch name: print it, and add that it was
-  not checked. `Spec folder` needs no mark: its checks never ask git.
+  only when its value (`featureBranch`, `specDir`) is not empty. When
+  git is absent, the `Branch` line is typed and IS established, but git
+  did not check that it is a legal branch name: print it, and add that
+  it was not checked. `Spec folder` needs no mark: its checks never ask
+  git.
 - The run name and the branch are separate values in the state file, so
   a branch name may hold `/` where a run name may not.
 - In B, with `--spec-dir`, hand the folder to the spec tool with the
@@ -168,43 +182,44 @@ What the run does with the two flags:
 - B runs `progress.sh init` with the branch name about to be created:
   `--branch` when it was typed, else the feature's name. B cuts the
   feature branch with that name.
-- B records the branch in the state file and the folder in
-  `artifacts.spec`, and a resume uses the record. A `--branch` or
-  `--spec-dir` on a resume that differs from the record is never applied
-  silently — say that the record stands, and name both.
+- B records the branch in the state file, and the folder through
+  `artifacts.spec`, which holds the path of `<folder>/spec.md`. A resume
+  uses the record. A `--branch` or `--spec-dir` on a resume that differs
+  from the record is never applied silently — say that the record
+  stands, and name both.
 - On a resume pre-flight gets no `--feature-branch` or `--spec-dir`, so
-  print the Branch and Spec folder lines from the record: the branch from
-  the state file and the folder from `artifacts.spec`, each marked as
-  recorded.
+  print the Branch and Spec folder lines from the record: the branch
+  from the state file and the folder that holds the `spec.md` named by
+  `artifacts.spec`, each marked as recorded. On a resume the Base branch
+  line prints the recorded base, marked as recorded.
 
 ## Commit trailers
 
-A trailer is one `<token>: <value>` line at the end of a commit
-message, such as `Task: <id>` or `Reviewed-by: <name>`. The
-`commitTrailers` key lists the trailers every commit the run makes
-carries. Set it once in the repository's `.delivery-kit.json` for a
-team's fixed trailers. The `--trailer <token: value>` flag adds one
-trailer for one run, and can be repeated. **The flag adds to the key
-and never replaces it**: the list is the key's trailers, then the
-flags', in order. Between configuration files the key behaves as every
-key does: a later file's list replaces an earlier one's. Pre-flight
-prints each trailer and the layer that set it, and stops on a bad one,
-naming it: no `:`, a token that does not start with a
-letter, end with a letter or a digit and hold only letters, digits and
-dash, an empty value, a line break or other control character, or the
-token `Piece`, `Late` or
-`Tasks` in any letter case, which the run uses as its own markers.
-It also stops, from any layer, on a trailer that would act on GitHub or
-name another author: the token `skip-checks`, `Co-authored-by` or
-`Signed-off-by`; a closing keyword (`Close`, `Closes`, `Closed`, `Fix`,
-`Fixes`, `Fixed`, `Resolve`, `Resolves`, `Resolved`) as the token, or
-before an issue number in the value; and a value holding `[skip ci]`,
-`[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each is
-matched in any letter case. The commit subcommands refuse the same set. Every
-commit the run makes carries the list, the spec commit included, and
-the same trailer is never added twice. The list is read on a fresh run
-only. A resume keeps the list the run recorded, and a different list on
-a resume is reported, never applied silently.
+A trailer is one `<token>: <value>` line at the end of a commit message,
+such as `Task: <id>` or `Reviewed-by: <name>`. The `commitTrailers` key
+lists the trailers every commit the run makes carries. Set it once in
+the repository's `.delivery-kit.json` for a team's fixed trailers. The
+`--trailer <token: value>` flag adds one trailer for one run, and can be
+repeated. **The flag adds to the key and never replaces it**: the list
+is the key's trailers, then the flags', in order. Between configuration
+files the key behaves as every key does: a later file's list replaces an
+earlier one's. Pre-flight prints each trailer and the layer that set it,
+and stops on a bad one, naming it: no `:`, a token that does not start
+with a letter, end with a letter or a digit and hold only letters,
+digits and dash, an empty value, a line break or other control
+character, or the token `Piece`, `Late` or `Tasks` in any letter case,
+which the run uses as its own markers. It also stops, from any layer, on
+a trailer that would act on GitHub or name another author: the token
+`skip-checks`, `Co-authored-by` or `Signed-off-by`; a closing keyword
+(`Close`, `Closes`, `Closed`, `Fix`, `Fixes`, `Fixed`, `Resolve`,
+`Resolves`, `Resolved`) as the token, or before an issue number in the
+value; and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip
+actions]` or `[actions skip]`. Each is matched in any letter case. The
+commit subcommands refuse the same set. Every commit the run makes
+carries the list, the spec commit included, and the same trailer is
+never added twice. The list is read on a fresh run only. A resume keeps
+the list the run recorded, and a different list on a resume is reported,
+never applied silently.
 
 What the run does with trailers:
 
@@ -214,20 +229,20 @@ What the run does with trailers:
   not empty. It names each trailer's layer: the configuration file by
   path, or `--trailer`.
 - It records the list pre-flight reports with `progress.sh state-set
-  <feature> config commitTrailers '<json array>'`, and each entry's layer,
-  in the same order, as `config.commitTrailersFrom`. This record replaces
-  the key's own list in `config`: it holds the key's trailers and the
-  flags', never the key's alone.
+  <feature> config commitTrailers '<json array>'`, and each entry's
+  layer, in the same order, as `config.commitTrailersFrom`. This record
+  replaces the key's own list in `config`: it holds the key's trailers
+  and the flags', never the key's alone.
 - The commit subcommands add the list themselves: `spec-commit`,
   `piece-commit`, `late-commit` (J's `--record` included) and
   `remainder-commit`. They read it from the state file as data. The run
-  never adds a trailer by hand. A message shown at a gate before its commit is shown with the
-trailers, as `progress.sh show-message <feature> <message file>`
-prints it, so the answer covers every line the commit carries. The
-subcommands append the lines themselves, so no `trailer.*` setting in
-git's configuration renames, moves or runs on them. A trailer
-  joins the `Tasks:`, `Piece:` or `Late:` lines when the message ends
-  with them, so each stays a whole line.
+  never adds a trailer by hand. A message shown at a gate before its
+  commit is shown with the trailers, as `progress.sh show-message
+  <feature> <message file>` prints it, so the answer covers every line
+  the commit carries. The subcommands append the lines themselves, so no
+  `trailer.*` setting in git's configuration renames, moves or runs on
+  them. A trailer joins the `Tasks:`, `Piece:` or `Late:` lines when the
+  message ends with them, so each stays a whole line.
 - Commits an external implementer makes on the handoff path are its own,
   and are not touched.
 - On a resume, pre-flight gets no `--trailer`, so print the Trailers

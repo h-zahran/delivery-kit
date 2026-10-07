@@ -4,3 +4,11 @@
 - [X] T002 One sentence in `pipeline/docs/configuration.md`; one in the Phase 41 entry of `pipeline/CHANGELOG.md`.
 - [X] T003 Two pins in the Phase 41 test of `pipeline/tests/prose.bats`.
 - [X] T004 Two mutations, each landed, each red.
+
+## After review 2 (2026-10-08)
+
+- [X] T005 Widen the `SKILL.md` pointer to a resumed run's state file, and print the probe lines "only when set or recorded".
+- [X] T006 Pin the pointer whole in the three prose tests that read it.
+- [X] T007 Name the folder that holds `artifacts.spec`; on a resume, print the recorded base.
+- [X] T008 Add `plan.md`, the contract and the checklist.
+- [X] T009 Mutations for T005 and T006, each landed, each red (`quickstart.md`).
