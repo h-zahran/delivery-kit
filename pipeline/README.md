@@ -145,6 +145,7 @@ cleanup is your call.
 | `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
 | `--branch <name>` | Name the feature branch. Default: the run's name. |
 | `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
+| `--trailer <token: value>` | Add a trailer to every commit. Adds to the `commitTrailers` key. Repeat for more. |
 | `--config <path>` | Merge a JSON file over the resolved settings. |
 
 ## Requirements

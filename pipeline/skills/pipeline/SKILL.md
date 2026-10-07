@@ -86,6 +86,7 @@ the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 | `baseBranchOverride` | unset | Beats `origin/HEAD` |
 | `projectType` | detected | `web`, `mobile-android`, `other` |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
+| `commitTrailers` | unset | Trailers on every commit the run makes |
 | `maxClarifyPasses` | 3 | Phase C cap |
 | `maxAnalyzeIters` | 5 | Phase F cap |
 | `maxReviewRounds` | 3 | Phase M cap |
@@ -118,6 +119,7 @@ rather than silent.
 | `--base-branch <name>` | The base branch; beats `baseBranchOverride` |
 | `--branch <name>` | The feature branch's name |
 | `--spec-dir <path>` | The spec folder; its last segment names the run |
+| `--trailer <token: value>` | One more trailer; adds to `commitTrailers` |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -129,7 +131,7 @@ Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
 `--project-type`/`--base-branch` only when configuration set them),
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below,
-and the Branch and Spec folder lines only when set:
+and the Branch, Spec folder and Trailers lines only when set:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
@@ -139,6 +141,7 @@ git          : <present / ABSENT — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
+Trailers     : <each trailer>  (from <its layer>)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
@@ -288,8 +291,8 @@ through 10 keep the numbers they have always had.
 **Base branch:** the resolution order is the override, then
 `origin/HEAD`, then the configured `baseBranch`, then the current branch
 when there is no remote. `baseBranchSource` names the winner — print it.
-When any of `baseBranchOverride`, `--base-branch`, `--branch` or
-`--spec-dir` is set, read
+When any of `baseBranchOverride`, `--base-branch`, `--branch`,
+`--spec-dir`, `commitTrailers` or `--trailer` is set, read
 `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.
 
 **Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this
