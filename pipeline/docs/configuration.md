@@ -13,6 +13,27 @@ individual flags. **There are no environment-variable overrides for
 context-guard keys need environment overrides because a hook cannot ask
 a question, and the pipeline can always ask.
 
+## Resolving the layers
+
+The run reads this section at every resolution, as the skill says.
+
+A later layer's `null` is silence, not an override: it leaves the earlier
+layer's value standing, exactly as an absent key would. To take an
+inherited `implementer` back to a stopping gate, set the later layer to
+`ask` — that is what the value is for, and it is the only spelling that
+overrides toward the stop. Note the consequence for the keys that have no
+such value: `verifyCommand`, `releaseCommand` and `devCommand` can be
+REPLACED by a later layer but never returned to unset, because `null`
+there is silence too. Say so when it bites; never pretend a `null`
+cleared one.
+
+Resolution validates as it goes. An `implementer` that resolves to a
+value which is none of `claude`, `handoff` or `ask` — unset is not a
+value and never stops anything — stops the run HERE,
+before pre-flight's decision walk begins, and so before either of its
+offered writes can leave dirt no artefact claims. Pre-flight decision
+item 10 anchors that rule; this is where it fires.
+
 ## Keys
 
 ```json
@@ -23,6 +44,7 @@ a question, and the pipeline can always ask.
     "analyzeCommand": null,
     "codeRoots": null,
     "baseBranch": null,
+    "baseBranchOverride": null,
     "projectType": null,
     "commitStyle": "conventional",
     "maxClarifyPasses": 3,
@@ -52,6 +74,7 @@ before it spends it.
 | `analyzeCommand` | Static analysis; phases J and N run it. |
 | `codeRoots` | Where implementation lives: the simplify phase's scope, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
+| `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
@@ -73,6 +96,33 @@ pre-flight report names which source won. Note the consequence plainly:
 **in a repository whose remote publishes a default branch, that default
 wins over this key.** Set the key for repositories without a remote
 default; everywhere else it is documentation of intent, not an override.
+
+The override beats the remote's default and this key. It has two
+spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
+flag, which beats the key. Pre-flight reports the override's source as
+`override` and names the layer that set it. Set the key once, in the
+repository's `.delivery-kit.json`, when a team cuts feature branches
+from an integration branch while the remote publishes another default;
+type the flag for a single run. The override is read on a fresh run
+only. The run records the base it used, and a resume keeps that record;
+a different name on a resume is reported, never applied silently. A
+name git would not accept as a branch name stops pre-flight, naming it.
+Like `verifyCommand`, the key can be replaced by a later layer but not
+returned to unset, because `null` is silence: remove it from the file
+that set it.
+
+What the run does with the override:
+
+- It passes `--base-branch-override <name>` to `preflight.sh` only when
+  `--base-branch` was typed or `baseBranchOverride` resolves to a value,
+  the flag's value when both.
+- `preflight.sh` reports the source as `override` and cannot tell which
+  layer set it, so the probe line names the layer that set it — the
+  flag, or the configuration file by path, never a guess.
+- B records the base in the state file, and the feature branch is cut
+  from it. A resume uses the recorded base. An override on a resume that
+  names a different branch is never applied silently — say that the
+  recorded base stands, and name both.
 
 ## The implementer key
 

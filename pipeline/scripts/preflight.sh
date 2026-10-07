@@ -24,15 +24,23 @@ die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
-dir="."; ptype_override=""; base_configured=""
+dir="."; ptype_override=""; base_configured=""; base_override=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)          dir="${2:?--dir needs a path}"; shift 2 ;;
     --project-type) ptype_override="${2:?--project-type needs a value}"; shift 2 ;;
     --base-branch)  base_configured="${2:?--base-branch needs a name}"; shift 2 ;;
-    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch)" ;;
+    --base-branch-override) base_override="${2:?--base-branch-override needs a name}"; shift 2 ;;
+    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override)" ;;
   esac
 done
+# The override is what a person typed for this run, so it is checked here
+# rather than trusted: git decides what a legal branch name is. Without git
+# the run stops at decision 11 anyway, and the name is reported unchecked.
+if [ -n "$base_override" ] && command -v git >/dev/null 2>&1 \
+   && ! git check-ref-format --branch "$base_override" >/dev/null 2>&1; then
+  die "'$base_override' is not a legal branch name (--base-branch-override)"
+fi
 cd "$dir" 2>/dev/null || die "cannot enter '$dir'"
 
 # --- project type ----------------------------------------------------------
@@ -161,8 +169,15 @@ if [ -f "$const_file" ]; then
 fi
 
 # --- git facts ---------------------------------------------------------------
+# An override wins over everything, origin/HEAD included: it is the one way
+# to branch from an integration branch in a repository whose remote
+# publishes a different default. It reaches this script from the
+# baseBranchOverride key or the --base-branch flag; this script cannot tell
+# which, so it reports `override` and the orchestrator names the layer.
 base=""; base_source=""
-if b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+if [ -n "$base_override" ]; then
+  base="$base_override"; base_source="override"
+elif b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
   base="${b#origin/}"; base_source="origin/HEAD"
 elif [ -n "$base_configured" ]; then
   base="$base_configured"; base_source="configured"

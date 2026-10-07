@@ -155,6 +155,38 @@ stub() {
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "origin/HEAD" ]
 }
 
+@test "base branch: an override beats origin/HEAD, and is reported as an override" {
+  # The positive control for the override. origin/HEAD is published, so
+  # without the override the answer is main — the test above pins that
+  # direction — and only the override can make it integration.
+  T="$BATS_TEST_TMPDIR/base-override"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  git remote add origin https://github.com/example/thing.git
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  probe --dir "$T" --base-branch trunk --base-branch-override integration
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
+}
+
+@test "base branch: the override beats the configured name where there is no remote" {
+  T="$BATS_TEST_TMPDIR/base-override-local"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --base-branch trunk --base-branch-override integration
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
+}
+
+@test "base branch: an override git would not accept as a branch name is refused, naming it" {
+  # git check-ref-format decides what is legal, so the rule is git's and is
+  # not restated here. The message names the value and the argument both.
+  T="$BATS_TEST_TMPDIR/base-override-bad"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --base-branch-override 'two..dots'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'two..dots'"* ]]
+  [[ "$stderr" == *"--base-branch-override"* ]]
+}
+
 @test "stdout is pure JSON even when stderr is talking" {
   probe --dir "$FIX/other" --base-branch main
   jq -e . <<<"$output" > /dev/null
