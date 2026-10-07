@@ -28,7 +28,7 @@ STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -1630,6 +1630,64 @@ cmd_state_set() {
   fi
 }
 
+# --- questions that wait ------------------------------------------------------
+# ask-later, pending, answer and pending-check keep the run's waiting
+# questions in gates.pending. A question whose answer changes nothing the
+# run does before its next stop waits there, and every open one is asked at
+# the next stop — at the latest before L pushes, where pending-check stops
+# the run while one is open, under --auto too. An entry is open exactly when
+# it has no "answer" key. An answered entry stays as the record: it is never
+# asked again, and its answer is never replaced. Only these commands write
+# gates.pending; state-set refuses to.
+
+# text_file <file> <what> — the file's text, in TEXT. It must exist, be
+# readable, hold no control character but tab and line feed (counted from
+# the bytes, so a CR is refused on every system, and an ESC sequence cannot
+# reach the owner's terminal through pending), and not be blank.
+text_file() {
+  if [ ! -f "$1" ] || [ ! -r "$1" ]; then die "the $2 file does not exist or cannot be read: $1"; fi
+  if [ "$(LC_ALL=C tr -cd '\000-\010\013-\037\177' < "$1" | wc -c)" -ne 0 ]; then
+    die "the $2 file $1 holds a control character: only tab and line feed are allowed"
+  fi
+  TEXT="$(cat -- "$1")"
+  [[ $TEXT == *[![:space:]]* ]] || die "the $2 file $1 is empty"
+}
+
+# pending_ok <state file> — dies unless gates.pending is absent or a list of
+# entries, each an object with a string id, phase and question, and a string
+# answer when it has one. A queue that cannot be read is never read as empty.
+PENDING_OK_JQ='(.gates.pending? // []) | if type == "array" and all(.[]; type == "object" and (.id | type) == "string" and (.phase | type) == "string" and (.question | type) == "string" and ((has("answer") | not) or (.answer | type) == "string")) then "ok" else "bad" end'
+pending_ok() {
+  local v
+  v="$(jqs "$PENDING_OK_JQ" "$1")" || die "$1 could not be read for gates.pending"
+  [ "$v" = ok ] || die "$1: gates.pending is not a list of questions (each an object with a string id, phase and question)"
+}
+
+# ask-later <feature> <phase> <question file> — queues the question and
+# prints its id. The same text from the same phase is queued once: a
+# re-entered phase gets the existing id back, answered or not.
+cmd_ask_later() {
+  feature="$1"; local phase="${2:-}" qf="${3:-}" qtext id n
+  [ $# -eq 3 ] || die "usage: ask-later <feature> <phase> <question-file>"
+  if ! phase_known "$phase" || [ "$phase" = DONE ]; then die "unknown phase '$phase'"; fi
+  sf="$(cmd_validate "$feature")"
+  pending_ok "$sf"
+  text_file "$qf" question; qtext="$TEXT"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  id="$(jqs --arg p "$phase" --arg q "$qtext" '[(.gates.pending? // [])[] | select(.phase == $p and .question == $q) | .id][0] // ""' "$sf")" \
+    || die "$sf could not be read for gates.pending"
+  if [ -n "$id" ]; then
+    warn "that question is already queued as $id: it is not queued again"
+    printf '%s\n' "$id"; return 0
+  fi
+  n="$(jqs '(.gates.pending? // []) | length' "$sf")" || die "$sf could not be read for gates.pending"
+  id="P$((n + 1))"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  state_write "$sf" '.gates.pending = ((.gates.pending // []) + [{id: $id, phase: $p, question: $q, askedAt: $at}])' \
+    --arg id "$id" --arg p "$phase" --arg q "$qtext" --arg at "$(now)"
+  printf '%s\n' "$id"
+}
+
 # --- suite results ------------------------------------------------------------
 # suite-key, suite-record and suite-lookup keep a full run of testCommand
 # per exact tree, so J, N and a later run's F.5 can cite a GREEN result on a
@@ -1869,5 +1927,6 @@ case "$cmd" in
   suite-key)     shift 2; cmd_suite_key "$feature_arg" "$@" ;;
   suite-record)  shift 2; cmd_suite_record "$feature_arg" "$@" ;;
   suite-lookup)  shift 2; cmd_suite_lookup "$feature_arg" "$@" ;;
+  ask-later)     shift 2; cmd_ask_later "$feature_arg" "$@" ;;
   *) usage ;;
 esac
