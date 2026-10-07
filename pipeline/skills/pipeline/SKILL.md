@@ -41,10 +41,9 @@ are your hands, and the state file is your memory.
   exception).
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
-  entry is its own board item. The board is surfaced in replies — a
-  twenty-phase run is long enough that "where are we" is a real
-  question. `pipeline:status` renders the same board from the state file
-  for a session that has lost the thread.
+  entry is its own board item. The board is surfaced in replies.
+  `pipeline:status` renders the same board from the state file for a
+  session that has lost the thread.
 - **Metrics:** at each phase boundary run `progress.sh metrics
   <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json`
   from the state file and keeps keys you add with `jq` (findings fixed
@@ -402,6 +401,14 @@ iterations. A cap breach is a conditional stop. Log each iteration in
 in `test_baseline` — the failures that exist BEFORE this feature are not
 this feature's failures, and J classifies against this record.
 
+Every full `testCommand` run is bracketed: `progress.sh suite-key
+<feature>` before it, its stdout and stderr in one file in the run
+directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a
+refusal, only means nothing is kept). F.5, J and N may cite, by path and counts,
+a `suite-lookup <feature>` that exits 0 — a GREEN result for this
+identical clean tree and command — instead of running; red or missing,
+run.
+
 **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 it: implement with Claude here, or produce a handoff package for a
 cheaper model. The package's forbidden list is DERIVED, not hardcoded:
@@ -466,19 +473,18 @@ does not ask it: that run started before the review question existed, or
 on the handoff path, and it keeps the single-commit flow for its life —
 it is never migrated mid-run.
 
-The package carries seven parts, each present by name — the handoff
-plugin's field-tested shape, adapted into a brief for another model:
+The package carries seven parts, each present by name:
 
 - **Files to provide** — a table of the spec artefacts (spec, plan,
   tasks, research, contracts, quickstart, data-model where present)
   with absolute paths, each verified to exist before the package is
-  written; the verification is stated in the package.
+  written, as the package states.
 - **Repository state** — the branch (checked out), the tree state, and
   the verbatim baselines recorded at F.5 (test counts), plus the
   analyzer baseline where one exists — so any new failure is provably
-  the implementer's. The package instructs its reader to reconcile
-  these claims against the actual git state before touching anything,
-  and to stop on a mismatch.
+  the implementer's. The package tells its reader to reconcile these
+  claims with the git state before touching anything, and to stop on a
+  mismatch.
 - **Instructions** — task order and phase groupings from the tasks
   file; `[P]`-marked tasks in the same phase may run concurrently,
   capped by `maxParallelAgents`, never two on one file (the package
@@ -702,7 +708,8 @@ message — contract compliance, security, tests — per that skill's
 contract. Fixes fan out, and I ends with its late commit (see H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
-`testCommand`. Classify every failure against `test_baseline`:
+`testCommand`, or cite as F.5 allows. Classify every failure against
+`test_baseline`:
 pre-existing failures are reported, not owned; new failures are this
 run's to fix. Fixes for independent failures fan out. Loop until clean
 against baseline, at most `maxVerifyIters` iterations; a cap breach is a
@@ -872,7 +879,8 @@ finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
 conditional stop.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
-`testCommand` again, classify against baseline, commit fixes
+`testCommand` again (or cite, as F.5 allows), classify against
+baseline, commit fixes
 (`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER
 SKIPPED: without a pull request it
 still runs both commands, still classifies, still commits — it just has
@@ -894,19 +902,16 @@ the human as surely as marking it resolved would.
 | `mobile-android` | Invoke `pipeline:device-verify` (build, install, navigate, screenshot, read back; needs `adb` and exactly one attached device) |
 | `other` | Run `verifyCommand`, demand an artefact, read it |
 
-Route mapping is best-effort and says so: map changed files to routes by
-the framework's convention where one exists; otherwise report the
-mapping failed and check the entry route only. If no server command
+Route mapping is best-effort and says so: map changed files to routes by the framework's convention, else report the mapping failed and check the entry route only. If no server command
 resolves for a web project, say so and fall through to the
 `verifyCommand` strategy rather than guessing — an invented command that
 appears to hang is worse than an honest skip. If no strategy applies
 and `verifyCommand` is unset, print what could not be verified and why,
 then continue.
-Verification beyond the configured strategy is welcome when it is real — run it, then report it as exactly what it is: extra evidence, not the configured check.
+Real verification beyond the configured strategy is welcome — report it
+as extra evidence, not the configured check.
 It never reports verification it did not do.
-Extra verification is never an invented command — the warning above
-against inventing a command that appears to hang binds for every
-project type, not only web.
+Extra verification never invents a command, on any project type.
 
 **O — release. STOPS AND ASKS.** Show the exact `releaseCommand` and
 where it publishes. Runs only on an explicit yes, or under
@@ -948,14 +953,12 @@ still stop.
 
 The `implementer` key can arrive from a tracked `.delivery-kit.json`
 somebody else wrote, in a repository just cloned, and it removes the
-implementer question without anyone at the keyboard choosing that. That
-gap is exactly why pre-flight prints the
-Implementer line and names the layer it came from. `--auto-release` is
+implementer question without anyone at the keyboard choosing that.
+That gap is why pre-flight prints the Implementer line and its layer.
+`--auto-release` is
 still required before anything publishes unasked.
 
-A gate is a safe handoff point by construction: if the context guard
-fires while a gate waits, the run hands off from there, and the state
-file already records which gate.
+A gate is a safe handoff point: the state file records which gate waits.
 
 | Gate | Phase | Shown before you answer |
 |---|---|---|
@@ -994,8 +997,8 @@ on `agentModel`.
 
 ## The rules that never bend
 
-These hold in every phase, on every path, including `--auto`, including
-a resume, and including a failure.
+These hold in every phase and on every path: under `--auto`, on a
+resume, in a failure.
 
 | Never | Because |
 |---|---|
@@ -1032,7 +1035,7 @@ If you notice one of these thoughts, stop: you are rationalising.
 | "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. |
 | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. |
 | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. |
-| "The suite is slow, the focused test is enough" | J and N run the full commands. Focused runs are for iterating, not for verdicts. |
+| "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical clean tree and command. Focused runs are for iterating, not for verdicts. |
 | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. |
 | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. |
 | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |
@@ -1057,8 +1060,7 @@ If you notice one of these thoughts, stop: you are rationalising.
 phases later. The resume prompt (shown
 when a live run exists and `--resume` was not given) offers: resume at
 the recorded phase; `--from <phase>` (validated by
-`progress.sh from-validate` — re-entering a phase without the artefact
-it consumes re-runs work that has nothing to work on); or abandon
+`progress.sh from-validate`); or abandon
 (release the lock, keep the state file, touch nothing else). If the
 handoff plugin is installed, a live run also appears in its handoff
 document; if it is absent, the state file alone is the memory — say

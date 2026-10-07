@@ -8,7 +8,8 @@
 # plain text that is the answer and nothing else: piece-next prints two
 # lines, a heading and its task ids; the commit commands print the commit
 # id they recorded; --list prints paths, one per line; guide prints the
-# review guide and commit-list prints K's list.
+# review guide and commit-list prints K's list; suite-key prints a key,
+# suite-record a verdict, and suite-lookup a record's path and a summary.
 #
 # Everything this file writes lives under .delivery-kit/, and the commit
 # commands write git commits, never a path under it. The state directory is
@@ -27,7 +28,7 @@ STATE_ROOT=".delivery-kit"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -1629,6 +1630,172 @@ cmd_state_set() {
   fi
 }
 
+# --- suite results ------------------------------------------------------------
+# suite-key, suite-record and suite-lookup keep a full run of testCommand
+# per exact tree, so J, N and a later run's F.5 can cite a GREEN result on a
+# tree that command already passed on instead of spending the run again. A
+# result is reused only when all three of these are what they were:
+#   tree      HEAD^{tree} — and only when the working tree holds NO change
+#             outside .delivery-kit/, tracked, staged or untracked (files git
+#             ignores are not seen, as git does not see them). A dirty tree
+#             has no key: nothing is looked up and nothing is recorded. An
+#             index entry marked assume-unchanged or skip-worktree hides its
+#             changes from git status, so one of those means no key too.
+#   command   config.testCommand, exactly as the state file records it
+#   platform  uname -s and uname -m: the same tree can pass on one system
+#             and fail on another
+# The key is git's hash of the three as one JSON object; the record repeats
+# them, and suite-lookup compares them too, never the file name alone.
+# Records live repository-wide, in .delivery-kit/suite-results/, so a later
+# run finds them. The verdict comes from the TAP, never from the exit code
+# alone; see SUITE_AWK. What the key cannot see, a reuse assumes unchanged:
+# files git ignores, the environment and the tools' versions, and the
+# history around the tree — its refs and commit messages.
+SUITE_DIR="$STATE_ROOT/suite-results"
+
+# suite_key <feature> — sets SK_TREE, SK_CMD, SK_PLAT and SK_KEY; returns 1
+# with the reason in SK_WHY when there is no key.
+suite_key() {
+  local sf st rec dirty
+  SK_WHY='' SK_KEY=''
+  sf="$(cmd_validate "$1")" || exit 1
+  SK_CMD="$(jqs '.config.testCommand? | strings' "$sf")" || SK_CMD=''
+  if [ -z "$SK_CMD" ]; then SK_WHY="config.testCommand is not recorded as a string in $sf"; return 1; fi
+  st="$(run_dir "$1")/suite-status.nul"
+  # --no-optional-locks: a check made while a suite runs must not rewrite the
+  # index under it. --ignore-submodules=none: a submodule's own changes count.
+  git --no-optional-locks status --porcelain=v1 -z --untracked-files=all --no-renames --ignore-submodules=none > "$st" \
+    || die "git status failed"
+  dirty=''
+  while IFS= read -r -d '' rec; do
+    if ! in_state_dir "${rec:3}"; then dirty="${rec:3}"; break; fi
+  done < "$st"
+  if [ -n "$dirty" ]; then
+    rm -f "$st"; SK_WHY="the working tree has a change outside $STATE_ROOT/ ($dirty)"; return 1
+  fi
+  # The tag letters, spelled out rather than as a range a locale can widen:
+  # lower case is assume-unchanged, S is skip-worktree. Read from a file, never
+  # through a pipe: grep -q leaving early would hand git a SIGPIPE, and
+  # pipefail would turn a match into a failure.
+  git --no-optional-locks ls-files -v > "$st" || die "git ls-files failed"
+  if LC_ALL=C grep -q '^[abcdefghijklmnopqrstuvwxyzS] ' "$st"; then
+    rm -f "$st"; SK_WHY="an index entry is marked assume-unchanged or skip-worktree, which hides its changes from git status"; return 1
+  fi
+  rm -f "$st"
+  SK_TREE="$(git rev-parse --verify --quiet 'HEAD^{tree}')" || { SK_WHY="HEAD names no commit yet"; return 1; }
+  SK_PLAT="$(uname -s) $(uname -m)"
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  SK_KEY="$(jqs -n -c --arg t "$SK_TREE" --arg c "$SK_CMD" --arg p "$SK_PLAT" '{tree: $t, command: $c, platform: $p}' \
+    | git hash-object --stdin)" || die "could not hash the suite key"
+}
+
+# SUITE_AWK reads a TAP file and prints one line, seven counts: non-blank
+# lines, plan lines, the plan's count when the FIRST non-blank line is the
+# plan (else 0), ok lines, skips among them, not ok lines, and lines that are
+# neither TAP nor a `#` comment. The rules are those of the delivery-kit
+# repository's scripts/check-suite.sh, which does not ship with this plugin,
+# except that a skip counts as an ok here and is reported, not refused. A
+# run's stdout and stderr belong in the one file: anything that is not TAP
+# makes the result red, which only means it is run again. BINMODE=3 keeps
+# GNU Awk on Windows from stripping the CR itself, so the strip below is this
+# script's own rule everywhere; the file reaches awk on stdin, never as an
+# argument awk could read as an assignment.
+# shellcheck disable=SC2016 # an awk program: its $ names are awk's
+SUITE_AWK='
+  { sub(/\r$/, "") }
+  /^[[:space:]]*$/ { next }
+  { n++ }
+  /^1[.][.][0-9]+$/ { plans++; if (n == 1) plan = substr($0, 4) + 0; next }
+  /^ok / { oks++; if (tolower($0) ~ /# skip/) skips++; next }
+  /^not ok / { nots++; next }
+  /^#/ { next }
+  { stray++ }
+  END { printf "%d %d %d %d %d %d %d\n", n, plans, plan, oks, skips, nots, stray }'
+
+cmd_suite_key() {
+  [ $# -eq 1 ] || die "usage: suite-key <feature>"
+  need_git_top
+  if ! suite_key "$1"; then die "no suite key: $SK_WHY"; fi
+  printf '%s\n' "$SK_KEY"
+}
+
+# suite-record <feature> <key> <tap file> <rc> — the key is suite-key's,
+# taken BEFORE the command ran. A tree that changed while it ran — a test
+# that wrote a file, a commit made meanwhile — no longer has that key, and
+# nothing is recorded: a result is kept only for the tree it ran on. A red
+# result is recorded too, so the latest result on a tree is the one that
+# stands, and lookup never reuses a red one.
+cmd_suite_record() {
+  local key="${2:-}" tap="${3:-}" rc="${4:-}" counts n plans plan oks skips nots stray v verdict out tmp
+  [ $# -eq 4 ] || die "usage: suite-record <feature> <key> <tap-file> <rc>"
+  case "$rc" in [0-9]|[0-9][0-9]|[0-9][0-9][0-9]) ;; *) die "the exit code '$rc' is not a number from 0 to 999" ;; esac
+  if [ ! -f "$tap" ] || [ ! -r "$tap" ]; then die "the TAP file does not exist or cannot be read"; fi
+  need_git_top
+  if ! suite_key "$1"; then die "nothing recorded — no suite key now: $SK_WHY"; fi
+  [ "$key" = "$SK_KEY" ] || die "nothing recorded — the tree, the command or the platform is not what it was when the key was taken"
+  counts="$(awk -v BINMODE=3 "$SUITE_AWK" 2>/dev/null < "$tap")" || counts=''
+  read -r n plans plan oks skips nots stray <<EOF
+$counts
+EOF
+  for v in "$n" "$plans" "$plan" "$oks" "$skips" "$nots" "$stray"; do
+    case "$v" in ''|*[!0-9]*) die "the TAP file cannot be read" ;; esac
+  done
+  verdict=red
+  if [ "$rc" -eq 0 ] && [ "$plans" -eq 1 ] && [ "$plan" -ge 1 ] && [ "$oks" -eq "$plan" ] \
+     && [ "$nots" -eq 0 ] && [ "$stray" -eq 0 ]; then
+    verdict=green
+  fi
+  mkdir -p "$SUITE_DIR"
+  out="$SUITE_DIR/$SK_KEY.json"
+  tmp="$out.tmp"
+  # -b: a native Windows jq writes no CR, so a record is the same bytes on
+  # every system.
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  if ! jq -b -n --arg key "$SK_KEY" --arg tree "$SK_TREE" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
+       --arg verdict "$verdict" --arg feature "$1" --arg tap "$tap" --arg at "$(now)" \
+       --argjson plan "$plan" --argjson ok "$oks" --argjson skipped "$skips" --argjson notOk "$nots" \
+       --argjson nonTap "$stray" --argjson rc "$((10#$rc))" \
+       '{key: $key, tree: $tree, command: $command, platform: $platform, verdict: $verdict,
+         plan: $plan, ok: $ok, skipped: $skipped, notOk: $notOk, nonTap: $nonTap, rc: $rc,
+         recordedAt: $at, feature: $feature, tap: $tap}' > "$tmp"; then
+    rm -f "$tmp"; die "the suite record could not be written"
+  fi
+  mv "$tmp" "$out"
+  printf '%s\n' "$verdict"
+}
+
+# suite-lookup <feature> — exit 0 only for a GREEN record whose tree, command
+# and platform are this tree's, printing the record's path and a summary
+# line; exit 1, the reason on stderr, for anything else. The record may come
+# from any run: a later run's F.5 reuses an earlier run's result on the same
+# tree. Its counts are judged again here, so a record edited by hand to read
+# green without the counts of one is not reused.
+# shellcheck disable=SC2016 # a jq program: its $ names are jq's
+SUITE_LOOKUP_JQ='
+  if length != 1 or (.[0] | type) != "object" then "unreadable"
+  else .[0]
+  | if .key != $k or .tree != $t or .command != $c or .platform != $p then "another"
+    elif .verdict == "green" and .rc == 0 and .notOk == 0 and .nonTap == 0
+         and (.plan | type) == "number" and .plan >= 1 and .ok == .plan
+      then "green\u001f1..\(.plan), \(.ok) ok (\(.skipped) skipped), 0 not ok, exit 0 — recorded \(.recordedAt) by run \(.feature)"
+    else "red" end
+  end'
+cmd_suite_lookup() {
+  local rec v
+  [ $# -eq 1 ] || die "usage: suite-lookup <feature>"
+  need_git_top
+  if ! suite_key "$1"; then die "no reusable result — no suite key: $SK_WHY"; fi
+  rec="$SUITE_DIR/$SK_KEY.json"
+  [ -f "$rec" ] || die "no reusable result — none is recorded for this tree, command and platform"
+  v="$(jqs -s --arg k "$SK_KEY" --arg t "$SK_TREE" --arg c "$SK_CMD" --arg p "$SK_PLAT" "$SUITE_LOOKUP_JQ" "$rec" 2>/dev/null)" || v=unreadable
+  case "${v%%$'\x1f'*}" in
+    green)   printf '%s\n%s\n' "$rec" "${v#*$'\x1f'}" ;;
+    red)     die "no reusable result — the result recorded for this tree is red, and a red result is never reused: run the suite" ;;
+    another) die "no reusable result — $rec records another tree, command or platform" ;;
+    *)       die "no reusable result — $rec is not one readable record" ;;
+  esac
+}
+
 cmd="${1:-}"; [ $# -ge 2 ] || usage
 feature_arg="$2"
 need_feature "$feature_arg"
@@ -1654,5 +1821,8 @@ case "$cmd" in
   metrics)       shift 2; cmd_metrics "$feature_arg" "$@" ;;
   state-set)     shift 2; cmd_state_set "$feature_arg" "$@" ;;
   drop-stale)    shift 2; cmd_drop_stale "$feature_arg" "$@" ;;
+  suite-key)     shift 2; cmd_suite_key "$feature_arg" "$@" ;;
+  suite-record)  shift 2; cmd_suite_record "$feature_arg" "$@" ;;
+  suite-lookup)  shift 2; cmd_suite_lookup "$feature_arg" "$@" ;;
   *) usage ;;
 esac
