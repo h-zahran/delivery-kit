@@ -60,6 +60,9 @@ and never advances a phase — it reports.
      at a question the file records only once it is answered — a cap breach,
      a tracked state file, a missing tool — and resuming re-enters the phase
      and asks that question again. Say that you cannot tell which.
+   Whatever the bullet, name every open entry of `gates.pending` — one
+   with no `answer` — by id, phase and question, quoted: the run asks them
+   at its next stop, and cannot push while one is open.
 5. End with the exact next action, copy-pastable: the resume invocation
    (`/pipeline --resume`) for a live run; nothing for a state file whose
    phase is DONE.

@@ -490,7 +490,7 @@ answer is already recorded in `gates` never re-asks — the answer
 stands, on this path and every other, against the configuration; only a
 flag typed on the re-entry command line replaces it, and never quietly. H's re-entry on this path
 consumes the report BEFORE anything is dispatched: read it against
-the tasks file (the Report-back contract is its shape), verify each
+the tasks file (the Report-back contract in `docs/handoff-package.md` is its shape), verify each
 claimed `[X]` against the uncommitted diff, run the full verification
 once over the claimed-complete work, take over anything on the
 could-not-do list, and only then dispatch the remaining unclaimed
@@ -786,8 +786,9 @@ The body carries the review guide, shown in full with the rest of the
 body.
 Degradations: no remote — stop after K and say so. Non-GitHub remote, or
 no `gh` — push, print the comparison URL, and skip M (there is no pull
-request to review). Before the push, `progress.sh pending-check
-<feature>` must exit 0 (see Gates).
+request to review). Ask any waiting questions before building the body;
+before the push, `progress.sh pending-check <feature>` must exit 0 (see
+Gates).
 
 Before anything else, a run whose `commits` holds an old-style string
 entry started on an older pipeline: it builds no guide, says so, and
@@ -942,13 +943,17 @@ answer in
 the state file's `gates` key.
 
 A question may wait only when its answer changes nothing the run does
-before its next stop; in doubt, it stops the run now. `progress.sh
-ask-later <feature> <phase> <file>` queues it. At every stop, run
-`progress.sh pending <feature>` first and ask its questions beside the
-stop's own; record each reply with `answer <feature> <id> <file>`.
-Before L pushes, `pending-check <feature>` must exit 0: an open question
-stops the run there, and `--auto` never collapses that stop. See
-`docs/phases.md`.
+before its next stop; in doubt, it stops the run now. After L nothing
+waits: `ask-later` refuses M, N, N.5 and O. `progress.sh ask-later
+<feature> <phase> <file>` queues it. At every stop once the state file
+exists — a run that stops for good (`--until`, the park at H, no remote)
+included — run `progress.sh pending <feature>` first and ask its
+questions beside the stop's own; record each reply, in the owner's own
+words and never your own, with `answer <feature> <id> <file>`, and act
+on it from then on — on a re-entry, read the answers in `gates.pending`
+before the phase they affect. Before L pushes, `pending-check <feature>`
+must exit 0: an open question stops the run there, and `--auto` never
+collapses that stop. See `${CLAUDE_PLUGIN_ROOT}/docs/phases.md`.
 
 A pause (H, pause mode) is a stop the developer chose, not a sixth gate,
 and `--auto` never collapses it.
