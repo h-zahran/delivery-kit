@@ -58,6 +58,17 @@ All notable changes to the `pipeline` plugin.
   different name on a resume is reported, not applied. A name git would
   not accept as a branch name stops pre-flight, naming it. The
   `baseBranch` key is unchanged.
+- **A feature branch and a spec folder named for one run: the
+  `--branch <name>` and `--spec-dir <path>` flags.** The spec tool's
+  `NNN-slug` used to name the feature branch, the spec folder and the
+  run, with no way to choose them. `--branch` names the branch, and may
+  hold `/`. `--spec-dir` names the spec folder, nested folders included,
+  and its last segment becomes the run's name. Both are flags only: each
+  names one feature, so there is no configuration key. Pre-flight stops
+  on a bad value, naming it: a branch name git would not accept, the
+  base branch's own name, or a spec folder that is absolute, climbs out
+  with `..`, sits under `.delivery-kit/`, already exists, or whose run
+  name already has a state file. Both are read on a fresh run only.
 
 ### Changed
 

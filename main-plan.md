@@ -3108,3 +3108,40 @@ commit trailers. Each is its own phase.
 ```
 /pipeline Phase 40: the base branch can be set once, or named for one run
 ```
+
+## Phase 41: the feature branch and the spec folder can be named for one run
+
+Phase B lets the spec tool name the feature `NNN-slug`, and that one name
+becomes the feature branch, the spec folder under `specs/`, and the run's
+name under `.delivery-kit/runs/`. A team that names branches by owner
+(`<owner>/<area>/NNN-slug`) or keeps specs in nested folders
+(`specs/<area>/<owner>/NNN-slug`) has no way to say so.
+
+Measured 2026-10-07 at `031-base-branch-flag` = `7a658c0` (the first version of Phase 40): the spec tool
+takes a spec folder as given through `SPECIFY_FEATURE_DIRECTORY` and
+numbers nothing; its specify command describes that variable in both
+0.15.2 and 0.16.5, the two ends of the tested range. `progress.sh` already
+keeps the run's name and the branch as separate values, and refuses `/`
+in the run's name only.
+
+The change: two orchestrator flags, `--branch <name>` and
+`--spec-dir <path>`. B hands the folder to the spec tool, checks the spec
+landed there, takes the run's name from its last segment, and cuts the
+branch under the typed name. `preflight.sh` gains `--feature-branch` and
+`--spec-dir`, reports `featureBranch` and `specDir`, and stops on a bad
+value, naming it. Both are read on a fresh run only. They are flags with
+no configuration key: each names one feature, so a value set once would
+name the same feature on every run. A caller that builds names from its
+own settings passes them as flags.
+
+Phase 40 listed the feature branch and the spec directory as separate
+phases. They ship together here: both are names B chooses, at the same
+moment, from the same default.
+
+Not in this phase: commit trailers.
+
+**Invocation:**
+
+```
+/pipeline Phase 41: the feature branch and the spec folder can be named for one run
+```

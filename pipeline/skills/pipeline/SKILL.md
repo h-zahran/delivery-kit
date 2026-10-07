@@ -117,6 +117,8 @@ rather than silent.
 | `--resume` | Re-enter a live run at its recorded phase without the prompt. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 | `--base-branch <name>` | The base branch; beats `baseBranchOverride` |
+| `--branch <name>` | The feature branch's name |
+| `--spec-dir <path>` | The spec folder; its last segment names the run |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -125,10 +127,10 @@ this tool does, and one flag must not mean both "commit for me" and
 ## Pre-flight
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
-`--project-type`/`--base-branch` only when configuration set them, and
-the arguments **Base branch:** names),
+`--project-type`/`--base-branch` only when configuration set them),
 parse its stdout as JSON, and render the probe block — the Implementer
-line only when the key resolves to a value, per **Implementer:** below:
+line only when the key resolves to a value, per **Implementer:** below,
+and the Branch and Spec folder lines only when set:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
@@ -136,6 +138,8 @@ spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <
 Constitution : <set / not set — plan gates run against an empty document>
 git          : <present / ABSENT — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
+Branch       : <featureBranch>  (from --branch)
+Spec folder  : <specDir>  (from --spec-dir)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
@@ -285,7 +289,8 @@ through 10 keep the numbers they have always had.
 **Base branch:** the resolution order is the override, then
 `origin/HEAD`, then the configured `baseBranch`, then the current branch
 when there is no remote. `baseBranchSource` names the winner — print it.
-When `baseBranchOverride` or `--base-branch` is set, read
+When any of `baseBranchOverride`, `--base-branch`, `--branch` or
+`--spec-dir` is set, read
 `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.
 
 **Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this
@@ -342,9 +347,10 @@ result aside in a scratch file, then write it into the run directory as
 **B — specify.** Invoke `/speckit-specify` (derive the dot form if
 recorded) with the seed FIRST — the spec tool names the feature
 (`NNN-slug`) and creates no git branch itself; that contract is recorded
-in the spec-tool verification document. The feature now has its name:
+in the spec-tool verification document. With `--spec-dir`, follow B's
+rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`. The feature now has its name:
 run `progress.sh init <feature> <branch> <base> <projectType>` (the
-branch argument is the `NNN-slug` branch name about to be created —
+branch argument is the branch name about to be created —
 `init` is idempotent, so a resume re-running it finds the run rather
 than clobbering it). A state file `init` finds already there is checked
 first, as Resume says, before anything in it is used. Then take the lock
@@ -355,8 +361,8 @@ aside at pre-flight is written into `gates.constitution` here, in the
 same breath as the seed. A `.gitignore` answer held aside at pre-flight
 is written into `gates.gitignore` the same way. THEN create the feature
 branch
-off the detected base branch, named with the tool's `NNN-slug` feature
-identity: the spec files are still uncommitted, and uncommitted work
+off the detected base branch, named `--branch`, else the feature's
+name: the spec files are still uncommitted, and uncommitted work
 travels with `git checkout -b`. Record `artifacts.spec`.
 
 **C — clarify, looped.** Invoke `/speckit-clarify`. The tool asks one
