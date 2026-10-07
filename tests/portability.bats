@@ -169,7 +169,8 @@ RELAXED_RE="($RELAXED_WORDS)"
 SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE .claude-plugin .gitignore .gitattributes .github scripts"
 SHIPPED_HANDOFF="handoff/hooks handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/tests handoff/.claude-plugin"
 SHIPPED_PIPELINE="pipeline/README.md pipeline/CHANGELOG.md pipeline/.claude-plugin pipeline/commands pipeline/docs"
-SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
+SHIPPED_TEAM="team/README.md team/CHANGELOG.md team/.claude-plugin team/docs team/skills team/scripts team/tests"
+SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_TEAM"
 
 # Root tests/ cannot be registered, by construction: it holds the denylist
 # and the fixtures the scanners are fired at, so a scan covering it would
@@ -1852,7 +1853,12 @@ forms_base() {
   [ -n "$copied" ] || { echo "fixture: the marketplace names no plugin"; return 1; }
   if [ "$1" = "two" ]; then
     [ -n "$other" ] || { echo "fixture: two plugins are needed, one judged and one not"; return 1; }
-    cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+    # The first two entries, by position, for the reason given below: the
+    # loop above copied those two directories and no other, so a third
+    # entry would name a directory the copy does not hold.
+    jq '.plugins |= .[:2]' .claude-plugin/marketplace.json \
+      > "$base/.claude-plugin/marketplace.json" \
+      || { echo "fixture: could not write a two-plugin marketplace"; return 1; }
   else
     # By position, not by name: the first entry is the one `copied` came
     # from, and a by-name selection here is the marker the "one

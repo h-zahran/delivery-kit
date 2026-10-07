@@ -1,6 +1,6 @@
 {
   "name": "delivery-kit",
-  "description": "Two plugins for long Claude Code sessions: hand the work off before the context runs out, and drive one feature from idea to reviewed pull request.",
+  "description": "Three plugins for long Claude Code sessions: hand the work off before the context runs out, drive one feature from idea to reviewed pull request, and run a team's plan through that pipeline.",
   "owner": {
     "name": "Haytham Zahran",
     "url": "https://github.com/h-zahran"
@@ -21,6 +21,14 @@
       "version": "1.3.1",
       "category": "workflow",
       "tags": ["pipeline", "spec-driven", "orchestration"]
+    },
+    {
+      "name": "team",
+      "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
+      "source": "./team",
+      "version": "0.1.0",
+      "category": "workflow",
+      "tags": ["team", "pipeline", "progress"]
     }
   ]
 }

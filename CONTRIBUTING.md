@@ -51,7 +51,7 @@ The suites are [bats](https://github.com/bats-core/bats-core) and need `jq`.
 
 ```bash
 git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
-bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests
 ```
 
 The tag above is the readable one, and it is deliberately NOT the commit

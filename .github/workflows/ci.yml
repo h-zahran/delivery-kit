@@ -238,7 +238,7 @@ jobs:
           echo "bats tracked files match $BATS_PIN"
 
       - name: Run the test suites
-        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests
 
   version:
     name: version agreement

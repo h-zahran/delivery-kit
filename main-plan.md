@@ -3174,3 +3174,34 @@ six commit sites keep their pinned text.
 ```
 /pipeline Phase 33: every commit the run makes can carry trailers
 ```
+
+## Phase 34: a team plugin, set up once
+
+A team that runs a shared plan through `pipeline` repeats the same work on
+every task: find the member's next task, then type its branch, spec folder,
+seed and trailers into the command line. Phases 32 and 33 gave the pipeline
+flags for each of these. Nothing yet fills them.
+
+The change: a third plugin, `team`, version 0.1.0, with `team:setup` and
+`scripts/team.sh`. `team:setup` writes a `team` block once in the
+repository's `.delivery-kit.json`: for each team, the roster file, and each
+member's task file and progress file, with `{member}` for the member's id.
+The plugin holds no team names and builds no names: the project writes each
+task's branch, spec folder, seed, trailers and extra flags into a JSON task
+file, and the plugin passes them to the pipeline unchanged. `team.sh` checks
+shape only; the pipeline's pre-flight checks what each value means.
+
+The plugin is registered everywhere a plugin is named: the marketplace, the
+root README and changelog index, the suite command in CI, the contributing
+guide and this repository's `testCommand`, and `SHIPPED_TEAM` in
+`tests/portability.bats`.
+
+Not in this phase: `team:start` (Phase 35) and `team:status` (Phase 36).
+The task-file and roster formats are fixed here, so a project can start
+writing them.
+
+**Invocation:**
+
+```
+/pipeline Phase 34: a team plugin, set up once
+```

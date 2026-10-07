@@ -1,7 +1,8 @@
 # delivery-kit
 
-A Claude Code plugin marketplace. Two plugins live here. Each installs on its
-own, and neither needs the other.
+A Claude Code plugin marketplace. Three plugins live here. Each installs on
+its own. `handoff` and `pipeline` need nothing else; `team` runs `pipeline`,
+so it needs `pipeline` too.
 
 Both came out of the same exercise: 1,410 prompts across 67 sessions of real
 work were sorted by what the human was actually asking for. The two biggest
@@ -24,8 +25,9 @@ pile became a plugin.
 |---|---|---|
 | **[handoff](handoff/README.md)** | `handoff@delivery-kit` | Long sessions run out of room, and you keep typing *continue*. |
 | **[pipeline](pipeline/README.md)** | `pipeline@delivery-kit` | You want one feature taken from an idea to a reviewed pull request, stopping to ask you at every step that leaves your machine. |
+| **[team](team/README.md)** | `team@delivery-kit` | A team works through a shared plan with `pipeline`, and you want the setup written once and each member's progress kept. |
 
-Install both if you want both. They share one settings file and otherwise stay
+Install what you want. All three share one settings file and otherwise stay
 out of each other's way.
 
 ## What each plugin does
@@ -174,6 +176,7 @@ before any work starts.
 /plugin marketplace add h-zahran/delivery-kit
 /plugin install handoff@delivery-kit
 /plugin install pipeline@delivery-kit
+/plugin install team@delivery-kit
 ```
 
 If an install command cannot see its plugin, run `/reload-plugins` after the
@@ -478,6 +481,7 @@ you get. Why, and what to check instead of the warning count, is in
 ```
 handoff/     the handoff plugin — hook, skills, docs, tests
 pipeline/    the pipeline plugin — command, skills, scripts, docs, tests
+team/        the team plugin — skills, scripts, docs, tests
 tests/       repo-wide tests: layout, and what may appear in shipped files
 specs/       the specifications real pipeline runs produced, kept as examples
 main-plan.md the plan file this repository reads its own seeds from

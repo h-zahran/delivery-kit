@@ -7,3 +7,4 @@ about release order.
 
 - [handoff](handoff/CHANGELOG.md)
 - [pipeline](pipeline/CHANGELOG.md)
+- [team](team/CHANGELOG.md)
