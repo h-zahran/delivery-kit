@@ -94,6 +94,7 @@ item 10 anchors that rule; this is where it fires.
 | `baseBranchOverride` | unset | A base branch that beats `origin/HEAD`. See "Base branch" under Pre-flight |
 | `projectType` | detected | `web`, `mobile-android`, `other` |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
+| `commitTrailers` | unset | Trailers on every commit the run makes, as a list of `<token>: <value>`. See **Trailers:** under Pre-flight |
 | `maxClarifyPasses` | 3 | Phase C cap |
 | `maxAnalyzeIters` | 5 | Phase F cap |
 | `maxReviewRounds` | 3 | Phase M cap |
@@ -126,6 +127,7 @@ rather than silent.
 | `--base-branch <name>` | The branch the feature branch is cut from, for this run. Beats the `baseBranchOverride` key, `origin/HEAD` and the `baseBranch` key. Read on a fresh run only — see **Base branch:** under Pre-flight. |
 | `--branch <name>` | The feature branch's name, for this run. Without it, the branch takes the run's name. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
 | `--spec-dir <path>` | The feature's spec folder, relative to the repository root, for this run. B hands it to the spec tool, and its last segment is the run's name. Without it, the spec tool picks the folder. Read on a fresh run only — see **Feature branch and spec folder:** under Pre-flight. |
+| `--trailer <token: value>` | One more trailer on every commit the run makes, for this run. Repeat it for more. It adds to the `commitTrailers` key and never replaces it. Read on a fresh run only — see **Trailers:** under Pre-flight. |
 
 `--auto` never collapses O. Publishing is the least reversible thing
 this tool does, and one flag must not mean both "commit for me" and
@@ -138,11 +140,12 @@ Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
 `--base-branch-override <name>` only when `--base-branch` was typed or
 `baseBranchOverride` resolves to a value — the flag's value when both;
 `--feature-branch <name>` and `--spec-dir <path>` only on a fresh run
-where `--branch` and `--spec-dir` were typed),
+where `--branch` and `--spec-dir` were typed; `--trailer <text>` once per
+trailer on a fresh run, the key's first, then the flags', in order),
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below,
-and the Branch and Spec folder lines each only when its value
-(`featureBranch`, `specDir`) is not empty:
+and the Branch, Spec folder and Trailers lines each only when its value
+(`featureBranch`, `specDir`, `commitTrailers`) is not empty:
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
@@ -152,6 +155,7 @@ git          : <present / ABSENT — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
+Trailers     : <each commitTrailers entry, with its layer>
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
 Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
@@ -175,7 +179,7 @@ it has to not be printed here. But over-marking is its own lie, so be exact:
   it, name its layer, and add that it was not checked.
 - `Branch`: typed, and IS established, but git did not check that it is a
   legal branch name: print it, and add that it was not checked. `Spec
-  folder` needs no mark: its checks never ask git.
+  folder` and `Trailers` need no mark: their checks never ask git.
 - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
   on the same line is not: it comes from looking for `gh` and is unaffected.
   Keep it.
@@ -361,6 +365,36 @@ only: B records the branch in the state file and the folder in
 silently — say that the record stands, and name both. A second fresh run
 with the same `--spec-dir` stops at pre-flight, because the folder
 exists: to continue a run, type `--resume`.
+
+**Trailers:** a trailer is one `<token>: <value>` line at the end of a
+commit message. The list is the resolved `commitTrailers` key, then each
+`--trailer` in the order typed: the flag adds to the key and never
+replaces it, so a team's fixed trailers set once in the repository's
+`.delivery-kit.json` stay on every run, and a run adds its own. Between
+configuration layers the key behaves as every key does: a later layer's
+list replaces an earlier one's. `preflight.sh` checks each trailer and
+stops on a bad one, naming it: no `:`, a token with characters outside
+letters, digits and dash, an empty value, a line break, or the token
+`Piece` or `Late` in any letter case, since the run reads those lines as
+its own markers. The probe line names each trailer's layer: the
+configuration file by path, or `--trailer`. Record the list, with each
+entry's layer, in the state file's `config` key; a resume uses the
+record. On a resume pre-flight gets no `--trailer`, so print the
+Trailers line from the recorded list, each entry with its recorded
+layer. The list is read on a fresh run only, and a different list on a
+resume is reported, never applied silently — say that the record
+stands, and name both. Every commit the run makes carries the list: the
+spec commit, whose subject stays `docs(spec): <feature>`, each piece,
+each late commit, J's empty record, K's commits and the constitution's
+commit. Add them to the message file before the message is shown or
+used, so what a gate shows is what is committed: for each trailer, run
+`git interpret-trailers --in-place --if-exists addIfDifferent --trailer
+<trailer> <message file>`, the trailer read from the state file as data,
+never retyped into a command. A trailer joins the message's last
+paragraph when that paragraph is already trailers, so a `Piece:` or
+`Late:` line stays a whole line; the same trailer is never added twice.
+Commits an external implementer makes on the handoff path are its own
+and are not touched.
 
 **Seed forms.** The seed is interpreted three ways, in order:
 

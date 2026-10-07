@@ -395,6 +395,7 @@ resume.
 | `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
 | `--branch <name>` | Name the feature branch. Default: the run's name. |
 | `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
+| `--trailer <token: value>` | Add a trailer to every commit. Adds to the `commitTrailers` key. Repeat for more. |
 | `--until <phase>` | Stop cleanly after that phase. State intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
 | `--resume` | Re-enter a live run at the phase it recorded. |

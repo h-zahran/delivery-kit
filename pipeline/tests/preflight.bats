@@ -275,6 +275,53 @@ stub() {
   [[ "$stderr" == *".delivery-kit/runs/003-thing/progress.json"* ]]
 }
 
+@test "trailers: without the argument the list is reported empty" {
+  T="$BATS_TEST_TMPDIR/trailers-absent"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T"
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '[]' ]
+}
+
+@test "trailers: each one is reported, in the order given" {
+  # The orchestrator passes the key's trailers first, then the flags'. The
+  # script keeps that order, so the probe line and the commits match it.
+  T="$BATS_TEST_TMPDIR/trailers-named"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --trailer 'Team: one' --trailer 'Task: T-12 (second part)'
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: one","Task: T-12 (second part)"]' ]
+}
+
+@test "trailers: a malformed trailer is refused, naming it" {
+  # One case per check in the script. Each value passes every check but
+  # its own, so skipping any one check turns exactly one case green.
+  T="$BATS_TEST_TMPDIR/trailers-bad"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in 'Noseparator' 'Bad token: x' ': no token' 'Empty:' 'Empty:   ' \
+             $'Two: lines\nhere' $'Return: here\rthere'; do
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    [[ "$stderr" == *"--trailer"* ]] || { echo "argument not named: $bad"; false; }
+  done
+}
+
+@test "trailers: the run's own markers Piece and Late are refused, in any letter case" {
+  # The crash scans read Piece: and Late: lines as the run's own records.
+  # A trailer with either token would be read as one.
+  T="$BATS_TEST_TMPDIR/trailers-reserved"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in 'Piece: x' 'late: J' 'PIECE: y'; do
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
+    [[ "$stderr" == *"reserved"* ]] || { echo "reason not named: $bad"; false; }
+  done
+}
+
 @test "stdout is pure JSON even when stderr is talking" {
   probe --dir "$FIX/other" --base-branch main
   jq -e . <<<"$output" > /dev/null
