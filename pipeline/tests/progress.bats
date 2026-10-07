@@ -309,10 +309,11 @@ setup() {
   # and any reorder, reddens this line. (An earlier draft of this comment said
   # three names were substrings; measured, it is exactly one.) The list grew
   # from eight to ten with commit-add and piece-next, to twenty with the
-  # commit mechanics (snapshot to drop-stale), and to twenty-one with
-  # remainder-commit, edited here rather than
+  # commit mechanics (snapshot to drop-stale), to twenty-one with
+  # remainder-commit, and to twenty-four with suite-key, suite-record and
+  # suite-lookup, edited here rather than
   # pinned by a second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
