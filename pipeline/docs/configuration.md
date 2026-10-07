@@ -47,6 +47,7 @@ item 10 anchors that rule; this is where it fires.
     "baseBranchOverride": null,
     "projectType": null,
     "commitStyle": "conventional",
+    "commitTrailers": null,
     "maxClarifyPasses": 3,
     "maxAnalyzeIters": 5,
     "maxReviewRounds": 3,
@@ -77,6 +78,7 @@ before it spends it.
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
+| `commitTrailers` | Trailers on every commit the run makes, as a list of `<token>: <value>` lines. See "Commit trailers" below. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
 | `maxAnalyzeIters` | Analysis auto-fix loop cap; a breach stops and asks. |
 | `maxReviewRounds` | Pull-request review loop cap; a breach stops and asks. |
@@ -169,6 +171,52 @@ What the run does with the two flags:
   `artifacts.spec`, and a resume uses the record. A `--branch` or
   `--spec-dir` on a resume that differs from the record is never applied
   silently — say that the record stands, and name both.
+
+## Commit trailers
+
+A trailer is one `<token>: <value>` line at the end of a commit
+message, such as `Task: <id>` or `Reviewed-by: <name>`. The
+`commitTrailers` key lists the trailers every commit the run makes
+carries. Set it once in the repository's `.delivery-kit.json` for a
+team's fixed trailers. The `--trailer <token: value>` flag adds one
+trailer for one run, and can be repeated. **The flag adds to the key
+and never replaces it**: the list is the key's trailers, then the
+flags', in order. Between configuration files the key behaves as every
+key does: a later file's list replaces an earlier one's. Pre-flight
+prints each trailer and the layer that set it, and stops on a bad one,
+naming it: no `:`, a token with characters outside letters, digits and
+dash, an empty value, a line break, or the token `Piece`, `Late` or
+`Tasks` in any letter case, which the run uses as its own markers. Every
+commit the run makes carries the list, the spec commit included, and
+the same trailer is never added twice. The list is read on a fresh run
+only. A resume keeps the list the run recorded, and a different list on
+a resume is reported, never applied silently.
+
+What the run does with trailers:
+
+- On a fresh run it passes `--trailer <text>` to `preflight.sh` once per
+  trailer: the key's first, then the flags', in order.
+- The probe block prints a `Trailers` line only when `commitTrailers` is
+  not empty. It names each trailer's layer: the configuration file by
+  path, or `--trailer`.
+- It records the list pre-flight reports with `progress.sh state-set
+  <feature> config commitTrailers '<json array>'`, and each entry's layer,
+  in the same order, as `config.commitTrailersFrom`. This record replaces
+  the key's own list in `config`: it holds the key's trailers and the
+  flags', never the key's alone.
+- The commit subcommands add the list themselves: `spec-commit`,
+  `piece-commit`, `late-commit` (J's `--record` included) and
+  `remainder-commit`. They read it from the state file as data. The run
+  never adds a trailer by hand. A message shown at a gate before its
+  commit does not show the trailers; the commit carries them. A trailer
+  joins the `Tasks:`, `Piece:` or `Late:` lines when the message ends
+  with them, so each stays a whole line.
+- Commits an external implementer makes on the handoff path are its own,
+  and are not touched.
+- On a resume, pre-flight gets no `--trailer`, so print the Trailers
+  line from the recorded list, each entry with its recorded layer. A
+  different list on a resume is never applied silently — say that the
+  record stands, and name both.
 
 ## The implementer key
 

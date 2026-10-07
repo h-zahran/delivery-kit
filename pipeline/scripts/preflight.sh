@@ -24,8 +24,26 @@ die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
+# A commit trailer goes onto every commit the run makes, and commits leave
+# the machine, so each one is checked here, in the order given, and named
+# when refused. The shape is `<token>: <value>`, one line. Piece, Late and
+# Tasks are the run's own markers: its crash scans read those lines as
+# records, and progress.sh writes them itself.
+add_trailer() {
+  local t="$1" token value
+  case "$t" in *$'\n'*|*$'\r'*) die "'$t' holds a line break; a trailer is one line (--trailer)" ;; esac
+  case "$t" in *:*) ;; *) die "'$t' has no ':'; write <token>: <value> (--trailer)" ;; esac
+  token="${t%%:*}"; value="${t#*:}"
+  case "$token" in ''|*[!A-Za-z0-9-]*) die "'$t' has the token '$token'; a token holds letters, digits and dash only (--trailer)" ;; esac
+  case "$value" in *[![:space:]]*) ;; *) die "'$t' has an empty value (--trailer)" ;; esac
+  case "$token" in
+    [Pp][Ii][Ee][Cc][Ee]|[Ll][Aa][Tt][Ee]|[Tt][Aa][Ss][Kk][Ss]) die "'$t' uses the token '$token', reserved for the run's own markers (--trailer)" ;;
+  esac
+  trailers="$(jq -n --argjson a "$trailers" --arg t "$t" '$a + [$t]')"
+}
+
 dir="."; ptype_override=""; base_configured=""; base_override=""
-feature_branch=""; spec_dir=""
+feature_branch=""; spec_dir=""; trailers='[]'
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)          dir="${2:?--dir needs a path}"; shift 2 ;;
@@ -34,7 +52,8 @@ while [ $# -gt 0 ]; do
     --base-branch-override) base_override="${2:?--base-branch-override needs a name}"; shift 2 ;;
     --feature-branch) feature_branch="${2:?--feature-branch needs a name}"; shift 2 ;;
     --spec-dir)     spec_dir="${2:?--spec-dir needs a path}"; shift 2 ;;
-    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir)" ;;
+    --trailer)      add_trailer "${2:?--trailer needs a value}"; shift 2 ;;
+    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer)" ;;
   esac
 done
 # The override is what a person typed for this run, so it is checked here
@@ -284,6 +303,7 @@ jq -n \
   --argjson sk_const "$sk_const" \
   --arg  base "$base" --arg base_source "$base_source" \
   --arg  feature_branch "$feature_branch" --arg spec_dir "$spec_dir" \
+  --argjson trailers "$trailers" \
   --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
   --argjson adb "$adb_present" \
   --argjson git "$git_present" \
@@ -297,6 +317,7 @@ jq -n \
   },
   baseBranch: $base, baseBranchSource: $base_source,
   featureBranch: $feature_branch, specDir: $spec_dir,
+  commitTrailers: $trailers,
   remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
   capabilities: { jq: true, git: $git, gh: $gh, adb: $adb },
   willSkip: $skips,
