@@ -30,7 +30,7 @@ setup() {
     grep -qF "$rule" "$ORCH" || { echo "never-bend row missing: $rule"; false; }
   done <<'RULES'
 git push --force
-`git reset --hard`, `git clean`, `git checkout --` on tracked files
+`git reset --hard`, `git clean`, `git checkout --` on tracked files, `git stash`
 Delete a branch
 `--no-verify`, or skipping a hook
 `git add -A`, or staging by wildcard
@@ -94,9 +94,11 @@ ROWS
     || { echo "G slice unterminated: H heading missing or reworded"; false; }
   extra="$(grep -E '^\*\*|^#{1,6} ' <<<"$g" | grep -vF -e '**G — implementer gate.**' -e '**H — implement.**' || true)"
   [ -z "$extra" ] || { echo "unexpected heading-shaped lines inside the G slice:"; echo "$extra"; false; }
+  PKG="$ROOT/pipeline/docs/handoff-package.md"
+  [ -f "$PKG" ] && [ -r "$PKG" ] || { echo "cannot read $PKG"; false; }
   while IFS= read -r part; do
     [ -n "$part" ] || continue
-    grep -qF -- "- **$part**" <<<"$g" || { echo "package part missing: $part"; false; }
+    grep -qF -- "- **$part**" "$PKG" || { echo "package part missing from docs/handoff-package.md: $part"; false; }
   done <<'PARTS'
 Files to provide
 Repository state
@@ -106,7 +108,14 @@ What will bite this feature
 Validation before "done"
 Report-back contract
 PARTS
+  pkg="$(tr -d '\r' < "$PKG" | tr '\n' ' ' | tr -s ' ')"
+  grep -qF 'Redaction binds every part: where a source holds a credential, an endpoint or a token, the package carries the fact and its location, never the value.' <<<"$pkg" \
+    || { echo "the package redaction rule altered"; false; }
+  grep -qF 'adds a fourth imperative of its own: no `git stash`.' <<<"$pkg" \
+    || { echo "the package stash ban altered"; false; }
   flat="$(tr '\n' ' ' <<<"$g" | tr -s ' ')"
+  grep -qF 'The package carries seven parts. Read `${CLAUDE_PLUGIN_ROOT}/docs/handoff-package.md` before writing it, and write it exactly as that page says: every part present by name, its redaction rule and its destructive-git rule included.' <<<"$flat" \
+    || { echo "the SKILL.md pointer to docs/handoff-package.md altered"; false; }
   grep -qF 'forbidden list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no branch operations, no pull request) plus whatever `releaseCommand` and `verifyCommand` name, plus any deploy or migration verb found in the tasks file.' <<<"$flat" \
     || { echo "derived-forbidden-list sentence altered"; false; }
   grep -qF '`--auto` never collapses this gate: it spends money.' <<<"$flat" \
