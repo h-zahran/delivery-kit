@@ -544,6 +544,8 @@ fake_uname() {
 @test "a line that starts ok without a space is not an ok" {
   repo
   verdict_is red 0 '1..2' 'ok 1 one' 'okay'
+  # A tab is not the space TAP puts after ok, even before a good number.
+  verdict_is red 0 '1..2' 'ok 1 one' $'ok\t2 two'
 }
 
 @test "blank and whitespace-only lines before the plan are skipped" {
