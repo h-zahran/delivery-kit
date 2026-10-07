@@ -1563,6 +1563,11 @@ ROWS
     || { echo "B no longer checks where the spec was written"; false; }
   grep -qF 'A `--branch` or `--spec-dir` on a resume that differs from the record is never applied silently — say that the record stands, and name both.' <<<"$docs" \
     || { echo "the resume rule for the two flags altered"; false; }
+  # Feature 043: a resume prints the two lines from the record.
+  grep -qF 'On a resume pre-flight gets no `--feature-branch` or `--spec-dir`, so print the Branch and Spec folder lines from the record: the branch from the state file and the folder from `artifacts.spec`, each marked as recorded.' <<<"$docs" \
+    || { echo "the resume probe-line rule for the branch and the folder altered"; false; }
+  grep -qF 'On a resume, pre-flight prints the branch and the folder the run recorded.' <<<"$docs" \
+    || { echo "the configuration page lost the resume probe-line note"; false; }
   changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
   grep -qF '**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**' <<<"$changelog" \
     || { echo "the changelog lost the two flags entry"; false; }

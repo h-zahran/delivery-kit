@@ -145,7 +145,8 @@ fresh run only. A resume keeps the branch and the folder the run
 recorded, and a different value on a resume is reported, never applied
 silently. A second fresh run with the same `--spec-dir` stops at
 pre-flight, because the folder exists: to continue a run, type
-`--resume`.
+`--resume`. On a resume, pre-flight prints the branch and the folder the
+run recorded.
 
 What the run does with the two flags:
 
@@ -171,6 +172,10 @@ What the run does with the two flags:
   `artifacts.spec`, and a resume uses the record. A `--branch` or
   `--spec-dir` on a resume that differs from the record is never applied
   silently — say that the record stands, and name both.
+- On a resume pre-flight gets no `--feature-branch` or `--spec-dir`, so
+  print the Branch and Spec folder lines from the record: the branch from
+  the state file and the folder from `artifacts.spec`, each marked as
+  recorded.
 
 ## Commit trailers
 
