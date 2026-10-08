@@ -80,15 +80,19 @@ fi
 o1="$log/$id.o1" e1="$log/$id.e1" o2="$log/$id.o2" e2="$log/$id.e2"
 "$BASH" "$old" "$@" > "$o1" 2> "$e1"; r1=$?
 "$BASH" "$new" "$@" > "$o2" 2> "$e2"; r2=$?
-# LF: a plugin.json name or version, or a marketplace entry's version or
-# source, holds a line feed. Read now: the suite deletes the tree after.
+# LF: a read the old gate took through $( ) on Windows could have held a
+# CR inside it (research R5): a plugin.json name or version, or a
+# marketplace entry's version or source, holds a line feed, or two entries
+# share a name (their values were read one per line). Read now: the suite
+# deletes the tree after.
 class=PLAIN
 for f in */.claude-plugin/plugin.json; do
   [ -f "$f" ] || continue
   if "$jq" -e '[.name, .version] | any(type == "string" and test("\n"))' < "$f" > /dev/null 2>&1; then class=LF; fi
 done
 if [ -f .claude-plugin/marketplace.json ] \
-  && "$jq" -e '[.plugins[]? | .version, .source] | any(type == "string" and test("\n"))' < .claude-plugin/marketplace.json > /dev/null 2>&1; then
+  && "$jq" -e '([.plugins[]? | .version, .source] | any(type == "string" and test("\n"))) or ([.plugins[]?.name] | length != (unique | length))' \
+    < .claude-plugin/marketplace.json > /dev/null 2>&1; then
   class=LF
 fi
 same=1
@@ -196,6 +200,7 @@ extra empty '{"name":"","version":""}' '{"plugins":[{"name":"","version":"","sou
 extra LF1 '{"name":"x\ny","version":"1.0.0"}' "$M"
 extra lfversion '{"name":"x","version":"1.0.0\n"}' '{"plugins":[{"name":"x","version":"1.0.0\n","source":"./x\n"}]}'
 extra crlf '{"name":"x","version":"1.0.0\r\n"}' "$M"
+extra crsource '{"name":"x","version":"1.0.0"}' '{"plugins":[{"name":"x","version":"1.0.0","source":"./x\r"}]}'
 extra innerlf '{"name":"x","version":"1.0.0"}' '{"plugins":[{"name":"x","version":"1\n\n0","source":"./x"}]}'
 extra dup '{"name":"x","version":"1.0.0"}' '{"plugins":[{"name":"x","version":"1.0.0","source":"./x"},{"name":"x","version":"2.0.0","source":"b"},{"name":"x","source":"c"}]}'
 extra emptyentry '{"name":"x","version":"1.0.0"}' '{"plugins":[{"name":"x","version":"","source":""}]}'
@@ -211,6 +216,13 @@ extra nul '{"name":"x\u0000"}' "$M"
 extra noentries '{"name":"x","version":"1.0.0"}' '{"plugins":[]}'
 extra booltrue '{"name":"x","version":true}' "$M"
 extra badutf8 "$(printf '{"name":"\377\376x","version":"1.0.0"}')" '{"plugins":[{"name":"\ufffd\ufffdx","version":"9","source":"q"}]}'
+
+# A source ending in a CR is read whole, and the gate names it, on every
+# system (research R4, R5): a check of the new gate's own line, which the
+# comparison cannot give, since both gates refuse this tree.
+crs=$(cd "$tmp/x/crsource" && bash "$wt/scripts/check-versions.new.sh" 2>&1); crs_rc=$?
+[ "$crs_rc" = 1 ] && [[ $crs == *"x: marketplace entry x has source './x?', which does not resolve to x"* ]] \
+  || fail "crsource: the new gate did not name the source ending in a CR (rc $crs_rc): $crs"
 
 # The verdict.
 diffs=$(awk -F'\t' '$1 == "DIFF" && $2 == "compare"' "$tmp/log/runs.log")

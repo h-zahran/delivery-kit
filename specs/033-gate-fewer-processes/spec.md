@@ -215,10 +215,13 @@ machine, and record the wall times in one dated table in research.
   line feed inside a value, and Git Bash kept it (measured: a name
   `a\nb` read as `a\r\nb`), so the same JSON gave different values on
   Windows and on Linux. The new gate gives the Linux bytes on every
-  system. The differential, run on Windows, asserts it: the fixture LF1
-  (a plugin name holding a line feed, printed by the mismatch line) must
-  differ; a run whose name, version or source holds a line feed may
-  differ; any other run must not (research R10).
+  system. The same holds for entries sharing a name, whose values were
+  read one per line. A value ending in a CR, or in line feeds, read the
+  same on both systems before and still does (measured). The
+  differential, run on Windows,
+  asserts it: the fixture LF1 (a plugin name holding a line feed, printed
+  by the mismatch line) must differ; a run whose tree holds such a value
+  or such a name may differ; any other run must not (research R5, R10).
 - **FR-003 Proved by a differential.** A differential runs the gate at
   `2b38f74` and the new gate over the same fixture set, in both forms, and
   compares standard output, standard error and exit status; the

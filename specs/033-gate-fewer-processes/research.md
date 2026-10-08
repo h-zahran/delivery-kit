@@ -45,9 +45,9 @@ keys; `[]`; a number for the name; text that is not JSON; an empty file;
 two documents; a NUL; no entries; and bytes that are not valid UTF-8. The
 exit status classes (0, 1, other) agreed on every fixture, and every field
 agreed except one: the version `1\r\n`, which the old read gave as `1`
-and the new as `1\r` — Git Bash's `$( )` also removes a CR before the
-line feeds it strips. On Linux `$( )` strips only line feeds, so there
-the old read gives `1\r` too. This is the Windows divergence of R5.
+and the new as `1\r`. That one came from the prototype running the old
+reads WITH `-b`, which the old gate never did: the old gate itself, in text
+mode, read `1\r`, as the new one does (measured at T015; R5).
 
 **jq's `+`.** Every `+` in the new program joins two strings on purpose:
 a length written by the program (`"\(utf8bytelength):"`) and a value the
@@ -109,7 +109,11 @@ under `LC_ALL=C`, so bash counts bytes, as `shown` already does.
   for `é中😀x` (10 and 10) and for a name given as bytes that are not valid
   UTF-8 (`jq` reads them as U+FFFD, writes `ef bf bd` twice: 8 and 8).
 - The terminator stops `$( )` from stripping a value's trailing line
-  feeds or (on Git Bash) CRs; the gate checks it is there and removes it.
+  feeds; the gate checks it is there and removes it. Measured at T015, it
+  guards nothing reachable today: `nl` removes trailing line feeds inside
+  `jq`, and `$( )` keeps a lone trailing CR, on Git Bash too. It stays as
+  a guard should `nl` ever change, and its mutant survives (recorded with
+  the mutants below).
 - Only five fields per plugin, so the cutting is constant work (R3's cost
   is per record).
 - A field whose length is not digits, or a length past the end, or bytes
@@ -131,7 +135,18 @@ under `LC_ALL=C`, so bash counts bytes, as `shown` already does.
   on Windows and `1\r` on Linux. The new gate gives the Linux bytes on
   every system. Every such value is printed through `shown`, which masks
   CR and line feed alike as `?`, so the visible difference on Windows is
-  the number of `?`. The differential (R10) asserts it: on Windows the
+  the number of `?`. The class also holds entries sharing a name, whose
+  versions or sources the old read printed one per line (`1.0.0\r\n2.0.0`
+  on Windows), found by the differential at T013 (the `dup` fixture).
+  Measured afterwards, old `jq -r` in text mode into Git Bash's `$( )`:
+  `x\r` reads `x\r`, `x\r\n` reads `x\r` (as on Linux, where `$( )`
+  strips the trailing line feeds and keeps the CR), `x\n\r` reads
+  `x\r\n\r`, `a\nb` reads `a\r\nb`. So only a line feed with something
+  after it diverges; a trailing CR or trailing line feeds do not. (The R1
+  prototype's `1\r\n` → `1` came from running the OLD reads with `-b`,
+  which the old gate never did; the real old gate read `1\r`, as the new
+  one does.)
+  The differential (R10) asserts it: on Windows the
   fixture LF1 must differ, any difference on a run whose tree holds no
   such line feed is a failure, and on any other system no run may differ.
 - **Linux and macOS.** The differential runs on this machine only, so
@@ -273,7 +288,7 @@ result recorded here; no frozen copy of the old gate is kept.
 - **Classified while the fixture exists:** the wrapper logs START and DONE
   for every run and marks it, at log time, LF or PLAIN (does a
   `plugin.json` name or version, or a marketplace entry's version or
-  source, hold a line feed). The suite's `teardown` deletes the fixture
+  source, hold a line feed, or do two entries share a name: R5). The suite's `teardown` deletes the fixture
   afterwards, so this cannot wait.
 - **Coverage pinned, per test:** every START has its DONE. A plain pass
   runs the file over a wrapper that only logs each gate start by test name
@@ -342,3 +357,33 @@ options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
 | `jq` starts, `--released pipeline` (refuses: unreleased work) | 13 | |
 | one default run, ms (three runs) | 2,443 / 2,330 / 2,361 | |
 | `tests/portability.bats` alone, s | measured at T028, alternating | |
+
+**2026-10-08, Phase 3 mutants (T015),** each in a scratch worktree,
+each confirmed landed (the old text found once before, not after, and the
+file parsed), each run against `every value masked`, `one jq for the
+marketplace`, `manifest, marketplace entry and changelog agree` and
+`TRAILING malformed`:
+
+| Mutant | Result |
+|---|---|
+| `take` cuts one byte short | 4 of 4 red |
+| `LC_ALL=C` dropped from `take` | 1 red: `every value masked` (P7's UTF-8 plant) |
+| the entry flag ignored | 0 red at first: no test pinned the three marketplace messages, before or after the merge. P8 added (no entry, no version, no source); then 1 red, `every value masked` |
+| `mv` and `ms` swapped | 4 of 4 red |
+| `-b` dropped from the plugin read | 1 red: `every value masked` (a value holding a line feed is cut wrong on Windows) |
+| the `.` terminator dropped (in `jq`, the check and the strip) | SURVIVES, by measurement: the `crsource` check passes on the mutant too. Nothing reachable reaches the end of the record but a value `nl` has already stripped of trailing line feeds, and `$( )` keeps a lone trailing CR. A guard kept on purpose; R4 says so |
+
+**2026-10-08, the differential after Phase 3 (T013).** First run: one
+UNEXPECTED difference class, the `dup` tree (entries sharing a name), the
+Windows divergence the classifier did not yet cover; R5 and the
+classifier were widened to it, then narrowed again by measurement (a
+trailing CR does not diverge). Final run, with the classifier as
+committed: `DIFFERENTIAL OK (271 runs, 17 LF runs, 10 differing)`,
+`CONTROL OK (4 of 4 runs differ)`, 1,313 s; the `crsource` check passed.
+Expected red over the wrapper, by the rule: "the gate keeps its own shell
+options" and "the gate starts one jq for the marketplace and one per
+plugin" (its logger also counts the old gate's starts).
+
+`tests/portability.bats` alone after Phase 3: `1..54`, 54 ok, 345 s
+(535 s at `2b38f74` earlier the same day, not alternated: T028 measures
+properly).

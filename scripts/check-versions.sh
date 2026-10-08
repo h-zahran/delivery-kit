@@ -40,11 +40,14 @@ set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 # copy the one in tests/helper.bash, which is the defect this file exists to
 # end, arriving by a different door.
 #
-# jq here may be a native Windows binary whose stdout is text mode, so every
-# line it prints ends CRLF. Command substitution strips that trailing CR;
-# `read` does not. The reverse walk below reads jq line by line and strips it
-# explicitly — measured in this repository's suite, where without the strip
-# every lookup returned empty and a clean tree failed on one platform only.
+# jq here may be a native Windows binary whose stdout is text mode: without
+# -b it writes a CR before every line feed, inside a value too, and Git
+# Bash's $( ) keeps an inner CR (measured: `a\nb` read as `a\r\nb`), so the
+# same file gave other values on Windows than on Linux. Every jq below runs
+# with -b, which writes the bytes as they are, so the values agree on every
+# system. The reverse walk still strips a trailing CR from each line it
+# reads; with -b there is none, and the strip stays as a guard that costs
+# nothing.
 set -euo pipefail
 
 # GREP_OPTIONS is honoured by older greps and would rewrite every `grep` call
@@ -170,13 +173,48 @@ market_shape='if length == 0 then error else length == 1 and (.[0] | type == "ob
 plugin_shape='if length == 0 then error else length == 1 and (.[0] | type == "object" and ((.name // "") | type) == "string" and ((.version // "") | type) == "string") and all(.. | strings; all(explode[]; . != 0)) end'
 { : < .claude-plugin/marketplace.json; } 2>/dev/null \
   || die ".claude-plugin/marketplace.json could not be read"
+# One jq reads the marketplace once: the shape check, then, when it holds,
+# the reverse walk's entry list (name and source of each entry, one line
+# each as @tsv writes it, which escapes a tab, a line feed, a CR and a
+# backslash, so no line holds a raw one), then `.`. On a false shape it
+# writes `false`, which makes -e exit 1; text that is not JSON makes jq exit
+# with its own error status, as before.
+# shellcheck disable=SC2016 # $ok is jq's variable, not the shell's
+market_read='('"$market_shape"') as $ok | if $ok | not then false else ([.[0].plugins[] | [.name, (.source // "")] | @tsv] | join("\n")) + "." end'
 shape=0
-jq -e -s "$market_shape" < .claude-plugin/marketplace.json > /dev/null 2>&1 || shape=$?
+market="$(jq -b -e -s -j "$market_read" < .claude-plugin/marketplace.json 2>/dev/null)" || shape=$?
 case $shape in
   0) ;;
   1) die ".claude-plugin/marketplace.json is not one object whose plugins is a list of entries with string name, source and version, and no NUL character" ;;
   *) die ".claude-plugin/marketplace.json is not valid JSON" ;;
 esac
+[ "${market: -1}" = . ] || die ".claude-plugin/marketplace.json could not be read"
+entries_tsv=${market%.}
+
+# One jq per plugin reads its plugin.json on standard input and the
+# marketplace by its fixed path, and answers what were separate jq
+# processes:
+# the shape check; the name and the version; whether an entry has that
+# name; and the matching entries' versions and sources. Each value is
+# what the old read gave on Linux: `// ""` where it said `// empty`, and
+# trailing line feeds removed, as $( ) removed them (nl, written as a
+# loop: Oniguruma's `$` also matches before an inner line feed). Several
+# entries with the name give their values joined by line feeds, as the old
+# read printed one per line. Every `+` joins two strings: a length the
+# program writes and a value the shape check has made a string.
+# shellcheck disable=SC2016 # $ok, $m and $n are jq's variables, not the shell's
+plugin_read='def nl: if endswith("\n") then .[:-1] | nl else . end;
+def field: "\(utf8bytelength):" + .;
+('"$plugin_shape"') as $ok
+| if $ok | not then false else
+    (.[0].name // "" | nl) as $n
+    | [$m[0].plugins[] | select(.name == $n)] as $hits
+    | ($n | field) + (.[0].version // "" | nl | field)
+      + (if ($hits | length) > 0 then "1" else "0" end)
+      + ([$hits[] | .version // empty] | join("\n") | nl | field)
+      + ([$hits[] | .source // empty] | join("\n") | nl | field)
+      + "."
+  end'
 
 # A value the gate did not write, read from a tracked file or the command
 # line, is printed only through shown, which stores a copy safe to print in
@@ -207,6 +245,27 @@ shown() {
   [ "${#s}" -le "$quote_cut" ] || { s=${s:0:$quote_cut}; t=" [cut]"; }
   s=${s//[![:print:]]/?}
   printf -v "$1" '%s' "${s//"$hh"/$hm}$t"
+}
+
+# The reads below each start one jq for a whole file and take several
+# values from it, and every character but NUL can sit in a JSON string, so
+# no separator can split them. jq writes each value as its length in bytes,
+# a colon, then the value, and ends the record with `.` (which keeps $( )
+# from stripping a value's trailing line feeds). take cuts the next value
+# off `record` into the variable it is named, counting bytes under the C
+# locale, as jq's utf8bytelength counts them; it returns 1, leaving
+# `record` as it was, on a length that is not plain digits, a missing
+# colon, or a length past the end, and the caller stops with its own line.
+record=''
+take() {
+  local LC_ALL=C n r
+  n=${record%%:*}
+  case $n in ''|0[0-9]*|*[!0-9]*) return 1 ;; esac
+  [ "$n" != "$record" ] || return 1
+  r=${record:${#n}+1}
+  [ "${#r}" -ge "$n" ] || return 1
+  printf -v "$1" '%s' "${r:0:$n}"
+  record=${r:$n}
 }
 
 # --released <plugin> additionally requires that plugin's changelog to carry NO
@@ -315,18 +374,26 @@ for dir in */; do
   # file: opening a pipe would wait for ever.
   { : < "./$p/.claude-plugin/plugin.json"; } 2>/dev/null \
     || die "$p_s: plugin.json could not be read"
-  # Its shape once, before any read of it, as marketplace.json's above.
+  # Its shape is checked first, in the same process that then reads it
+  # (plugin_read above), so no value is read from a file of the wrong shape.
   shape=0
-  jq -e -s "$plugin_shape" < "./$p/.claude-plugin/plugin.json" > /dev/null 2>&1 || shape=$?
+  record="$(jq -b -e -s -j --slurpfile m .claude-plugin/marketplace.json "$plugin_read" \
+    < "./$p/.claude-plugin/plugin.json" 2>/dev/null)" || shape=$?
   case $shape in
     0) ;;
     1) die "$p_s: plugin.json is not one object with a string name and version, and no NUL character" ;;
     *) die "$p_s: plugin.json is not valid JSON" ;;
   esac
-  pn="$(jq -r '.name // empty' < "./$p/.claude-plugin/plugin.json" 2>/dev/null)" \
-    || die "$p_s: plugin.json could not be read"
-  pv="$(jq -r '.version // empty' < "./$p/.claude-plugin/plugin.json" 2>/dev/null)" \
-    || die "$p_s: plugin.json could not be read"
+  [ "${record: -1}" = . ] || die "$p_s: plugin.json could not be read"
+  record=${record%.}
+  take pn || die "$p_s: plugin.json could not be read"
+  take pv || die "$p_s: plugin.json could not be read"
+  entry=${record:0:1}
+  record=${record:1}
+  case $entry in 0|1) ;; *) die "$p_s: plugin.json could not be read" ;; esac
+  take mv || die "$p_s: plugin.json could not be read"
+  take ms || die "$p_s: plugin.json could not be read"
+  [ -z "$record" ] || die "$p_s: plugin.json could not be read"
   shown pn_s "$pn"
   shown pv_s "$pv"
   [ -n "$pn" ] || die "$p_s: plugin.json has no name"
@@ -344,23 +411,20 @@ for dir in */; do
   # would otherwise be compared against the wrong entry — and could agree with
   # it by accident.
   #
-  # These three queries are deliberately NOT collapsed into one. They carry
-  # three different diagnostics for three different defects — no entry, an
-  # entry with no version, an entry with no source — each of which has a
-  # separate fix and each of which has happened. One combined query would
-  # recover which absence occurred by splitting sentinel fields, and the
-  # comments below would then describe a mechanism the code no longer had.
-  # The saving was measured at two process spawns per plugin. Clarity wins.
+  # Different defects get different messages — no entry, an entry with no
+  # version, an entry with no source — each of which has a separate fix and
+  # each of which has happened. They were separate jq processes, kept apart
+  # for that clarity; the processes came to dominate the suite's time, so
+  # plugin_read now answers each question in the one read of this plugin,
+  # as its own value, and the tests below keep each message its own.
+  # (specs/033-gate-fewer-processes/research.md R1, R3.)
   #
   # Existence and the version key are two different absences with two different
-  # fixes, so they get two different messages. Without `// empty`, jq prints the
-  # literal string "null" for a present entry missing the key, which passes a
-  # non-empty test and sends the maintainer diffing two version numbers when one
-  # of them does not exist.
-  jq -e --arg n "$pn" '.plugins[] | select(.name == $n)' .claude-plugin/marketplace.json > /dev/null 2>&1 \
-    || die "$p_s: no marketplace entry named $pn_s"
-  mv="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .version // empty' .claude-plugin/marketplace.json 2>/dev/null)" \
-    || die ".claude-plugin/marketplace.json could not be read"
+  # fixes, so they get two different messages. Without `// empty`, jq would
+  # print the literal string "null" for a present entry missing the key, which
+  # passes a non-empty test and sends the maintainer diffing two version
+  # numbers when one of them does not exist.
+  [ "$entry" = 1 ] || die "$p_s: no marketplace entry named $pn_s"
   shown mv_s "$mv"
   [ -n "$mv" ] || die "$p_s: marketplace entry $pn_s has no version"
 
@@ -372,8 +436,6 @@ for dir in */; do
   # no plugin manifest, from the commit that moved the plugin into its own
   # directory until the commit that renamed it, and the whole suite was green
   # for the duration.
-  ms="$(jq -r --arg n "$pn" '.plugins[] | select(.name == $n) | .source // empty' .claude-plugin/marketplace.json 2>/dev/null)" \
-    || die ".claude-plugin/marketplace.json could not be read"
   shown ms_s "$ms"
   [ -n "$ms" ] || die "$p_s: marketplace entry $pn_s has no source"
   [ "${#ms}" -le "$source_limit" ] \
@@ -742,11 +804,12 @@ done
 # the other direction too, and pin the two counts to each other so the walks
 # cannot quietly cover different sets.
 #
-# One jq for the whole walk, emitting name and source together. The earlier
-# shape read the names, then re-queried this same file once per name to fetch
-# the source of the entry it had just read — looking an entry up by a value
-# taken from that entry. The CR the note at the top of this file describes
-# lands on the LAST field of the line, so the strip moves with it.
+# The walk reads entries_tsv, the name and source of every entry, which the
+# marketplace's one jq wrote at the top (market_read). One read for the whole
+# walk: an earlier shape read the names, then re-queried this same file once
+# per name to fetch the source of the entry it had just read — looking an
+# entry up by a value taken from that entry. A CR, were one there, would land
+# on the LAST field of the line, so the strip below sits on the source.
 #
 # jq runs in its OWN statement, never in a process substitution feeding the
 # loop. A process substitution's exit status is invisible to `set -e`: the shell
@@ -756,15 +819,11 @@ done
 # set entries=1, matched checked=1, and exited 0 having never validated the bad
 # entry's `source`, which pointed at a directory that did not exist. A leading
 # malformed entry died correctly, so only trailing ones escaped. Assigning first
-# puts the failure where errexit can see it. The loop is then fed by printf
-# over the assigned text, which cannot fail, and not by a herestring: Git
-# Bash hung, naming nothing, on a herestring of 65,536 to about 65,700 bytes
-# (measured), a size a fork controls through one entry's name.
-# The shape check at the top now stops such a file before this read, so
-# the read's own failure is a backstop: its error discarded, and the
-# gate's line in its place.
-entries_tsv="$(jq -r '.plugins[] | [.name, (.source // "")] | @tsv' .claude-plugin/marketplace.json 2>/dev/null)" \
-  || die ".claude-plugin/marketplace.json could not be read"
+# puts the failure where errexit can see it, and the shape check in the same
+# jq stops such a file before any line is written. The loop is then fed by
+# printf over the assigned text, which cannot fail, and not by a herestring:
+# Git Bash hung, naming nothing, on a herestring of 65,536 to about 65,700
+# bytes (measured), a size a fork controls through one entry's name.
 # An empty result would make the loop below run zero times and pass vacuously.
 # The count comparison further down would not catch it either when the tree
 # holds no plugin directory — two zeroes agree.
