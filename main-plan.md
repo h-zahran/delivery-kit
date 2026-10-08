@@ -3072,3 +3072,134 @@ them. **Changelog routing: none.** This run uses the INSTALLED pipeline
 ```
 /pipeline Phase 28: the release gate closes what Phase 27 deferred --auto --implementer claude
 ```
+
+## Phase 33: the release gate starts fewer processes, and its walk is tested on its own
+
+Audit item 11 (the whole-tool audit of 2026-10-06, its R1 and R2). The
+owner's plan for items 9 to 15 sends this one item through the pipeline,
+because it changes the gate every fork pull request meets. Like Phases
+24 to 28, it changes nothing inside a plugin, so **no plugin release
+follows it**; the next release (pipeline 1.4.0) comes after item 15.
+The ruling on doubt still binds: a wrong refusal is acceptable, a wrong
+pass is not.
+
+Measured 2026-10-08 at `main` = `2b38f74`:
+
+- **One gate run on the real tree takes 2.4 to 2.9 s** (three runs:
+  2,386, 2,657 and 2,929 ms). It starts 14 `jq` processes: two for the
+  marketplace (the shape check at `scripts/check-versions.sh:174`, the
+  entry list at `:766`) and six for each plugin (`:320`, `:326`, `:328`,
+  `:360`, `:362`, `:375` — the shape check, then name, version, entry
+  presence, entry version and entry source, each a separate read). The
+  audit measured about 0.1 s per `jq` process on Windows.
+- **`tests/portability.bats` starts the gate 210 times** and took 535 s
+  alone (52 tests; counted on a throwaway copy of the gate with one
+  added line). The slowest tests: "the gate reads only a regular
+  changelog of bounded size" 27.3 s, "--released refuses a dangling
+  Unreleased heading…" 23.8 s, and three more `--released refuses …`
+  tests between 22.2 and 23.2 s. The per-test limit is 60 s.
+- **The heading walk is a 185-line awk program inside one single-quoted
+  bash string** (`scripts/check-versions.sh:544-729`). It can be tested
+  only by running the whole gate on a copied tree, which is most of the
+  spawns above. An apostrophe in one of its comments ends the string;
+  that has broken the gate before.
+
+**Requirements:**
+
+1. **One read per file.** Each `plugin.json` is read by one `jq`
+   process, and the marketplace by one (reusing the entry list at
+   `:766`), instead of 14 for the real tree. The spec states the count
+   per run before and after, and measures both.
+2. **Every message stays byte-identical.** Both forms (`check-versions.sh`
+   and `check-versions.sh --released <plugin>`) print and exit exactly
+   as at `2b38f74`, on every fixture the suite builds. A malformed file,
+   an unreadable one and a missing one stay distinguishable (Phase 28,
+   requirement 2), every value still passes through `shown`, and no
+   `jq:` line reaches the output. Proved by a DIFFERENTIAL, not by
+   reading: run the old and the new gate over the same fixture set, in
+   both forms, and compare output and exit status; the difference is
+   empty. A one-`jq` refactor here broke byte-identity before in ways no
+   reading caught: jq's `+` joins two strings, and `jq -r` prints the
+   boolean `true` and the string `"true"` the same.
+3. **Three jq versions agree.** CI runs jq 1.7 (ubuntu), 1.8.1
+   (Windows) and 1.8.2 (macOS). Any merged output split by `read`,
+   `mapfile` or `< <(…)` uses `jq -b` (Windows jq adds a CR to every
+   line otherwise), and a field separator no value can hold is chosen
+   and stated.
+4. **The walk lives in its own file.** The awk program moves to a file
+   under `scripts/` beside the gate. Its TEXT does not change: the spec
+   proves the moved program byte-identical to the old single-quoted
+   body. If it must change, the proof
+   (`specs/025-gate-closes-phase25-gaps/proof/enumerate.py`) is rerun and
+   must report 0 wrong passes and each control at least 1.
+5. **The gate finds the walk next to itself**, from `BASH_SOURCE`, never
+   from the caller's directory; a missing or unreadable walk file stops
+   the gate with its own message, exit 1. The symbolic-link and path
+   rules of Phases 27 and 28 apply to it as to every file the gate reads.
+6. **The walk is tested on its own.** Tests run the walk directly on a
+   changelog on stdin, with `DATED_RE`, `LINE_LIMIT` and `QUOTE_CUT` in
+   the environment as the gate passes them, and no `jq`. The changelog
+   forms the gate tests now check by spawning the gate move to these
+   direct tests where nothing but the walk is under test. Enough
+   end-to-end gate tests stay to prove the gate and the walk are joined:
+   the spec lists which, and why each stays.
+7. **Nothing else moves.** CI and the suite still call the one script;
+   the walk file is called by the gate, never by CI or a test of the
+   whole gate, and the "one version-agreement script, and both gates
+   call it" test stays green unchanged. The P0 print-site scan
+   (`die_raw`) still reads the gate; the spec says whether it also reads
+   the walk file, and why.
+
+**Acceptance criteria:**
+
+- The differential of requirement 2 runs as a test or as a quickstart
+  step over every fixture, in both forms, and reports an empty
+  difference; a mutant that changes one message's text by one byte
+  turns it red.
+- A mutant that drops each new rule turns its test red, naming its
+  clause: a missing walk file, an unreadable one, the walk found from
+  the caller's directory, a field split that loses a value holding the
+  separator. Confirm each mutation landed before believing the red.
+- `jq` processes per gate run on the real tree: 14 before, the new count
+  after, measured. Wall time of `tests/portability.bats` alone and of one
+  gate run: before and after, on the same machine, alternating runs.
+- No test over 40 s alone on Windows.
+- Every byte tool the gate, the walk or the tests run on a file that may
+  hold a byte which is not valid text runs under `LC_ALL=C`.
+- The feature quickstart, run as one script, ends ALL OK.
+- Full house suite from the repo root: `1..426` at `2b38f74`, plus the
+  tests this phase adds, minus those it moves. The spec fixes the exact
+  count, and the suite is judged by `bash scripts/check-suite.sh <that
+  count>`.
+- CI green on all three operating systems. Confirm a run EXISTS before
+  reading its result, and read every job's steps.
+
+**Not in this phase:** running test files in parallel (audit R5); moving
+the gate tests into their own file (R6); resolving `ROOT` once per file
+(R10); a timing warning in CI (R11); a release script (R9).
+
+**Constraints:** the Campaign 3 Global Constraints apply, including the
+full house suite, restated here because seeds travel alone:
+`bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
+run from the repo root. `scripts/` is on the shipped root surface: STRICT
+vocabulary, no machine path, no count in prose — the walk file's
+comments included. Bash 3.2 and every awk CI runs (gawk, and the BSD awk
+on macOS); no interval expressions in awk patterns; never `\/` inside a
+pattern substitution. Test a locale-dependent rule with `LANG` set to a
+UTF-8 locale and `LC_ALL` unset, as CI runners set them. In a test, match
+text in the shell (`[[ $s == *"$want"* ]]`), never with
+`grep … < <(printf …)`: on Git Bash that form reported a match that was
+not there in 43 of 1,800 calls under load (measured 2026-10-08; a file or
+a pipe: 0). **Spec number: 033** — numbers 031 to 039 are reserved for
+audit items 10 to 15, and `specs/` stops at 027, so the spec tool's own
+count would give 028. Pass `SPECIFY_FEATURE_DIRECTORY=specs/033-<slug>`
+to it, and name the branch to match. **Changelog routing: none.** This run
+uses the INSTALLED pipeline 1.3.1, which has none of items 9, 10 and 13:
+G asks the review question (commits or pauses), and there is no
+pending-question queue and no suite reuse.
+
+**Invocation:**
+
+```
+/pipeline Phase 33: the release gate starts fewer processes, and its walk is tested on its own --auto --implementer claude
+```
