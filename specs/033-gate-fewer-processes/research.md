@@ -1,0 +1,326 @@
+# Research: The release gate starts fewer processes, and its walk is tested on its own
+
+All measurements: 2026-10-08, this machine (Windows, Git Bash, bash 5.x,
+jq 1.8.1, gawk), against `main` = `2b38f74` unless a line says otherwise.
+The scripts that took them were run from the session's scratch directory;
+each is described closely enough here to be run again.
+
+## R1 — One `jq` process per `plugin.json`, answering the marketplace too
+
+**Decision.** For each plugin, one `jq` process reads `plugin.json` on
+standard input (as today) and the marketplace through
+`--slurpfile m .claude-plugin/marketplace.json` (a fixed relative path,
+as `:360`, `:362` and `:375` pass it today). It runs `plugin_shape`
+unchanged; on a wrong shape it outputs `false` (exit 1 under `-e`); on an
+error (not JSON, empty) it exits with jq's own status, as today. Otherwise
+it outputs, as length-prefixed fields (R4): the name, the version, `1` or
+`0` for "an entry has this name", the matching entries' versions, and
+their sources — each computed the way the old reads computed it:
+
+| Old read | Old value | New field |
+|---|---|---|
+| `:326` `jq -r '.name // empty'` in `$( )` | trailing line feeds stripped by `$( )` | `.[0].name // ""`, trailing line feeds removed |
+| `:328` `.version // empty` | same | same, for `.version` |
+| `:360` `jq -e … select(.name == $n)` | exit 0 when an entry matched (entries are objects, so truthy) | `1` when the list of matches is not empty |
+| `:362` `… \| .version // empty` in `$( )` | one line per match, joined by line feeds, trailing line feeds stripped | `[matches \| .version // empty] \| join("\n")`, trailing line feeds removed |
+| `:375` `… \| .source // empty` | same | same, for `.source` |
+
+`$n` was the stripped name; the new read compares `.name` with the same
+stripped name, inside the same process, and binds it as `$n`: test 652
+("one version-agreement script …") requires the gate's text to hold
+`select(.name == $n)` (its marker regex) and the callers' text not to. The old code ran the three
+marketplace reads only after `pn` equalled the directory name; the new
+read computes them always, and the gate uses them only at the same point,
+so the order of messages does not change.
+
+**Measured.** A prototype ran the new read and the six old reads (each
+with `-b`, so both give the Linux bytes; see R5) over 21 fixtures: a
+plain pair; a missing, `null` and `false` name and version; empty
+strings; a name and a version ending in line feeds, and a CR before a
+line feed; a name holding a line feed matched against an entry whose name
+ends in one; three entries sharing a name, one with a version ending in a
+line feed and one with none; `""`, `null` and `false` entry values; a tab,
+a backslash, `##[`, `::`, a non-ASCII and a four-byte character; extra
+keys; `[]`; a number for the name; text that is not JSON; an empty file;
+two documents; a NUL; no entries; and bytes that are not valid UTF-8. The
+exit status classes (0, 1, other) agreed on every fixture, and every field
+agreed except one: the version `1\r\n`, which the old read gave as `1`
+and the new as `1\r` — Git Bash's `$( )` also removes a CR before the
+line feeds it strips. On Linux `$( )` strips only line feeds, so there
+the old read gives `1\r` too. This is the Windows divergence of R5.
+
+**jq's `+`.** Every `+` in the new program joins two strings on purpose:
+a length written by the program (`"\(utf8bytelength):"`) and a value the
+shape check has made a string (`// ""` turns a missing, `null` or `false`
+one into `""`). No `+` adds numbers, so the trap that broke a one-`jq`
+refactor here before (a string reading joined where a sum was meant)
+cannot arise.
+
+**A race, recorded.** If the marketplace stops being readable between the
+top read and a plugin's read, `--slurpfile` fails, `jq` exits with an
+error status, and the gate says `<plugin>: plugin.json is not valid JSON`
+where the old gate said `.claude-plugin/marketplace.json could not be
+read`. No fixture can build this (it needs the file changed mid-run); the
+wrong file is named only in a race, and the gate still refuses.
+
+**Alternatives.** One `jq` per file for `plugin.json` and one read of the
+marketplace answering every plugin (the seed's wording) — rejected in R3.
+Passing each plugin's name to one marketplace `jq` as `--arg` — rejected:
+the arguments of one process are bounded on Windows (about 32,000
+characters), and a fork sets how many plugin directories there are.
+
+## R2 — One `jq` process for the marketplace
+
+**Decision.** The shape check at `:174` and the entry list at `:766`
+become one process: `market_shape` unchanged, then, when it holds, the
+same expression `:766` runs today, `.[0].plugins[] | [.name, (.source //
+"")] | @tsv`, its lines joined by line feeds, then a terminator (R4). The
+reverse walk reads it as today. Its output bytes are the old ones:
+`@tsv` escapes a tab, a line feed, a CR and a backslash, so no raw line
+feed or CR is inside a line; `-b` writes no CR (the old `${es%$'\r'}` stays,
+harmless).
+
+The read moves from after the forward loop to the top. Its only failure
+past the shape check is the file becoming unreadable between two reads in
+one run; its message is the same text.
+
+## R3 — Why the marketplace answers are not cut apart in bash
+
+The seed asked for the per-plugin answers to come from the one
+marketplace read. That needs every entry's name, version and source in
+bash, cut out of one string. Measured: cutting length-prefixed records out
+of a string with `${s:off:len}` under `LC_ALL=C` took 155 ms for 33,000
+bytes, 2,441 ms for 132,000, and 39,358 ms for 528,000 — four times the
+size, sixteen times the time. A fork sets the marketplace's size, and the
+entry limit (`entries_limit`) is checked only in the reverse walk, after
+the forward loop. R1 keeps the process count the seed wanted (1 + N) with
+the cutting done by `jq`. Recorded as a departure from the seed's
+parenthesis, in the spec (FR-001) and here.
+
+## R4 — Fields without a separator
+
+**Decision.** No value can hold a separator that `jq` can write: every
+character but NUL can sit in a JSON string, and a NUL cannot cross `$( )`.
+So each field is written as `<bytes>:<value>`, where `<bytes>` is
+`utf8bytelength`, and the output ends with `.`. The gate cuts the fields
+under `LC_ALL=C`, so bash counts bytes, as `shown` already does.
+
+- **Measured:** `utf8bytelength` equals bash's byte count under `LC_ALL=C`
+  for `é中😀x` (10 and 10) and for a name given as bytes that are not valid
+  UTF-8 (`jq` reads them as U+FFFD, writes `ef bf bd` twice: 8 and 8).
+- The terminator stops `$( )` from stripping a value's trailing line
+  feeds or (on Git Bash) CRs; the gate checks it is there and removes it.
+- Only five fields per plugin, so the cutting is constant work (R3's cost
+  is per record).
+- A field whose length is not digits, or a length past the end, or bytes
+  left over, is a hard failure with the gate's own line ("could not be
+  read"), never a silent wrong value.
+
+## R5 — `-b`, three jq versions, and the Windows divergence
+
+- `-b` (`--binary`) stops Windows `jq` writing a CR before each line feed.
+  It is documented since jq 1.6 and accepted on every system; CI's three
+  jobs (jq 1.7, 1.8.1, 1.8.2) are the measurement that it is accepted
+  there.
+- `utf8bytelength` exists since jq 1.6; `--slurpfile` since 1.5; `def`
+  with recursion in all three.
+- **The Windows divergence (measured).** `jq -r` without `-b` on Windows
+  writes `a\r\nb` for the value `a\nb`; Git Bash's `$( )` keeps an inner
+  CR and strips trailing CRs with the line feeds. So the old gate read
+  `a\nb` as `a\r\nb` on Windows and `a\nb` on Linux, and `1\r\n` as `1`
+  on Windows and `1\r` on Linux. The new gate gives the Linux bytes on
+  every system. Every such value is printed through `shown`, which masks
+  CR and line feed alike as `?`, so the visible difference on Windows is
+  the number of `?`. The differential (R10) asserts it: on Windows the
+  fixture LF1 must differ, any difference on a run whose tree holds no
+  such line feed is a failure, and on any other system no run may differ.
+- **Linux and macOS.** The differential runs on this machine only, so
+  "byte-identical on Linux and macOS" rests on (a) the suite's message
+  tests, which run on all three CI systems and pin every message, plus
+  T014's plants of non-ASCII, four-byte and invalid bytes (FR-004), and
+  (b) R1's prototype, which compared the reads' values with `-b` on both
+  sides. If WSL with `jq` is available here, the differential is also run
+  there once and recorded; otherwise this paragraph is the record.
+
+## R6 — The walk file
+
+**Decision.**
+
+- **Name and place:** `scripts/check-versions-walk.awk`, beside the gate.
+  Not `.sh`: test 652 ("one version-agreement script, and both gates call
+  it") allows exactly one `run bash <x>.sh` line in `tests/portability.bats`
+  and one `bash <x>.sh` line in CI, and the direct tests run the walk as
+  `awk -f`.
+- **Content:** a header of `#` comments (what the file is, who runs it,
+  what it reads from the environment, where its steps are explained),
+  then the old program's text from `:545` to `:728` byte for byte (R7).
+- **Located:** from `BASH_SOURCE`: its directory part, or `.` when it has
+  none. Every fixture runs the gate as `cd "$copy" && bash
+  "$ROOT/scripts/check-versions.sh"` with no `scripts/` in the copy, so a
+  walk looked up from the working directory is not found and every
+  release-form test goes red (the mutant SC-004 names).
+- **Checked:** before the walk runs, `[ -f "$walk" ]` and `{ : < "$walk";
+  } 2>/dev/null`, as every file the gate reads is opened; otherwise the
+  gate stops: `<plugin>: the heading walk check-versions-walk.awk beside
+  the gate could not be read — this tree is NOT released`, exit 1. The
+  path is not printed: it can be absolute, and the suite's U2 check
+  refuses any spelling of the test directory or the repository root.
+- **Run:** `awk -f "$walk" "./$p/CHANGELOG.md"` with the same
+  environment as today. Its standard error is discarded (a broken walk
+  file would print its path), and its exit status is checked: anything but
+  0 stops the gate with `<plugin>: the heading walk did not run to the
+  end — this tree is NOT released`. Today a failing walk ends the
+  assignment under `errexit` with no message at all (`:535-537` says so).
+  With the "could not be read" line above, these are the two new
+  messages; both fire only on a broken installation of the gate.
+- **No link rule** (clarification, 2026-10-08): the walk file is code with
+  the gate's own trust — CI runs the pull request's own `scripts/` — so
+  a link rule on it would guard nothing. This departs from the seed's
+  sentence that the Phase 27 and 28 link rules apply to it.
+- **The comments.** The gate's comment block above the walk (`:514-543`)
+  stays in the gate, beside the call, and names the file. The awk
+  comments move with the program. The comment at `:347-353` ("these three
+  queries are deliberately NOT collapsed into one … Clarity wins") is
+  replaced by one stating the new read and why: R1, R3.
+
+## R7 — The walk's text does not change
+
+The proof is a byte comparison: lines `:545` to `:728` of
+`scripts/check-versions.sh` at `2b38f74` (from `git show`) against the
+walk file's lines after its header. The difference must be empty; if the
+body must change, the Phase 26 proof
+(`specs/025-gate-closes-phase25-gaps/proof/enumerate.py`) is rerun. The
+program holds no `'` today (the string's own quotes are on `:544` and
+`:729`), so nothing needs unquoting. The body keeps its six-space indent,
+which awk ignores.
+
+## R8 — The tests
+
+Inventory of `tests/portability.bats` (an agent's read-only report,
+2026-10-08; every count derived from the code): 28 tests run the gate,
+about 215 times on this machine with links made.
+
+| Verdict | Tests (line) | Gate runs that move |
+|---|---|---|
+| MOVE | every bare level-2 form (1952), every setext form (1973), inside a quote or list item (2047), fence end unclear (2166), fence opener (2190), judges no non-heading (2263), Phase 26 narrowed shapes (2289) | all (about 55) |
+| SPLIT | undated heading below release (1697), dated with note (1725), control byte below (1735), setext shapes review found (2009), nested quote (2061), deep line (2088), fence never closes (2126), pre block (2226), byte or line it cannot judge (2340) | the walk-only runs (about 43); the default-form, other-plugin, `H8`, `K4` under UTF-8 and `K5` NUL runs stay |
+| KEEP | the other twelve | none |
+
+**Decision.**
+
+- A MOVE test keeps its name and assertions, and runs the walk directly:
+  a helper `walk_on <changelog>` runs `awk -f "$ROOT/scripts/check-versions-walk.awk"`
+  on standard input, with `DATED_RE`, `LINE_LIMIT`, `QUOTE_CUT` and
+  `LC_ALL=C` set from the test file's own copies. Its base run (a whole
+  normalised fixture through the gate) becomes one walk run on the
+  normalised changelog.
+- **The test file holds its own copies of the three values** (they exist
+  today: the dated pattern at `:1259` and `quote_cut=200` at `:3234`, both
+  inside functions; `line_limit=1000` at `:2338`, already at file scope);
+  the first two are hoisted to file scope, all three get one name each,
+  and one new test proves each equal to the gate's assignment line. A
+  fixture never reads the code under test.
+- **End to end, one run stays for each thing only the gate does** (the
+  inventory's list): the `## Notes` refusal and a dated base that passes
+  (DATED_RE handed over), K3's 1,001-byte line (LINE_LIMIT), K4's cut
+  value (QUOTE_CUT), K4 under UTF-8 and X1 under `LANG` (`LC_ALL=C`
+  handed over), X1's `##[` (the gate's `#?[` step), and the exit status.
+- **Gap closed:** no test compares a walk refusal with its whole line. A
+  new test pins one walk refusal's complete output line, prefix and
+  suffix included, end to end.
+- **New tests for the new rules:** the walk file missing; at the walk's
+  path a directory instead (not a regular file; portable where `chmod
+  000` is not on Windows); a walk that exits non-zero (a copy that
+  `exit 3`s); an apostrophe in a comment of a copied walk file beside a
+  copied gate (the gate still runs); and the `jq` process count (a `jq`
+  wrapper on `PATH` that logs each start, then runs the real one): 1 + N.
+- The two "at most 400 bytes" checks (`:2368`, `:2431`) measure the gate's
+  whole line, so they stay in the end-to-end K3 run.
+- K3's plant sizes itself under `changelog_limit` only because the gate
+  refuses a larger file first; the direct run keeps the same plant.
+- New and moved assertions match in the shell (`[[ … ]]`), never with
+  `grep … < <(printf …)` (spec FR-012).
+- The P0 scan (`die_raw`) keeps reading only the gate: the walk file has
+  no `die` and prints only through its own `show()`, and the gate's one
+  use of its output, `refusal`, is already on the scan's trusted list, as
+  today. It is not widened to the walk file.
+
+## R9 — The count
+
+At `2b38f74`: `1..426`. This feature adds five tests (R8: the held
+values, the full refusal line, the walk-file failures, the apostrophe,
+the process count) and removes none; the moved runs stay inside their
+tests. Expected: `1..431`, judged by `bash scripts/check-suite.sh 431`.
+If tasks change the number, tasks fix it.
+
+## R10 — The differential (one time, at build)
+
+**Decision** (clarification, 2026-10-08): a quickstart step, run once, its
+result recorded here; no frozen copy of the old gate is kept.
+
+- **Coverage is derived, not listed:** in a worktree of the branch, the
+  gate is replaced by a wrapper that runs the old gate
+  (`git show 2b38f74:scripts/check-versions.sh`) and the new one in the
+  same directory with the same arguments, compares standard output,
+  standard error and exit status, logs any difference with the directory's
+  fixture name and the arguments, and then behaves as the new gate. The
+  whole `tests/portability.bats` runs over it, so every fixture the suite
+  builds is compared. The tests that read the gate's own text (test 652,
+  the P0 scan, the options-line test, the held-values test) go red over
+  the wrapper; they are not part of the comparison. Each run is two gates,
+  so the harness's copies of the test file and helper double every
+  `timeout` and the per-test limit, each edit confirmed by a count.
+- **Classified while the fixture exists:** the wrapper logs START and DONE
+  for every run and marks it, at log time, LF or PLAIN (does a
+  `plugin.json` name or version, or a marketplace entry's version or
+  source, hold a line feed). The suite's `teardown` deletes the fixture
+  afterwards, so this cannot wait.
+- **Coverage pinned, per test:** every START has its DONE. A plain pass
+  runs the file over a wrapper that only logs each gate start by test name
+  and runs the new gate; for every test green over the comparing wrapper,
+  its compared runs equal its plain-pass runs. A test that stops at a red
+  assertion loses its later runs, so a red test is allowed only when a
+  rule read from its body places it in the expected-red set (it reads,
+  copies or greps the gate's file, counts `jq` starts, or sets the gate's
+  shell options), and its lost runs are printed. "More than zero runs"
+  alone would not see a test that died early.
+- **Extra fixtures** for what the suite does not build: the shapes of R1,
+  plus a name with an inner `\n\n`, built as trees, in both forms; one of
+  them, LF1, is a plugin whose name `x\ny` sits in directory `x`, so its
+  mismatch line prints the name.
+- **The verdict:** a difference on a PLAIN run fails, on every system. On
+  Windows LF1 must differ (the asserted divergence; if it is ever
+  repaired, the differential goes red); on any other system no run may
+  differ.
+- **Shown able to go red:** the same run with the new gate's report-line
+  format changed by one byte (`state=%s` → `stat=%s`, one occurrence,
+  counted) reports an UNEXPECTED difference with no crash.
+
+## R11 — Measurement method
+
+- `jq` processes: a wrapper named `jq` first on `PATH`, logging one line
+  per start; one gate run on the real tree, both forms, old and new.
+- Time: one gate run on the real tree, and `tests/portability.bats`
+  alone, old and new, alternating, three runs each, on this machine.
+  Recorded in one dated table at the end of this file when measured.
+
+## R12 — Departures, named
+
+1. The walk file has no link rule (R6; clarification).
+2. The per-plugin marketplace answers come from the plugin's own `jq`
+   process, not from the one marketplace read (R1, R3).
+3. On Windows, values holding a line feed are read as on Linux (R5).
+4. The comment at `:347-353` is replaced: the three diagnostics stay
+   three; the three processes become one (R6). This departs from a
+   recorded decision in the code, not from the seed.
+5. No field separator: the seed asked for "a field separator no value can
+   hold"; there is none a `jq` value cannot hold that also survives `$( )`,
+   so each value is length-prefixed instead (R4).
+6. The walk file's own open check has no mutant: a directory at its path
+   is caught by `[ -f ]` first, and `chmod 000` does not stop a read on
+   Windows. Accepted; the check stays because it costs nothing and names
+   the fault on a system where a file can be unreadable.
+
+## Measurements after the build
+
+*(filled in at phase J or N: the table of R11)*
