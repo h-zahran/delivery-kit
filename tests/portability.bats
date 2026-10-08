@@ -1700,15 +1700,11 @@ undated_below() {
     printf '%s\n' "$output" | grep -q -- "^$copied: plugin=.* state=released\$" \
       || { echo "G5: the default run's line for $copied does not say state=released. output: $output"; return 1; }
 
-    # The release form refuses, and says where and what.
-    run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
-    forms_no_path || return 1
-    [ "$status" -ne 0 ] \
-      || { echo "G1: --released accepted $copied with '$plant' at line $line, below its release. output: $output"; return 1; }
-    case "$output" in
-      *"is NOT released"*) ;;
-      *) echo "G2: --released refused, but not as an unreleased tree. output: $output"; return 1 ;;
-    esac
+    # The release form's walk refuses, and says where and what (the gate's
+    # own line around it is pinned end to end by W1).
+    walk_on "$d/$copied/CHANGELOG.md"
+    [ "$status" -eq 0 ] && [ -n "$output" ] \
+      || { echo "G1: the walk accepted $copied with '$plant' at line $line, below its release. status $status, output: $output"; return 1; }
     case "$output" in
       *"line $line "*) ;;
       *) echo "G2: the refusal does not name line $line. output: $output"; return 1 ;;
@@ -1918,9 +1914,47 @@ forms_at() {
   line=${hits%%:*}
 }
 
-# forms_refused <clause> <fragment>...: --released refuses the copy, saying
-# `is NOT released` and every fragment, and printing no absolute path (U2).
+# walk_on <changelog>: runs the gate's heading walk directly, on the file
+# as standard input, with the values the gate hands it held by this file
+# (HELD_*), and records status and output as `run` does. Most changelog
+# forms are judged by the walk alone, and a run of the whole gate on a
+# copied tree cost about two seconds each, most of this file's time; what
+# the gate adds around the walk (the plugin's name, the verdict, `##[`
+# shown as `#?[`, the values it hands over) is pinned end to end by W1 and
+# by the runs that still go through forms_refused_gate
+# (specs/033-gate-fewer-processes/research.md R8).
+walk_file_run() {
+  DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" LC_ALL=C \
+    awk -f "$ROOT/scripts/check-versions-walk.awk" < "$1"
+}
+walk_on() {
+  run walk_file_run "$1"
+}
+
+# forms_refused <clause> <fragment>...: the walk refuses the judged
+# plugin's changelog in the copy: it exits 0, as it always does, and prints
+# a refusal holding every fragment.
 forms_refused() {
+  local id=$1 f
+  shift
+  walk_on "$d/$copied/CHANGELOG.md"
+  [ "$status" -eq 0 ] \
+    || { echo "$id: the walk exited $status. output: $output"; return 1; }
+  [ -n "$output" ] \
+    || { echo "$id: the walk accepted the plant"; return 1; }
+  for f in "$@"; do
+    case "$output" in
+      *"$f"*) ;;
+      *) echo "$id: the walk's refusal does not say \"$f\". output: $output"; return 1 ;;
+    esac
+  done
+}
+
+# forms_refused_gate <clause> <fragment>...: --released refuses the copy,
+# end to end, saying `is NOT released` and every fragment, and printing no
+# absolute path (U2). For the plants whose refusal the gate makes, or whose
+# line only the gate gives whole.
+forms_refused_gate() {
   local id=$1 f
   shift
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
@@ -1952,15 +1986,14 @@ forms_unclear() {
   esac
 }
 
-# forms_passes <planted line> <what>: --released accepts the copy. The
-# planted line is found first, so a plant that did not land fails as a
-# fixture instead of passing for having planted nothing (U3).
+# forms_passes <planted line> <what>: the walk accepts the copy's
+# changelog. The planted line is found first, so a plant that did not land
+# fails as a fixture instead of passing for having planted nothing (U3).
 forms_passes() {
   forms_at "$1" || return 1
-  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
-  forms_no_path "$2" || return 1
-  [ "$status" -eq 0 ] \
-    || { echo "H7: --released refused $2, which Markdown does not read as a heading. output: $output"; return 1; }
+  walk_on "$d/$copied/CHANGELOG.md"
+  [ "$status" -eq 0 ] && [ -z "$output" ] \
+    || { echo "H7: the walk refused $2, which Markdown does not read as a heading. status $status, output: $output"; return 1; }
 }
 
 # forms_default: the default form passes the copy and still reports the
@@ -2168,8 +2201,9 @@ forms_default() {
   forms_put '## Notes' '' "$bt" 'unclosed'
   forms_at '## Notes'
   forms_refused H6 "line $line holds '## Notes'"
-  [ "$(printf '%s\n' "$output" | grep -c 'is NOT released')" = "1" ] \
-    || { echo "H6: the refusal is not reported exactly once. output: $output"; false; }
+  case "$output" in
+    *$'\n'*) echo "H6: the refusal is not reported exactly once. output: $output"; false ;;
+  esac
   case "$output" in
     *"never closed"*) echo "H6: an open fence was reported after a heading was already refused. output: $output"; false ;;
   esac
@@ -2386,7 +2420,9 @@ line_limit=$HELD_LINE_LIMIT
   forms_put "$long"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the long line did not land"; false; }
-  forms_refused K3 "line $line is 1001 bytes long"
+  # End to end: the gate hands the walk its line limit and quote cut, and
+  # its whole line must stay under 400 bytes (research R8).
+  forms_refused_gate K3 "line $line is 1001 bytes long"
   case "$output" in
     *"'$cut [cut]'"*) ;;
     *) echo "K4: the quote is not cut to exactly the quote cut, then ' [cut]'. output: ${output:0:600}"; false ;;
@@ -2432,7 +2468,7 @@ line_limit=$HELD_LINE_LIMIT
     *"$copied: CHANGELOG.md holds a NUL byte"*) ;;
     *) echo "K5: the default form stopped without its own message. output: $output"; false ;;
   esac
-  forms_refused K5 "$copied: CHANGELOG.md holds a NUL byte"
+  forms_refused_gate K5 "$copied: CHANGELOG.md holds a NUL byte"
 
   # K3, last: a line of quote markers, which an older walk took minutes to
   # read, is refused for its length at once. The release form refuses a

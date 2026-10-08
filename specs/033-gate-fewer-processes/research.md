@@ -402,6 +402,30 @@ confirmed landed, in a scratch worktree:
 
 `tests/portability.bats` alone after Phase 4: `1..57`, 57 ok, 398 s.
 
+**2026-10-08, Phase 5 (T023-T027).** The conversion went through the
+helpers, not test by test: `forms_refused`, `forms_passes` (and so
+`forms_unclear`) and `undated_below`'s release-form run now run the walk
+directly (`walk_on`); `forms_refused_gate` keeps the old end-to-end form,
+used where the gate makes the refusal or gives the whole line (K3's
+1,001-byte line with its cut and 400-byte checks, K5's NUL). Kept end to
+end as before: every `forms_base` and `undated_base` run (the dated base
+that must pass the whole gate), every default-form run (G5, H8), the
+exact-limit K3 pass, K4 under UTF-8, the STX plant's test, and every test
+the inventory marked KEEP. One assertion changed form: "refused exactly
+once" counted `is NOT released` lines in the gate's output, and now
+requires the walk's output to be one line.
+
+The converted tests still depend on the walk, in a scratch worktree:
+
+| Walk file | Converted tests red |
+|---|---|
+| prints nothing (`BEGIN { exit 0 }`) | 13 of 15; green: "judges no non-heading" and "judges none of the shapes Phase 26 narrowed", which assert only that the walk accepts |
+| refuses every input | 15 of 15 |
+
+Gate runs of `tests/portability.bats` (a logging line in a worktree copy,
+as at T005): 210 at `2b38f74`, 151 now, the new tests' runs included.
+`tests/portability.bats` alone: `1..57`, 57 ok, 311 s; slowest test 18.2 s.
+
 `tests/portability.bats` alone after Phase 3: `1..54`, 54 ok, 345 s
 (535 s at `2b38f74` earlier the same day, not alternated: T028 measures
 properly).
