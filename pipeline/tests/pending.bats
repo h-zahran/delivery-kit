@@ -472,6 +472,11 @@ checks() {
 
 @test "the text's checked copy is a temporary file of its own" {
   q a 'First?'
-  : > "$BATS_TEST_TMPDIR/notadir"
-  TMPDIR="$BATS_TEST_TMPDIR/notadir" refuses "could not make a temporary file to read the question file" ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  # A mktemp that always fails. Pointing TMPDIR at a file does not do it
+  # everywhere: BSD mktemp on macOS falls back to /tmp. The text checks run
+  # before any state write, so the first mktemp call is the text copy's.
+  mkdir -p "$BATS_TEST_TMPDIR/nomktemp"
+  printf '#!/bin/sh\nexit 1\n' > "$BATS_TEST_TMPDIR/nomktemp/mktemp"
+  chmod +x "$BATS_TEST_TMPDIR/nomktemp/mktemp"
+  PATH="$BATS_TEST_TMPDIR/nomktemp:$PATH" refuses "could not make a temporary file to read the question file" ask-later "$F" F "$BATS_TEST_TMPDIR/a"
 }
