@@ -64,8 +64,8 @@ red, before the gate changes.
 **Purpose**: the values the direct walk tests will pass exist at file
 scope, and are proved equal to the gate's (FR-008).
 
-- [ ] T006 In `tests/portability.bats`, hoist the test file's own copies of the dated heading pattern (now a local near line 1259), `line_limit=1000` (near 2338) and `quote_cut=200` (near 3234) to file scope, as `HELD_DATED_RE`, `HELD_LINE_LIMIT` and `HELD_QUOTE_CUT`, and make each former use read the file-scope copy. Behaviour of every existing test unchanged.
-- [ ] T007 Add the test "the tests hold the walk's three values as the gate sets them" to `tests/portability.bats`: it reads the gate's `dated_re=`, `line_limit=` and `quote_cut=` assignment lines from `$ROOT/scripts/check-versions.sh` (the only place a test reads the gate's text for this) and asserts each equals the held copy byte for byte, echoing the clause `V1:` on failure. Show it red with a held copy changed by one byte (confirm the change landed), then restore.
+- [X] T006 In `tests/portability.bats`, hoist the test file's own copies of the dated heading pattern (now a local near line 1259), `line_limit=1000` (near 2338) and `quote_cut=200` (near 3234) to file scope, as `HELD_DATED_RE`, `HELD_LINE_LIMIT` and `HELD_QUOTE_CUT`, and make each former use read the file-scope copy. Behaviour of every existing test unchanged.
+- [X] T007 Add the test "the tests hold the walk's three values as the gate sets them" to `tests/portability.bats`: it reads the gate's `dated_re=`, `line_limit=` and `quote_cut=` assignment lines from `$ROOT/scripts/check-versions.sh` (the only place a test reads the gate's text for this) and asserts each equals the held copy byte for byte, echoing the clause `V1:` on failure. Show it red with a held copy changed by one byte (confirm the change landed), then restore.
 
 **Checkpoint**: `bats -f 'hold the walk' tests/portability.bats` green; the file's other tests unchanged.
 
