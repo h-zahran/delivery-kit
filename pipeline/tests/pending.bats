@@ -326,7 +326,8 @@ checks() {
 @test "a lock left by a dead writer is broken after a minute; a live one makes a write wait, then refuse" {
   q a 'After a crash?'
   mkdir "$SF.lock"
-  touch -d "@$(( $(date +%s) - 120 ))" "$SF.lock"
+  # POSIX -t, which GNU and BSD touch both read; years old, so far past a minute.
+  touch -t 202001010000 "$SF.lock"
   runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
   [[ "$(cat "$ERR")" == *"broke a stale lock"* ]] || false
   [ ! -e "$SF.lock" ]
