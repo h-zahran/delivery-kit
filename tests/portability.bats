@@ -2794,6 +2794,39 @@ gate_safe_control() {
   gate_safe ctl || { echo "control: gate_safe refused the gate's own suffix"; return 1; }
 }
 
+# C1: the gate starts one jq for the marketplace and one for each plugin
+# directory holding a plugin.json, in both forms
+# (specs/033-gate-fewer-processes/research.md R1, R2). A jq that logs each
+# start and then runs the real one goes first on PATH; jq_starts is the
+# length of its log. The expected count is taken from the fixture, not
+# written here.
+@test "the gate starts one jq for the marketplace and one per plugin" {
+  cd "$ROOT"
+  forms_base two
+  local real bin log want form jq_starts
+  real=$(command -v jq) || { echo "fixture: jq is not on PATH"; false; }
+  bin="$TEST_DIR/jq-logging"
+  log="$TEST_DIR/jq_starts.log"
+  mkdir -p "$bin"
+  printf '#!/usr/bin/env bash\nprintf x >> "%s"\nexec "%s" "$@"\n' "$log" "$real" > "$bin/jq"
+  chmod +x "$bin/jq"
+  want=$(cd "$base" && LC_ALL=C ls -d -- */.claude-plugin/plugin.json | LC_ALL=C wc -l | tr -d ' ')
+  want=$((want + 1))
+  for form in default released; do
+    : > "$log"
+    if [ "$form" = default ]; then
+      run bash -c 'b=$1 r=$2 c=$3; cd "$c" && PATH="$b:$PATH" bash "$r/scripts/check-versions.sh"' _ "$bin" "$ROOT" "$base"
+    else
+      run bash -c 'b=$1 r=$2 c=$3; cd "$c" && PATH="$b:$PATH" bash "$r/scripts/check-versions.sh" --released "$4"' _ "$bin" "$ROOT" "$base" "$copied"
+    fi
+    forms_no_path || return 1
+    [ "$status" -eq 0 ] || { echo "C1: the $form form refused the fixture: $output"; false; }
+    jq_starts=$(LC_ALL=C wc -c < "$log" | tr -d ' ')
+    [ "$jq_starts" = "$want" ] \
+      || { echo "C1: the $form form started jq $jq_starts times, expected $want (one, and one per plugin)"; false; }
+  done
+}
+
 # The masking clauses (P0-P6, X1) are three tests, not one: about twenty
 # gate runs took one test to about 30 s on a slow machine, half the
 # suite's per-test timeout (measured 2026-10-06). Each builds its own
@@ -2809,8 +2842,8 @@ gate_safe_control() {
   F="1.0.0"$'\n'"::p28x title=x::y${E}[31m"
 
   # P1: a plugin.json version, then a name. The fragments avoid the line
-  # feed: native Windows jq writes it as CR LF, so it is masked as one `?`
-  # or two.
+  # feed, as they did when native Windows jq wrote it as CR LF; the gate's
+  # jq runs with -b now, so it is one `?` on every system.
   gate_forged P1 masked-pv "$copied/.claude-plugin/plugin.json" '.version = $v' "1.0.0?" "::p28x title=x::y?[31m"
   gate_forged P1 masked-pn "$copied/.claude-plugin/plugin.json" '.name = $v' "1.0.0?" "::p28x title=x::y?[31m"
 
@@ -2825,6 +2858,52 @@ gate_safe_control() {
     '1.0.0\n::p28x title=x::y?[31m' "is an absolute path"
   gate_forged P2 masked-up .claude-plugin/marketplace.json '.plugins += [{name: $v, source: ("../x" + $v)}]' \
     '1.0.0\n::p28x title=x::y?[31m' "leaves the repository"
+
+  # P7 (specs/033-gate-fewer-processes, FR-004): values whose bytes are not
+  # ASCII, through the one read per plugin.json. Every such byte is shown as
+  # one `?`, so a value cut a byte early or late, or counted in characters,
+  # changes the line. The values are written with jq's \u escapes, never
+  # passed as raw bytes on a command line: é is two bytes, the face four.
+  # The gate's CI jobs run three jq versions, so this runs on each.
+  local c pv utf8
+  gate_forged P7 utf8-pn "$copied/.claude-plugin/plugin.json" '.name = "x\u00e9\ud83d\ude00y"' \
+    "plugin.json name 'x??????y' does not match its directory"
+  pv="$(jq -r '.version' < "$base/$copied/.claude-plugin/plugin.json")"
+  gate_forged P7 utf8-mv .claude-plugin/marketplace.json '.plugins[0].version = "1\u00e9\ud83d\ude00"' \
+    "plugin=$pv marketplace=1??????"
+  # A byte that is not valid UTF-8 reaches the gate as U+FFFD, three bytes,
+  # so one such byte is three `?`. Written with printf's octal escape.
+  c="$TEST_DIR/utf8-bad"
+  cp -r "$base" "$c"
+  printf '{"name":"x\377y","version":"%s"}\n' "$pv" > "$c/$copied/.claude-plugin/plugin.json"
+  gate_run "$c" || return 1
+  gate_says P7 1 "plugin.json name 'x???y' does not match its directory"
+  gate_safe P7
+  # A version that is the boolean true, not the string: jq -r would print
+  # both the same, so the shape check is what refuses it.
+  gate_forged P7 bool-pv "$copied/.claude-plugin/plugin.json" '.version = true' \
+    "plugin.json is not one object with a string name and version, and no NUL character"
+  # The first plant again with a UTF-8 locale and LC_ALL unset, as CI
+  # runners set them: the field cut must count bytes there too.
+  forms_utf8
+  c="$TEST_DIR/utf8-pn-locale"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = "x\u00e9\ud83d\ude00y"' "" || return 1
+  run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; cd "$c" && bash "$r/scripts/check-versions.sh"' _ "$utf8" "$ROOT" "$c"
+  forms_no_path
+  gate_says P7 1 "plugin.json name 'x??????y' does not match its directory"
+  gate_safe P7
+
+  # P8 (specs/033-gate-fewer-processes, FR-002): the read that answers the
+  # marketplace questions keeps one message for each absence — no entry,
+  # an entry with no version, an entry with no source. No test pinned them
+  # before the read was merged. Entries are edited by position.
+  gate_forged P8 no-entry .claude-plugin/marketplace.json '.plugins[0].name = "not-this-plugin"' \
+    "$copied: no marketplace entry named $copied"
+  gate_forged P8 no-version .claude-plugin/marketplace.json '.plugins[0] |= del(.version)' \
+    "$copied: marketplace entry $copied has no version"
+  gate_forged P8 no-source .claude-plugin/marketplace.json '.plugins[0] |= del(.source)' \
+    "$copied: marketplace entry $copied has no source"
 }
 
 @test "the gate masks a plugin directory, an argument and a first heading" {
