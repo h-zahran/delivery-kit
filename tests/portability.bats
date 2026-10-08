@@ -2827,6 +2827,80 @@ gate_safe_control() {
   done
 }
 
+# W1 (specs/033-gate-fewer-processes, FR-007): a walk refusal reaches the
+# log as one whole line — the gate's name, the plugin, the walk's text with
+# `##[` shown as `#?[`, and the verdict — pinned whole, end to end. No test
+# compared such a line whole before the walk moved to its own file; this
+# one passes on the gate as it was, and guards the move.
+@test "a walk refusal reaches the log as one whole line" {
+  cd "$ROOT"
+  forms_base one
+  forms_put '## Notes ##[x'
+  forms_at '## Notes ##[x'
+  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
+  forms_no_path || return 1
+  [ "$status" -eq 1 ] || { echo "W1: the gate exited $status, not 1. output: $output"; false; }
+  local want last
+  want="check-versions.sh: $copied: line $line holds '## Notes #?[x', which is not a dated version heading — this tree is NOT released"
+  last=${output##*$'\n'}
+  [ "$last" = "$want" ] || { echo "W1: the last line is <$last>, expected <$want>"; false; }
+  [[ ${output%$'\n'*} == "$copied: plugin="*" state=released" ]] \
+    || { echo "W1: the line before is not the plugin's report line: $output"; false; }
+}
+
+# W2 (specs/033-gate-fewer-processes, FR-006): the walk is the gate's own
+# file, found beside the gate. A copy of the gate in a scratch scripts/,
+# run from a released fixture beside it by the copy's relative path,
+# passes with its walk file there (the control), and stops with its own
+# line when the walk file is missing, when a directory stands where it
+# should be, or when it fails. No output names an absolute path.
+@test "the gate stops when its walk file is missing, not a file, or fails" {
+  cd "$ROOT"
+  forms_base one
+  local s="$TEST_DIR/w2" k want
+  for k in present missing directory failing; do
+    rm -rf "$s"
+    mkdir -p "$s/scripts"
+    cp scripts/check-versions.sh "$s/scripts/"
+    case $k in
+      present) cp scripts/check-versions-walk.awk "$s/scripts/" ;;
+      directory) mkdir "$s/scripts/check-versions-walk.awk" ;;
+      failing) printf 'BEGIN { exit 3 }\n' > "$s/scripts/check-versions-walk.awk" ;;
+    esac
+    cp -r "$base" "$s/t"
+    run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
+    forms_no_path || return 1
+    if [ "$k" = present ]; then
+      [ "$status" -eq 0 ] || { echo "W2 control: the copied gate refused a released tree: $output"; false; }
+      continue
+    fi
+    [ "$status" -eq 1 ] || { echo "W2 $k: the gate exited $status, not 1. output: $output"; false; }
+    case $k in
+      failing) want="$copied: the heading walk did not run to the end — this tree is NOT released" ;;
+      *) want="$copied: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released" ;;
+    esac
+    [[ $output == *"check-versions.sh: $want"* ]] || { echo "W2 $k: the output does not say <$want>: $output"; false; }
+  done
+}
+
+# W3 (specs/033-gate-fewer-processes): an apostrophe in the walk file is
+# ordinary text. Inside the gate's single-quoted string it ended the
+# program and broke the gate; in its own file it is an awk comment. It
+# cannot fail on the gate as it was, which had no walk file.
+@test "an apostrophe in the walk file's comments is harmless" {
+  cd "$ROOT"
+  forms_base one
+  local s="$TEST_DIR/w3"
+  mkdir -p "$s/scripts"
+  cp scripts/check-versions.sh "$s/scripts/"
+  { printf '%s\n' "# isn't"; cat scripts/check-versions-walk.awk; } > "$s/scripts/check-versions-walk.awk"
+  [ "$(head -n 1 "$s/scripts/check-versions-walk.awk")" = "# isn't" ] || { echo "fixture: the apostrophe did not land"; false; }
+  cp -r "$base" "$s/t"
+  run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
+  forms_no_path || return 1
+  [ "$status" -eq 0 ] || { echo "W3: the gate refused a released tree with an apostrophe in its walk file: $output"; false; }
+}
+
 # The masking clauses (P0-P6, X1) are three tests, not one: about twenty
 # gate runs took one test to about 30 s on a slow machine, half the
 # suite's per-test timeout (measured 2026-10-06). Each builds its own

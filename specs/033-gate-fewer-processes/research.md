@@ -384,6 +384,24 @@ Expected red over the wrapper, by the rule: "the gate keeps its own shell
 options" and "the gate starts one jq for the marketplace and one per
 plugin" (its logger also counts the old gate's starts).
 
+**2026-10-08, Phase 4 (T016-T022).** The walk body in
+`scripts/check-versions-walk.awk` compared with `2b38f74`'s lines 545-728:
+identical (`cmp`); its header is comments only. W1 passed on the gate
+before the move (it pins today's line); W2 and W3 were red before the walk
+file existed. Quickstart blocks 1-5 as one script: all ok. Mutants, each
+confirmed landed, in a scratch worktree:
+
+| Mutant | Result |
+|---|---|
+| walk found from the working directory | 4 of 4 red |
+| `-f` test removed | 1 red (W2: a directory at the walk's path opened without error on Git Bash, so `-f` is what refuses it) |
+| open check removed | SURVIVES: on the testable cases `-f` refuses first, and `chmod 000` does not stop a read on Windows (R12 item 6) |
+| both checks removed | 1 red (W2) |
+| status check removed | 1 red (W2, the failing walk) |
+| one byte of the walk's text changed | 1 red (W1) |
+
+`tests/portability.bats` alone after Phase 4: `1..57`, 57 ok, 398 s.
+
 `tests/portability.bats` alone after Phase 3: `1..54`, 54 ok, 345 s
 (535 s at `2b38f74` earlier the same day, not alternated: T028 measures
 properly).
