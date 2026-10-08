@@ -417,11 +417,19 @@ checks() {
 
 @test "every edge of every refused range is refused, and the characters beside them are not" {
   local c i=0
-  for c in '\xc2\x80' '\xc2\x9f' '\xe2\x80\x8b' '\xe2\x80\x8f' '\xe2\x80\xaa' '\xe2\x80\xae' '\xe2\x81\xa0' '\xe2\x81\xa9' '\xef\xbb\xbf'; do
+  # C1, U+034F, U+061C, the Hangul fillers, U+17B4-17B5, the Mongolian
+  # variation selectors, zero-width and bidi marks, U+2028-202E, U+2060-206F,
+  # the variation selectors, the BOM, U+FFF9-FFFB, and the tag and
+  # supplementary variation-selector planes: each range's two edges.
+  for c in '\xc2\x80' '\xc2\x9f' '\xcd\x8f' '\xd8\x9c' '\xe1\x85\x9f' '\xe1\x85\xa0' '\xe1\x9e\xb4' '\xe1\x9e\xb5' \
+           '\xe1\xa0\x8b' '\xe1\xa0\x8f' '\xe2\x80\x8b' '\xe2\x80\x8f' '\xe2\x80\xa8' '\xe2\x80\xa9' '\xe2\x80\xae' \
+           '\xe2\x81\xa0' '\xe2\x81\xaf' '\xe3\x85\xa4' '\xef\xb8\x80' '\xef\xb8\x8f' '\xef\xbb\xbf' '\xef\xbe\xa0' \
+           '\xef\xbf\xb9' '\xef\xbf\xbb' '\xf3\xa0\x80\x80' '\xf3\xa0\x81\xbf' '\xf3\xa0\x84\x80' '\xf3\xa0\x87\xaf'; do
     printf "approve $c this?\n" > "$BATS_TEST_TMPDIR/u"
     refuses "a character that can disguise text" ask-later "$F" F "$BATS_TEST_TMPDIR/u"
   done
-  for c in '\xc2\xa0' '\xe2\x80\x90' '\xe2\x80\xaf'; do
+  for c in '\xc2\xa0' '\xe2\x80\x90' '\xe2\x80\xaf' '\xe2\x80\xa7' '\xe2\x81\xb0' '\xef\xb8\x90' \
+           '\xe1\xa0\x8a' '\xe1\xa0\x90' '\xef\xbf\xbc'; do
     i=$((i + 1))
     printf "fine $i $c this?\n" > "$BATS_TEST_TMPDIR/ok$i"
     runs ask-later "$F" F "$BATS_TEST_TMPDIR/ok$i"

@@ -1712,9 +1712,16 @@ cmd_state_set() {
 # The file is read ONCE, into a copy every check reads, so nothing can swap
 # it between the checks and the read. At most 16384 bytes: the text travels
 # as one argument to jq, and Windows refuses an argument list past 32 KB.
-# A C1 control, a bidi override or isolate, a zero-width character and a
-# byte-order mark are refused too: a terminal can act on them, or they can
-# make a question read as something else.
+# Characters a terminal can act on, or that can make a question read as
+# something else, are refused too: C1 controls, bidi marks, overrides and
+# isolates (U+061C, U+200E-200F, U+202A-202E, U+2066-2069), line and
+# paragraph separators, zero-width and invisible formatting characters
+# (U+034F, U+180E, U+200B-200D, U+2060-2064, U+206A-206F), invisible fillers
+# (U+115F-1160, U+17B4-17B5, U+3164, U+FFA0), variation selectors, the
+# byte-order mark, interlinear annotation marks, and the tag plane, which can
+# carry text a model reads and a person does not see. An allowlist would
+# refuse ordinary text in most scripts, so this is a list — widen it when a
+# new invisible character is found, and pin the new edges in pending.bats.
 text_file() {
   local size
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then die "the $2 file does not exist or cannot be read: $1"; fi
@@ -1729,8 +1736,8 @@ text_file() {
   rm -f "$TEXT_COPY"; TEXT_COPY=''
   [[ $TEXT == *[![:space:]]* ]] || die "the $2 file $1 is empty"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  [ "$(jqs -n --arg t "$TEXT" '$t | test("[\u0080-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")')" = false ] \
-    || die "the $2 file $1 holds a character that can disguise text in a terminal (a C1 control, a bidi or zero-width character, or a byte-order mark)"
+  [ "$(jqs -n --arg t "$TEXT" '$t | test("[\u0080-\u009f\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb\udb40\udc00-\udb40\udc7f\udb40\udd00-\udb40\uddef]")')" = false ] \
+    || die "the $2 file $1 holds a character that can disguise text in a terminal (a C1 control, a bidi, invisible or zero-width character, a variation selector, a tag character, or a byte-order mark)"
 }
 
 # pending_ok <state file> — dies unless gates is an object and gates.pending
