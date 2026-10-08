@@ -136,7 +136,9 @@ before this call — the `--base-branch` flag goes as
 `--base-branch-override`, never as `--base-branch`),
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below,
-and the Branch, Spec folder and Trailers lines only when set or recorded:
+and the Branch, Spec folder and Trailers lines only when set or recorded.
+On a resume, run `progress.sh validate <feature>` and read the state file
+first: the recorded lines come from it.
 
 ```
 Project type : <projectType>  (<projectTypeSource>)

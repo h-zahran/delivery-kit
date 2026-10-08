@@ -155,21 +155,21 @@ PARTS
   # skill under 65,536 bytes. The skill sends the run there; both are pinned.
   local layers
   layers="$(awk '/^## Resolving the layers$/,/^## Keys$/' "$docs" | tr '\n' ' ' | tr -s ' ')"
-  grep -qF 'For how layers merge and when a value stops the run, follow "Resolving the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'For how layers merge and when a value stops the run, follow "Resolving the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.'* ]] \
     || { echo 'the skill no longer sends the run to "Resolving the layers"'; false; }
 
   # Resolution-time validation, pinned through the ordering guarantee. Without
   # the tail a mutant inverted it to "after the decision walk has completed and
   # both of its offered writes have landed" — the dirty-tree bug it prevents.
-  grep -qF 'unset is not a value and never stops anything — stops the run HERE, before pre-flight'"'"'s decision walk begins' < <(printf '%s\n' "$layers") \
+  [[ $layers == *'unset is not a value and never stops anything — stops the run HERE, before pre-flight'"'"'s decision walk begins'* ]] \
     || { echo 'the resolution-time enum check or its ordering guarantee altered'; false; }
 
   # The merge semantic, and the consequence for the keys that have no `ask`.
-  grep -qF "A later layer's \`null\` is silence, not an override" < <(printf '%s\n' "$layers") \
+  [[ $layers == *"A later layer's \`null\` is silence, not an override"* ]] \
     || { echo 'the null-merge semantic altered'; false; }
-  grep -qF 'it is the only spelling that overrides toward the stop.' < <(printf '%s\n' "$layers") \
+  [[ $layers == *'it is the only spelling that overrides toward the stop.'* ]] \
     || { echo 'the ask-is-the-only-override rule altered'; false; }
-  grep -qF 'can be REPLACED by a later layer but never returned to unset' < <(printf '%s\n' "$layers") \
+  [[ $layers == *'can be REPLACED by a later layer but never returned to unset'* ]] \
     || { echo 'the command-keys consequence altered'; false; }
 
   # The disclosure line. Pinned WITH its print rule: a mutant kept the template
@@ -182,13 +182,13 @@ PARTS
   # 65,536 bytes. The skill's **Implementer:** pointer sends the run there.
   local implline
   implline="$(awk '/^## The Implementer line$/,/^## The state directory$/' "$docs" | tr '\n' ' ' | tr -s ' ')"
-  grep -qF '**Implementer:** render this line as "The Implementer line" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'**Implementer:** render this line as "The Implementer line" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says.'* ]] \
     || { echo 'the skill no longer sends the run to "The Implementer line"'; false; }
-  grep -qF 'Print it whenever the key resolves to a value; omit the line entirely when the key is unset.' < <(printf '%s\n' "$implline") \
+  [[ $implline == *'Print it whenever the key resolves to a value; omit the line entirely when the key is unset.'* ]] \
     || { echo 'the probe line print rule altered'; false; }
-  grep -qF '`<implementerSource>` must name the LAYER that won' < <(printf '%s\n' "$implline") \
+  [[ $implline == *'`<implementerSource>` must name the LAYER that won'* ]] \
     || { echo 'the implementerSource layer rule altered'; false; }
-  grep -qF 'a tracked configuration file must never do that without the operator seeing which file it came from.' < <(printf '%s\n' "$implline") \
+  [[ $implline == *'a tracked configuration file must never do that without the operator seeing which file it came from.'* ]] \
     || { echo 'the disclosure rationale altered'; false; }
 
   # Both STRICT surfaces, by whole sentence. Heading-and-fragment coverage let
@@ -1639,28 +1639,28 @@ ROWS
 | `baseBranchOverride` | unset | Beats `origin/HEAD` |
 ROWS
   base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
-  grep -qF '**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.' < <(printf '%s\n' "$base") \
+  [[ $base == *'**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.'* ]] \
     || { echo "the base-branch resolution order altered"; false; }
   # The pointer is pinned whole, as one sentence: cutting a name out of the
   # middle was not enough. "When all of", or a lost resume clause, left
   # every name in place and stayed green (review 2, item 3).
-  grep -qF 'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' < <(printf '%s\n' "$base") \
+  [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the docs page, on a fresh run and on a resume"; false; }
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
-  grep -qF 'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.'* ]] \
     || { echo "the configuration page lost the override"; false; }
-  grep -qF 'It passes `--base-branch-override <name>` to `preflight.sh` only when `--base-branch` was typed or `baseBranchOverride` resolves to a value, the flag'"'"'s value when both.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'It passes `--base-branch-override <name>` to `preflight.sh` only when `--base-branch` was typed or `baseBranchOverride` resolves to a value, the flag'"'"'s value when both, and on a fresh run only. On a resume it passes none, as for the trailers and the branch'* ]] \
     || { echo "the configuration page lost the pre-flight argument"; false; }
-  grep -qF 'so the probe line names the layer that set it — the flag, or the configuration file by path, never a guess.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'so the probe line names the layer that set it — the flag, or the configuration file by path, never a guess.'* ]] \
     || { echo "the override's layer is no longer named"; false; }
-  grep -qF 'An override on a resume that names a different branch is never applied silently — say that the recorded base stands, and name both.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'An override on a resume that names a different branch is never applied silently — say that the recorded base stands, and name both.'* ]] \
     || { echo "the resume rule for the override altered"; false; }
-  grep -qF 'and so does a name git expands to another, such as `@{-1}`, a lone `@`, which git reads as `HEAD`, and a name that is not a local branch: a tag, a commit id, `origin/main` or `refs/heads/main` is not one.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'and so does a name git expands to another, such as `@{-1}`, a lone `@`, which git reads as `HEAD`, and a name that is not a local branch: a tag, a commit id, `origin/main` or `refs/heads/main` is not one.'* ]] \
     || { echo "the override's existing-branch rule altered"; false; }
-  grep -qF 'A branch that exists only on `origin`, as in a fresh clone, is refused with the command that creates it, `git branch --track <name> origin/<name>`: B cuts the feature branch from the local branch.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'A branch that exists only on `origin`, as in a fresh clone, is refused with the command that creates it, `git branch --track <name> origin/<name>`: B cuts the feature branch from the local branch.'* ]] \
     || { echo "the origin-only rule altered"; false; }
   changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
-  grep -qF '**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**' < <(printf '%s\n' "$changelog") \
+  [[ $changelog == *'**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**'* ]] \
     || { echo "the changelog lost the override entry"; false; }
 }
 
@@ -1673,16 +1673,16 @@ ROWS
   local flat pre base
   flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
   pre="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' flat 'pre-flight')" || return 1
-  grep -qF 'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--project-type`/`--base-branch` only when configuration set them; add `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),' < <(printf '%s\n' "$pre") \
+  [[ $pre == *'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--project-type`/`--base-branch` only when configuration set them; add `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),'* ]] \
     || { echo "the pre-flight call no longer names every argument"; false; }
-  grep -qF 'and the Branch, Spec folder and Trailers lines only when set or recorded:' < <(printf '%s\n' "$pre") \
+  [[ $pre == *'and the Branch, Spec folder and Trailers lines only when set or recorded.'* ]] \
     || { echo "a resume no longer prints the recorded Branch, Spec folder and Trailers lines"; false; }
-  grep -qF 'Record `commitTrailers` as pre-flight reports it, never the key'"'"'s list alone.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'Record `commitTrailers` as pre-flight reports it, never the key'"'"'s list alone.'* ]] \
     || { echo "the record of commitTrailers may come from the key alone again"; false; }
   base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
-  grep -qF '`baseBranchSource` names the winner — print it, except `override`: print the layer that set it, never that word.' < <(printf '%s\n' "$base") \
+  [[ $base == *'`baseBranchSource` names the winner — print it, except `override`: print the layer that set it, never that word.'* ]] \
     || { echo "the Base branch line may print (from override) again"; false; }
-  grep -qF '`baseBranchOverride` and `commitTrailers` can arrive the same way, so the Base branch and Trailers lines name their layer too.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'`baseBranchOverride` and `commitTrailers` can arrive the same way, so the Base branch and Trailers lines name their layer too.'* ]] \
     || { echo "the tracked-file paragraph no longer covers the override and the trailers"; false; }
 }
 
@@ -1692,14 +1692,15 @@ ROWS
   # the other refused it, so a run passed pre-flight and died at its first
   # commit (review 3). Both now run trailer-check.sh. This pins the call in
   # each, and that neither has grown the rule back beside it.
-  local f s want
+  local f s lc want
   for f in preflight.sh progress.sh; do
     s="$(tr -d '\r' < "$ROOT/pipeline/scripts/$f")"
-    grep -qF '/trailer-check.sh" ' < <(printf '%s\n' "$s") \
+    lc="$(printf '%s\n' "$s" | tr 'A-Z' 'a-z')"
+    [[ $s == *'/trailer-check.sh" '* ]] \
       || { echo "$f no longer runs trailer-check.sh"; false; }
     for want in 'skip-checks' 'co-authored-by' '[skip ci]' 'reserved for the run' \
                 'close[sd]?' '*[!A-Za-z0-9]|?)' 'a trailer is one line' 'would close an issue'; do
-      ! grep -qiF -- "$want" < <(printf '%s\n' "$s") \
+      ! [[ $lc == *"$(printf '%s\n' "$want" | tr 'A-Z' 'a-z')"* ]] \
         || { echo "$f holds a copy of the trailer rule again: $want"; false; }
     done
   done
@@ -1735,39 +1736,39 @@ Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
 ROWS
   base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
-  grep -qF 'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' < <(printf '%s\n' "$base") \
+  [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the two flags' rules"; false; }
   b="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
-  grep -qF 'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.' < <(printf '%s\n' "$b") \
+  [[ $b == *'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.'* ]] \
     || { echo "B no longer sends the run to its --spec-dir rule"; false; }
-  grep -qF 'named `--branch`, else the feature'"'"'s name:' < <(printf '%s\n' "$b") \
+  [[ $b == *'named `--branch`, else the feature'"'"'s name:'* ]] \
     || { echo "B no longer names the branch from --branch"; false; }
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
-  grep -qF 'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.'* ]] \
     || { echo "the configuration page lost the two flags"; false; }
-  grep -qF 'They are flags only, with no configuration key: each names one feature, so a value set once would name the same feature on every run.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'They are flags only, with no configuration key: each names one feature, so a value set once would name the same feature on every run.'* ]] \
     || { echo "the flags-only reason altered"; false; }
-  grep -qF 'A second fresh run with the same `--spec-dir` stops at pre-flight, because the folder exists: to continue a run, type `--resume`.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'A second fresh run with the same `--spec-dir` stops at pre-flight, because the folder exists: to continue a run, type `--resume`.'* ]] \
     || { echo "the configuration page lost the re-run note"; false; }
-  grep -qF 'It passes `--feature-branch <name>` and `--spec-dir <path>` to `preflight.sh` only on a fresh run where `--branch` and `--spec-dir` were typed.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'It passes `--feature-branch <name>` and `--spec-dir <path>` to `preflight.sh` only on a fresh run where `--branch` and `--spec-dir` were typed.'* ]] \
     || { echo "pre-flight no longer passes the two arguments on a fresh run only"; false; }
-  grep -qF 'In B, with `--spec-dir`, hand the folder to the spec tool with the seed, as `SPECIFY_FEATURE_DIRECTORY`:' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'In B, with `--spec-dir`, hand the folder to the spec tool with the seed, as `SPECIFY_FEATURE_DIRECTORY`:'* ]] \
     || { echo "B no longer hands the folder to the spec tool"; false; }
-  grep -qF 'Before going on, check that `<folder>/spec.md` exists; a spec written anywhere else stops the run, naming both paths.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'Before going on, check that `<folder>/spec.md` exists; a spec written anywhere else stops the run, naming both paths.'* ]] \
     || { echo "B no longer checks where the spec was written"; false; }
-  grep -qF 'A `--branch` or `--spec-dir` on a resume that differs from the record is never applied silently — say that the record stands, and name both.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'A `--branch` or `--spec-dir` on a resume that differs from the record is never applied silently — say that the record stands, and name both.'* ]] \
     || { echo "the resume rule for the two flags altered"; false; }
   # Feature 043: a resume prints the two lines from the record.
-  grep -qF 'On a resume pre-flight gets no `--feature-branch` or `--spec-dir`, so print the Branch and Spec folder lines from the record: the branch from the state file and the folder that holds the `spec.md` named by `artifacts.spec`, each marked as recorded.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'On a resume pre-flight gets no `--feature-branch` or `--spec-dir`, so print the Branch and Spec folder lines from the record: the branch from the state file and the folder that holds the `spec.md` named by `artifacts.spec`, each marked as recorded.'* ]] \
     || { echo "the resume probe-line rule for the branch and the folder altered"; false; }
-  grep -qF 'Without `--branch`, the folder'"'"'s last segment names the branch, so it gets the branch checks too.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'Without `--branch`, the folder'"'"'s last segment names the branch, so it gets the branch checks too.'* ]] \
     || { echo "the spec folder's branch checks are no longer stated"; false; }
-  grep -qF 'sits under `.delivery-kit/` or `.git` in any letter case, leads through a symbolic link out of the repository or into either of those two,' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'sits under `.delivery-kit/` or `.git` in any letter case, leads through a symbolic link out of the repository or into either of those two,'* ]] \
     || { echo "the spec folder's place rules altered"; false; }
-  grep -qF 'On a resume, pre-flight prints the branch and the folder the run recorded.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'On a resume, pre-flight prints the branch and the folder the run recorded.'* ]] \
     || { echo "the configuration page lost the resume probe-line note"; false; }
   changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
-  grep -qF '**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**' < <(printf '%s\n' "$changelog") \
+  [[ $changelog == *'**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**'* ]] \
     || { echo "the changelog lost the two flags entry"; false; }
 }
 
@@ -1792,44 +1793,123 @@ ROWS
 Trailers     : <each trailer>  (from <its layer>)
 ROWS
   base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
-  grep -qF 'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.' < <(printf '%s\n' "$base") \
+  [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the trailers' rules"; false; }
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
-  grep -qF '**The flag adds to the key and never replaces it**: the list is the key'"'"'s trailers, then the flags'"'"', in order.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'**The flag adds to the key and never replaces it**: the list is the key'"'"'s trailers, then the flags'"'"', in order.'* ]] \
     || { echo "the configuration page lost the add rule"; false; }
-  grep -qF 'or the token `Piece`, `Late` or `Tasks` in any letter case, which the run uses as its own markers.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'or the token `Piece`, `Late` or `Tasks` in any letter case, which the run uses as its own markers.'* ]] \
     || { echo "the reserved-token rule altered"; false; }
-  grep -qF 'On a fresh run it passes `--trailer <text>` to `preflight.sh` once per trailer: the key'"'"'s first, then the flags'"'"', in order.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'On a fresh run it passes `--trailer <text>` to `preflight.sh` once per trailer: the key'"'"'s first, then the flags'"'"', in order.'* ]] \
     || { echo "the pre-flight argument for trailers altered"; false; }
-  grep -qF 'It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers '"'"'<json array>'"'"'`, and each entry'"'"'s layer, in the same order, as `config.commitTrailersFrom`.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers '"'"'<json array>'"'"'`, and each entry'"'"'s layer, in the same order, as `config.commitTrailersFrom`.'* ]] \
     || { echo "the recorded shape altered"; false; }
-  grep -qF 'This record replaces the key'"'"'s own list in `config`: it holds the key'"'"'s trailers and the flags'"'"', never the key'"'"'s alone.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'This record replaces the key'"'"'s own list in `config`: it holds the key'"'"'s trailers and the flags'"'"', never the key'"'"'s alone.'* ]] \
     || { echo "the record no longer holds the flags' trailers"; false; }
-  grep -qF 'The commit subcommands add the list themselves: `spec-commit`, `piece-commit`, `late-commit` (J'"'"'s `--record` included) and `remainder-commit`.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'The commit subcommands add the list themselves: `spec-commit`, `piece-commit`, `late-commit` (J'"'"'s `--record` included) and `remainder-commit`.'* ]] \
     || { echo "the list of commits that carry trailers altered"; false; }
-  grep -qF 'The run never adds a trailer by hand.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'The run never adds a trailer by hand.'* ]] \
     || { echo "the no-hand-trailer rule altered"; false; }
-  grep -qF 'On a resume, pre-flight gets no `--trailer`, so print the Trailers line from the recorded list, each entry with its recorded layer. A different list on a resume is never applied silently — say that the record stands, and name both.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'On a resume, pre-flight gets no `--trailer`, so print the Trailers line from the recorded list, each entry with its recorded layer. A different list on a resume is never applied silently — say that the record stands, and name both.'* ]] \
     || { echo "the resume rule for trailers altered"; false; }
   # Review 2, item 1: the owner's answer at K covers every line that leaves.
   # The old sentence said the opposite; it must not come back.
-  grep -qF 'A message shown at a gate before its commit is shown with the trailers, as `progress.sh show-message <feature> <message file>` prints it (with `--record`, J'"'"'s empty record commit), so the answer covers every line the commit carries.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'A message shown at a gate before its commit is shown with the trailers, as `progress.sh show-message <feature> <message file>` prints it (with `--record`, J'"'"'s empty record commit), so the answer covers every line the commit carries.'* ]] \
     || { echo "the configuration page no longer shows trailers at the gate"; false; }
-  ! grep -qF 'does not show the trailers' < <(printf '%s\n' "$docs") \
+  ! [[ $docs == *'does not show the trailers'* ]] \
     || { echo "the configuration page says again that a gate does not show the trailers"; false; }
-  grep -qF 'It also stops, from any layer, on a trailer that would act on GitHub or name another author: the token `skip-checks`, `Co-authored-by` or `Signed-off-by`;' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'It also stops, from any layer, on a trailer that would act on GitHub or name another author: the token `skip-checks`, `Co-authored-by`, `Signed-off-by` or `On-behalf-of`;'* ]] \
     || { echo "the refused-trailer rule altered"; false; }
-  grep -qF 'and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each of these is matched in any letter case.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each of these is matched in any letter case.'* ]] \
     || { echo "the skip-ci rule altered"; false; }
   local k
   k="$(prose_slice '^\*\*K — commit\. STOPS AND ASKS\.\*\*' '^\*\*L — push' flat 'K')" || return 1
-  grep -qF 'and commits only what was shown, only after the answer. Each uncommitted message K shows is as `progress.sh show-message <feature> <file>` prints it, with the run'"'"'s trailers (`--record` for J'"'"'s record commit).' < <(printf '%s\n' "$k") \
+  [[ $k == *'and commits only what was shown, only after the answer. Each uncommitted message K shows is as `progress.sh show-message <feature> <file>` prints it, with the run'"'"'s trailers (`--record` for J'"'"'s record commit).'* ]] \
     || { echo "K no longer shows each message with the trailers"; false; }
-  grep -qF 'Pre-flight and the commit subcommands run one file for all of this, `scripts/trailer-check.sh`, so the two can never disagree.' < <(printf '%s\n' "$docs") \
+  [[ $docs == *'Pre-flight and the commit subcommands run one file for all of this, `scripts/trailer-check.sh`, so the two can never disagree.'* ]] \
     || { echo "the configuration page no longer says the trailer rule is one file"; false; }
   changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
-  grep -qF '**Trailers on every commit the run makes: the `commitTrailers` key and the `--trailer <token: value>` flag.**' < <(printf '%s\n' "$changelog") \
+  [[ $changelog == *'**Trailers on every commit the run makes: the `commitTrailers` key and the `--trailer <token: value>` flag.**'* ]] \
     || { echo "the changelog lost the trailers entry"; false; }
-  grep -qF 'K shows each message with the trailers, as the new `progress.sh show-message` prints it (`--record` for J'"'"'s record commit).' < <(printf '%s\n' "$changelog") \
+  [[ $changelog == *'K shows each message with the trailers, as the new `progress.sh show-message` prints it (`--record` for J'"'"'s record commit).'* ]] \
     || { echo "the changelog lost the gate's view of the trailers"; false; }
+}
+
+# --- review 3 of PR #68 -------------------------------------------------------
+# Each test below kills a mutant the review measured surviving on 92ca321.
+
+@test "the trailer rules the operator reads are pinned whole" {
+  # In-shell matching: on Git Bash, grep reading `< <(printf …)` reports a
+  # match that is not there in about 2% of calls under load.
+  local docs changelog skill s want
+  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  skill="$(tr '\n' ' ' < "$ROOT/pipeline/skills/pipeline/SKILL.md" | tr -s ' ')"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
+  done <<'PINS'
+a closing keyword (`Close`, `Closes`, `Closed`, `Fix`, `Fixes`, `Fixed`, `Resolve`, `Resolves`, `Resolved`) as the token, or before an issue number in the value;
+Between configuration files the key behaves as every key does: a later file's list replaces an earlier one's.
+Every commit the run makes carries the list, the spec commit included, and the same trailer is never added twice. The list is read on a fresh run only.
+A trailer joins the `Tasks:`, `Piece:` or `Late:` lines when the message ends with them, so each stays a whole line.
+Commits an external implementer makes on the handoff path are its own, and are not touched.
+PINS
+  want='`late-commit` and `remainder-commit` add it from the state file'"'"'s `config.commitTrailers`, never adding one twice.'
+  [[ $changelog == *"$want"* ]] || { echo "CHANGELOG altered: never adding one twice"; false; }
+  want='and add that it was not checked against the repository. The same for `override`, with its layer named.'
+  [[ $skill == *"$want"* ]] || { echo "SKILL.md altered: the unchecked override line"; false; }
+}
+
+@test "review 3's rules are pinned where the operator and the run read them" {
+  # Each sentence below states a rule review 3 of PR #68 added; deleting or
+  # inverting any one leaves a reader with the old rule and nothing red.
+  local docs skill readme preadme s
+  docs="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md" | tr '\n' ' ' | tr -s ' ')"
+  skill="$(tr -d '\r' < "$ROOT/pipeline/skills/pipeline/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  readme="$(tr -d '\r' < "$ROOT/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
+  preadme="$(tr -d '\r' < "$ROOT/pipeline/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
+  done <<'PINS'
+A `commitTrailers` that is not a list of strings stops resolution, naming the layer that set it.
+a token of fewer than two characters, or one that does not start with a letter, end with a letter or a digit and hold only letters, digits and dash,
+A closing keyword counts anywhere in the trailer, inside a token such as `Will-Fix` too, and the issue may be written `#1`, `owner/repo#1`, `GH-1` or as the issue's URL, with or without a colon or a space before it.
+Pre-flight also stops on a character that can disguise text in a terminal: a bidi, invisible or zero-width character, a variation selector, a tag character or a byte-order mark, from the one list in `scripts/hidden-chars.sh` that questions are checked against too.
+A refusal shows such a trailer as JSON, each of these characters as its `\u` escape, never raw.
+On a resume it passes none, as for the trailers and the branch: a tracked key moved to a branch that is not here must not stop a resume.
+PINS
+  [[ $skill == *'On a resume, run `progress.sh validate <feature>` and read the state file first: the recorded lines come from it.'* ]] \
+    || { echo "the skill no longer reads the state file before the probe block on a resume"; false; }
+  [[ $readme == *'`baseBranchOverride` and `commitTrailers` can arrive the same way: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
+    || { echo "README.md's note no longer names the other settings a file can bring"; false; }
+  [[ $preadme == *'`baseBranchOverride` and `commitTrailers` can come from such a file too: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
+    || { echo "pipeline/README.md's note no longer names the other settings a file can bring"; false; }
+}
+
+@test "the hidden-character list lives in one file, which both checks read" {
+  # Review 3, blocking 1: trailer-check.sh had a narrower list than
+  # progress.sh's text_file. Both now source hidden-chars.sh; neither may
+  # grow a list of its own again.
+  local f s
+  [ -f "$ROOT/pipeline/scripts/hidden-chars.sh" ] || { echo "hidden-chars.sh is gone"; false; }
+  # Both scripts source it, so it must stay data: comments and the one
+  # assignment, never a command.
+  local l n=0
+  while IFS= read -r l || [ -n "$l" ]; do
+    l="${l%$'\r'}"
+    case "$l" in
+      ''|'#'*) ;;
+      "HIDDEN_CHARS='["*"]'") n=$((n + 1)) ;;
+      *) echo "hidden-chars.sh holds more than its list: $l"; false ;;
+    esac
+  done < "$ROOT/pipeline/scripts/hidden-chars.sh"
+  [ "$n" -eq 1 ] || { echo "hidden-chars.sh sets HIDDEN_CHARS $n times"; false; }
+  for f in progress.sh trailer-check.sh; do
+    s="$(tr -d '\r' < "$ROOT/pipeline/scripts/$f")"
+    [[ $s == *'/hidden-chars.sh"'* ]] || { echo "$f no longer reads hidden-chars.sh"; false; }
+    [[ $s == *'"$HIDDEN_CHARS"'* ]] || { echo "$f no longer uses HIDDEN_CHARS"; false; }
+    ! [[ $s == *'‮'* || $s == *'\udb40'* ]] || { echo "$f holds its own hidden-character list again"; false; }
+  done
 }

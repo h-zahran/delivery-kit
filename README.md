@@ -341,7 +341,9 @@ tool does, and one flag must not mean both "commit for me" and "publish for me".
 > `Implementer` line naming which file or flag the value came from — a setting
 > that answers a question for you can arrive in a repository you just cloned.
 > Set `implementer` to `ask` to take the implementer question back on a fresh
-> run. The whole range is on [the configuration
+> run. `baseBranchOverride` and `commitTrailers` can arrive the same way:
+> pre-flight names the file each came from, on its `Base branch` and
+> `Trailers` lines. The whole range is on [the configuration
 > page](pipeline/docs/configuration.md#the-implementer-key).
 
 ### Stopping and resuming

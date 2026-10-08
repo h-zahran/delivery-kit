@@ -75,9 +75,10 @@ All notable changes to the `pipeline` plugin.
   one run; the flag beats the key. Pre-flight reports the source as `override`, and the probe line names
   the layer that set it. The override is read on a
   fresh run only: a resume keeps the base the run recorded, and a
-  different name on a resume is reported, not applied. A name that is
-  not a local branch, or a name git would not accept as a branch name,
-  stops pre-flight, naming it. The
+  different name on a resume is reported, not applied: on a resume the
+  run passes no override to pre-flight. A name that is not a local
+  branch, a name that is a tag as well, or a name git would not accept
+  as a branch name, stops pre-flight, naming it. The
   `baseBranch` key is unchanged.
 - **A feature branch and a spec folder named for one run: the
   `--branch <name>` and `--spec-dir <path>` flags.** The spec tool's
@@ -89,7 +90,8 @@ All notable changes to the `pipeline` plugin.
   on a bad value, naming it: a branch name git would not accept, the
   base branch's own name in any spelling, a branch that already exists,
   or a spec folder that is absolute, climbs out with `..`, holds an odd
-  segment, sits under `.delivery-kit/` or `.git` in any letter case,
+  segment, a segment ending in a dot or a name Windows keeps for a device
+  (`nul`, `con`), sits under `.delivery-kit/` or `.git` in any letter case,
   leads out through a symbolic link, already exists, or whose run name
   already has a state file. Without `--branch`, the folder's last segment
   gets the branch checks. Both are read on a fresh run only. On a
@@ -106,8 +108,13 @@ All notable changes to the `pipeline` plugin.
   each trailer with its layer, and stops on a malformed one or on the
   run's own `Piece`, `Late` and `Tasks` tokens, naming it. It also
   refuses, from every layer, a trailer that would act on GitHub or name
-  another author: `skip-checks`, `Co-authored-by`, `Signed-off-by`, a
-  closing keyword, or a value holding `[skip ci]` or its spellings.
+  another author: `skip-checks`, `Co-authored-by`, `Signed-off-by`,
+  `On-behalf-of`, a closing keyword anywhere in the trailer before an
+  issue in any form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the
+  issue's URL), or a value holding `[skip ci]` or its spellings. It
+  refuses a character that can disguise text in a terminal, from the one
+  list questions are checked against, `scripts/hidden-chars.sh`, and a
+  refusal shows each such character as its `\u` escape.
   Pre-flight and the commit subcommands run one file for the rule,
   `scripts/trailer-check.sh`, and the subcommands append the lines
   themselves, so no git `trailer.*` setting touches them. K shows each

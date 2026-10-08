@@ -30,14 +30,20 @@ STATE_ROOT=".delivery-kit"
 SCRIPT_DIR="${BASH_SOURCE[0]}"
 case "$SCRIPT_DIR" in */*) SCRIPT_DIR="${SCRIPT_DIR%/*}" ;; *) SCRIPT_DIR=. ;; esac
 SCRIPT_DIR="$(CDPATH='' cd -P -- "$SCRIPT_DIR" && pwd -P)" || { printf 'progress.sh: cannot find the folder that holds progress.sh\n' >&2; exit 1; }
+# HIDDEN_CHARS: the characters that can disguise text, one list for this
+# script and trailer-check.sh.
+# shellcheck source-path=SCRIPTDIR source=hidden-chars.sh
+. "$SCRIPT_DIR/hidden-chars.sh"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
 
 # Every invocation removes what it made, on any exit: suite-key's scratch
-# file, a text file's checked copy, and the state lock this process holds.
+# file, a text file's checked copy, with_trailers' message copy and its
+# check's error file, show-message's record message, and the state lock
+# this process holds.
 on_exit() {
-  rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}"
+  rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}" "${TR_MSG:-}" "${TR_ERR:-}" "${SHOW_MSG:-}"
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
 }
 trap on_exit EXIT
@@ -790,14 +796,17 @@ with_trailers() {
   [ "$n" != bad ] || die "$sf: config.commitTrailers must be an array of non-empty strings — no commit is made"
   [ "$n" -gt 0 ] || return 0
   # Each entry goes to trailer-check.sh as JSON, so a CR or NUL inside it
-  # is seen there rather than stripped by jqs on the way.
+  # is seen there rather than stripped by jqs on the way. Its error file and
+  # the message copy are this call's own (mktemp): a show-message during a
+  # commit of the same run must not swap the message git commits.
+  TR_ERR="$(mktemp "$RD/trailer-check.XXXXXX")" || die "could not make a temporary file in $RD — no commit is made"
   i=0
   while [ "$i" -lt "$n" ]; do
     j="$(jq -b -c --argjson i "$i" '.config.commitTrailers[$i]' "$sf")" \
       || die "$sf could not be read for config.commitTrailers — no commit is made"
     j="${j%$'\r'}"
-    t="$("$BASH" "$SCRIPT_DIR/trailer-check.sh" "$j" 2>"$RD/trailer-check.err")" \
-      || { r="$(cat -- "$RD/trailer-check.err")"; die "the recorded trailer $r — no commit is made"; }
+    t="$("$BASH" "$SCRIPT_DIR/trailer-check.sh" "$j" 2>"$TR_ERR")" \
+      || { r="$(cat -- "$TR_ERR")"; die "the recorded trailer $r — no commit is made"; }
     TR+=("$t"); i=$((i + 1))
   done
   # The message without its trailing blank lines; the last paragraph, when
@@ -815,7 +824,8 @@ with_trailers() {
     done
   fi
   if [ "$block" = 1 ]; then HAVE=("${last[@]}"); fi
-  MF="$RD/trailers-msg.txt"
+  TR_MSG="$(mktemp "$RD/trailers-msg.XXXXXX")" || die "could not make a temporary file in $RD — no commit is made"
+  MF="$TR_MSG"
   {
     printf '%s\n' "$m"
     i=0
@@ -1684,8 +1694,9 @@ cmd_show_message() {
   RD="$(run_dir "$feature")"
   msg_body "$2"
   if [ "${3:-}" = --record ]; then
-    j_record_msg "$RD/show-record-msg.txt"
-    with_trailers "$RD/show-record-msg.txt"
+    SHOW_MSG="$(mktemp "$RD/show-record-msg.XXXXXX")" || die "could not make a temporary file in $RD"
+    j_record_msg "$SHOW_MSG"
+    with_trailers "$SHOW_MSG"
   else
     with_trailers "$2"
   fi
@@ -1811,15 +1822,8 @@ cmd_state_set() {
 # it between the checks and the read. At most 16384 bytes: the text travels
 # as one argument to jq, and Windows refuses an argument list past 32 KB.
 # Characters a terminal can act on, or that can make a question read as
-# something else, are refused too: C1 controls, bidi marks, overrides and
-# isolates (U+061C, U+200E-200F, U+202A-202E, U+2066-2069), line and
-# paragraph separators, zero-width and invisible formatting characters
-# (U+034F, U+180E, U+200B-200D, U+2060-2064, U+206A-206F), invisible fillers
-# (U+115F-1160, U+17B4-17B5, U+3164, U+FFA0), variation selectors, the
-# byte-order mark, interlinear annotation marks, and the tag plane, which can
-# carry text a model reads and a person does not see. An allowlist would
-# refuse ordinary text in most scripts, so this is a list — widen it when a
-# new invisible character is found, and pin the new edges in pending.bats.
+# something else, are refused too: the list is HIDDEN_CHARS, in
+# hidden-chars.sh, which trailer-check.sh reads as well.
 text_file() {
   local size
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then die "the $2 file does not exist or cannot be read: $1"; fi
@@ -1834,7 +1838,7 @@ text_file() {
   rm -f "$TEXT_COPY"; TEXT_COPY=''
   [[ $TEXT == *[![:space:]]* ]] || die "the $2 file $1 is empty"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  [ "$(jqs -n --arg t "$TEXT" '$t | test("[\u0080-\u009f\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb\udb40\udc00-\udb40\udc7f\udb40\udd00-\udb40\uddef]")')" = false ] \
+  [ "$(jqs -n --arg t "$TEXT" '$t | test("'"$HIDDEN_CHARS"'")')" = false ] \
     || die "the $2 file $1 holds a character that can disguise text in a terminal (a C1 control, a bidi, invisible or zero-width character, a variation selector, a tag character, or a byte-order mark)"
 }
 

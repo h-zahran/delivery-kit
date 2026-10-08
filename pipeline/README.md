@@ -88,6 +88,9 @@ not a gate.
 > a config file you did not write; that is why pre-flight prints an
 > `Implementer` line naming which file or flag the value came from. Set
 > `implementer` to `ask` to take the implementer question back on a fresh run.
+> `baseBranchOverride` and `commitTrailers` can come from such a file too:
+> pre-flight names the file each came from, on its `Base branch` and
+> `Trailers` lines.
 > [The configuration page](docs/configuration.md#the-implementer-key) gives the
 > whole range.
 
