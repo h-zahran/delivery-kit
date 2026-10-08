@@ -323,4 +323,22 @@ result recorded here; no frozen copy of the old gate is kept.
 
 ## Measurements after the build
 
-*(filled in at phase J or N: the table of R11)*
+One dated record per run; each describes that run, not the current file.
+
+**2026-10-08, the harness proving itself on the old gate (T004).**
+`bash specs/033-gate-fewer-processes/proof/differential.sh 2b38f74` with
+the gate unchanged: `DIFFERENTIAL OK (259 runs, 15 LF runs, 0 differing)`,
+`CONTROL OK (4 of 4 runs differ)`, 1,949 s. One test was red over the
+wrapper and in the expected-red set: "the gate keeps its own shell
+options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
+24 extra trees in both forms.
+
+**R11, at `2b38f74` (T005), on the real tree, this machine:**
+
+| Measure | `2b38f74` | branch |
+|---|---|---|
+| `jq` starts, default form | 14 | |
+| `jq` starts, `--released handoff` | 14 | |
+| `jq` starts, `--released pipeline` (refuses: unreleased work) | 13 | |
+| one default run, ms (three runs) | 2,443 / 2,330 / 2,361 | |
+| `tests/portability.bats` alone, s | measured at T028, alternating | |
