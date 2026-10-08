@@ -65,6 +65,7 @@ All notable changes to the `pipeline` plugin.
   question from the same phase is never asked again; `state-set` cannot
   write the queue. The handoff package's parts move to
   `docs/handoff-package.md`, and `git stash` joins the never-bend rules.
+  `pipeline:status` names every open question.
 
 ### Fixed
 
