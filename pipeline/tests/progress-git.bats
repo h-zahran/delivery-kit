@@ -1148,6 +1148,7 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
     'Tasks: T001,T002' 'Piece: Phase 1: Setup' 'Plan-Item: DEPENDENCY-02' 'Reviewed-by: a-reviewer')" ]
   [ "$(jq -r '.commits[-1].piece' "$SF")" = "Phase 1: Setup" ]
   run bash "$PROG" piece-next "$F"
+  [ "$status" -eq 0 ] || { echo "piece-next failed: $output"; false; }
   [ "${lines[0]}" = "Phase 2: Core" ]
 }
 
@@ -1208,45 +1209,95 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   msg 'chore: the rest'
   runs remainder-commit "$F" "$MSG"
   [ "$(body)" = 'chore: the rest' ]
-  [ ! -e ".delivery-kit/runs/$F/trailers-msg.txt" ]
+  local m
+  for m in ".delivery-kit/runs/$F"/trailers-msg*; do
+    [ ! -e "$m" ] || { echo "a message copy was made: $m"; false; }
+  done
 }
 
-@test "trailers: a recorded list that is not an array of non-empty strings is refused" {
+# Review 3, item 7: the message copy, the check's error file and
+# show-message's record message are each call's own (mktemp), and are gone
+# when the call ends. A fixed name let a show-message during a commit of the
+# same run swap the message git commits.
+@test "trailers: the message copies are each call's own, and none is left behind" {
+  repo
+  trailers '["Plan-Item: X"]'
+  printf 'note\n' > NOTES.md
+  msg 'chore: the rest'
+  # A file at each old fixed name stands for another call's copy: a call
+  # that wrote or removed one of these would swap that call's message.
+  local d=".delivery-kit/runs/$F" n m
+  for n in trailers-msg.txt trailer-check.err show-record-msg.txt; do printf 'other call\n' > "$d/$n"; done
+  runs show-message "$F" "$MSG"
+  runs show-message "$F" "$MSG" --record
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: the rest' '' 'Plan-Item: X')" ]
+  for n in trailers-msg.txt trailer-check.err show-record-msg.txt; do
+    [ "$(cat "$d/$n" 2>/dev/null)" = 'other call' ] || { echo "another call's $n was written or removed"; false; }
+    rm -f "$d/$n"
+  done
+  for m in "$d"/trailers-msg* "$d"/trailer-check* "$d"/show-record-msg*; do
+    [ ! -e "$m" ] || { echo "left behind: $m"; false; }
+  done
+}
+
+# Review 3: each looped refusal test is split in two. A trailer check
+# costs about a second on Windows, and under load six of these hit bats'
+# 60-second limit whole.
+@test "trailers: a recorded list that is not an array is refused" {
+  repo
+  trailers '"Plan-Item: x"'
+  refuses "must be an array of non-empty strings" spec-commit "$F"
+}
+
+@test "trailers: a recorded list holding a number or an empty string is refused" {
   repo
   local bad
-  for bad in '"Plan-Item: x"' '[1]' '[""]'; do
+  for bad in '[1]' '[""]'; do
     trailers "$bad"
     refuses "must be an array of non-empty strings" spec-commit "$F"
   done
 }
 
-@test "trailers: a line break or any other control character in a recorded trailer is refused" {
-  # jqs strips a CR from what it prints, so a CR the filter let through would
-  # be silently rewritten: `a\rb` would commit as `ab`.
-  repo
-  local bad
-  # The refusal shows the trailer as JSON, so no control character reaches
-  # the terminal raw. NEL (U+0085) and NUL are refused here exactly as
-  # pre-flight refuses them: both run trailer-check.sh.
-  local want
-  for bad in '["Plan-Item: a\nb"]' '["Plan-Item: a\rb"]' '["Note: a\u001b[31mb"]' '["Note: a\tb"]' \
-             '["Note: a\u0085b"]' '["Note: a\u0000b"]'; do
+# control_refused <JSON list>... — each recorded list is refused before any
+# commit, shown as JSON, with no control character reaching stderr raw.
+# jqs strips a CR from what it prints, so a CR the filter let through would
+# be silently rewritten: `a\rb` would commit as `ab`. NEL (U+0085) and NUL
+# are refused here exactly as pre-flight refuses them: both run
+# trailer-check.sh.
+control_refused() {
+  local bad want
+  for bad in "$@"; do
     case "$bad" in *'\n'*|*'\r'*) want='holds a line break' ;; *) want='holds a control character' ;; esac
     trailers "$bad"
-    refuses "$want" spec-commit "$F"
-    [[ "$(cat "$ERR")" == *'the recorded trailer "'* ]] || { echo "not shown as JSON: $(cat "$ERR")"; false; }
+    refuses "$want" spec-commit "$F" || return 1
+    [[ "$(cat "$ERR")" == *'the recorded trailer "'* ]] || { echo "not shown as JSON: $(cat "$ERR")"; return 1; }
     ! LC_ALL=C grep -q $'[\x01-\x08\x0b-\x1f\x7f]\|\xc2[\x80-\x9f]' "$ERR" \
-      || { echo "a control character reached stderr raw: $(od -c "$ERR")"; false; }
+      || { echo "a control character reached stderr raw: $(od -c "$ERR")"; return 1; }
   done
 }
 
-@test "trailers: a run marker, no colon or an empty value is refused, naming it" {
+@test "trailers: a line break or an escape sequence in a recorded trailer is refused" {
+  repo
+  control_refused '["Plan-Item: a\nb"]' '["Plan-Item: a\rb"]' '["Note: a\u001b[31mb"]'
+}
+
+@test "trailers: a tab, NEL or NUL in a recorded trailer is refused" {
+  repo
+  control_refused '["Note: a\tb"]' '["Note: a\u0085b"]' '["Note: a\u0000b"]'
+}
+
+@test "trailers: a run marker is refused, naming it" {
   repo
   local bad
   for bad in 'Tasks: T001' 'piece: Phase 1: Setup' 'LATE: J'; do
     trailers "[\"$bad\"]"
     refuses "'$bad' uses the token" spec-commit "$F"
   done
+}
+
+@test "trailers: no colon or an empty value is refused, naming it" {
+  repo
   trailers '["no colon"]'
   refuses "'no colon' has no ':'" spec-commit "$F"
   trailers '["Plan-Item:   "]'
@@ -1262,7 +1313,16 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   # dropped and `Piece-: x` would commit as a run marker.
   repo
   local bad
-  for bad in ': x' 'Bad token: x' 'Bad_token: x' '---: x' '-: x' '--foo: x' 'Piece-: x' 'A: x'; do
+  for bad in ': x' 'Bad token: x' 'Bad_token: x' '---: x'; do
+    trailers "[\"$bad\"]"
+    refuses "a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only" spec-commit "$F"
+  done
+}
+
+@test "trailers: a token git would read differently is refused (its first and last characters, and its length)" {
+  repo
+  local bad
+  for bad in '-: x' '--foo: x' 'Piece-: x' 'A: x'; do
     trailers "[\"$bad\"]"
     refuses "a token starts with a letter, ends with a letter or a digit, and holds letters, digits and dash only" spec-commit "$F"
   done
@@ -1273,16 +1333,34 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   trailers '["skip-checks: true"]'
   refuses "'skip-checks: true' uses the token 'skip-checks'" spec-commit "$F"
   local bad
-  for bad in 'Note: [skip ci]' 'Note: a [CI Skip] b' 'Note: [no ci]' 'Note: [Skip Actions]' 'Note: [actions skip]'; do
+  for bad in 'Note: [skip ci]' 'Note: a [CI Skip] b'; do
     trailers "[\"$bad\"]"
     refuses "'$bad' asks GitHub to skip the checks" spec-commit "$F"
   done
 }
 
-@test "trailers: a trailer that names another author or closes an issue is refused" {
+@test "trailers: a trailer that skips GitHub's checks is refused, in its other spellings" {
   repo
   local bad
-  for bad in 'Co-authored-by: A <a@example.invalid>' 'signed-off-by: A <a@example.invalid>' 'Fixes: #1' 'Closes: owner/repo#1'; do
+  for bad in 'Note: [no ci]' 'Note: [Skip Actions]' 'Note: [actions skip]'; do
+    trailers "[\"$bad\"]"
+    refuses "'$bad' asks GitHub to skip the checks" spec-commit "$F"
+  done
+}
+
+@test "trailers: a trailer that names another author is refused" {
+  repo
+  local bad
+  for bad in 'Co-authored-by: A <a@example.invalid>' 'signed-off-by: A <a@example.invalid>' 'On-behalf-of: org'; do
+    trailers "[\"$bad\"]"
+    refuses "which acts on GitHub or names another author" spec-commit "$F"
+  done
+}
+
+@test "trailers: a trailer that closes an issue is refused" {
+  repo
+  local bad
+  for bad in 'Fixes: #1' 'Closes: owner/repo#1'; do
     trailers "[\"$bad\"]"
     refuses "which acts on GitHub or names another author" spec-commit "$F"
   done
@@ -1399,4 +1477,31 @@ body() { git cat-file commit HEAD | sed '1,/^$/d'; }
   cp -R ".delivery-kit/runs/$F" src/.delivery-kit/runs/
   cd src
   refuses "run this from the repository's top level" show-message "$F" "$MSG"
+}
+
+# --- review 3 of PR #68 -------------------------------------------------------
+# Each test below kills a mutant the review measured surviving on 92ca321.
+
+@test "trailers: a line already in the block, though not its last, is not added twice" {
+  repo
+  trailers '["Plan-Item: X"]'
+  printf 'one\n' > NOTES.md
+  msg 'chore: one' '' 'Plan-Item: X' 'Other: y'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: one' '' 'Plan-Item: X' 'Other: y')" ]
+}
+
+@test "trailers: a prose last paragraph gets a blank line, even holding ': ' or the same line" {
+  # Neither paragraph is a trailer block to git (interpret-trailers --parse
+  # prints nothing for either), so the trailers start their own paragraph.
+  repo
+  trailers '["Plan-Item: X"]'
+  printf 'one\n' > NOTES.md
+  msg 'chore: one' '' 'See the docs: here'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: one' '' 'See the docs: here' '' 'Plan-Item: X')" ]
+  printf 'two\n' > MORE.md
+  msg 'chore: two' '' 'Prose here.' 'Plan-Item: X'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(body)" = "$(printf '%s\n' 'chore: two' '' 'Prose here.' 'Plan-Item: X' '' 'Plan-Item: X')" ]
 }

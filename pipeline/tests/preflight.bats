@@ -317,10 +317,29 @@ stub() {
     [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
     [[ "$stderr" == *"(--base-branch-override)"* ]] || { echo "argument not named: $bad"; false; }
     # git expands @ and @{-1} to another name: that is not the typed name.
+    # HEAD fails git's own check. The rest are legal names that are no
+    # local branch: a tag, a commit id, a remote's branch, a full ref name.
     case "$bad" in
-      @*) [[ "$stderr" == *"is not a legal branch name"* ]] || { echo "wrong reason: $bad: $stderr"; false; } ;;
+      @|@*|HEAD) want='is not a legal branch name' ;;
+      *)         want='is not a branch here or on origin' ;;
     esac
+    [[ "$stderr" == *"'$bad' $want"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
   done
+}
+
+# Review 3, item 5: a name that is a branch and a tag too. `git checkout -b`
+# fails as ambiguous, and <base>..HEAD reads the tag.
+@test "base branch: an override that is a tag as well as a branch is refused" {
+  T="$BATS_TEST_TMPDIR/base-override-amb"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git branch amb; git tag amb
+  probe --dir "$T" --base-branch-override amb
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'amb' is a tag as well as a branch; git would read the tag (--base-branch-override)"* ]] \
+    || { echo "wrong reason: $stderr"; false; }
+  git tag -d amb >/dev/null
+  probe --dir "$T" --base-branch-override amb
+  [ "$status" -eq 0 ] || { echo "refused once the tag was gone: $stderr"; false; }
 }
 
 @test "base branch: an override that exists only on origin is refused, naming the command that fixes it" {
@@ -497,6 +516,27 @@ speclink() {
   [[ "$stderr" == *"'specs/004-dangling' already exists"* ]]
 }
 
+# Review 3, item 4: Win32 drops a segment's trailing dot, so .git. is .git
+# and .delivery-kit. is the state directory there; and it reads a device
+# name, with or without an extension, as the device. Names that only start
+# like one are ordinary.
+@test "spec folder: a segment ending in a dot, or a Windows device name, is refused" {
+  T="$BATS_TEST_TMPDIR/specdir-win32"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local bad want
+  for bad in '.git./x' '.delivery-kit./x' 'specs/x./y' 'specs/003-thing.' 'specs/nul' 'specs/CON' \
+             'specs/nul.txt' 'specs/com1' 'specs/Lpt9/x' 'aux/003-thing' 'specs/prn'; do
+    case "$bad" in
+      *./*|*.) want='which ends with a dot; Windows drops it' ;;
+      *)       want='a name Windows keeps for a device' ;;
+    esac
+    probe --dir "$T" --spec-dir "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"$want"* ]] || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+  probe --dir "$T" --spec-dir 'specs/console/nullable'
+  [ "$status" -eq 0 ] || { echo "refused an ordinary name: $stderr"; false; }
+}
+
 @test "spec folder: a trailing slash is dropped; a file in its place is refused" {
   T="$BATS_TEST_TMPDIR/specdir-shapes"
   mkdir -p "$T/specs"; cd "$T"; git init -q -b work .; seed
@@ -596,6 +636,77 @@ speclink() {
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
     [[ "$stderr" == *"'$bad'"* ]] || { echo "not named: $bad"; false; }
     [[ "$stderr" == *"$want"* ]] || { echo "reason not named: $bad: $stderr"; false; }
+  done
+}
+
+# Review 3, blocking 1: the trailer rule refuses every character in
+# HIDDEN_CHARS, the list progress.sh refuses in a question, and prints each
+# one as its \u escape, never raw. The lists below are each range's two
+# edges (as pending.bats pins them) and every other character the review
+# found accepted; the characters beside the ranges, ordinary Arabic text
+# and an emoji with a skin tone are accepted. trailer-check.sh is run
+# directly, and the lists are split over three tests: each check costs
+# about a second on Windows, and a test has 60.
+# hidden_refused <\uXXXX as JSON>... — each, inside a trailer, is refused,
+# shown escaped, for the right reason.
+hidden_refused() {
+  local tc="$ROOT/pipeline/scripts/trailer-check.sh" c err rc
+  for c in "$@"; do
+    rc=0; err="$(bash "$tc" "\"Note: a${c}b\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 1 ] || { echo "accepted: Note: a${c}b (rc $rc)"; return 1; }
+    [[ "$err" == "\"Note: a${c}b\" holds a"* ]] || { echo "not shown escaped: ${c}: $err"; return 1; }
+    case "$c" in
+      '\u0080'|'\u009f') [[ "$err" == *"holds a control character"* ]] || { echo "wrong reason: ${c}: $err"; return 1; } ;;
+      *) [[ "$err" == *"holds a character that can disguise text in a terminal"* ]] || { echo "wrong reason: ${c}: $err"; return 1; } ;;
+    esac
+  done
+}
+
+@test "trailers: the hidden-character ranges' lower edges are refused and shown escaped" {
+  hidden_refused \
+    '\u0080' '\u034f' '\u115f' '\u17b4' '\u180b' '\u200b' '\u2028' '\u202e' '\u206f' '\ufe00' \
+    '\ufeff' '\ufff9' '\udb40\udc00' '\udb40\udd00'
+}
+
+@test "trailers: the hidden-character ranges' upper edges are refused and shown escaped" {
+  hidden_refused \
+    '\u009f' '\u061c' '\u1160' '\u17b5' '\u180f' '\u200f' '\u2029' '\u2060' '\u3164' '\ufe0f' \
+    '\uffa0' '\ufffb' '\udb40\udc7f' '\udb40\uddef'
+}
+
+@test "trailers: the review's hidden characters are refused, and the characters beside the ranges are not" {
+  hidden_refused \
+    '\u2066' '\u200c' '\u200d' '\u200e' '\u180e' '\udb40\udc01' '\udb40\udc41'
+  local tc="$ROOT/pipeline/scripts/trailer-check.sh" c err rc
+  for c in \
+    '\u00a0' '\u2010' '\u202f' '\u2027' '\u2070' '\ufe10' '\u180a' '\u1810' '\ufffc' \
+    'مرحبا' '👍🏽'; do
+    rc=0; err="$(bash "$tc" "\"Note: a${c}b\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 0 ] || { echo "refused: ${c}: $err"; false; }
+  done
+}
+
+# Review 3, blocking 2: a closing keyword counts anywhere in the trailer,
+# its token included, before an issue in every form GitHub reads; and
+# On-behalf-of, which GitHub reads as the commit's organisation, is refused
+# as Co-authored-by is. A keyword without an issue, an issue without a
+# keyword, and a keyword inside a word are accepted.
+@test "trailers: every form that closes an issue, and On-behalf-of, is refused" {
+  local tc="$ROOT/pipeline/scripts/trailer-check.sh" v err rc
+  for v in 'Will-Fix: #1' 'X-Closes: o/r#2' 'Auto-Resolves: #3' 'Ref: fixes https://github.com/o/r/issues/1' \
+           'Ref: closes GH-1' 'Ref: fixes:#1' 'Ref: Resolved http://example.invalid/o/r/issues/7'; do
+    rc=0; err="$(bash "$tc" "\"$v\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 1 ] || { echo "accepted: $v"; false; }
+    [ "$err" = "'$v' would close an issue" ] || { echo "wrong reason: $v: $err"; false; }
+  done
+  for v in 'On-behalf-of: org' 'ON-BEHALF-OF: org'; do
+    rc=0; err="$(bash "$tc" "\"$v\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 1 ] || { echo "accepted: $v"; false; }
+    [[ "$err" == *"uses the token '${v%%:*}', which acts on GitHub"* ]] || { echo "wrong reason: $v: $err"; false; }
+  done
+  for v in 'Prefix: #1' 'Ref: https://github.com/o/r/issues/1' 'Ref: fixes nothing' 'Note: gh-1' 'Note: suffix #1'; do
+    rc=0; err="$(bash "$tc" "\"$v\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 0 ] || { echo "refused: $v: $err"; false; }
   done
 }
 
@@ -783,8 +894,8 @@ speclink() {
 # worse, pass on both for different reasons. Each builds its own search path.
 
 @test "trailers are checked with only the probe's own tools on the search path" {
-  # trailer-check.sh says it needs jq and grep only, because these tests give
-  # the probe nothing else. This proves it: an accepted trailer and a
+  # trailer-check.sh says it needs jq alone, and these tests give the probe
+  # nothing but its own tools. This proves it: an accepted trailer and a
   # refused one, with exactly PROBE_TOOLS findable.
   d="$BATS_TEST_TMPDIR/trailer-tools"
   shimdir "$d" $PROBE_TOOLS
@@ -1035,4 +1146,77 @@ speclink() {
   fi
   [ "$status" -eq 0 ] || { echo "pre-flight did not finish: status $status"; false; }
   [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "true" ]
+}
+
+# --- review 3 of PR #68 -------------------------------------------------------
+# Each test below kills a mutant the review measured surviving on 92ca321.
+
+@test "trailers: every closing keyword is refused as the token" {
+  T="$BATS_TEST_TMPDIR/close-tokens"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local k
+  for k in Close Closes Closed Fix Fixes Fixed Resolve Resolves Resolved; do
+    probe --dir "$T" --trailer "$k: x"
+    [ "$status" -ne 0 ] || { echo "accepted: $k: x"; false; }
+    [[ "$stderr" == *"'$k: x' uses the token '$k', which acts on GitHub"* ]] || { echo "wrong reason: $k: $stderr"; false; }
+  done
+}
+
+@test "trailers: every closing keyword before an issue number is refused, in any letter case" {
+  T="$BATS_TEST_TMPDIR/close-values"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local v
+  for v in 'Note: Close #1' 'Note: closed #1' 'Note: FIX #1' 'Note: fixed #1' 'Note: Resolve #1' 'Note: resolves #1' 'Note: RESOLVED #1'; do
+    probe --dir "$T" --trailer "$v"
+    [ "$status" -ne 0 ] || { echo "accepted: $v"; false; }
+    [[ "$stderr" == *"'$v' would close an issue"* ]] || { echo "wrong reason: $v: $stderr"; false; }
+  done
+}
+
+@test "trailers: DEL is refused as a control character, and never printed raw" {
+  T="$BATS_TEST_TMPDIR/del"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T" --trailer $'Note: a\x7fb'
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *'"Note: a\u007fb" holds a control character'* ]] || { echo "wrong reason: $stderr"; false; }
+  ! printf '%s' "$stderr" | LC_ALL=C grep -q $'\x7f'
+}
+
+@test "without git, the override and the feature branch are reported unchecked" {
+  d="$BATS_TEST_TMPDIR/nogit"
+  shimdir "$d" awk grep head jq od
+  probe --path "$d" --dir "$FIX/web" --base-branch main --base-branch-override integration --feature-branch 003-x
+  [ "$status" -eq 0 ] || { echo "refused without git: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = integration ]
+  [ "$(jq -r '.featureBranch' <<<"$output")" = 003-x ]
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = false ]
+}
+
+@test "feature branch and spec folder are checked in the repository, not in the caller's" {
+  T="$BATS_TEST_TMPDIR/where"
+  mkdir -p "$T/caller" "$T/repo"
+  cd "$T/repo"; git init -q -b work .; seed; git branch taken; mkdir -p specs/004-there
+  cd "$T/caller"; git init -q -b work .; seed; git branch only-here; mkdir -p specs/003-here
+  # What exists only where the caller stands is free in the repository.
+  probe --dir "$T/repo" --feature-branch only-here --spec-dir specs/003-here
+  [ "$status" -eq 0 ] || { echo "refused for the caller's state: $stderr"; false; }
+  # What exists in the repository is refused, though the caller has none.
+  probe --dir "$T/repo" --feature-branch taken
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'taken' already exists as the branch 'taken'"* ]] || false
+  probe --dir "$T/repo" --feature-branch 005-new --spec-dir specs/004-there
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'specs/004-there' already exists"* ]]
+}
+
+@test "feature branch: an existing branch with capitals is matched in any letter case" {
+  T="$BATS_TEST_TMPDIR/caps"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git branch Feature-X
+  probe --dir "$T" --feature-branch feature-x
+  [ "$status" -ne 0 ]
+  [[ "$stderr" == *"'feature-x' already exists as the branch 'Feature-X'"* ]]
+}
+
+@test "spec folder: .delivery-kit below the top level is an ordinary folder" {
+  T="$BATS_TEST_TMPDIR/nested-state"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  probe --dir "$T" --spec-dir 'specs/.delivery-kit/003-thing'
+  [ "$status" -eq 0 ] || { echo "refused: $stderr"; false; }
+  [ "$(jq -r '.specDir' <<<"$output")" = "specs/.delivery-kit/003-thing" ]
 }

@@ -80,6 +80,13 @@ if [ -n "$spec_dir" ]; then
       -*) die "'$spec_dir' has the segment '$seg', which starts with a dash (--spec-dir)" ;;
       *[!A-Za-z0-9._-]*) die "'$spec_dir' has the segment '$seg'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
       .[Gg][Ii][Tt]) die "'$spec_dir' is inside git's own directory .git (--spec-dir)" ;;
+      # Win32 drops a trailing dot, so .git. is .git there, and it reads
+      # a device name (nul, con, com1, nul.txt) as the device.
+      *.) die "'$spec_dir' has the segment '$seg', which ends with a dot; Windows drops it (--spec-dir)" ;;
+    esac
+    case "${seg%%.*}" in
+      [Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])
+        die "'$spec_dir' has the segment '$seg', a name Windows keeps for a device (--spec-dir)" ;;
     esac
     if [ "$first" = 1 ]; then
       case "$seg" in
@@ -133,6 +140,11 @@ if [ -n "$base_override" ] && [ "$have_git" = true ]; then
     fi
     die "'$base_override' is not a branch here or on origin (--base-branch-override)"
   fi
+  # A name that is a branch and a tag too: `git checkout -b` fails as
+  # ambiguous, and <base>..HEAD reads the tag.
+  if git show-ref --verify --quiet "refs/tags/$base_override"; then
+    die "'$base_override' is a tag as well as a branch; git would read the tag (--base-branch-override)"
+  fi
 fi
 # The feature branch B will cut: --feature-branch, else the spec folder's
 # last segment, which B names the branch after. It must be a legal name;
@@ -157,10 +169,13 @@ if [ -n "$spec_dir" ]; then
     case "$p" in */*) p="${p%/*}" ;; *) p=. ;; esac
   done
   [ -d "$p" ] || die "'$spec_dir' runs through '$p', which is not a folder (--spec-dir)"
+  # Both are computed the same way, from here: git's --show-toplevel
+  # spells a path its own way (C:/Users/... where Git Bash says /tmp), so
+  # the top is reached by git's relative path back to it instead.
   real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p' (--spec-dir)"
   top="$(pwd -P)"
-  if [ "$have_git" = true ] && t="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-    top="$(cd -P -- "$t" && pwd -P)" || top="$(pwd -P)"
+  if [ "$have_git" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
+    top="$(cd -P -- "./$t" && pwd -P)" || top="$(pwd -P)"
   fi
   case "$real/" in
     "$top"/*) ;;

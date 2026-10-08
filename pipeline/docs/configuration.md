@@ -123,7 +123,9 @@ What the run does with the override:
 
 - It passes `--base-branch-override <name>` to `preflight.sh` only when
   `--base-branch` was typed or `baseBranchOverride` resolves to a value,
-  the flag's value when both.
+  the flag's value when both, and on a fresh run only. On a resume it
+  passes none, as for the trailers and the branch: a tracked key moved to
+  a branch that is not here must not stop a resume.
 - `preflight.sh` reports the source as `override` and cannot tell which
   layer set it, so the probe line names the layer that set it — the
   flag, or the configuration file by path, never a guess.
@@ -203,22 +205,33 @@ the repository's `.delivery-kit.json` for a team's fixed trailers. The
 repeated. **The flag adds to the key and never replaces it**: the list
 is the key's trailers, then the flags', in order. Between configuration
 files the key behaves as every key does: a later file's list replaces an
-earlier one's. Pre-flight prints each trailer and the layer that set it,
-and stops on a bad one, naming it: no `:`, a token that does not start
-with a letter, end with a letter or a digit and hold only letters,
-digits and dash, an empty value, a line break or other control
+earlier one's. A `commitTrailers` that is not a list of strings stops
+resolution, naming the layer that set it. Pre-flight prints each trailer
+and the layer that set it, and stops on a bad one, naming it: no `:`, a
+token of fewer than two characters, or one that does not start with a
+letter, end with a letter or a digit and hold only letters, digits and
+dash, an empty value, a line break or other control
 character, or the token `Piece`, `Late` or `Tasks` in any letter case,
 which the run uses as its own markers. It also stops, from any layer, on
 a trailer that would act on GitHub or name another author: the token
-`skip-checks`, `Co-authored-by` or `Signed-off-by`; a closing keyword
+`skip-checks`, `Co-authored-by`, `Signed-off-by` or `On-behalf-of`; a
+closing keyword
 (`Close`, `Closes`, `Closed`, `Fix`, `Fixes`, `Fixed`, `Resolve`,
 `Resolves`, `Resolved`) as the token, or before an issue number in the
 value; and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip
 actions]` or `[actions skip]`. Each of these is matched in any letter
-case. Pre-flight and the commit subcommands run one file for all of
-this, `scripts/trailer-check.sh`, so the two can never disagree. A
-control character is one in Unicode's sense, the C1 range (U+0080 to
-U+009F) included, and a refusal shows such a trailer as JSON. Every
+case. A closing keyword counts anywhere in the trailer, inside a token
+such as `Will-Fix` too, and the issue may be written `#1`,
+`owner/repo#1`, `GH-1` or as the issue's URL, with or without a colon
+or a space before it. Pre-flight and the commit subcommands run one file
+for all of this, `scripts/trailer-check.sh`, so the two can never
+disagree. A control character is one in Unicode's sense, the C1 range
+(U+0080 to U+009F) included. Pre-flight also stops on a character that
+can disguise text in a terminal: a bidi, invisible or zero-width
+character, a variation selector, a tag character or a byte-order mark,
+from the one list in `scripts/hidden-chars.sh` that questions are
+checked against too. A refusal shows such a trailer as JSON, each of
+these characters as its `\u` escape, never raw. Every
 commit the run makes carries the list, the spec commit included, and the
 same trailer is never added twice. The list is read on a fresh run only.
 A resume keeps the list the run recorded, and a different list on a

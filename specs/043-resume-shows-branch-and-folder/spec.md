@@ -19,7 +19,7 @@ An operator resumes a run that was started with `--branch` and `--spec-dir`. The
 ## Requirements *(mandatory)*
 
 - **FR-001**: On a resume, the orchestrator MUST print the Branch and Spec folder lines from the record.
-- **FR-002**: The rule MUST be stated in `pipeline/docs/configuration.md`, in the run's rules and in the note for readers. Each statement MUST be pinned and shown able to go red. `SKILL.md` does not change: it must stay under 65,536 bytes, and its pointer already sends the run to the docs page when `--branch` or `--spec-dir` is set.
+- **FR-002**: The rule MUST be stated in `pipeline/docs/configuration.md`, in the run's rules and in the note for readers. Each statement MUST be pinned and shown able to go red. `SKILL.md` changes as little as it can: it must stay under 65,536 bytes. Its pointer sends the run to the docs page when `--branch` or `--spec-dir` is set, or a resumed run's state file records one, and the probe block prints the lines "only when set or recorded" (see the notes below).
 
 ## Success Criteria *(mandatory)*
 
