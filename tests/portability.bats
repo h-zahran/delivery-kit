@@ -1214,6 +1214,32 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # such line would redden a correct tree.
 # ---------------------------------------------------------------------------
 
+# The walk's inputs, as the tests hold them. The gate hands its heading walk
+# these values through the environment: the dated heading pattern, the
+# longest line it judges, and the length it cuts a quoted line to. These are
+# the tests' own copies, written here and never read from the gate, so a
+# fixture does not move with the code under test. The test below proves each
+# equal to the gate's assignment; it is the one place a test reads them from
+# the gate, and it reads them only to compare.
+HELD_DATED_RE='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
+HELD_LINE_LIMIT=1000
+HELD_QUOTE_CUT=200
+
+@test "the tests hold the walk's three values as the gate sets them" {
+  local g="$ROOT/scripts/check-versions.sh" name want got n
+  for name in dated_re line_limit quote_cut; do
+    case $name in
+      dated_re) want="dated_re='$HELD_DATED_RE'" ;;
+      line_limit) want="line_limit=$HELD_LINE_LIMIT" ;;
+      quote_cut) want="quote_cut=$HELD_QUOTE_CUT" ;;
+    esac
+    n=$(LC_ALL=C grep -c "^$name=" "$g")
+    [ "$n" = 1 ] || { echo "V1: the gate sets $name on $n lines, expected one"; false; }
+    got=$(LC_ALL=C grep "^$name=" "$g")
+    [ "$got" = "$want" ] || { echo "V1: the gate has <$got>, the tests hold <$want>"; false; }
+  done
+}
+
 # Put every changelog under <dir> into a RELEASED state: drop every line
 # that could be, or could start or end, a level-2 heading the release form
 # refuses. Removing one spelling, `## [Unreleased]`, was not enough once the
@@ -1236,8 +1262,9 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # every fence line leaves no fence open, and dropping every `##` line at
 # any depth leaves no container or deep line for the gate to find.
 #
-# The dated pattern is the TEST's own, the one the plant steps below use
-# (here in bracket spelling, as it reaches awk as a string), and never read
+# The dated pattern is the TEST's own (HELD_DATED_RE above), the one the
+# plant steps below use (here in bracket spelling, as it reaches awk as a
+# string), and never read
 # from the gate: the fixture is the baseline the
 # gate is judged against, so it must not depend on the code under test. A
 # fixture that took the gate's pattern would agree with a wrong gate, and
@@ -1255,8 +1282,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # never reads the gate's (FR-017). Both awk and the check below run under
 # the C locale, so a length is a count of bytes, as the gate counts it.
 normalise_to_released() {
-  local re f name prog LIMIT=1000 LC_ALL=C
-  re='^## [[][0-9]+[.][0-9]+[.][0-9]+[]] - [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$'
+  local re=$HELD_DATED_RE f name prog LIMIT=$HELD_LINE_LIMIT LC_ALL=C
   # It prints the lines it keeps. No `$` inside a group, and no interval
   # expression, for the awks CI runs.
   prog='
@@ -2335,7 +2361,7 @@ forms_default() {
 changelog_limit=262144
 # The longest line, in bytes, the release form judges: the tests' own
 # copy too, for the same reason.
-line_limit=1000
+line_limit=$HELD_LINE_LIMIT
 
 @test "--released refuses a byte or a line it cannot judge" {
   cd "$ROOT"
@@ -3231,7 +3257,7 @@ gate_refuses() {
   local c k o m src pad links aa='a/' to=""
   # The test's own copies of the gate's limits and words: a fixture that
   # read the gate would move with it.
-  local component_limit=64 quote_cut=200 source_limit=4096
+  local component_limit=64 quote_cut=$HELD_QUOTE_CUT source_limit=4096
   local fol=", which the gate does not follow"
   local out="$TEST_DIR/nolink-outside"
   mkdir -p "$out"
