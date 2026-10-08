@@ -1562,7 +1562,10 @@ PINS
     'A question may wait only when its answer changes nothing the run does before its next stop' \
     'When the run cannot tell, the question stops the run at once: a doubt never makes a question wait.' \
     'an answered question is never asked again, and its answer is never replaced' \
-    'Before L pushes, `pending-check` must pass, under `--auto` too' \n    'After L nothing waits: a question raised at M, N, N.5 or O stops the run, and `ask-later` refuses it.' \n    'and a run that stops for good — `--until`, the park at H, a run with no remote — shows them before it stops.' \n    'The answer is the owner'"'"'s own words, never the run'"'"'s, and on a re-entry the run reads the recorded answers before the phase they affect.'
+    'Before L pushes, `pending-check` must pass, under `--auto` too' \
+    'After L nothing waits: a question raised at M, N, N.5 or O stops the run, and `ask-later` refuses it.' \
+    'and a run that stops for good — `--until`, the park at H, a run with no remote — shows them before it stops.' \
+    'The answer is the owner'"'"'s own words, never the run'"'"'s, and on a re-entry the run reads the recorded answers before the phase they affect.'
   do
     grep -qF -- "$want" < <(printf '%s\n' "$flat") || { echo "phases.md's questions section no longer says: $want"; false; }
   done
@@ -1575,4 +1578,31 @@ PINS
   flat="$(tr -d '\r' < "$doc" | tr '\n' ' ' | tr -s ' ')"
   grep -qF 'Whatever the bullet, name every open entry of `gates.pending` — one with no `answer` — by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open.' < <(printf '%s\n' "$flat") \
     || { echo "the status skill no longer names the open waiting questions"; false; }
+}
+
+# Whole-span pins: an appended sentence that repeals a rule cannot pass
+# beside an intact substring pin.
+@test "the questions paragraph is exactly its sentences: nothing appended or inserted" {
+  local orch="$ROOT/pipeline/skills/pipeline/SKILL.md" got want
+  got="$(awk '/^A question may wait only when/ { on = 1 } on && /^\r?$/ { exit } on' "$orch" | tr -d '\r' | tr '\n' ' ' | tr -s ' ' | sed 's/ $//')"
+  want="$(cat <<'PARA'
+A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now. After L nothing waits: `ask-later` refuses M, N, N.5 and O. `progress.sh ask-later <feature> <phase> <file>` queues it. At every stop once the state file exists — a run that stops for good (`--until`, the park at H, no remote) included — run `progress.sh pending <feature>` first and ask its questions beside the stop's own; record each reply, in the owner's own words and never your own, with `answer <feature> <id> <file>`, and act on it from then on — on a re-entry, read the answers in `gates.pending` before the phase they affect. Before L pushes, `pending-check <feature>` must exit 0: an open question stops the run there, and `--auto` never collapses that stop. See `${CLAUDE_PLUGIN_ROOT}/docs/phases.md`.
+PARA
+)"
+  [ -n "$got" ] || { echo "the questions paragraph is gone"; false; }
+  [ "$got" = "$want" ] || { echo "the questions paragraph changed:"; echo "$got"; false; }
+}
+
+@test "the status skill's open-question sentence is followed directly by step 5" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/pipeline/skills/status/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  grep -qF 'by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open. 5. End with the exact next action' < <(printf '%s\n' "$flat") \
+    || { echo "the status skill's open-question sentence was extended or altered"; false; }
+}
+
+@test "the changelog states pending-check holds under --auto" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  grep -qF '`pending-check` stops the run before L pushes while one is open, under `--auto` too; after L nothing waits.' < <(printf '%s\n' "$flat") \
+    || { echo "the changelog's pending-check claim altered"; false; }
 }
