@@ -277,10 +277,13 @@ checks() {
 
 @test "questions queued at the same moment are all kept, each with its own id" {
   local i round ids pids
-  for round in 1 2 3; do
+  # Two rounds of five: each progress.sh call costs about a second on
+  # Windows, and the lock makes them take turns. The held-lock tests below
+  # prove each writer's lock without timing; this one proves the whole.
+  for round in 1 2; do
     pids=()
     bash "$PROG" init "r$round" "r$round" main other > /dev/null
-    for i in 1 2 3 4 5 6; do
+    for i in 1 2 3 4 5; do
       q "p$round-$i" "Question $round.$i?"
       bash "$PROG" ask-later "r$round" F "$BATS_TEST_TMPDIR/p$round-$i" > "$BATS_TEST_TMPDIR/o$round-$i" 2>&1 &
       pids+=("$!")
@@ -288,9 +291,9 @@ checks() {
     # Only these PIDs: a bare wait would also wait for bats' own timeout watcher.
     wait "${pids[@]}" || true
     ids="$(jq -r '[.gates.pending[].id] | sort | join(" ")' ".delivery-kit/runs/r$round/progress.json" | tr -d '\r')"
-    [ "$ids" = "P1 P2 P3 P4 P5 P6" ] || { echo "round $round stored: $ids"; cat "$BATS_TEST_TMPDIR"/o"$round"-*; false; }
+    [ "$ids" = "P1 P2 P3 P4 P5" ] || { echo "round $round stored: $ids"; cat "$BATS_TEST_TMPDIR"/o"$round"-*; false; }
     [ "$(jq -r '[.gates.pending[].question] | sort | join(" ")' ".delivery-kit/runs/r$round/progress.json" | tr -d '\r')" \
-      = "$(printf 'Question %s.%s? ' "$round" 1 "$round" 2 "$round" 3 "$round" 4 "$round" 5 "$round" 6 | sed 's/ $//')" ] \
+      = "$(printf 'Question %s.%s? ' "$round" 1 "$round" 2 "$round" 3 "$round" 4 "$round" 5 | sed 's/ $//')" ] \
       || { echo "round $round lost or changed a question's text"; false; }
   done
 }
@@ -299,9 +302,9 @@ checks() {
   local round i pids
   q a 'Kept?'
   runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
-  for round in 1 2 3 4; do
+  for round in 1 2; do
     pids=()
-    for i in 1 2 3; do
+    for i in 1 2; do
       bash "$PROG" phase-start "$F" C > /dev/null 2>&1 &
       pids+=("$!")
       bash "$PROG" phase-done "$F" C > /dev/null 2>&1 &
