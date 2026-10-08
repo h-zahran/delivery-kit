@@ -350,13 +350,17 @@ options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
 
 **R11, at `2b38f74` (T005), on the real tree, this machine:**
 
-| Measure | `2b38f74` | branch |
+| Measure | `2b38f74` | branch (`069a2b6`, T028) |
 |---|---|---|
-| `jq` starts, default form | 14 | |
-| `jq` starts, `--released handoff` | 14 | |
-| `jq` starts, `--released pipeline` (refuses: unreleased work) | 13 | |
-| one default run, ms (three runs) | 2,443 / 2,330 / 2,361 | |
-| `tests/portability.bats` alone, s | measured at T028, alternating | |
+| `jq` starts, default form | 14 | 3 |
+| `jq` starts, `--released handoff` | 14 | 3 |
+| `jq` starts, `--released pipeline` (refuses: unreleased work) | 13 | 3 |
+| one default run, ms (three runs) | 2,443 / 2,330 / 2,361 | 1,152 / 1,144 / 882 |
+| `tests/portability.bats` alone, s (three runs each, old and new alternating) | 471 / 498 / 462 (`1..52`) | 315 / 317 / 306 (`1..57`) |
+| gate runs in `tests/portability.bats` | 210 | 151 (new tests included) |
+
+The file is about a third faster (mean 477 s to 313 s) while it holds five
+more tests; one gate run takes about half as long.
 
 **2026-10-08, Phase 3 mutants (T015),** each in a scratch worktree,
 each confirmed landed (the old text found once before, not after, and the

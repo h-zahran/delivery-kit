@@ -130,7 +130,7 @@ runs, counted by the logging-wrapper method of T005.
 
 ## Phase 6: User Story 3 — the speed, recorded (Priority: P2)
 
-- [ ] T028 [US3] Measure the "after" side of research R11 on the branch, alternating with `2b38f74` runs as T005 did, and complete the dated table in `specs/033-gate-fewer-processes/research.md`: `jq` starts per run (both forms), one gate run's time, `tests/portability.bats` alone, gate runs per file.
+- [X] T028 [US3] Measure the "after" side of research R11 on the branch, alternating with `2b38f74` runs as T005 did, and complete the dated table in `specs/033-gate-fewer-processes/research.md`: `jq` starts per run (both forms), one gate run's time, `tests/portability.bats` alone, gate runs per file.
 
 ---
 
