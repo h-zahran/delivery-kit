@@ -289,6 +289,9 @@ checks() {
     wait "${pids[@]}" || true
     ids="$(jq -r '[.gates.pending[].id] | sort | join(" ")' ".delivery-kit/runs/r$round/progress.json" | tr -d '\r')"
     [ "$ids" = "P1 P2 P3 P4 P5 P6" ] || { echo "round $round stored: $ids"; cat "$BATS_TEST_TMPDIR"/o"$round"-*; false; }
+    [ "$(jq -r '[.gates.pending[].question] | sort | join(" ")' ".delivery-kit/runs/r$round/progress.json" | tr -d '\r')" \
+      = "$(printf 'Question %s.%s? ' "$round" 1 "$round" 2 "$round" 3 "$round" 4 "$round" 5 "$round" 6 | sed 's/ $//')" ] \
+      || { echo "round $round lost or changed a question's text"; false; }
   done
 }
 
@@ -310,6 +313,10 @@ checks() {
     [ -s "$SF" ] || { echo "round $round: the state file is empty"; false; }
     jq -e . "$SF" > /dev/null || { echo "round $round: the state file is not JSON"; false; }
     [ "$(jq -r '.gates.pending[0].question' "$SF" | tr -d '\r')" = 'Kept?' ] || { echo "round $round: the queue was dropped"; false; }
+    # Every writer's change survives: a write that read the file before
+    # another's write and replaced it after would drop one of these.
+    [ "$(jq -r '[(.completed_phases | index("C") != null), (.timestamps.C.started | type), (.timestamps.C.done | type), (.gates.C | type)] | join(" ")' "$SF" | tr -d '\r')" \
+      = 'true string string string' ] || { echo "round $round lost a writer's change: $(jq -c '{completed_phases, t: .timestamps.C, c: .gates.C}' "$SF")"; false; }
   done
 }
 
@@ -324,4 +331,135 @@ checks() {
   q b 'While locked?'
   PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" ask-later "$F" F "$BATS_TEST_TMPDIR/b"
   rmdir "$SF.lock"
+}
+
+@test "every state write waits for a held lock, then refuses and changes nothing" {
+  mkdir "$SF.lock"
+  PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" phase-start "$F" C
+  PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" phase-done "$F" C
+  PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" commit-add "$F" tests 0123456789abcdef0123456789abcdef01234567 "" ""
+  PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" state-set "$F" gates C '"x"'
+  rmdir "$SF.lock"
+}
+
+# A held lock, a write started behind it, and the holder's own change made
+# before it lets go: the waiting write must judge the file AFTER that change.
+@test "a whole-gates write judges the queue under the lock, not before it" {
+  mkdir "$SF.lock"
+  local pid rc=0
+  PROGRESS_LOCK_TRIES=400 bash "$PROG" state-set "$F" gates '{"C": "done"}' > "$OUT" 2> "$ERR" &
+  pid=$!
+  sleep 4
+  jq '.gates.pending = [{"id": "P1", "phase": "F", "question": "Q?"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  rmdir "$SF.lock"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "exit $rc: $(cat "$ERR")"; false; }
+  [[ "$(cat "$ERR")" == *"must keep gates.pending as it is"* ]] || false
+  [ "$(jq -r '.gates.pending[0].question' "$SF" | tr -d '\r')" = 'Q?' ]
+}
+
+@test "answer judges the question open under the lock: a second answer never replaces the first" {
+  q a 'First?'; q yes 'Yes.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  mkdir "$SF.lock"
+  local pid rc=0
+  PROGRESS_LOCK_TRIES=400 bash "$PROG" answer "$F" P1 "$BATS_TEST_TMPDIR/yes" > "$OUT" 2> "$ERR" &
+  pid=$!
+  sleep 4
+  jq '.gates.pending[0].answer = "No."' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  rmdir "$SF.lock"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "exit $rc: $(cat "$ERR")"; false; }
+  [[ "$(cat "$ERR")" == *"P1 is already answered"* ]] || false
+  [ "$(jq -r '.gates.pending[0].answer' "$SF" | tr -d '\r')" = 'No.' ]
+}
+
+@test "ask-later mints its id under the lock" {
+  q b 'Second?'
+  mkdir "$SF.lock"
+  local pid rc=0
+  PROGRESS_LOCK_TRIES=400 bash "$PROG" ask-later "$F" F "$BATS_TEST_TMPDIR/b" > "$OUT" 2> "$ERR" &
+  pid=$!
+  sleep 4
+  jq '.gates.pending = [{"id": "P1", "phase": "F", "question": "First?"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  rmdir "$SF.lock"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "exit $rc: $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = P2 ]
+  [ "$(jq -c '[.gates.pending[].id]' "$SF" | tr -d '\r')" = '["P1","P2"]' ]
+}
+
+@test "the text file is read once: a swap after the check never reaches the queue" {
+  local shim="$BATS_TEST_TMPDIR/shim"
+  mkdir "$shim"
+  local real; real="$(command -v cat)"
+  printf '%s\n' '#!/bin/bash' \
+    "'$real' \"\$@\"; rc=\$?" \
+    'for a in "$@"; do if [ "$a" = "$SWAP_FILE" ]; then printf "Swapped \033[31mred\033[0m?\n" > "$a"; fi; done' \
+    'exit $rc' > "$shim/cat"
+  chmod +x "$shim/cat"
+  q a 'Clean?'
+  SWAP_FILE="$BATS_TEST_TMPDIR/a" PATH="$shim:$PATH" runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  grep -q Swapped "$BATS_TEST_TMPDIR/a" || { echo "the shim never swapped the file: the test proves nothing"; false; }
+  [ "$(jq -r '.gates.pending[0].question' "$SF" | tr -d '\r')" = 'Clean?' ]
+}
+
+@test "the size limit is exactly 16384 bytes" {
+  head -c 16384 /dev/zero | tr '\0' a > "$BATS_TEST_TMPDIR/at"
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/at"
+  head -c 16385 /dev/zero | tr '\0' b > "$BATS_TEST_TMPDIR/over"
+  refuses "is longer than 16384 bytes (16385)" ask-later "$F" F "$BATS_TEST_TMPDIR/over"
+}
+
+@test "every edge of every refused range is refused, and the characters beside them are not" {
+  local c i=0
+  for c in '\xc2\x80' '\xc2\x9f' '\xe2\x80\x8b' '\xe2\x80\x8f' '\xe2\x80\xaa' '\xe2\x80\xae' '\xe2\x81\xa0' '\xe2\x81\xa9' '\xef\xbb\xbf'; do
+    printf "approve $c this?\n" > "$BATS_TEST_TMPDIR/u"
+    refuses "a character that can disguise text" ask-later "$F" F "$BATS_TEST_TMPDIR/u"
+  done
+  for c in '\xc2\xa0' '\xe2\x80\x90' '\xe2\x80\xaf'; do
+    i=$((i + 1))
+    printf "fine $i $c this?\n" > "$BATS_TEST_TMPDIR/ok$i"
+    runs ask-later "$F" F "$BATS_TEST_TMPDIR/ok$i"
+  done
+}
+
+@test "answer with no queue at all names the id as not queued" {
+  q yes 'Yes.'
+  refuses "no question P1 is queued" answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+}
+
+@test "pending prints each open entry, a blank line between, and says when no time was recorded" {
+  jq '.gates.pending = [{"id": "P1", "phase": "F", "question": "First?", "askedAt": "2026-01-01T00:00:00Z"}, {"id": "P2", "phase": "I", "question": "Second?"}, {"id": "P3", "phase": "I", "question": "Third?", "answer": "x"}]' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  runs pending "$F"
+  [ "$(tr -d '\r' < "$OUT")" = "$(printf 'P1 (raised at F, 2026-01-01T00:00:00Z):\nFirst?\n\nP2 (raised at I, time not recorded):\nSecond?')" ]
+}
+
+@test "a refusal made while holding the lock leaves no lock behind" {
+  q a 'First?'; q yes 'Yes.'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  refuses "gates.pending is written only by ask-later and answer" state-set "$F" gates pending '[]'
+  [ ! -e "$SF.lock" ] || { echo "state-set's refusal left the lock"; false; }
+  runs answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  refuses "P1 is already answered" answer "$F" P1 "$BATS_TEST_TMPDIR/yes"
+  [ ! -e "$SF.lock" ] || { echo "answer's refusal left the lock"; false; }
+}
+
+# The old fixed name, <state file>.tmp, made a directory: a write through it
+# fails, a write through a temporary file of its own does not.
+@test "no state write goes through the shared name <state file>.tmp" {
+  q a 'First?'
+  mkdir "$SF.tmp"
+  runs phase-start "$F" C
+  runs phase-done "$F" C
+  runs commit-add "$F" tests 0123456789abcdef0123456789abcdef01234567 "" ""
+  runs state-set "$F" gates C '"x"'
+  runs ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  rmdir "$SF.tmp"
+}
+
+@test "the text's checked copy is a temporary file of its own" {
+  q a 'First?'
+  : > "$BATS_TEST_TMPDIR/notadir"
+  TMPDIR="$BATS_TEST_TMPDIR/notadir" refuses "could not make a temporary file to read the question file" ask-later "$F" F "$BATS_TEST_TMPDIR/a"
 }

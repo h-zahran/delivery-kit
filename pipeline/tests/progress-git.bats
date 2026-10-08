@@ -1093,3 +1093,24 @@ accept() {
   refuses "must be a JSON object" state-set "$F" gates '"claude"'
   refuses "has no sub-keys" state-set "$F" last_task K '"T001"'
 }
+
+# A write that fails inside the subshell a commit command records from must
+# still let go of the state lock: a subshell does not run its parent's EXIT
+# trap, and a lock left behind makes every later write wait, then refuse.
+@test "a commit whose recording fails inside its subshell leaves no state lock behind" {
+  repo
+  local shim="$BATS_TEST_TMPDIR/jqshim" real
+  real="$(command -v jq)"
+  mkdir "$shim"
+  printf '%s\n' '#!/bin/bash' \
+    'for a in "$@"; do case "$a" in *".commits += [entry]"*) exit 5 ;; esac; done' \
+    "exec '$real' \"\$@\"" > "$shim/jq"
+  chmod +x "$shim/jq"
+  printf 'note\n' > NOTES.md
+  msg 'chore: the rest of the feature'
+  local rc=0
+  PATH="$shim:$PATH" bash "$PROG" remainder-commit "$F" "$MSG" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -ne 0 ] || { echo "the recording did not fail: the test proves nothing"; false; }
+  [[ "$(cat "$ERR")" == *"is made but not recorded"* ]] || { echo "unexpected failure: $(cat "$ERR")"; false; }
+  [ ! -e "$SF.lock" ] || { echo "the failed recording left $SF.lock behind"; false; }
+}

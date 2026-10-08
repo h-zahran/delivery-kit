@@ -800,6 +800,9 @@ state_lock() {
     sleep 0.1
   done
   STATE_LOCK="$l"
+  # A subshell does not run its parent's EXIT trap, and the commit commands
+  # record from one: arm it here too, so a die inside lets go of the lock.
+  trap on_exit EXIT
 }
 state_unlock() {
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; STATE_LOCK=''; fi
