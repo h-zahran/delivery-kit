@@ -450,11 +450,23 @@ stub() {
   done
 }
 
+# speclink <target> <name>: a symbolic link, made as tests/portability.bats
+# makes one. Under Git Bash, `ln -s` without nativestrict makes a COPY, so
+# pre-flight would rightly accept the path and the test would go red for no
+# fault (review 3, blocking 3). `|| true`: where ln cannot make a native
+# link it exits non-zero, and under errexit that would end the test before
+# the check below.
+speclink() {
+  MSYS=winsymlinks:nativestrict ln -s "$1" "$2" 2>/dev/null || true
+  [ -L "$2" ]
+}
+
 @test "spec folder: a symbolic link out of the repository, into .git or the state directory, or dangling, is refused" {
   T="$BATS_TEST_TMPDIR/specdir-link"
   mkdir -p "$T/repo" "$T/outside"; cd "$T/repo"; git init -q -b work .; seed
-  ln -s "$T/outside" out
-  ln -s .git gitlink
+  # The first link decides whether this system can make one at all.
+  speclink "$T/outside" out || skip "this system cannot make a symbolic link"
+  speclink .git gitlink || { echo "fixture: the link gitlink was not made"; false; }
   probe --dir "$T/repo" --spec-dir 'out/003-thing'
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"leads outside the repository"* ]] || false
@@ -462,17 +474,24 @@ stub() {
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"git's or the run's own directory"* ]] || false
   # A sibling folder whose name starts with the repository's is outside it.
-  mkdir -p "$T/repo-evil"; ln -s "$T/repo-evil" sibling
+  mkdir -p "$T/repo-evil"
+  speclink "$T/repo-evil" sibling || { echo "fixture: the link sibling was not made"; false; }
   probe --dir "$T/repo" --spec-dir 'sibling/003-thing'
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"leads outside the repository"* ]] || false
   # A link into the state directory.
-  mkdir -p .delivery-kit/x; ln -s .delivery-kit/x statelink
+  mkdir -p .delivery-kit/x
+  speclink .delivery-kit/x statelink || { echo "fixture: the link statelink was not made"; false; }
   probe --dir "$T/repo" --spec-dir 'statelink/003-thing'
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"git's or the run's own directory"* ]] || false
-  # A link that points nowhere, in the folder's own place.
-  mkdir -p specs; ln -s "$T/nowhere" specs/004-dangling
+  # A link that points nowhere, in the folder's own place. nativestrict
+  # refuses a link to a missing target, so the target is made, linked, and
+  # then removed.
+  mkdir -p specs "$T/gone"
+  speclink "$T/gone" specs/004-dangling || { echo "fixture: the link 004-dangling was not made"; false; }
+  rmdir "$T/gone"
+  [ ! -e specs/004-dangling ] || { echo "fixture: the link 004-dangling still leads somewhere"; false; }
   probe --dir "$T/repo" --spec-dir 'specs/004-dangling'
   [ "$status" -ne 0 ]
   [[ "$stderr" == *"'specs/004-dangling' already exists"* ]]
