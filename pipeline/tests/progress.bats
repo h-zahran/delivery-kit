@@ -983,3 +983,41 @@ $(fixture_heading 'Phase 9b: ')|T007"
   PATH="$PWD/shim:$PATH" run bash "$PROG" validate 001-demo
   [ "$(wc -c < jq.log)" -gt 1 ]
 }
+
+# --- review 4 of PR #68 -------------------------------------------------------
+
+@test "a copy of progress.sh without hidden-chars.sh beside it stops, saying so and naming no path" {
+  # Review 4, minor: the script sources hidden-chars.sh from its own folder.
+  # A copy made without it failed every subcommand with bash's own error,
+  # which names the copy's full path (a user name in a log someone pastes).
+  local lone="$BATS_TEST_TMPDIR/lone"
+  mkdir -p "$lone"
+  cp "$PROG" "$lone/progress.sh"
+  run --separate-stderr bash "$lone/progress.sh" validate 001-demo
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: hidden-chars.sh is missing beside progress.sh' ] \
+    || { echo "stderr: $stderr"; false; }
+  [ -z "$output" ]
+}
+
+@test "a scratch-file name inherited from the environment is never removed on exit" {
+  # Review 4, minor: the EXIT trap removes each scratch file this process
+  # made. A name the caller's environment already held is not one of them:
+  # `TR_MSG=<file> progress.sh validate no-such-run` removed the file. All
+  # five names, and the lock's (an empty folder, which rmdir removes), in
+  # one call.
+  local n f
+  for n in SK_SCRATCH TEXT_COPY TR_MSG TR_ERR SHOW_MSG; do printf 'keep\n' > "$WORK/$n.keep"; done
+  mkdir "$WORK/STATE_LOCK.keep"
+  run --separate-stderr env SK_SCRATCH="$WORK/SK_SCRATCH.keep" TEXT_COPY="$WORK/TEXT_COPY.keep" \
+    TR_MSG="$WORK/TR_MSG.keep" TR_ERR="$WORK/TR_ERR.keep" SHOW_MSG="$WORK/SHOW_MSG.keep" \
+    STATE_LOCK="$WORK/STATE_LOCK.keep" bash "$PROG" validate no-such-run
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: no state file at .delivery-kit/runs/no-such-run/progress.json' ] \
+    || { echo "stderr: $stderr"; false; }
+  for n in SK_SCRATCH TEXT_COPY TR_MSG TR_ERR SHOW_MSG; do
+    f="$WORK/$n.keep"
+    [ "$(cat "$f" 2>/dev/null)" = keep ] || { echo "the file named by an inherited $n was removed"; false; }
+  done
+  [ -d "$WORK/STATE_LOCK.keep" ] || { echo "the folder named by an inherited STATE_LOCK was removed"; false; }
+}
