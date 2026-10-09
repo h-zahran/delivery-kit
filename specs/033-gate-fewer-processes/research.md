@@ -404,7 +404,10 @@ result recorded here; no frozen copy of the old gate is kept.
    are read away, as the old gate read them, for byte-identity. M2 and
    M6 were comments that said more than the code does; corrected in the
    gate (`--slurpfile` reads the marketplace in text mode on Windows,
-   safe only because the marketplace's own read comes first; a NUL is
+   safe only because the marketplace's own read comes first; measured
+   with the native Windows jq 1.8.1: `{"plugins":[]}`, a 0x1a byte, then
+   ` garbage` is refused on standard input with `-b`, exit 5, and read as
+   `[{"plugins":[]}]`, exit 0, through `--slurpfile`; a NUL is
    refused in a string VALUE, not a key).
 11. **Run from standard input** (`bash -s < gate`, security lens M5), the
    gate has no path to find its walk by. At `2b38f74` that form ran the
@@ -523,6 +526,13 @@ Second run, 1,195 s: `DIFFERENTIAL OK (217 runs, 19 LF runs, 10 differing;
 8 under a test's own jq, 6 of them differing, not judged)`, `CONTROL OK
 (4 of 4 runs differ)`; expected red over the wrapper, by the rule: W2,
 W4, W5, the shell-options test and Q1.
+
+**2026-10-09, phase J.** shellcheck 0.11.0 over CI's file list: clean.
+The house suite from the root: `suite ok: 1..436, 436 ok, 0 skipped, 0
+not ok, 0 non-TAP` (`bash scripts/check-suite.sh 436`), 2,098 s. Test 156
+(`pipeline/tests/pending.bats`, "every edge of every refused range…"),
+which timed out once at T030, passed: nothing new against the F.5
+baseline (`1..426`, all ok).
 
 **2026-10-08/09, the quickstart as one script (T029, T030).** Blocks 1-6
 ok: SC-001 (14 jq starts at `2b38f74`, 3 now), FR-005, FR-007, FR-006,
