@@ -215,11 +215,13 @@ if [ -n "$spec_dir" ]; then
   fi
   case "$real/" in
     "$top"/*) ;;
-    *) die "'$sd_s' leads outside the repository, to $real (--spec-dir)" ;;
+    *) die "'$sd_s' leads outside the repository (--spec-dir)" ;;
   esac
+  # Neither refusal prints the resolved path: it is absolute, it holds the
+  # user's name, and a refusal's text may leave the machine.
   case "$real/" in
     "$top"/.[Gg][Ii][Tt]/*|"$top"/.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]/*)
-      die "'$sd_s' leads into $real, git's or the run's own directory (--spec-dir)" ;;
+      die "'$sd_s' leads into git's or the run's own directory (--spec-dir)" ;;
   esac
   spec_run=".delivery-kit/runs/${spec_dir##*/}/progress.json"
   shown run_s "${spec_dir##*/}"

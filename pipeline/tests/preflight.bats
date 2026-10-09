@@ -480,6 +480,35 @@ speclink() {
   [ -L "$2" ]
 }
 
+# link_or_file <target> <name>: the shape of tests/portability.bats. Makes
+# <name> a symbolic link and returns 0. Only on Windows, where a runner may
+# not have the right to make a link, it may instead write what a checkout
+# makes in a link's place, a file holding the target path, and return 1;
+# the caller then asserts that file's own refusal (link_fallback_refused).
+# Anywhere else a link that cannot be made returns 2, and the caller fails.
+# Which way it went is printed on file descriptor 3, as a TAP comment, so a
+# passing run shows it too: bats hides a passing test's output.
+link_or_file() {
+  if speclink "$1" "$2"; then echo "# links: made" >&3; return 0; fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) echo "fixture: this system made no symbolic link"; return 2 ;;
+  esac
+  echo "# links: not available here" >&3
+  [ ! -e "$2" ] || { echo "fixture: the failed link left $2 behind"; return 2; }
+  printf '%s' "$1" > "$2"
+  return 1
+}
+
+# link_fallback_refused <repo> <spec folder>: the folder runs through the
+# file link_or_file wrote, which pre-flight refuses as no folder.
+link_fallback_refused() {
+  probe --dir "$1" --spec-dir "$2"
+  [ "$status" -eq 1 ] || { echo "fallback: status $status: $stderr"; return 1; }
+  [ "$stderr" = "preflight: '$2' runs through '${2%%/*}', which is not a folder (--spec-dir)" ] \
+    || { echo "fallback: wrong reason: $stderr"; return 1; }
+}
+
 @test "spec folder: a symbolic link out of the repository, into .git or the state directory, or dangling, is refused" {
   T="$BATS_TEST_TMPDIR/specdir-link"
   mkdir -p "$T/repo" "$T/outside"; cd "$T/repo"; git init -q -b work .; seed
@@ -1319,4 +1348,25 @@ hidden_refused() {
   git tag -d t1 >/dev/null
   probe --dir "$T" --feature-branch t1
   [ "$status" -eq 0 ] || { echo "refused once the tag was gone: $stderr"; false; }
+}
+
+@test "spec folder: a link out of the repository or into .git is refused without printing where it leads" {
+  # Review 4, non-blocking 2: these two refusals printed the resolved
+  # absolute path, which holds the user's name, and a refusal's text may
+  # leave the machine. They name the spec folder as given, and nothing else.
+  T="$BATS_TEST_TMPDIR/specdir-nopath"
+  mkdir -p "$T/repo" "$T/outside"; cd "$T/repo"; git init -q -b work .; seed
+  local rc=0
+  link_or_file "$T/outside" out || rc=$?
+  [ "$rc" -ne 2 ] || false
+  if [ "$rc" -eq 1 ]; then link_fallback_refused "$T/repo" out/003-thing; return; fi
+  speclink .git gitlink || { echo "fixture: the link gitlink was not made"; false; }
+  probe --dir "$T/repo" --spec-dir out/003-thing
+  [ "$status" -eq 1 ] || { echo "outside: status $status"; false; }
+  [ "$stderr" = "preflight: 'out/003-thing' leads outside the repository (--spec-dir)" ] \
+    || { echo "outside: $stderr"; false; }
+  probe --dir "$T/repo" --spec-dir gitlink/003-thing
+  [ "$status" -eq 1 ] || { echo "into .git: status $status"; false; }
+  [ "$stderr" = "preflight: 'gitlink/003-thing' leads into git's or the run's own directory (--spec-dir)" ] \
+    || { echo "into .git: $stderr"; false; }
 }
