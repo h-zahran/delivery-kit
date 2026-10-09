@@ -93,11 +93,11 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 74 | A refusal names "and the path a link leads to" (review 4, Q7) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
 | 75 | A masked value is cut at 2000 bytes (review 4, Q8) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
 | 76 | Drop the feature branch's tag-as-well clause (review 4, Q11) | `pipeline/CHANGELOG.md` | review 4's refusals are pinned where the operator reads them |
-| 77 | TODO(implementer A): the mutation of the feature branch holds a character outside the safe set (rule B1) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
-| 78 | TODO(implementer A): the mutation of the feature branch is a tag as well (rule N5) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
-| 79 | TODO(implementer A): the mutation of a link refusal prints no absolute path (rule N2) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
-| 80 | TODO(implementer A): the mutation of inside or outside decided in one spelling, through a link (rule N1) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
-| 81 | TODO(implementer A): the mutation of a refused folder, segment or argument is printed masked and cut (rule S) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
+| 77 | the safe-character check removed from `branch_ok` (rule B1): a feature branch `y$(id)` is accepted | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | branch names: a character other than a letter, a digit, dot, underscore, dash or slash is refused |
+| 78 | the tag check on the feature branch removed (rule N5): a feature branch named like a tag is accepted | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | feature branch: a name that is a tag as well is refused, as the override is |
+| 79 | `$real` put back into the outside refusal, then into the `.git` refusal (rule N2): the resolved absolute path is printed | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | spec folder: a link out of the repository or into .git is refused without printing where it leads |
+| 80 | `-ef` changed to `=` in the walk up from the resolved folder (rule N1): a link to a folder inside is refused when the repository is entered by another spelling | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | spec folder: an absolute link to a folder inside, with the repository entered by another spelling, is inside |
+| 81 | `shown`'s mask line removed, then its cut line removed (rule S): a refused folder, segment or argument is printed raw, or uncut | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | refusals show a refused value masked and cut, never its raw bytes |
 
 ## 3. Record
 
@@ -108,7 +108,7 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 2026-10-08 | Linux | `1..436`, all `ok`, before review 3 | After review 2, on `main` `4076ecf`: rows 16-44 landed and went red. Rows 18 and 19 first survived: the new segment check also refused `C:` and the backslash, for another reason. The test now checks each case's reason, and both go red. |
 | 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 45-48 landed and went red. Rows 45-47 had survived review 3's fresh mutants; each now has a case. |
 | 2026-10-09 | Windows (Git Bash) | review 4's tests lens, at `3fec620` (the tree `8a75039` holds outside `main-plan.md`); `preflight.bats` alone `1..80`, all `ok` | Rows 49-71 landed. Rows 49-57, 64-67 and 69-71 went red. Rows 58-63 and 68 survived every test then; each went red on the test the review proposed for it (T1 for 58-63, T3 for 68), now in `preflight.bats`. |
-| 2026-10-10 | Windows (Git Bash) | the review-4 fix, at `d4c0a67`; each row's test alone | Rows 72-76 landed and went red. Rows 77-81: TODO(implementer A). |
+| 2026-10-10 | Windows (Git Bash) | the review-4 fix (the commits after review 4 on this branch); each row's test alone | Rows 72-76 landed and went red. Rows 77-81 landed and went red (implementer A's rig, each mutant on a scratch copy). |
 
 The ids in brackets name review 4's mutants: R, W, S and L are its tests lens's; Q are the review-4 fix's own. Each was first checked to have landed (the old text exactly once before, gone after), and the file was restored byte for byte after its run. S1 is caught only where a folder has two spellings, as on Git Bash; elsewhere T3 runs the same check on the one spelling.
 

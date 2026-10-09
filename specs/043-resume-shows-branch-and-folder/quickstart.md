@@ -15,6 +15,6 @@
 | 2026-10-07 | Linux | first version (old Phase 36): no separate suite run | 2 of 2 landed and went red |
 | 2026-10-07 | Linux | `1..369`, all `ok` | 2 of 2 landed and went red (rebuilt on Phase 42) |
 | 2026-10-08 | Linux | `1..436`, all `ok` | After review 2: rows 3-5 landed and went red. |
-| 2026-10-10 | Windows (Git Bash) | the review-4 fix, at `d4c0a67`; the row's test alone | Rows 6 and 7 landed and went red. |
+| 2026-10-10 | Windows (Git Bash) | the review-4 fix (the commits after review 4 on this branch); the row's test alone | Rows 6 and 7 landed and went red. |
 
 This phase first added no test, only two pins to an existing one. After review 2 the pointer is pinned whole in three tests, and one new test pins the probe lines.
