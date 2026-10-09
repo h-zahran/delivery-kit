@@ -43,6 +43,14 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 24 | Let a name git expands pass | `pipeline/docs/configuration.md` | the base-branch override is pinned where the operator reads it |
 | 25 | Accept a base that exists only on `origin` | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | base branch: an override that exists only on origin is refused, naming the command that fixes it |
 | 26 | Drop the `git branch --track` message | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | same |
+| 27 | Check the override only when git is present: drop `have_git` from its guard (review 4, R4a) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | without git, the override and the feature branch are reported unchecked |
+| 28 | Drop the check for an override that is a tag as well (review 4, G1) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | base branch: an override that is a tag as well as a branch is refused |
+| 29 | Check for the tag before the branch (review 4, G2) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | base branch: an override that is not an existing branch's plain name is refused |
+| 30 | A local branch that is a tag as well is "accepted" (review 4, Q3) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
+| 31 | `$` joins the override's safe set (review 4, Q4) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
+| 32 | The override's safe-set sentence says "So does not" (review 4, Q13) | `pipeline/CHANGELOG.md` | review 4's refusals are pinned where the operator reads them |
+| 33 | TODO(implementer A): the mutation of the override holds a character outside the safe set (rule B1) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
+| 34 | TODO(implementer A): the mutation of a refused override is printed masked and cut (rule S) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
 
 ## 3. Record
 
@@ -52,6 +60,10 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 2026-10-07 | Linux | `1..347`, all `ok` | 16 of 16 landed and went red (rebuilt on `33bd148`) |
 | 2026-10-08 | Linux | `1..436`, all `ok`, before review 3 | After review 2, on `main` `4076ecf`: rows 7, 8 and 17-24 landed and went red. Row 8 first survived: the new existing-branch check also refused `two..dots`, for another reason. The test now checks the reason, and row 8 goes red. |
 | 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 25 and 26 landed and went red. |
+| 2026-10-09 | Windows (Git Bash) | review 4's tests lens, at `3fec620` (the tree `8a75039` holds outside `main-plan.md`); `preflight.bats` alone `1..80`, all `ok` | Rows 27-29 landed and went red. |
+| 2026-10-10 | Windows (Git Bash) | the review-4 fix, at `d4c0a67`; each row's test alone | Rows 30-32 landed and went red. Rows 33-34: TODO(implementer A). |
+
+The ids in brackets name review 4's mutants: R, G, W, S, L, H, D, C, J, M and X are its tests lens's; Q are the review-4 fix's own. Each was first checked to have landed (the old text exactly once before, gone after), and the file was restored byte for byte after its run.
 
 Before the move, the size test went red on its own: `SKILL.md` was 65,771 bytes.
 
