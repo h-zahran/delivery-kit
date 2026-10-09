@@ -1919,10 +1919,19 @@ forms_at() {
 # the gate adds around the walk (the plugin's name, the verdict, `##[`
 # shown as `#?[`, the values it hands over) is pinned end to end by W1 and
 # by the runs that still go through forms_refused_gate
-# (specs/033-gate-fewer-processes/research.md R8).
+# (specs/033-gate-fewer-processes/research.md R8). The walk's last line,
+# WALK-END, is taken off as the gate takes it off; a walk whose output
+# does not end with it did not run to its end, and walk_on sets status 99
+# and says so, so every caller's status check goes red.
 walk_on() {
   DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" LC_ALL=C \
     run awk -f "$ROOT/scripts/check-versions-walk.awk" < "$1"
+  local e=WALK-END
+  case $output in
+    "$e") output= ;;
+    *$'\n'"$e") output=${output%$'\n'"$e"} ;;
+    *) output="walk_on: the walk's last line is not WALK-END. output: $output"; status=99 ;;
+  esac
 }
 
 # forms_says <clause> <fragment>...: the last output holds every fragment,
@@ -2426,6 +2435,8 @@ line_limit=$HELD_LINE_LIMIT
   esac
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
     || { echo "K4: a refusal line is longer than 400 bytes. output: ${output:0:600}"; false; }
+  # And the walk alone, with the line limit walk_on hands it.
+  forms_refused K3 "line $line is 1001 bytes long"
   forms_put "${long:1}"
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
   forms_no_path
@@ -2488,7 +2499,7 @@ line_limit=$HELD_LINE_LIMIT
   [ -n "$line" ] || { echo "fixture: the quote-marker line did not land"; false; }
   forms_refused K3 "line $line is $(( pairs * 2 + 1 )) bytes long"
   printf '%s\n' "$output" | LC_ALL=C awk 'length($0) > 400 { bad = 1 } END { exit bad }' \
-    || { echo "K4: a refusal line is longer than 400 bytes"; false; }
+    || { echo "K4: the walk's refusal is longer than 400 bytes"; false; }
 
   # K3, K4: an over-long line of bytes that each need masking is refused
   # for its length, cut, and masked. This line once also guarded the order
@@ -2502,6 +2513,12 @@ line_limit=$HELD_LINE_LIMIT
   forms_refused K3 "line $line is 2000 bytes long"
   [ "$(( $(printf '%s' "$output" | LC_ALL=C tr -cd '\033' | wc -c) ))" -eq 0 ] \
     || { echo "K4: the refusal of the dense line printed an escape byte"; false; }
+  # K4: cut to exactly the quote cut, in bytes, then masked.
+  cut=$(LC_ALL=C awk 'BEGIN { for (i = 0; i < 100; i++) printf "a?" }')
+  case "$output" in
+    *"'$cut [cut]'"*) ;;
+    *) echo "K4: the dense line is not cut to the quote cut, then masked. output: ${output:0:600}"; false ;;
+  esac
 
   # H8: the default form passes a copy holding every refused plant above
   # that it accepts, each after its own `Plain text.` and blank line. The
@@ -2895,7 +2912,10 @@ gate_safe_control() {
 # run from a released fixture beside it by the copy's relative path,
 # passes with its walk file there (the control), and stops with its own
 # line when the walk file is missing, when a directory stands where it
-# should be, or when it fails. No output names an absolute path.
+# should be, when it cannot be opened, when it fails, and when it is empty
+# or holds comments alone (awk runs an empty program and exits 0, so only
+# the walk's last line, its end token, tells the gate it ran). No output
+# names an absolute path.
 @test "the gate stops when its walk file is missing, not a file, or fails" {
   cd "$ROOT"
   forms_base one
@@ -2903,12 +2923,21 @@ gate_safe_control() {
   mkdir -p "$s/scripts"
   cp scripts/check-versions.sh "$s/scripts/"
   cp -r "$base" "$s/t"
-  for k in present missing directory failing; do
+  for k in present missing directory unreadable failing empty comments; do
     rm -rf "$s/scripts/check-versions-walk.awk"
     case $k in
       present) cp scripts/check-versions-walk.awk "$s/scripts/" ;;
       directory) mkdir "$s/scripts/check-versions-walk.awk" ;;
+      unreadable)
+        cp scripts/check-versions-walk.awk "$s/scripts/"
+        chmod 000 "$s/scripts/check-versions-walk.awk"
+        # Where the mode does not stop a read (Windows, or root), there is
+        # no unreadable file to test: the case is skipped there, and runs
+        # on CI's Linux and macOS runners, which are not root.
+        if { : < "$s/scripts/check-versions-walk.awk"; } 2>/dev/null; then continue; fi ;;
       failing) printf 'BEGIN { exit 3 }\n' > "$s/scripts/check-versions-walk.awk" ;;
+      empty) : > "$s/scripts/check-versions-walk.awk" ;;
+      comments) grep '^#' scripts/check-versions-walk.awk > "$s/scripts/check-versions-walk.awk" ;;
     esac
     run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
     forms_no_path || return 1
@@ -2917,7 +2946,7 @@ gate_safe_control() {
       continue
     fi
     case $k in
-      failing) want="$copied: the heading walk did not run to the end — this tree is NOT released" ;;
+      failing|empty|comments) want="$copied: the heading walk did not run to the end — this tree is NOT released" ;;
       *) want="$copied: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released" ;;
     esac
     gate_says "W2 $k" 1 "check-versions.sh: $want"
@@ -2941,6 +2970,116 @@ gate_safe_control() {
   run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
   forms_no_path || return 1
   [ "$status" -eq 0 ] || { echo "W3: the gate refused a released tree with an apostrophe in its walk file: $output"; false; }
+}
+
+# W4 (specs/033-gate-fewer-processes, FR-006): awk's own error about a
+# walk it cannot parse names the walk's path, which can be absolute; the
+# gate discards it and prints its own line alone.
+@test "a walk awk cannot parse stops the gate with its own line alone" {
+  cd "$ROOT"
+  forms_base one
+  local s="$TEST_DIR/w4" want
+  mkdir -p "$s/scripts"
+  cp scripts/check-versions.sh "$s/scripts/"
+  printf 'BEGIN {\n' > "$s/scripts/check-versions-walk.awk"
+  cp -r "$base" "$s/t"
+  run bash -c 'cd "$1/t" && bash "$1/scripts/check-versions.sh" --released "$2"' _ "$s" "$copied"
+  forms_no_path || return 1
+  want="check-versions.sh: $copied: the heading walk did not run to the end — this tree is NOT released"
+  gate_says W4 1 "$want"
+  gate_lacks W4 "awk:"
+}
+
+# W5 (specs/033-gate-fewer-processes, FR-006): run by its bare name, with
+# no directory in its path, the gate finds the walk in the directory it
+# was run from, which is then its own. Run from standard input it has no
+# path at all, and stops at the walk check, though a walk file sits in
+# the working directory: that file is not beside the gate.
+@test "the gate finds the walk from the name it was run by" {
+  cd "$ROOT"
+  forms_base one
+  local s="$TEST_DIR/w5"
+  cp -r "$base" "$s"
+  cp scripts/check-versions.sh scripts/check-versions-walk.awk "$s/"
+  run bash -c 'cd "$1" && bash check-versions.sh --released "$2"' _ "$s" "$copied"
+  forms_no_path || return 1
+  gate_says W5 0
+  run bash -c 'cd "$1" && bash -s -- --released "$2" < check-versions.sh' _ "$s" "$copied"
+  forms_no_path || return 1
+  gate_says "W5 stdin" 1 "check-versions.sh: $copied: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released"
+}
+
+# R4 (specs/033-gate-fewer-processes, research R4): a plugin record the
+# gate cannot cut is refused with the gate's own line, never read. No jq
+# writes such a record, so a jq on PATH stands in for the plugin read and
+# hands one over; every other call reaches the real jq. The control is
+# the record the real read writes. Then: a missing terminator, a leading
+# zero, a value left over, an entry flag that is not 0 or 1, a missing
+# colon, and a length of 20 digits, past bash's integer range.
+@test "the gate refuses a plugin record it cannot cut" {
+  cd "$ROOT"
+  forms_base one
+  local real bin rec pv ms pre post ok bad
+  real=$(command -v jq) || { echo "fixture: jq is not on PATH"; false; }
+  bin="$TEST_DIR/jq-record"
+  rec="$TEST_DIR/record"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\ncase " $* " in *" --slurpfile "*) cat "%s"; exit 0 ;; esac\nexec "%s" "$@"\n' "$rec" "$real" > "$bin/jq"
+  chmod +x "$bin/jq"
+  pv=$(jq -r '.version' < "$base/$copied/.claude-plugin/plugin.json")
+  ms=$(jq -r '.plugins[0].source' < "$base/.claude-plugin/marketplace.json")
+  pre="${#copied}:$copied${#pv}:$pv"
+  post="${#pv}:$pv${#ms}:$ms"
+  ok="${pre}1:1${post}"
+  for bad in "$ok." "$ok" "0$ok." "${ok}1:x." "${pre}1:2${post}." "${pre}1:1${#pv}:${pv}0." \
+      "99999999999999999999:$copied${#pv}:${pv}1:1${post}."; do
+    printf '%s' "$bad" > "$rec"
+    PATH="$bin:$PATH" gate_run "$base" || return 1
+    if [ "$bad" = "$ok." ]; then
+      gate_says "R4 control" 0
+      continue
+    fi
+    gate_says "R4 <$bad>" 1 "check-versions.sh: $copied: plugin.json could not be read"
+  done
+}
+
+# NL (specs/033-gate-fewer-processes, research R1): a value's trailing
+# line feeds are all read away, as $( ) read them away, in the name and in
+# a marketplace version alike.
+@test "a value's trailing line feeds are read away, every one" {
+  cd "$ROOT"
+  forms_base one
+  local c pv
+  pv=$(jq -r '.version' < "$base/$copied/.claude-plugin/plugin.json")
+  c="$TEST_DIR/nl-name"
+  cp -r "$base" "$c"
+  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = "x\n\n"' "" || return 1
+  [ "$(jq '.name | length' < "$c/$copied/.claude-plugin/plugin.json")" = 3 ] \
+    || { echo "fixture: the name plant did not land"; false; }
+  gate_run "$c" || return 1
+  gate_says NL1 1 "plugin.json name 'x' does not match its directory"
+  c="$TEST_DIR/nl-mv"
+  cp -r "$base" "$c"
+  json_set "$c/.claude-plugin/marketplace.json" '.plugins[0].version = "9.9.9\n\n"' "" || return 1
+  gate_run "$c" || return 1
+  gate_says NL2 1 "plugin=$pv marketplace=9.9.9 changelog="
+}
+
+# LB1 (specs/033-gate-fewer-processes, FR-007): the gate runs the walk
+# under the C locale, so a line is measured in bytes even where the
+# caller's locale is UTF-8: 500 two-byte characters and one more byte are
+# 1,001 bytes, over the limit, though only 501 characters.
+@test "the walk counts a line in bytes under a UTF-8 locale" {
+  cd "$ROOT"
+  forms_base one
+  local long
+  long=$(LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 500; i++) s = s "\303\251"; print s "x" }')
+  [ "$(printf '%s' "$long" | LC_ALL=C wc -c)" -eq 1001 ] \
+    || { echo "fixture: the line is not 1001 bytes"; false; }
+  forms_put "$long"
+  forms_utf8
+  gate_run_utf8 "$d" --released "$copied"
+  gate_says LB1 1 "is 1001 bytes long"
 }
 
 # The masking clauses (P0-P6, X1) are three tests, not one: about twenty
@@ -2986,7 +3125,7 @@ gate_safe_control() {
     "plugin.json name 'x??????y' does not match its directory"
   pv="$(jq -r '.version' < "$base/$copied/.claude-plugin/plugin.json")"
   gate_forged P7 utf8-mv .claude-plugin/marketplace.json '.plugins[0].version = "1\u00e9\ud83d\ude00"' \
-    "plugin=$pv marketplace=1??????"
+    "plugin=$pv marketplace=1?????? changelog="
   # A byte that is not valid UTF-8 reaches the gate as U+FFFD, three bytes,
   # so one such byte is three `?`. Written with printf's octal escape.
   c="$TEST_DIR/utf8-bad"

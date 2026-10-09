@@ -13,7 +13,8 @@ description: "Task list for the release gate starting fewer processes, with its 
 new test is written FIRST and shown red against the gate as it stands,
 where it can be (the held-values, whole-line and apostrophe tests pass on the
 old gate by design, and say so). Five tests are added, none removed; the
-suite reads `1..431` (research R9).
+suite reads `1..431` (research R9). Phase I (deep review) added five more
+(W4, W5, R4, NL, LB1): the suite reads `1..436`.
 
 **Run directory**: `$RUN` = `.delivery-kit/runs/033-gate-fewer-processes/`.
 
@@ -118,9 +119,9 @@ named (research R6, R7).
 **Independent Test**: `tests/portability.bats` green, with fewer gate
 runs, counted by the logging-wrapper method of T005.
 
-- [X] T023 [US2] Add to `tests/portability.bats` the helpers `walk_on <file>` (runs `LC_ALL=C DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" awk -f "$ROOT/scripts/check-versions-walk.awk"` on the file as standard input), `walk_refuses <file> <fragment>…` (the walk's output is not empty and holds each fragment, matched in the shell, and passes `gate_safe`'s byte rules) and `walk_passes <file>` (empty output, status 0), with a comment giving research R8 as the reason.
+- [X] T023 (As built: `walk_on` alone. The callers check the walk's output through the existing `forms_refused`, `forms_passes` and `forms_says`, and `gate_safe`'s byte rules are not applied to the walk's own output: the walk masks with its own `show()`, and the end-to-end runs apply them to the gate's line. Recorded at phase I, research R12.) [US2] Add to `tests/portability.bats` the helpers `walk_on <file>` (runs `LC_ALL=C DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" awk -f "$ROOT/scripts/check-versions-walk.awk"` on the file as standard input), `walk_refuses <file> <fragment>…` (the walk's output is not empty and holds each fragment, matched in the shell, and passes `gate_safe`'s byte rules) and `walk_passes <file>` (empty output, status 0), with a comment giving research R8 as the reason.
 - [X] T024 [US2] Convert the MOVE tests (research R8: lines near 1952, 1973, 2047, 2166, 2190, 2263, 2289) to run every plant through `walk_on`, keeping each test's name, plants, fragments and clause IDs; each test's base run becomes `walk_passes` on the normalised changelog.
-- [X] T025 [US2] Convert the walk-only runs of the SPLIT tests (lines near 1697, 1725, 1735, 2009, 2061, 2088, 2126, 2226, 2340) to `walk_on`, and keep end to end exactly the runs research R8 names: every default-form run (G5, H8), G6's other-plugin run, K3's 1,001-byte line and its 400-byte checks, K4's cut value, K4 under UTF-8, both K5 NUL runs, and one `## Notes` refusal with its dated base.
+- [X] T025 (Of the two 400-byte checks, only the first, after K3's end-to-end run, measures the gate's line; the second follows a direct walk run and measures the walk's refusal. Corrected at phase I.) [US2] Convert the walk-only runs of the SPLIT tests (lines near 1697, 1725, 1735, 2009, 2061, 2088, 2126, 2226, 2340) to `walk_on`, and keep end to end exactly the runs research R8 names: every default-form run (G5, H8), G6's other-plugin run, K3's 1,001-byte line and its 400-byte checks, K4's cut value, K4 under UTF-8, both K5 NUL runs, and one `## Notes` refusal with its dated base.
 - [X] T026 [US2] Prove the conversion lost no check: for each converted test, mutate the walk file so the refusal that test checks no longer fires (one mutant per test, confirmed landed) and see the test go red; record the table in `specs/033-gate-fewer-processes/research.md`. Count the gate runs of `tests/portability.bats` again (logging wrapper): record before and after.
 - [X] T027 [US2] Run `tests/portability.bats` whole: green; no test over 40 s alone on Windows (`--timing`).
 

@@ -79,7 +79,10 @@ git show "$BASE:scripts/check-versions.sh" | sed -n '545,728p' > "$tmp/old-body"
   || fail "FR-005 the old body does not start where research R7 says"
 first=$(grep -n -m1 '^      function expand(s,   o, i, c, col) {$' "$WALK" | cut -d: -f1)
 [ -n "$first" ] || fail "FR-005 the walk file has no body start"
-tail -n +"$first" "$WALK" > "$tmp/new-body"
+last=$(wc -l < "$WALK" | tr -d ' ')
+# The body, then exactly one rule: the end token (FR-006).
+[ "$(tail -n 1 "$WALK")" = 'END { print "WALK-END" }' ] || fail "FR-005 the walk's last line is not its end-token rule"
+sed -n "${first},$((last - 1))p" "$WALK" > "$tmp/new-body"
 cmp -s "$tmp/old-body" "$tmp/new-body" || fail "FR-005 the walk's text changed: $(diff "$tmp/old-body" "$tmp/new-body" | head -5)"
 head -n $((first - 1)) "$WALK" | grep -v '^#' | grep -q . && fail "FR-005 the header holds a line that is not a comment"
 echo "FR-005 ok"
@@ -90,7 +93,18 @@ echo "FR-005 ok"
 ```bash
 dated_re=$(sed -n "s/^dated_re='\(.*\)'\$/\1/p" "$GATE")
 [ -n "$dated_re" ] || fail "FR-007 dated_re not found in the gate"
-walk() { DATED_RE="$dated_re" LINE_LIMIT=1000 QUOTE_CUT=200 LC_ALL=C awk -f "$WALK"; }
+# The walk's last line is its end token, taken off here as the gate takes
+# it off; an output without it fails.
+walk() {
+  local o e=WALK-END
+  o=$(DATED_RE="$dated_re" LINE_LIMIT=1000 QUOTE_CUT=200 LC_ALL=C awk -f "$WALK") || return 1
+  case $o in
+    "$e") o= ;;
+    *$'\n'"$e") o=${o%$'\n'"$e"} ;;
+    *) echo "no end token: $o"; return 1 ;;
+  esac
+  printf '%s' "$o"
+}
 # Only a changelog whose plugin reads state=released (block 2) is one the
 # walk must accept; another holds an Unreleased heading the walk refuses.
 for p in $released; do
@@ -98,7 +112,7 @@ for p in $released; do
   [ -z "$out" ] || fail "FR-007 walk refused the released $p changelog: $out"
 done
 printf '%s\n' '# Changelog' '' '## [1.0.0] - 2026-01-01' '' '## Notes ##[x' > "$tmp/bad.md"
-w=$(walk < "$tmp/bad.md")
+w=$(walk < "$tmp/bad.md") || fail "FR-007 walk failed on the planted heading: $w"
 [ -n "$w" ] || fail "FR-007 walk accepted an undated heading"
 fx="$tmp/fx"; mkdir -p "$fx/.claude-plugin" "$fx/handoff/.claude-plugin"
 cp handoff/.claude-plugin/plugin.json "$fx/handoff/.claude-plugin/"
@@ -108,7 +122,7 @@ printf '%s\n' '# Changelog' '' "## [$v] - 2026-01-01" '' '## Notes ##[x' > "$fx/
 # Standard error only: the report line goes to standard output first.
 g=$(cd "$fx" && bash "$GATE" --released handoff 2>&1 >/dev/null); rc=$?
 [ "$rc" = 1 ] || fail "FR-007 gate exit $rc on the planted heading"
-w=$(walk < "$fx/handoff/CHANGELOG.md")
+w=$(walk < "$fx/handoff/CHANGELOG.md") || fail "FR-007 walk failed on the fixture: $w"
 hh='##[' hm='#?['
 [ "$g" = "check-versions.sh: handoff: ${w//"$hh"/$hm} — this tree is NOT released" ] \
   || fail "FR-007 the gate's line is not prefix + walk text + suffix: $g"
@@ -137,6 +151,10 @@ mk "$tmp/c3"; printf 'BEGIN { exit 3 }\n' > "$tmp/c3/scripts/check-versions-walk
 o=$(cd "$tmp/c3/t" && bash ../scripts/check-versions.sh --released handoff 2>&1); rc=$?
 [ "$rc" = 1 ] && [[ $o == *"the heading walk did not run to the end — this tree is NOT released"* ]] \
   || fail "FR-006 failing walk: rc $rc: $o"
+mk "$tmp/c5"; : > "$tmp/c5/scripts/check-versions-walk.awk"
+o=$(cd "$tmp/c5/t" && bash ../scripts/check-versions.sh --released handoff 2>&1); rc=$?
+[ "$rc" = 1 ] && [[ $o == *"the heading walk did not run to the end — this tree is NOT released"* ]] \
+  || fail "FR-006 empty walk: rc $rc: $o"
 mk "$tmp/c4"
 { printf '%s\n' "# a comment that isn't a problem"; cat "$tmp/c4/scripts/check-versions-walk.awk"; } > "$tmp/c4/walk.new" \
   && mv "$tmp/c4/walk.new" "$tmp/c4/scripts/check-versions-walk.awk"
@@ -161,7 +179,7 @@ echo "FR-003 ok"
 
 ```bash
 "$BATS" -r --print-output-on-failure tests handoff/tests pipeline/tests > "$tmp/suite.tap" 2>&1
-bash scripts/check-suite.sh 431 "$tmp/suite.tap" || fail "SC-006 suite: $(grep '^not ok' "$tmp/suite.tap" | head -5)"
+bash scripts/check-suite.sh 436 "$tmp/suite.tap" || fail "SC-006 suite: $(grep '^not ok' "$tmp/suite.tap" | head -5)"
 echo "SC-006 ok"
 echo "ALL OK"
 ```

@@ -3,11 +3,17 @@
 # suite's direct tests of it. It reads DATED_RE (the dated version heading
 # pattern), LINE_LIMIT (the longest line it judges, in bytes) and QUOTE_CUT
 # (the length it cuts a quoted line to) from the environment, and the gate
-# runs it under LC_ALL=C. It prints nothing for a changelog it accepts, or
-# one refusal; the gate adds the plugin's name before it and its verdict
-# after. Why the walk exists and what it does are written above the call in
-# the gate, and step by step in specs/024-gate-every-heading-form/research.md
+# runs it under LC_ALL=C. It prints one refusal for a changelog it refuses,
+# nothing for one it accepts, and then, always as its last line, WALK-END;
+# the gate adds the plugin's name before a refusal and its verdict after.
+# Why the walk exists and what it does are written above the call in the
+# gate, and step by step in specs/024-gate-every-heading-form/research.md
 # R2. The program below is the one that sat inside the gate, unchanged.
+# The one rule after it prints WALK-END: END rules run in the order they
+# are written, and after a refusal's exit too, so it comes after any
+# refusal. An empty walk file, or one of comments alone, runs an empty
+# program and exits 0 having judged nothing; without the token, the gate
+# would read its silence as a changelog accepted.
       function expand(s,   o, i, c, col) {
         if (index(s, "\t") == 0) return s
         o = ""; col = 0
@@ -192,3 +198,4 @@
         if (fenced && !refused)
           print "line " fnr " opens a code fence that is never closed: \047" show(ftext) "\047"
       }
+END { print "WALK-END" }

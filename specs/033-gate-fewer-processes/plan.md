@@ -34,7 +34,8 @@ awk as CI runs it (gawk; the BSD awk on macOS)
 
 **Testing**: the house suite from the root,
 `bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests`,
-judged by `bash scripts/check-suite.sh 431`; shellcheck as CI runs it
+judged by `bash scripts/check-suite.sh 436` (431 as planned, and five
+tests phase I added: research R9); shellcheck as CI runs it
 
 **Target Platform**: CI on Ubuntu, macOS and Windows; contributors' machines
 
@@ -66,7 +67,7 @@ directory
 | IV. One implementation, many callers | CI and the suite still call the one gate; the walk is called only by the gate. The direct tests run the same walk file the gate runs. |
 | V. Derive coverage | The differential compares every fixture the suite builds, by running the suite over a wrapper, not a list of shapes (R10). The test inventory was derived from the code (R8). |
 | Changelogs are history | No changelog changes. |
-| Departures named | Four, in research R12, and in the spec. |
+| Departures named | In research R12, and in the spec. |
 | Development workflow | Suite from the root, three systems, every path named, no plugin release. |
 
 Result: PASS.
