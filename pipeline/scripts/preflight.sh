@@ -184,6 +184,13 @@ if [ -n "$feature_branch" ]; then fb="$feature_branch"; fb_arg="--feature-branch
 elif [ -n "$spec_dir" ]; then fb="${spec_dir##*/}"; fb_arg="--spec-dir"; fi
 if [ -n "$fb" ] && [ "$have_git" = true ]; then
   branch_ok "$fb" "$fb_arg"
+  # A name that is a tag too, refused as the override is: B's
+  # `git checkout -b` makes the branch beside the tag, and every later
+  # <name>..HEAD reads the tag.
+  if git show-ref --verify --quiet "refs/tags/$fb"; then
+    shown fb_s "$fb"
+    die "'$fb_s' is a tag as well as the feature branch's name; git would read the tag ($fb_arg)"
+  fi
 fi
 # A fresh run's folder must not exist: the spec tool would write over that
 # feature's spec. Its parent, followed through any symbolic link, must stay
