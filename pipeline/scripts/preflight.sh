@@ -213,9 +213,9 @@ if [ -n "$spec_dir" ]; then
     top="$(cd -P -- "./$t" && pwd -P)" || top="$(pwd -P)"
   fi
   # Inside or outside is decided by identity, never by spelling. Git Bash
-  # spells one folder /tmp/... and /c/Users/.../Temp/..., and cd -P through
+  # spells one folder /tmp/... and /c/.../Temp/..., and cd -P through
   # an absolute link gives the /tmp one while a repository entered as
-  # /c/Users/... keeps its own (measured, review 4), so comparing the text
+  # /c/... keeps its own (measured, review 4), so comparing the text
   # refused a folder inside. The resolved folder's ancestors are walked by
   # cutting the last segment, never by cd .., and each is compared with the
   # top by -ef, the same device and inode (measured on Git Bash for
