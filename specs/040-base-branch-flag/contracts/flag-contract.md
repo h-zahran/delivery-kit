@@ -22,14 +22,18 @@ The orchestrator passes the winner to pre-flight as `--base-branch-override <nam
 
 ## Refusal
 
-Checked inside the repository, after the cd into `--dir` (review 2, item 7). Each exits non-zero.
+Checked inside the repository, after the cd into `--dir` (review 2, item 7). Each exits non-zero. Each message shows the value masked (review 4, non-blocking 3): under `LC_ALL=C`, cut to 200 bytes then ` [cut]`, and every byte that is not printable ASCII shown as `?`. No message prints an absolute path.
 
 | Value | Message part |
 |---|---|
-| refused by `git check-ref-format --branch`, or printed back changed (`@{-1}`) | `is not a legal branch name (--base-branch-override)` |
 | a lone `@`, which git 2.43.0 accepts and creates, but reads as `HEAD` in a revision | `is not a legal branch name here: git reads it as HEAD (--base-branch-override)` |
+| refused by `git check-ref-format --branch`, or printed back changed (`@{-1}`) | `is not a legal branch name (--base-branch-override)` |
+| a character outside `A-Z a-z 0-9 . _ - /`, though git accepts it (`x$(id)`, U+202E); checked after git's check (review 4, blocking 1) | `holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)` |
 | `refs/remotes/origin/<value>` exists but `refs/heads/<value>` does not (a fresh clone) | `exists only on origin; create the local branch first: git branch --track <value> origin/<value> (--base-branch-override)` |
 | neither exists (a tag, a commit id, `origin/main`, `refs/heads/main`, a missing branch) | `is not a branch here or on origin (--base-branch-override)` |
+| `refs/heads/<value>` and `refs/tags/<value>` both exist (review 3, item 5) | `is a tag as well as a branch; git would read the tag (--base-branch-override)` |
+
+The safe set is why the printed `git branch --track` command can be run as printed: it holds no character a shell reads as code (review 4, blocking 1).
 
 ## Pinned strings
 

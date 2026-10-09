@@ -89,3 +89,8 @@ A developer who resumes a run, typing a different `--branch` or `--spec-dir`, is
 - The feature branch is refused when it equals the base in any letter case, or behind `origin/`, `heads/`, `remotes/origin/` or `refs/heads/`, and when it already exists here or on `origin` in any letter case (item 10). Review 3 added: a name that clashes with an existing branch as a folder (`team` beside `team/x`) is refused too, since `git checkout -b` cannot create it. A lone `@` and `@{-1}` are refused.
 - Every spec-folder segment is checked: no leading dash, only letters, digits, dot, dash and underscore, no `.git` in any letter case, and no `.delivery-kit` first segment in any letter case. An existing parent must resolve inside the repository and outside `.git` and `.delivery-kit` (items 6 and 9).
 - `artifacts.spec` is the path of `spec.md`; the Spec folder line is the folder that holds it (item 12).
+
+## Changed after review 4 (2026-10-10)
+
+- The feature branch is refused when it holds a character other than a letter, a digit, `.`, `_`, `-` or `/`, and when it is a tag as well, which made L's push fail after every commit (review 4, blocking 1, non-blocking 4 and 5). Review 3 had added the trailing-dot and Windows device-name segment refusals (item 4).
+- A spec folder that leads outside the repository, or into `.git` or `.delivery-kit`, is named as given, never by the absolute path it leads to (non-blocking 2), and inside or outside is decided by which folder it is, not by how its path is spelled (non-blocking 1). Every refused value is printed masked (non-blocking 3). The table is in `contracts/flag-contract.md`.
