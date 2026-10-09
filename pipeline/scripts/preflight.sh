@@ -21,6 +21,21 @@ export LC_ALL=C
 
 warn() { printf 'preflight: %s\n' "$*" >&2; }
 die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
+# A value a refusal prints comes from the command line, a tracked key or
+# git, so it may hold a terminal escape, a bidi character or a line break.
+# shown <name> <value> sets the named variable to a copy safe to print:
+# under the C locale, cut to 200 bytes then ` [cut]`, with every byte that
+# is not printable ASCII shown as `?`. The same shape as shown() in
+# scripts/check-versions.sh. printf -v sets the copy without a process, and
+# the value is never the format. Every refusal below prints a value only
+# through one of these copies, each named here once.
+shown() {
+  local LC_ALL=C s=$2 c=
+  [ "${#s}" -le 200 ] || { s=${s:0:200}; c=" [cut]"; }
+  s=${s//[![:print:]]/?}
+  printf -v "$1" '%s' "$s$c"
+}
+arg_s='' sd_s='' seg_s='' dir_s='' br_s='' ov_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -51,7 +66,7 @@ while [ $# -gt 0 ]; do
     --feature-branch) feature_branch="${2:?--feature-branch needs a name}"; shift 2 ;;
     --spec-dir)     spec_dir="${2:?--spec-dir needs a path}"; shift 2 ;;
     --trailer)      add_trailer "${2:?--trailer needs a value}"; shift 2 ;;
-    *) die "unknown argument '$1' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer)" ;;
+    *) shown arg_s "$1"; die "unknown argument '$arg_s' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer)" ;;
   esac
 done
 # The spec folder is handed to the spec tool, which creates it and writes
@@ -62,42 +77,43 @@ done
 # These checks read the text only; the ones that need the repository run
 # after the cd below. One check per way a path can break, each naming it.
 if [ -n "$spec_dir" ]; then
+  shown sd_s "$spec_dir"
   case "$spec_dir" in
-    /*|[A-Za-z]:*) die "'$spec_dir' is not relative to the repository root (--spec-dir)" ;;
-    *\\*)          die "'$spec_dir' holds a backslash; separate folders with / (--spec-dir)" ;;
+    /*|[A-Za-z]:*) die "'$sd_s' is not relative to the repository root (--spec-dir)" ;;
+    *\\*)          die "'$sd_s' holds a backslash; separate folders with / (--spec-dir)" ;;
   esac
-  spec_dir="${spec_dir%/}"
+  spec_dir="${spec_dir%/}"; shown sd_s "$spec_dir"
   case "/$spec_dir/" in
-    */../*)        die "'$spec_dir' climbs out with .. (--spec-dir)" ;;
-    */./*|*//*)    die "'$spec_dir' has an empty or . segment; write each path one way (--spec-dir)" ;;
+    */../*)        die "'$sd_s' climbs out with .. (--spec-dir)" ;;
+    */./*|*//*)    die "'$sd_s' has an empty or . segment; write each path one way (--spec-dir)" ;;
   esac
   # Letter case is compared loosely: on a file system that ignores case,
   # .Delivery-Kit is the state directory and .GIT is git's own.
   rest="$spec_dir"; first=1
   while :; do
-    seg="${rest%%/*}"
+    seg="${rest%%/*}"; shown seg_s "$seg"
     case "$seg" in
-      -*) die "'$spec_dir' has the segment '$seg', which starts with a dash (--spec-dir)" ;;
-      *[!A-Za-z0-9._-]*) die "'$spec_dir' has the segment '$seg'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
-      .[Gg][Ii][Tt]) die "'$spec_dir' is inside git's own directory .git (--spec-dir)" ;;
+      -*) die "'$sd_s' has the segment '$seg_s', which starts with a dash (--spec-dir)" ;;
+      *[!A-Za-z0-9._-]*) die "'$sd_s' has the segment '$seg_s'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
+      .[Gg][Ii][Tt]) die "'$sd_s' is inside git's own directory .git (--spec-dir)" ;;
       # Win32 drops a trailing dot, so .git. is .git there, and it reads
       # a device name (nul, con, com1, nul.txt) as the device.
-      *.) die "'$spec_dir' has the segment '$seg', which ends with a dot; Windows drops it (--spec-dir)" ;;
+      *.) die "'$sd_s' has the segment '$seg_s', which ends with a dot; Windows drops it (--spec-dir)" ;;
     esac
     case "${seg%%.*}" in
       [Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])
-        die "'$spec_dir' has the segment '$seg', a name Windows keeps for a device (--spec-dir)" ;;
+        die "'$sd_s' has the segment '$seg_s', a name Windows keeps for a device (--spec-dir)" ;;
     esac
     if [ "$first" = 1 ]; then
       case "$seg" in
-        .[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]) die "'$spec_dir' is inside the state directory .delivery-kit/ (--spec-dir)" ;;
+        .[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]) die "'$sd_s' is inside the state directory .delivery-kit/ (--spec-dir)" ;;
       esac
     fi
     [ "$rest" != "$seg" ] || break
     rest="${rest#*/}"; first=0
   done
 fi
-cd "$dir" 2>/dev/null || die "cannot enter '$dir'"
+cd "$dir" 2>/dev/null || { shown dir_s "$dir"; die "cannot enter '$dir_s'"; }
 # Every check that asks git runs here, inside the repository, so a name
 # like @{-1} is never read from the caller's. Without git the run stops at
 # decision 11 anyway, and the names are reported unchecked.
@@ -109,9 +125,10 @@ have_git=false; command -v git >/dev/null 2>&1 && have_git=true
 # @ means HEAD, so <base>..HEAD would read nothing: it is refused by name.
 branch_ok() {
   local out
+  shown br_s "$1"
   [ "$1" != @ ] || die "'@' is not a legal branch name here: git reads it as HEAD ($2)"
   out="$(git check-ref-format --branch "$1" 2>/dev/null)" && [ "$out" = "$1" ] \
-    || die "'$1' is not a legal branch name ($2)"
+    || die "'$br_s' is not a legal branch name ($2)"
 }
 # branch_like <name> — the local or origin branch that <name> collides
 # with, or nothing: one equal to it in any letter case (a file system that
@@ -134,16 +151,17 @@ branch_like() {
 # origin/main or refs/heads/main is not a branch's name.
 if [ -n "$base_override" ] && [ "$have_git" = true ]; then
   branch_ok "$base_override" --base-branch-override
+  shown ov_s "$base_override"
   if ! git show-ref --verify --quiet "refs/heads/$base_override"; then
     if git show-ref --verify --quiet "refs/remotes/origin/$base_override"; then
-      die "'$base_override' exists only on origin; create the local branch first: git branch --track $base_override origin/$base_override (--base-branch-override)"
+      die "'$ov_s' exists only on origin; create the local branch first: git branch --track $ov_s origin/$ov_s (--base-branch-override)"
     fi
-    die "'$base_override' is not a branch here or on origin (--base-branch-override)"
+    die "'$ov_s' is not a branch here or on origin (--base-branch-override)"
   fi
   # A name that is a branch and a tag too: `git checkout -b` fails as
   # ambiguous, and <base>..HEAD reads the tag.
   if git show-ref --verify --quiet "refs/tags/$base_override"; then
-    die "'$base_override' is a tag as well as a branch; git would read the tag (--base-branch-override)"
+    die "'$ov_s' is a tag as well as a branch; git would read the tag (--base-branch-override)"
   fi
 fi
 # The feature branch B will cut: --feature-branch, else the spec folder's
@@ -163,31 +181,33 @@ fi
 # run name must not have a state file: progress.sh init keeps an existing
 # one, so the new run would silently continue the old one.
 if [ -n "$spec_dir" ]; then
-  [ ! -e "$spec_dir" ] && [ ! -L "$spec_dir" ] || die "'$spec_dir' already exists (--spec-dir)"
+  [ ! -e "$spec_dir" ] && [ ! -L "$spec_dir" ] || die "'$sd_s' already exists (--spec-dir)"
   p="$spec_dir"
   while [ "$p" != . ] && [ ! -e "$p" ]; do
     case "$p" in */*) p="${p%/*}" ;; *) p=. ;; esac
   done
-  [ -d "$p" ] || die "'$spec_dir' runs through '$p', which is not a folder (--spec-dir)"
+  shown p_s "$p"
+  [ -d "$p" ] || die "'$sd_s' runs through '$p_s', which is not a folder (--spec-dir)"
   # Both are computed the same way, from here: git's --show-toplevel
   # spells a path its own way (C:/Users/... where Git Bash says /tmp), so
   # the top is reached by git's relative path back to it instead.
-  real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p' (--spec-dir)"
+  real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p_s' (--spec-dir)"
   top="$(pwd -P)"
   if [ "$have_git" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
     top="$(cd -P -- "./$t" && pwd -P)" || top="$(pwd -P)"
   fi
   case "$real/" in
     "$top"/*) ;;
-    *) die "'$spec_dir' leads outside the repository, to $real (--spec-dir)" ;;
+    *) die "'$sd_s' leads outside the repository, to $real (--spec-dir)" ;;
   esac
   case "$real/" in
     "$top"/.[Gg][Ii][Tt]/*|"$top"/.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]/*)
-      die "'$spec_dir' leads into $real, git's or the run's own directory (--spec-dir)" ;;
+      die "'$sd_s' leads into $real, git's or the run's own directory (--spec-dir)" ;;
   esac
   spec_run=".delivery-kit/runs/${spec_dir##*/}/progress.json"
+  shown run_s "${spec_dir##*/}"
   [ ! -e "$spec_run" ] \
-    || die "run name '${spec_dir##*/}' already has a state file, $spec_run (--spec-dir)"
+    || die "run name '$run_s' already has a state file, .delivery-kit/runs/$run_s/progress.json (--spec-dir)"
 fi
 
 # --- project type ----------------------------------------------------------
@@ -224,7 +244,7 @@ if [ -d .specify/templates ] && [ -d .specify/scripts ]; then
   case "$sk_version" in
     0.15.*|0.16.*) sk_in_range=true ;;
     "") warn "no version recorded in .specify/init-options.json" ;;
-    *)  warn "version $sk_version is outside the tested range (0.15.x through 0.16.x) — continuing; untested is not known-broken" ;;
+    *)  shown ver_s "$sk_version"; warn "version $ver_s is outside the tested range (0.15.x through 0.16.x) — continuing; untested is not known-broken" ;;
   esac
   # `script` has exactly three legal values upstream: sh, ps, py. py is
   # legal for the tool and unusable by this pipeline, so it is reported
@@ -236,7 +256,7 @@ if [ -d .specify/templates ] && [ -d .specify/scripts ]; then
     py) sk_scripts_dir=""
         warn "script flavour 'py' is legal for the spec tool but this pipeline cannot drive it; script-dependent steps will be named and skipped" ;;
     "") warn "no script flavour recorded in .specify/init-options.json" ;;
-    *)  die "illegal script flavour '$sk_script' in .specify/init-options.json (legal: sh|ps|py)" ;;
+    *)  shown scr_s "$sk_script"; die "illegal script flavour '$scr_s' in .specify/init-options.json (legal: sh|ps|py)" ;;
   esac
   # Invocation form: a Claude install scaffolds hyphen-named skills; the
   # dot-named command files belong to other integrations. Whichever exists
@@ -340,12 +360,14 @@ if [ -n "$fb" ] && [ -n "$base" ]; then
         f = tolower(f); b = tolower(b)
         sub(/^refs\//, "", f); sub(/^(heads|remotes)\//, "", f); sub(/^origin\//, "", f)
         exit !(f == b) }'; then
-    die "'$fb' is the base branch '$base'; the feature branch needs its own name ($fb_arg)"
+    shown fb_s "$fb"; shown base_s "$base"
+    die "'$fb_s' is the base branch '$base_s'; the feature branch needs its own name ($fb_arg)"
   fi
 fi
 if [ -n "$fb" ] && [ "$have_git" = true ]; then
   hit="$(branch_like "$fb")"
-  [ -z "$hit" ] || die "'$fb' already exists as the branch '$hit', or collides with it as a folder; the feature branch needs a new name ($fb_arg)"
+  shown fb_s "$fb"; shown hit_s "$hit"
+  [ -z "$hit" ] || die "'$fb_s' already exists as the branch '$hit_s', or collides with it as a folder; the feature branch needs a new name ($fb_arg)"
 fi
 
 remote="none"
