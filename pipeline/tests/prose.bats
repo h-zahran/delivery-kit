@@ -1880,8 +1880,10 @@ Pre-flight also stops on a character that can disguise text in a terminal: a bid
 A refusal shows such a trailer as JSON, each of these characters as its `\u` escape, never raw.
 On a resume it passes none, as for the trailers and the branch: a tracked key moved to a branch that is not here must not stop a resume.
 PINS
-  [[ $skill == *'On a resume, run `progress.sh validate <feature>` and read the state file first: the recorded lines come from it.'* ]] \
-    || { echo "the skill no longer reads the state file before the probe block on a resume"; false; }
+  # Review 4, item 7: every re-entry, not only --resume, and after the lock
+  # and the tracked-state check, not before them.
+  [[ $skill == *'On every re-entry (`--resume`, `--from`, or a resume chosen at decision item 8'"'"'s prompt), render the block from the state file, again if it was already shown, once decision item 7'"'"'s lock is held and the tracked-state check under **Resume** has run: run `progress.sh validate <feature>` and read the state file; the recorded lines come from it.'* ]] \
+    || { echo "the skill no longer renders the probe block from the state file on every re-entry"; false; }
   [[ $readme == *'`baseBranchOverride` and `commitTrailers` can arrive the same way: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
     || { echo "README.md's note no longer names the other settings a file can bring"; false; }
   [[ $preadme == *'`baseBranchOverride` and `commitTrailers` can come from such a file too: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
