@@ -76,6 +76,15 @@ case "$kind" in
 esac
 t="${rest%$'\t'*}"; lc="${rest##*$'\t'}"
 shown="'$t'"
+# The orchestrator types each trailer into a shell command (preflight.sh
+# --trailer, and state-set with the list inside single quotes), so the
+# shell would read a quote, a dollar sign or a backtick before any check
+# here ran. And a workflow that prints commit messages may read `##[`
+# anywhere in a line as a command to its log.
+case "$t" in
+  *\'*|*\$*|*\`*) no "holds a quote ('), a dollar sign or a backtick; a trailer is typed into a shell command" ;;
+  *'##['*)        no "holds '##[', which a workflow log reads as a command" ;;
+esac
 case "$t" in *:*) ;; *) no "has no ':'; write <token>: <value>" ;; esac
 token="${t%%:*}"
 # The token starts with a letter, ends with a letter or a digit, and holds

@@ -1396,3 +1396,37 @@ hidden_refused() {
   [ "$stderr" = "preflight: 'gl/003-thing' leads into git's or the run's own directory (--spec-dir)" ] \
     || { echo "into .git: $stderr"; false; }
 }
+
+@test "trailers: a quote, a dollar sign or a backtick is refused, since a trailer is typed into a shell command" {
+  # Review 4, non-blocking 6: the orchestrator types each trailer into
+  # preflight.sh --trailer and records the list with state-set inside single
+  # quotes, so the shell read Ref: x'$(id)' before any check ran, and an
+  # honest O'Brien broke the command. A double quote stays accepted.
+  T="$BATS_TEST_TMPDIR/trailers-shell"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in "Reviewed-by: O'Brien <o@example.invalid>" "Ref: x'\$(id)'" 'Note: $HOME' 'Note: `id`'; do
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -eq 1 ] || { echo "status $status: $bad"; false; }
+    [ "$stderr" = "preflight: '$bad' holds a quote ('), a dollar sign or a backtick; a trailer is typed into a shell command (a commit trailer)" ] \
+      || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+  probe --dir "$T" --trailer 'Note: say "hi"'
+  [ "$status" -eq 0 ] || { echo "refused a double quote: $stderr"; false; }
+  [ "$(jq -r '.commitTrailers[0]' <<<"$output")" = 'Note: say "hi"' ]
+}
+
+@test "trailers: ##[ anywhere is refused, since a workflow log reads it as a command" {
+  # Review 4, minor 1: a workflow that prints commit messages may act on
+  # ##[ anywhere in a line. Only that exact sequence is refused.
+  T="$BATS_TEST_TMPDIR/trailers-log"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in 'Note: ##[error]injected' 'Ref: a##[add-mask]b'; do
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -eq 1 ] || { echo "status $status: $bad"; false; }
+    [ "$stderr" = "preflight: '$bad' holds '##[', which a workflow log reads as a command (a commit trailer)" ] \
+      || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+  probe --dir "$T" --trailer 'Note: #[x]' --trailer 'Note: ## [x]' --trailer 'Note: ##x['
+  [ "$status" -eq 0 ] || { echo "refused a near miss: $stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Note: #[x]","Note: ## [x]","Note: ##x["]' ]
+}
