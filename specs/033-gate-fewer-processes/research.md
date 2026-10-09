@@ -364,6 +364,27 @@ options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
 The file is about a third faster (mean 477 s to 313 s) while it holds five
 more tests; one gate run takes about half as long.
 
+**2026-10-09, phase H.7 (simplify).** Four read-only reviews (reuse,
+simplification, efficiency, altitude). Applied in the gate: the entry
+flag became a length-prefixed field like every other value; the record's
+cuts became one `&&` list with one message; the reads lost their `$ok`
+binding (`if <shape> then … else false end`); the walk's status is
+checked with `|| die`; the reverse walk's CR strip went, since `-b` and
+`@tsv` leave no raw CR for it to find (R2 had kept it as a guard); an
+unused initial value and two comments about the change's history went.
+Applied in the tests: one fragment check (`forms_says`) for both refusal
+helpers; `walk_on` as one function; `gate_run_utf8` for the locale runs
+(P7 and X1); Q1, W1 and W2 through `gate_run` and `gate_says`; fewer
+processes in Q1, W2, W3 and P7; V1 no longer stops silently when `grep
+-c` finds nothing. Skipped, with the reason: folding W3 into W2 (the
+planned count, and a red would no longer say which); `undated_below`
+through `forms_refused` (it would merge G1 into G2); finding the walk
+file by stripping the gate's own name (breaks on a rename); the tests'
+older literal `1000` and `200` (fixture data in tests this feature did not
+write). After: `tests/portability.bats` `1..57`, 57 ok, 325 s; the
+differential `DIFFERENTIAL OK (199 runs, 17 LF runs, 10 differing)`,
+`CONTROL OK`; shellcheck clean.
+
 **2026-10-08/09, the quickstart as one script (T029, T030).** Blocks 1-6
 ok: SC-001 (14 jq starts at `2b38f74`, 3 now), FR-005, FR-007, FR-006,
 FR-003 (`DIFFERENTIAL OK (199 runs, 17 LF runs, 10 differing)`, `CONTROL
