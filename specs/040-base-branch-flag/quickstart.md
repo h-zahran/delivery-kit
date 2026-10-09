@@ -49,8 +49,8 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 30 | A local branch that is a tag as well is "accepted" (review 4, Q3) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
 | 31 | `$` joins the override's safe set (review 4, Q4) | `pipeline/docs/configuration.md` | review 4's refusals are pinned where the operator reads them |
 | 32 | The override's safe-set sentence says "So does not" (review 4, Q13) | `pipeline/CHANGELOG.md` | review 4's refusals are pinned where the operator reads them |
-| 33 | TODO(implementer A): the mutation of the override holds a character outside the safe set (rule B1) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
-| 34 | TODO(implementer A): the mutation of a refused override is printed masked and cut (rule S) | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | TODO(implementer A): the test's name |
+| 33 | the safe-character check removed from `branch_ok` (rule B1): an override `x;y`, and one that would run a command, are accepted | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | branch names: a character other than a letter, a digit, dot, underscore, dash or slash is refused |
+| 34 | `shown`'s mask line removed, then its cut line removed (rule S): a refused override is printed raw, or uncut | `pipeline/scripts/preflight.sh` (through `PREFLIGHT_UNDER_TEST`) | refusals show a refused value masked and cut, never its raw bytes |
 
 ## 3. Record
 
@@ -61,7 +61,7 @@ Each mutation runs in a throw-away copy of the tree, never in the checkout. Each
 | 2026-10-08 | Linux | `1..436`, all `ok`, before review 3 | After review 2, on `main` `4076ecf`: rows 7, 8 and 17-24 landed and went red. Row 8 first survived: the new existing-branch check also refused `two..dots`, for another reason. The test now checks the reason, and row 8 goes red. |
 | 2026-10-08 | Linux | `1..439`, all `ok`, review 3 | Rows 25 and 26 landed and went red. |
 | 2026-10-09 | Windows (Git Bash) | review 4's tests lens, at `3fec620` (the tree `8a75039` holds outside `main-plan.md`); `preflight.bats` alone `1..80`, all `ok` | Rows 27-29 landed and went red. |
-| 2026-10-10 | Windows (Git Bash) | the review-4 fix, at `d4c0a67`; each row's test alone | Rows 30-32 landed and went red. Rows 33-34: TODO(implementer A). |
+| 2026-10-10 | Windows (Git Bash) | the review-4 fix (the commits after review 4 on this branch); each row's test alone | Rows 30-32 landed and went red. Rows 33-34 landed and went red (implementer A's rig, each mutant on a scratch copy). |
 
 The ids in brackets name review 4's mutants: R, G, W, S, L, H, D, C, J, M and X are its tests lens's; Q are the review-4 fix's own. Each was first checked to have landed (the old text exactly once before, gone after), and the file was restored byte for byte after its run.
 
