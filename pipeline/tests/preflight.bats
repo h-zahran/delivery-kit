@@ -1370,3 +1370,29 @@ hidden_refused() {
   [ "$stderr" = "preflight: 'gitlink/003-thing' leads into git's or the run's own directory (--spec-dir)" ] \
     || { echo "into .git: $stderr"; false; }
 }
+
+@test "spec folder: an absolute link to a folder inside, with the repository entered by another spelling, is inside" {
+  # Review 4, non-blocking 1 (review 3, item 6): Git Bash spells one folder
+  # /tmp/... and /c/Users/.../Temp/..., and cd -P through an absolute link
+  # gives the /tmp one while the repository, entered as /c/Users/..., keeps
+  # its own. Compared by spelling, a folder inside was refused as outside,
+  # and a link into .git got that reason too. Where cygpath is absent a
+  # folder has one spelling, and the same check runs on that one.
+  T="$BATS_TEST_TMPDIR/link-spelling"; mkdir -p "$T/inside"; cd "$T"; git init -q -b work .; seed
+  local m alt="$T" rc=0
+  if command -v cygpath >/dev/null 2>&1; then
+    m="$(cygpath -m "$T")"
+    alt="/$(printf '%s' "${m%%:*}" | tr 'A-Z' 'a-z')${m#*:}"
+  fi
+  link_or_file "$alt/inside" in || rc=$?
+  [ "$rc" -ne 2 ] || false
+  if [ "$rc" -eq 1 ]; then link_fallback_refused "$alt" in/003-thing; return; fi
+  speclink "$alt/.git" gl || { echo "fixture: the link gl was not made"; false; }
+  probe --dir "$alt" --spec-dir in/003-thing
+  [ "$status" -eq 0 ] || { echo "a good path refused: $stderr"; false; }
+  [ "$(jq -r '.specDir' <<<"$output")" = in/003-thing ]
+  probe --dir "$alt" --spec-dir gl/003-thing
+  [ "$status" -eq 1 ] || { echo "into .git: status $status"; false; }
+  [ "$stderr" = "preflight: 'gl/003-thing' leads into git's or the run's own directory (--spec-dir)" ] \
+    || { echo "into .git: $stderr"; false; }
+}
