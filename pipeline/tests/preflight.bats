@@ -1380,8 +1380,8 @@ hidden_refused() {
 
 @test "spec folder: an absolute link to a folder inside, with the repository entered by another spelling, is inside" {
   # Review 4, non-blocking 1 (review 3, item 6): Git Bash spells one folder
-  # /tmp/... and /c/Users/.../Temp/..., and cd -P through an absolute link
-  # gives the /tmp one while the repository, entered as /c/Users/..., keeps
+  # /tmp/... and /c/.../Temp/..., and cd -P through an absolute link
+  # gives the /tmp one while the repository, entered as /c/..., keeps
   # its own. Compared by spelling, a folder inside was refused as outside,
   # and a link into .git got that reason too. Where cygpath is absent a
   # folder has one spelling, and the same check runs on that one.
@@ -1460,7 +1460,7 @@ hidden_refused() {
 
 @test "spec folder: a repository reached through a second spelling of its path is not outside itself" {
   # Git Bash mounts the Windows temp folder at /tmp as well, so one folder has
-  # two spellings, /tmp/... and /c/Users/.../Temp/...; git prints a third,
+  # two spellings, /tmp/... and /c/.../Temp/...; git prints a third,
   # C:/Users/..., which cd -P turns into the /tmp one. The folder and the
   # repository's top must be spelled one way (review 3, item 6). Where a
   # folder has one spelling (no cygpath), the same check runs on that one.
