@@ -3237,7 +3237,7 @@ commit trailers. Each is its own phase.
 **Invocation:**
 
 ```
-/pipeline Phase 40: the base branch can be set once, or named for one run
+/pipeline Phase 40: the base branch can be set once, or named for one run --auto --implementer claude
 ```
 
 ## Phase 41: the feature branch and the spec folder can be named for one run
@@ -3274,7 +3274,7 @@ Not in this phase: commit trailers.
 **Invocation:**
 
 ```
-/pipeline Phase 41: the feature branch and the spec folder can be named for one run
+/pipeline Phase 41: the feature branch and the spec folder can be named for one run --auto --implementer claude
 ```
 
 ## Phase 42: every commit the run makes can carry trailers
@@ -3305,7 +3305,7 @@ the list from the state file as data, and refuses a bad entry by name.
 **Invocation:**
 
 ```
-/pipeline Phase 42: every commit the run makes can carry trailers
+/pipeline Phase 42: every commit the run makes can carry trailers --auto --implementer claude
 ```
 
 ## Phase 43: a resume shows the branch and the folder it recorded
@@ -3321,5 +3321,5 @@ the same way: on a resume, print both lines from the record.
 **Invocation:**
 
 ```
-/pipeline Phase 43: a resume shows the branch and the folder it recorded
+/pipeline Phase 43: a resume shows the branch and the folder it recorded --auto --implementer claude
 ```
