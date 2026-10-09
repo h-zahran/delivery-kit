@@ -251,14 +251,18 @@ machine, and record the wall times in one dated table in research.
 - **FR-005 The walk lives in its own file.** The awk program moves to a
   file under `scripts/` beside the gate. Its text does not change: the
   moved program is proved byte-identical to the old single-quoted body,
-  less the quoting. If it must change, the proof
+  less the quoting. One rule follows it, and changes no judgement: it
+  prints an end token as the walk's last line (FR-006; added at phase I,
+  research R12). If the program must change, the proof
   (`specs/025-gate-closes-phase25-gaps/proof/enumerate.py`) is rerun and
   must report 0 wrong passes and each control at least 1.
 - **FR-006 The gate finds the walk beside itself.** The gate locates the
   walk file from its own path (`BASH_SOURCE`), never from the caller's
   working directory. A missing or unreadable walk file stops the gate with
-  its own message and exit 1, so the release form can never exit 0
-  without the walk having run. The walk file is code, with
+  its own message and exit 1, and so does a walk whose output does not end
+  with its end token (an empty walk file, or one of comments alone, runs
+  an empty program and exits 0), so the release form can never exit 0
+  without the walk having run to its end. The walk file is code, with
   the gate's own trust, not data from the tree being judged: no
   symbolic-link rule applies to it. This departs from the seed's sentence
   that the Phase 27 and 28 link rules apply to it; research records the

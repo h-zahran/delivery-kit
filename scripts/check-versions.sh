@@ -45,14 +45,22 @@ set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 # Bash's $( ) keeps an inner CR (measured: `a\nb` read as `a\r\nb`), so the
 # same file gave other values on Windows than on Linux. Every jq below runs
 # with -b, which writes the bytes as they are, so the values agree on every
-# system.
+# system. -b sets standard input and output to binary; a file jq opens by
+# name, as --slurpfile opens the marketplace in each plugin's read, is still
+# read in text mode there, where a Ctrl-Z byte ends it. That is safe only
+# because the marketplace's own read, on standard input, comes first and
+# refuses a file that is not whole JSON: keep that order.
 set -euo pipefail
 
 # The heading walk (scripts/check-versions-walk.awk) is found beside this
 # script, from the path it was run by, never from the working directory:
-# the suite runs the gate from a copied tree that holds no scripts/.
-case ${BASH_SOURCE[0]} in
+# the suite runs the gate from a copied tree that holds no scripts/. Run
+# from standard input (`bash -s < gate`) there is no path: the walk path is
+# then empty, and the release form stops at the walk check, saying so,
+# rather than reading a walk from the working directory.
+case ${BASH_SOURCE[0]-} in
   */*) walk_file=${BASH_SOURCE[0]%/*}/check-versions-walk.awk ;;
+  '') walk_file= ;;
   *) walk_file=check-versions-walk.awk ;;
 esac
 
@@ -155,10 +163,10 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 # No line from jq reaches the output: a fork writes these files, and jq
 # quotes what it cannot read, raw, in its own error (measured: a name that
 # is an object, and a plugins that is a string, each printed a workflow
-# command from the file). So each JSON file is checked once for the shape
-# every later read needs, before any of them, with jq's own error
-# discarded; each later read discards it too, and ends in the gate's own
-# line. After the jq test above: with jq missing, its status would read as
+# command from the file). So each JSON file is checked for the shape its
+# values need, in the same jq that then reads them, with jq's own error
+# discarded, and a failure ends in the gate's own line. After the jq test
+# above: with jq missing, its status would read as
 # a file that is not JSON. The file is opened once first, its error
 # discarded, as plugin.json is below, so one that cannot be read says so
 # and is never called "not valid JSON". Safe only because the -f test
@@ -171,9 +179,10 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 # (measured). The type of each part is tested before anything reads it,
 # or valid JSON of the wrong type stops jq with an error and reads as not
 # JSON. An empty file is sent to error, so it is not JSON, not a wrong
-# shape. A NUL in any string
+# shape. A NUL in any string value
 # is refused: bash, not jq, then prints its own line about the byte, with
-# this file's path. A name, source or version that is missing, false or
+# this file's path. An object key is not tested (`..` visits values): no
+# key is ever printed or compared here. A name, source or version that is missing, false or
 # null passes here and keeps its own message below.
 market_shape='if length == 0 then error else length == 1 and (.[0] | type == "object" and (.plugins | type) == "array" and all(.plugins[]; type == "object" and ((.name // "") | type) == "string" and ((.source // "") | type) == "string" and ((.version // "") | type) == "string")) and all(.. | strings; all(explode[]; . != 0)) end'
 plugin_shape='if length == 0 then error else length == 1 and (.[0] | type == "object" and ((.name // "") | type) == "string" and ((.version // "") | type) == "string") and all(.. | strings; all(explode[]; . != 0)) end'
@@ -184,7 +193,7 @@ plugin_shape='if length == 0 then error else length == 1 and (.[0] | type == "ob
 # each as @tsv writes it, which escapes a tab, a line feed, a CR and a
 # backslash, so no line holds a raw one), then `.`. On a false shape it
 # writes `false`, which makes -e exit 1; text that is not JSON makes jq exit
-# with its own error status, as before.
+# with its own error status.
 market_read='if ('"$market_shape"') then ([.[0].plugins[] | [.name, (.source // "")] | @tsv] | join("\n")) + "." else false end'
 shape=0
 market="$(jq -b -e -s -j "$market_read" < .claude-plugin/marketplace.json 2>/dev/null)" || shape=$?
@@ -199,15 +208,21 @@ entries_tsv=${market%.}
 # One jq per plugin reads its plugin.json on standard input and the
 # marketplace by its fixed path, and answers: the shape check; the name and
 # the version; whether an entry has that name (`1` or `0`); and the
-# matching entries' versions and sources. Each value is
-# what the old read gave on Linux: `// ""` where it said `// empty`, and
-# trailing line feeds removed, as $( ) removed them (nl, written as a
-# loop: Oniguruma's `$` also matches before an inner line feed). Several
-# entries with the name give their values joined by line feeds, as the old
-# read printed one per line. Every `+` joins two strings: a length the
-# program writes and a value the shape check has made a string.
+# matching entries' versions and sources. Each value is what one jq per
+# value, read through $( ), gives on Linux (research R1): `// ""` for a
+# missing value, and trailing line feeds removed, as $( ) removes them.
+# nl finds the last character that is not a line feed and cuts there, in
+# time that grows with the length. Two other ways grow with its square
+# (measured, 64,000 line feeds, research R12): cutting one line feed per
+# step (14 s when they trail), and sub("\n+\\z"; "") (14 s when they sit
+# before a last character, as Oniguruma retries the run from every
+# start). Several entries with the name give their values joined by line
+# feeds, one per line. Every `+` joins two strings: a length the program
+# writes and a value the shape check has made a string.
 # shellcheck disable=SC2016 # $m and $n are jq's variables, not the shell's
-plugin_read='def nl: if endswith("\n") then .[:-1] | nl else . end;
+plugin_read='def nl: if endswith("\n") then explode as $c
+    | ((first(range(($c | length) - 1; -1; -1) | select($c[.] != 10))) // -1) as $i
+    | .[:$i + 1] else . end;
 def field: "\(utf8bytelength):" + .;
 if ('"$plugin_shape"') then
     (.[0].name // "" | nl) as $n
@@ -259,10 +274,13 @@ shown() {
 # locale, as jq's utf8bytelength counts them; it returns 1, leaving
 # `record` as it was, on a length that is not plain digits, a missing
 # colon, or a length past the end, and the caller stops with its own line.
+# A length of more than 18 digits is refused before any test reads it:
+# past bash's integer range, `[ -ge ]` prints its own error, naming this
+# file as invoked.
 take() {
   local LC_ALL=C n r
   n=${record%%:*}
-  case $n in ''|0[0-9]*|*[!0-9]*) return 1 ;; esac
+  case $n in ''|0[0-9]*|*[!0-9]*|???????????????????*) return 1 ;; esac
   [ "$n" != "$record" ] || return 1
   r=${record:${#n}+1}
   [ "${#r}" -ge "$n" ] || return 1
@@ -610,6 +628,18 @@ for dir in */; do
     refusal="$(DATED_RE="$dated_re" LINE_LIMIT="$line_limit" QUOTE_CUT="$quote_cut" LC_ALL=C \
       awk -f "$walk_file" "./$p/CHANGELOG.md" 2>/dev/null)" \
       || die "$p_s: the heading walk did not run to the end — this tree is NOT released"
+    # The walk's last line is always WALK-END, after any refusal; an empty
+    # walk file, or one of comments alone, exits 0 and prints nothing, so
+    # without it silence would read as a changelog accepted. Held in
+    # variables, as norm_source holds its patterns, and matched quoted, so
+    # they are literal.
+    walk_end=WALK-END
+    walk_end_nl=$'\n'$walk_end
+    case $refusal in
+      "$walk_end") refusal= ;;
+      *"$walk_end_nl") refusal=${refusal%"$walk_end_nl"} ;;
+      *) die "$p_s: the heading walk did not run to the end — this tree is NOT released" ;;
+    esac
     # The walk masks its own text; `##[` is shown as `#?[` here, in bash,
     # as shown does, so the walk itself does not change.
     refusal=${refusal//"$hh"/$hm}

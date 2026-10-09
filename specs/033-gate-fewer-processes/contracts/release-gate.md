@@ -9,8 +9,12 @@
   `2b38f74` on every tree, except the Windows divergence (research R5).
 - New, both only in the release form, both reached only through a broken
   installation of the gate itself:
-  - `<plugin>: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released`, exit 1
-  - `<plugin>: the heading walk did not run to the end — this tree is NOT released`, exit 1
+  - `<plugin>: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released`, exit 1:
+    the walk file is missing, not a regular file, cannot be opened, or
+    the gate was run from standard input and has no path to find it by
+  - `<plugin>: the heading walk did not run to the end — this tree is NOT released`, exit 1:
+    awk exited non-zero, or the walk's output does not end with its end
+    token (an empty walk file, or one of comments alone)
 - `jq` processes per run: one, plus one per plugin directory holding a
   `plugin.json`.
 
@@ -20,7 +24,11 @@
   -f <file>` on standard input.
 - Environment: `DATED_RE` (the dated heading pattern), `LINE_LIMIT`
   (bytes), `QUOTE_CUT` (bytes), `LC_ALL=C`.
-- Output: nothing for a changelog it accepts; otherwise one refusal text,
+- Output: one refusal text for a changelog it refuses, nothing for one it
+  accepts, and then, always as the last line, `WALK-END`. The refusal is
   masked by its own `show()`, without the gate's `<plugin>: ` prefix, its
-  `##[` step, or its ` — this tree is NOT released` suffix.
+  `##[` step, or its ` — this tree is NOT released` suffix. The gate, and
+  the tests' `walk_on`, take the token off and refuse an output without it.
+- Text: a header of `#` comments, the old program byte for byte, then one
+  line, `END { print "WALK-END" }`.
 - Exit status 0 whatever it judges.

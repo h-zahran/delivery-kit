@@ -77,8 +77,8 @@ same expression `:766` runs today, `.[0].plugins[] | [.name, (.source //
 "")] | @tsv`, its lines joined by line feeds, then a terminator (R4). The
 reverse walk reads it as today. Its output bytes are the old ones:
 `@tsv` escapes a tab, a line feed, a CR and a backslash, so no raw line
-feed or CR is inside a line; `-b` writes no CR (the old `${es%$'\r'}` stays,
-harmless).
+feed or CR is inside a line; `-b` writes no CR (the old `${es%$'\r'}` was
+kept at first, as a guard, and removed at H.7: nothing can reach it).
 
 The read moves from after the forward loop to the top. Its only failure
 past the shape check is the file becoming unreadable between two reads in
@@ -112,13 +112,18 @@ under `LC_ALL=C`, so bash counts bytes, as `shown` already does.
   feeds; the gate checks it is there and removes it. Measured at T015, it
   guards nothing reachable today: `nl` removes trailing line feeds inside
   `jq`, and `$( )` keeps a lone trailing CR, on Git Bash too. It stays as
-  a guard should `nl` ever change, and its mutant survives (recorded with
-  the mutants below).
+  a guard should `nl` ever change. Its mutant survived the suite at T015
+  (recorded with the mutants below); since phase I the R4 test reaches it
+  and every other record guard, with a `jq` on PATH that hands the gate a
+  record no real read writes.
 - Only five fields per plugin, so the cutting is constant work (R3's cost
   is per record).
-- A field whose length is not digits, or a length past the end, or bytes
-  left over, is a hard failure with the gate's own line ("could not be
-  read"), never a silent wrong value.
+- A field whose length is not digits, or of more than 18 digits, or a
+  length past the end, or bytes left over, is a hard failure with the
+  gate's own line ("could not be read"), never a silent wrong value. The
+  18-digit bound came at phase I (security lens M4): a 20-digit length
+  reached `[ -ge ]`, and bash printed its own error, naming the gate's
+  path as invoked.
 
 ## R5 — `-b`, three jq versions, and the Windows divergence
 
@@ -168,7 +173,8 @@ under `LC_ALL=C`, so bash counts bytes, as `shown` already does.
   `awk -f`.
 - **Content:** a header of `#` comments (what the file is, who runs it,
   what it reads from the environment, where its steps are explained),
-  then the old program's text from `:545` to `:728` byte for byte (R7).
+  then the old program's text from `:545` to `:728` byte for byte (R7),
+  then, since phase I, one line: `END { print "WALK-END" }` (R12 item 7).
 - **Located:** from `BASH_SOURCE`: its directory part, or `.` when it has
   none. Every fixture runs the gate as `cd "$copy" && bash
   "$ROOT/scripts/check-versions.sh"` with no `scripts/` in the copy, so a
@@ -251,8 +257,10 @@ about 215 times on this machine with links made.
   `exit 3`s); an apostrophe in a comment of a copied walk file beside a
   copied gate (the gate still runs); and the `jq` process count (a `jq`
   wrapper on `PATH` that logs each start, then runs the real one): 1 + N.
-- The two "at most 400 bytes" checks (`:2368`, `:2431`) measure the gate's
-  whole line, so they stay in the end-to-end K3 run.
+- The two "at most 400 bytes" checks (`:2368`, `:2431`) were planned to
+  measure the gate's whole line. As built, only the first does, after
+  K3's end-to-end run; the second follows the direct walk run of the
+  quote-marker line and measures the walk's refusal (corrected at phase I).
 - K3's plant sizes itself under `changelog_limit` only because the gate
   refuses a larger file first; the direct run keeps the same plant.
 - New and moved assertions match in the shell (`[[ … ]]`), never with
@@ -269,6 +277,12 @@ values, the full refusal line, the walk-file failures, the apostrophe,
 the process count) and removes none; the moved runs stay inside their
 tests. Expected: `1..431`, judged by `bash scripts/check-suite.sh 431`.
 If tasks change the number, tasks fix it.
+
+Phase I (deep review) added five tests: W4 (a walk awk cannot parse),
+W5 (the walk found from the name the gate was run by, and not at all from
+standard input), R4 (a plugin record the gate cannot cut), NL (trailing
+line feeds), LB1 (a line counted in bytes under UTF-8). Expected:
+`1..436`, judged by `bash scripts/check-suite.sh 436`.
 
 ## R10 — The differential (one time, at build)
 
@@ -291,7 +305,14 @@ result recorded here; no frozen copy of the old gate is kept.
   for every run and marks it, at log time, LF or PLAIN (does a
   `plugin.json` name or version, or a marketplace entry's version or
   source, hold a line feed, or do two entries share a name: R5). The suite's `teardown` deletes the fixture
-  afterwards, so this cannot wait.
+  afterwards, so this cannot wait. Since phase I, a third mark wins over
+  both: SHIM, when the `jq` the run would start is not the real one. The
+  R4 test puts a `jq` on PATH that hands the new gate a record no real
+  read writes; the old gate never asks for one, so the two gates were not
+  given the same input, and the run is compared, logged and counted but
+  not judged. A SHIM run is allowed only in a test whose own text puts a
+  `jq` on PATH (a rule read from its body, like the expected-red one);
+  one anywhere else fails, so a real difference cannot hide under it.
 - **Coverage pinned, per test:** every START has its DONE. A plain pass
   runs the file over a wrapper that only logs each gate start by test name
   and runs the new gate; for every test green over the comparing wrapper,
@@ -308,7 +329,8 @@ result recorded here; no frozen copy of the old gate is kept.
 - **The verdict:** a difference on a PLAIN run fails, on every system. On
   Windows LF1 must differ (the asserted divergence; if it is ever
   repaired, the differential goes red); on any other system no run may
-  differ.
+  differ. SHIM runs are left out of both rules and counted on the
+  verdict line.
 - **Shown able to go red:** the same run with the new gate's report-line
   format changed by one byte (`state=%s` → `stat=%s`, one occurrence,
   counted) reports an UNEXPECTED difference with no crash.
@@ -336,7 +358,70 @@ result recorded here; no frozen copy of the old gate is kept.
 6. The walk file's own open check has no mutant: a directory at its path
    is caught by `[ -f ]` first, and `chmod 000` does not stop a read on
    Windows. Accepted; the check stays because it costs nothing and names
-   the fault on a system where a file can be unreadable.
+   the fault on a system where a file can be unreadable. Since phase I,
+   W2's `unreadable` case (`chmod 000`) runs it where the mode stops a
+   read (CI's Linux and macOS runners, not root), and is skipped where it
+   does not (Windows); the open check's mutant is therefore caught on CI
+   only.
+7. **The walk file is the old body plus one rule** (phase I; spec FR-005,
+   FR-006). An empty walk file, or one of comments alone, runs an empty
+   awk program: it exits 0 and prints nothing, which the gate read as a
+   changelog accepted (contract lens I-1, security lens I1; also a link
+   to any plain text). The fix adds `END { print "WALK-END" }` after the
+   body. END rules run in the order written, and after a main rule's
+   `exit` too, so the token is the last line in every shape (accepted,
+   refused by a main rule, refused by the body's own END): one rule to
+   check in the gate and one in `walk_on`. Placed after the body, not in
+   the header: there, an unclosed fence's refusal (the body's END) would
+   come after the token, a second output shape. What the token proves is
+   that the walk ran to its end; it does not prove the body whole (a
+   rule deleted from the middle keeps it). The body's identity is
+   pinned by quickstart block 3, and by the tests that drive each rule.
+8. **Two seed questions are answered in research, not in the spec.** The
+   seed asked the spec to list the end-to-end tests that stay (FR-007)
+   and to say whether the P0 scan reads the walk file (FR-009); the spec
+   points to R8 for both, where the list is derived from the test file.
+9. **A review fix was measured and not applied** (security lens I2). The
+   lens found the first `nl` (one line feed cut per step) quadratic in
+   trailing line feeds, and proposed `sub("\n+\\z"; "")`, measured on
+   trailing ones only. Measured here (jq 1.8.1): 64,000 trailing line
+   feeds, 14.3 s with the old `nl`, 0.13 s with the regex; but 64,000
+   line feeds before a last `x`, 0.13 s with the old `nl` and 13.8 s with
+   the regex (Oniguruma retries the run from every start), and 32,000 on
+   each side of an `x`, 4.0 s. Applied instead: find the last character
+   that is not a line feed and cut there: the gate's own text, 0.16 to
+   0.55 s on all four shapes (trailing, inner, both, line feeds alone;
+   measured while a test run shared the machine), and 0.21, 0.30 and
+   0.77 s for 64,000, 128,000 and 256,000 trailing ones, and equal to the old `nl`
+   on 15 edge values (empty, line feeds alone, CR, NUL, two- and
+   four-byte characters). It uses jq 1.5 builtins only; CI's jq 1.7 and
+   1.8.2 run it at phase L.
+10. **Recorded, not changed** (security lens minors): M1, a jq too old to
+   know `-b` exits with a usage error, which reads as "not valid JSON" (a
+   version probe would be a fourth jq start); M3, a file swapped for a
+   FIFO between the `-f` test and the read makes the read wait (whoever
+   can do that controls the machine); M7, a value's trailing line feeds
+   are read away, as the old gate read them, for byte-identity. M2 and
+   M6 were comments that said more than the code does; corrected in the
+   gate (`--slurpfile` reads the marketplace in text mode on Windows,
+   safe only because the marketplace's own read comes first; a NUL is
+   refused in a string VALUE, not a key).
+11. **Run from standard input** (`bash -s < gate`, security lens M5), the
+   gate has no path to find its walk by. At `2b38f74` that form ran the
+   inline walk; on the branch it first died on `BASH_SOURCE[0]: unbound
+   variable`, and since phase I the release form stops at the walk check
+   with the gate's own "could not be read" line, though a walk file sits
+   in the working directory (W5). A departure from "byte-identical on
+   every tree" for a way of running the gate no caller uses.
+12. **Built otherwise than planned:** T023's `walk_refuses` and
+   `walk_passes` (the existing `forms_refused` and `forms_passes` call
+   `walk_on` instead; the walk's text is masked by its own `show()`, and
+   `gate_safe`'s rules apply to the gate's line end to end); and
+   FR-005's proof, `specs/025-gate-closes-phase25-gaps/proof/enumerate.py`,
+   finds the walk by matching the old inline program in the gate, so it
+   cannot run on this tree as it stands. Its condition, a changed body,
+   did not arise; a rerun would first point its extraction at the walk
+   file.
 
 ## Measurements after the build
 
@@ -384,6 +469,60 @@ older literal `1000` and `200` (fixture data in tests this feature did not
 write). After: `tests/portability.bats` `1..57`, 57 ok, 325 s; the
 differential `DIFFERENTIAL OK (199 runs, 17 LF runs, 10 differing)`,
 `CONTROL OK`; shellcheck clean.
+
+**2026-10-09, phase I (deep review), the fixes.** Three lenses at
+`275c700` (contract, security, tests; the tests lens's report is kept
+outside the repository). Applied: the walk's end token and the gate's
+check of it (R12 item 7); W2's cases `unreadable`, `empty` and
+`comments`; a linear `nl` in place of both quadratic forms (R12 item 9);
+the 18-digit bound in `take` (R4); `${BASH_SOURCE[0]-}` with an empty
+walk path for a gate run from standard input (R12 item 11); the gate
+comments the lenses found saying more than the code does, or describing
+its history; five tests (R9) and two additions to the "cannot judge"
+test (the walk alone with K3's line limit, and DENSE's cut, in bytes,
+then masked); P7's `utf8-mv` fragment closed on the right; the SHIM mark
+in the differential (R10). The empty-walk case of W2 was run first on
+the gate as it stood: red (`the gate exited 0, not 1`), then green.
+
+Mutants, each confirmed landed (its old text found once, the gate
+parsed), in a scratch worktree, each against the one test that pins it;
+all 7 tests green unmutated first:
+
+| Mutant | Red, by clause |
+|---|---|
+| the gate accepts a walk output without the token | W2 `empty` |
+| the walk's standard error kept | W4, through U2 (the path in awk's error) |
+| the bare-name branch finds no walk | W5 |
+| no empty branch for standard input | W5 `stdin` (the gate passed on a walk file in the working directory) |
+| `${BASH_SOURCE[0]}` without `-` | W5 `stdin` (bash's own unbound-variable line) |
+| a leading zero accepted | R4 |
+| no 18-digit bound | R4, through U2 (bash's `[` error names the path) |
+| the colon check removed | R4 |
+| bytes left over accepted | R4 |
+| an entry flag other than 0 or 1 accepted | R4 |
+| the terminator not checked | R4 (survived the suite at T015) |
+| `nl` cuts one line feed only | NL1 |
+| the name not through `nl` | NL1 |
+| the walk run without `LC_ALL=C` | LB1 |
+| `walk_on`'s quote cut one short | K4, the DENSE addition |
+| `walk_on`'s line limit one long | K3, the direct addition |
+
+A walk file of `BEGIN { exit 0 }` (prints nothing) turned 34 of the
+file's 62 tests red, the two Phase 5 recorded green among them
+("judges no non-heading", "judges none of the shapes Phase 26
+narrowed"): `walk_on` now fails a walk output without its token. The 28
+green run no release-form walk.
+
+After: quickstart blocks 1-5 as one script, all ok (SC-001, FR-005 with
+the token rule, FR-007, FR-006 with the empty walk); `tests/portability.bats`
+`1..62`, 62 ok, 338 s, slowest test 16.1 s; shellcheck 0.11.0 over CI's
+file list clean. The differential, first run: FAIL, the six refused
+records of the R4 test differing as PLAIN, since the old gate never asks
+for a record (old exit 0, new exit 1); the SHIM mark was added for them.
+Second run, 1,195 s: `DIFFERENTIAL OK (217 runs, 19 LF runs, 10 differing;
+8 under a test's own jq, 6 of them differing, not judged)`, `CONTROL OK
+(4 of 4 runs differ)`; expected red over the wrapper, by the rule: W2,
+W4, W5, the shell-options test and Q1.
 
 **2026-10-08/09, the quickstart as one script (T029, T030).** Blocks 1-6
 ok: SC-001 (14 jq starts at `2b38f74`, 3 now), FR-005, FR-007, FR-006,

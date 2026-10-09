@@ -36,15 +36,21 @@ Written only when `plugin_shape` holds.
 Field 3 is a field like the others (`1:1` or `1:0`); it was a bare byte
 until phase H.7, which made every value of the record cut the same way.
 
-"Trailing line feeds removed" is a recursive step,
-`def nl: if endswith("\n") then .[:-1] | nl else . end;` — never
-`sub("\n+$"; "")`, whose `$` (Oniguruma) also matches before an inner
-line feed. It reproduces what `$( )` did on Linux: strip every trailing
-line feed, keep every other byte.
+"Trailing line feeds removed" is `nl`: it finds the last character that
+is not a line feed and cuts there, in time that grows with the length.
+It reproduces what `$( )` did on Linux: strip every trailing line feed,
+keep every other byte. Never `sub("\n+$"; "")`, whose `$` (Oniguruma)
+also matches before an inner line feed. Two other forms are exact but
+grow with the square of the line feeds (phase I, research R12): one line
+feed cut per step, as built until phase I, and `sub("\n+\\z"; "")`.
+
+A length of more than 18 digits is refused too, before bash compares it.
 
 ## Walk environment (unchanged)
 
-| Name | Value in the gate | Held copy in the tests |
+Line numbers below are of the files at `2b38f74`, before this feature.
+
+| Name | Value in the gate (at `2b38f74`) | Held copy in the tests (at `2b38f74`) |
 |---|---|---|
 | `DATED_RE` | `dated_re` (`:243`) | hoisted from `:1259` |
 | `LINE_LIMIT` | `line_limit=1000` (`:251`) | hoisted from `:2338` |

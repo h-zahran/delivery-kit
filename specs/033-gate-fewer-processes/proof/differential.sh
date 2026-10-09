@@ -95,6 +95,11 @@ if [ -f .claude-plugin/marketplace.json ] \
     < .claude-plugin/marketplace.json > /dev/null 2>&1; then
   class=LF
 fi
+# SHIM: the test put a jq of its own on PATH (the R4 test's hands the new
+# gate a record no real read writes, which the old gate never asks for),
+# so the two gates were not given the same thing to read. Such a run is
+# compared and logged, and kept out of the verdict, which counts it.
+[ "$(command -v jq)" = "$jq" ] || class=SHIM
 same=1
 [ "$r1" = "$r2" ] || same=0
 "$cmpbin" -s "$o1" "$o2" || same=0
@@ -232,6 +237,19 @@ if [ -n "$plain_diffs" ]; then
   fail "a run whose tree holds no line feed in a name, version or source differs"
 fi
 lf1=$(printf '%s\n' "$diffs" | awk -F'\t' '$5 == "extra:LF1"' | wc -l | tr -d ' ')
+# A run is SHIM only in a test whose own text puts a jq on PATH: one in
+# any other test would be a real difference kept out of the verdict.
+awk '
+  /^@test "/ { name = $0; sub(/^@test "/, "", name); sub(/" \{$/, "", name); body = 1; p = 0; j = 0; next }
+  body && /^}/ { if (p && j) print name; body = 0; next }
+  body && /PATH="/ { p = 1 }
+  body && /\/jq"/ { j = 1 }
+' "$root/tests/portability.bats" | LC_ALL=C sort > "$tmp/own-jq"
+awk -F'\t' '$1 == "DONE" && $2 == "compare" && $5 == "SHIM" { print $4 }' "$tmp/log/runs.log" | LC_ALL=C sort -u > "$tmp/shim-tests"
+stray=$(LC_ALL=C comm -23 "$tmp/shim-tests" "$tmp/own-jq")
+[ -z "$stray" ] || fail "a run read a jq that is not the real one, in a test that puts none on PATH: $stray"
+shimdiff=$(printf '%s\n' "$diffs" | awk -F'\t' '$4 == "SHIM"' | wc -l | tr -d ' ')
+diffs=$(printf '%s\n' "$diffs" | awk -F'\t' '$4 != "SHIM"')
 ndiff=$(printf '%s\n' "$diffs" | grep -c . || true)
 # The divergence is the new reads' (research R5). When the gate under test
 # IS the old one, byte for byte (the harness proving itself, task T004), no
@@ -246,7 +264,8 @@ fi
 runs=$(awk -F'\t' '$1 == "DONE" && $2 == "compare"' "$tmp/log/runs.log" | wc -l | tr -d ' ')
 lfruns=$(awk -F'\t' '$1 == "DONE" && $2 == "compare" && $5 == "LF"' "$tmp/log/runs.log" | wc -l | tr -d ' ')
 [ "$runs" -gt 0 ] || fail "no run was compared"
-echo "DIFFERENTIAL OK ($runs runs, $lfruns LF runs, $ndiff differing)"
+shimruns=$(awk -F'\t' '$1 == "DONE" && $2 == "compare" && $5 == "SHIM"' "$tmp/log/runs.log" | wc -l | tr -d ' ')
+echo "DIFFERENTIAL OK ($runs runs, $lfruns LF runs, $ndiff differing; $shimruns under a test's own jq, $shimdiff of them differing, not judged)"
 
 # 4. Control: the new gate's report line changed by one byte must be seen.
 cp "$wt/scripts/check-versions.new.sh" "$tmp/mutant.sh"
