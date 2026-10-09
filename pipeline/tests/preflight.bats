@@ -1301,3 +1301,22 @@ hidden_refused() {
   [ "$stderr" = "preflight: '$name' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)" ] \
     || { echo "wrong reason: $stderr"; false; }
 }
+
+@test "feature branch: a name that is a tag as well is refused, as the override is" {
+  # Review 4: B's git checkout -b makes a branch beside the tag, and every
+  # later <name>..HEAD or push reads the tag. The override was refused for
+  # this; the feature branch, typed or taken from the spec folder, was not.
+  T="$BATS_TEST_TMPDIR/feature-tag"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git tag t1
+  probe --dir "$T" --feature-branch t1
+  [ "$status" -eq 1 ] || { echo "status $status: $stderr"; false; }
+  [ "$stderr" = "preflight: 't1' is a tag as well as the feature branch's name; git would read the tag (--feature-branch)" ] \
+    || { echo "wrong reason: $stderr"; false; }
+  probe --dir "$T" --spec-dir specs/t1
+  [ "$status" -eq 1 ] || { echo "spec folder: status $status: $stderr"; false; }
+  [ "$stderr" = "preflight: 't1' is a tag as well as the feature branch's name; git would read the tag (--spec-dir)" ] \
+    || { echo "spec folder: wrong reason: $stderr"; false; }
+  git tag -d t1 >/dev/null
+  probe --dir "$T" --feature-branch t1
+  [ "$status" -eq 0 ] || { echo "refused once the tag was gone: $stderr"; false; }
+}
