@@ -1384,8 +1384,10 @@ released_state() {
 # as given, and where cygpath exists its mixed, POSIX and Windows forms;
 # where it does not, the `/c/...` and `C:/...` forms of a path with a drive
 # letter. A drive letter is searched for in both cases. Called after every
-# `run` in the --released tests, passing runs included: a refusal is not
-# the only output that reaches a public CI log. The spellings are worked out
+# gate run in the --released tests, passing runs included: a refusal is not
+# the only output that reaches a public CI log. walk_on's direct runs of
+# the walk do not call it: the walk reads the changelog on standard input
+# and is given no path to print. The spellings are worked out
 # once per test directory and kept in forms_spellings: each takes a process,
 # and on a slow machine about forty runs a test would then near the per-test
 # timeout.
@@ -1657,9 +1659,9 @@ undated_base() {
 
 # undated_below <plant>...: each plant on its own copy of the base, BELOW
 # the first dated heading. The default form must pass it and still say
-# state=released (G5); the release form must refuse it, naming its line
-# and quoting it (G1, G2). Each failure echoes and returns 1: call it on
-# its own line at the top level of a test.
+# state=released (G5); the release form's walk, run directly, must refuse
+# it, naming its line and quoting it (G1, G2). Each failure echoes and
+# returns 1: call it on its own line at the top level of a test.
 undated_below() {
   local plant first
   for plant in "$@"; do
@@ -1828,7 +1830,9 @@ undated_below() {
 # above the suite's slowest test; split six ways, by the contract's
 # clauses, the slowest took about 13 s. The plants review added later
 # raised that to about 18 s, well inside the timeout. Each plant still
-# runs the gate on its own copy, so a red names the plant that caused it.
+# has its own copy, so a red names the plant that caused it; most plants
+# are now judged by the walk alone (walk_on), and only forms_refused_gate
+# and the default-form runs go through the whole gate.
 # Later plants grew four of the six past 39 s on a loaded Windows machine,
 # two of them to the 60 s timeout (measured 2026-10-06), so those four are
 # now split again by clause, eleven tests where there were four, each
@@ -2479,10 +2483,13 @@ line_limit=$HELD_LINE_LIMIT
   forms_refused_gate K5 "$copied: CHANGELOG.md holds a NUL byte"
 
   # K3, last: a line of quote markers, which an older walk took minutes to
-  # read, is refused for its length at once. The release form refuses a
-  # changelog over its size limit before the walk, so the line fills the
-  # room left under the limit, less a margin, measured on the copy rather
-  # than written down: the changelog grows with every release. The line is
+  # read, is refused for its length at once. It is judged by the walk alone
+  # (forms_refused), which has no size limit; the line is still sized as
+  # the release form needs it, which refuses a changelog over its size
+  # limit before the walk, so the copy stays one the whole gate would
+  # judge. The line fills the room left under the limit, less a margin,
+  # measured on the copy rather than written down: the changelog grows
+  # with every release. The line is
   # found with awk: as an argument, a line this long fails on Linux. Its
   # only floor is the rule under test, a line longer than the line limit:
   # a fixed count of pairs failed a correct tree once the copy grew past

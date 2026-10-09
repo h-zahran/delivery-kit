@@ -438,7 +438,7 @@ wrapper and in the expected-red set: "the gate keeps its own shell
 options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
 24 extra trees in both forms.
 
-**R11, at `2b38f74` (T005), on the real tree, this machine:**
+**2026-10-08, R11, at `2b38f74` (T005), on the real tree, this machine:**
 
 | Measure | `2b38f74` | branch (`069a2b6`, T028) |
 |---|---|---|
@@ -533,6 +533,29 @@ not ok, 0 non-TAP` (`bash scripts/check-suite.sh 436`), 2,098 s. Test 156
 (`pipeline/tests/pending.bats`, "every edge of every refused range…"),
 which timed out once at T030, passed: nothing new against the F.5
 baseline (`1..426`, all ok).
+
+**2026-10-09, phase M, PR #70 review, round 1.** Five reviewers at
+`11fd371` (house rules, obvious bugs, history, earlier PRs, code
+comments): no bug. Eleven notes, each scored by a second reader; the
+highest scored 50, below the review tool's bar of 80, so no review
+comment was posted. Fixed: four test comments the `walk_on` conversion
+had made false (`forms_no_path` "after every run", `undated_below` "the
+release form must refuse", "each plant still runs the gate", K3's
+sizing reason), and the R11 table's date. Left, with the reason: the
+`##[x` plant in W1 (no `]` follows, so the runner reads no command); the
+jq stubs writing test paths into their text (fixture paths, not
+marketplace data, which rule U1 covers; a bad path fails loudly); no
+test plants a 0x1a byte (the marketplace's own read refuses any such
+file as not JSON, measured in R12 item 10, and an ordering test would
+pin a comment, not a rule); the "14 s" figures in a gate comment (cited
+to R12, as older gate comments cite theirs); the plan's process and run
+totals (a dated planning document, its figures design targets); the
+spec's copy of the seed's dated baseline (the house pattern since spec
+025). CI on `11fd371` (run 37967845818): five jobs green, every step read.
+
+**2026-10-09, phase N.** On the tree with phase M's fixes: shellcheck
+clean; the house suite `suite ok: 1..436, 436 ok, 0 skipped, 0 not ok, 0
+non-TAP`, 2,265 s.
 
 **2026-10-08/09, the quickstart as one script (T029, T030).** Blocks 1-6
 ok: SC-001 (14 jq starts at `2b38f74`, 3 now), FR-005, FR-007, FR-006,
