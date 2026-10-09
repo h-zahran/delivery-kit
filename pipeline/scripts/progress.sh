@@ -30,18 +30,24 @@ STATE_ROOT=".delivery-kit"
 SCRIPT_DIR="${BASH_SOURCE[0]}"
 case "$SCRIPT_DIR" in */*) SCRIPT_DIR="${SCRIPT_DIR%/*}" ;; *) SCRIPT_DIR=. ;; esac
 SCRIPT_DIR="$(CDPATH='' cd -P -- "$SCRIPT_DIR" && pwd -P)" || { printf 'progress.sh: cannot find the folder that holds progress.sh\n' >&2; exit 1; }
-# HIDDEN_CHARS: the characters that can disguise text, one list for this
-# script and trailer-check.sh.
-# shellcheck source-path=SCRIPTDIR source=hidden-chars.sh
-. "$SCRIPT_DIR/hidden-chars.sh"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
 
+# HIDDEN_CHARS: the characters that can disguise text, one list for this
+# script and trailer-check.sh. A copy of this script made without it stops
+# here, saying so: bash's own error would name the copy's full path.
+[ -r "$SCRIPT_DIR/hidden-chars.sh" ] || die "hidden-chars.sh is missing beside progress.sh"
+# shellcheck source-path=SCRIPTDIR source=hidden-chars.sh
+. "$SCRIPT_DIR/hidden-chars.sh"
+
 # Every invocation removes what it made, on any exit: suite-key's scratch
 # file, a text file's checked copy, with_trailers' message copy and its
 # check's error file, show-message's record message, and the state lock
-# this process holds.
+# this process holds. Each name starts empty: one inherited from the
+# caller's environment names a file this process did not make, and an
+# inherited STATE_LOCK would also read as a lock already held.
+SK_SCRATCH='' TEXT_COPY='' TR_MSG='' TR_ERR='' SHOW_MSG='' STATE_LOCK=''
 on_exit() {
   rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}" "${TR_MSG:-}" "${TR_ERR:-}" "${SHOW_MSG:-}"
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
@@ -778,7 +784,7 @@ nul_file() {
 # of the message. The list is the state file's config.commitTrailers: an
 # array of `<token>: <value>` strings the orchestrator recorded from
 # pre-flight's report. It is read as data, never typed into a command, and
-# every entry passes trailer_ok. Sets MF to the file to commit: the message
+# every entry passes trailer-check.sh. Sets MF to the file to commit: the message
 # file itself when the run records no trailer, else the copy under the run
 # directory, so a caller's own file is never rewritten. Every caller sets sf
 # and RD first. The lines are appended here, not by git interpret-trailers:
