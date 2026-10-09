@@ -205,22 +205,34 @@ if [ -n "$spec_dir" ]; then
   done
   shown p_s "$p"
   [ -d "$p" ] || die "'$sd_s' runs through '$p_s', which is not a folder (--spec-dir)"
-  # Both are computed the same way, from here: git's --show-toplevel
-  # spells a path its own way (C:/Users/... where Git Bash says /tmp), so
-  # the top is reached by git's relative path back to it instead.
+  # The top is reached by git's relative path back to it: git's
+  # --show-toplevel spells a path its own way (C:/Users/...).
   real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p_s' (--spec-dir)"
   top="$(pwd -P)"
   if [ "$have_git" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
     top="$(cd -P -- "./$t" && pwd -P)" || top="$(pwd -P)"
   fi
-  case "$real/" in
-    "$top"/*) ;;
-    *) die "'$sd_s' leads outside the repository (--spec-dir)" ;;
-  esac
+  # Inside or outside is decided by identity, never by spelling. Git Bash
+  # spells one folder /tmp/... and /c/Users/.../Temp/..., and cd -P through
+  # an absolute link gives the /tmp one while a repository entered as
+  # /c/Users/... keeps its own (measured, review 4), so comparing the text
+  # refused a folder inside. The resolved folder's ancestors are walked by
+  # cutting the last segment, never by cd .., and each is compared with the
+  # top by -ef, the same device and inode (measured on Git Bash for
+  # directories under both spellings). `under` ends as the name of the
+  # folder just below the top on the way, empty when the folder is the top.
+  # Each pass cuts one segment, and a value with no / left ends the walk.
+  d="$real"; under=""; inside=false
+  while :; do
+    if [ "${d:-/}" -ef "$top" ]; then inside=true; break; fi
+    case "$d" in */*) ;; *) break ;; esac
+    under="${d##*/}"; d="${d%/*}"
+  done
   # Neither refusal prints the resolved path: it is absolute, it holds the
   # user's name, and a refusal's text may leave the machine.
-  case "$real/" in
-    "$top"/.[Gg][Ii][Tt]/*|"$top"/.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt]/*)
+  [ "$inside" = true ] || die "'$sd_s' leads outside the repository (--spec-dir)"
+  case "$under" in
+    .[Gg][Ii][Tt]|.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt])
       die "'$sd_s' leads into git's or the run's own directory (--spec-dir)" ;;
   esac
   spec_run=".delivery-kit/runs/${spec_dir##*/}/progress.json"
