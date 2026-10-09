@@ -12,3 +12,7 @@
 - [X] T007 Name the folder that holds `artifacts.spec`; on a resume, print the recorded base.
 - [X] T008 Add `plan.md`, the contract and the checklist.
 - [X] T009 Mutations for T005 and T006, each landed, each red (`quickstart.md`).
+
+## After review 4 (2026-10-10)
+
+- [X] T010 Render the probe block from the state file on every re-entry, after decision item 7's lock and the tracked-state check, and pin the sentence whole.

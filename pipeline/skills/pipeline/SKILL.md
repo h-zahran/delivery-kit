@@ -137,8 +137,11 @@ before this call — the `--base-branch` flag goes as
 parse its stdout as JSON, and render the probe block — the Implementer
 line only when the key resolves to a value, per **Implementer:** below,
 and the Branch, Spec folder and Trailers lines only when set or recorded.
-On a resume, run `progress.sh validate <feature>` and read the state file
-first: the recorded lines come from it.
+On every re-entry (`--resume`, `--from`, or a resume chosen at decision
+item 8's prompt), render the block from the state file, again if it was
+already shown, once decision item 7's lock is held and the tracked-state
+check under **Resume** has run: run `progress.sh validate <feature>` and
+read the state file; the recorded lines come from it.
 
 ```
 Project type : <projectType>  (<projectTypeSource>)
