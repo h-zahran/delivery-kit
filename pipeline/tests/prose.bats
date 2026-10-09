@@ -1915,3 +1915,66 @@ PINS
     ! [[ $s == *'‮'* || $s == *'\udb40'* ]] || { echo "$f holds its own hidden-character list again"; false; }
   done
 }
+
+# --- review 4 of PR #68 -------------------------------------------------------
+# T5 and T6 are the review's, byte for byte; each killed a mutant that
+# survived on 3fec620 (X1-X3, M7).
+
+@test "the CHANGELOG states review 3's new refusals whole" {
+  # The CHANGELOG is where a user reads what changed; each sentence below
+  # carries a rule review 3 added, and deleting it left every test green.
+  local changelog s
+  changelog="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [[ $changelog == *"$s"* ]] || { echo "CHANGELOG altered: $s"; false; }
+  done <<'PINS'
+A name that is not a local branch, a name that is a tag as well, or a name git would not accept as a branch name, stops pre-flight, naming it.
+holds an odd segment, a segment ending in a dot or a name Windows keeps for a device (`nul`, `con`), sits under `.delivery-kit/` or `.git` in any letter case,
+`Signed-off-by`, `On-behalf-of`, a closing keyword anywhere in the trailer before an issue in any form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the issue's URL),
+It refuses a character that can disguise text in a terminal, from the one list questions are checked against, `scripts/hidden-chars.sh`, and a refusal shows each such character as its `\u` escape.
+PINS
+}
+
+@test "the trailer path's scratch files are each made by mktemp in the run folder" {
+  # The test "the message copies are each call's own" proves the old fixed
+  # names are never written; a NEW fixed name would pass it and still let two
+  # calls of one run share a file. Each of the three is pinned to mktemp.
+  local s want
+  s="$(tr -d '\r' < "$ROOT/pipeline/scripts/progress.sh")"
+  for want in 'TR_ERR="$(mktemp "$RD/trailer-check.XXXXXX")"' 'TR_MSG="$(mktemp "$RD/trailers-msg.XXXXXX")"' \
+              'SHOW_MSG="$(mktemp "$RD/show-record-msg.XXXXXX")"'; do
+    [[ $s == *"$want"* ]] || { echo "progress.sh no longer makes it with mktemp: $want"; false; }
+  done
+}
+
+@test "review 4's refusals are pinned where the operator reads them" {
+  # Each sentence below states a refusal review 4 of PR #68 asked for, in
+  # configuration.md or the CHANGELOG; deleting one leaves a reader with the
+  # old rule and nothing red. In-shell matching, never grep on `< <(printf)`.
+  local docs changelog s
+  docs="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md" | tr '\n' ' ' | tr -s ' ')"
+  changelog="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
+  done <<'PINS'
+A local branch that is a tag as well is refused too: git would read the tag.
+So is a name holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, though git would accept it: pre-flight prints the name in a command a person may run.
+one holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, one that is a tag as well, which git would read in its place,
+has a segment that ends with a dot, which Windows drops, or that is a name Windows keeps for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`, `LPT0` to `LPT9`, in any letter case, with or without an extension),
+A refusal names the folder as it was given, never the path a link leads to, so no user name reaches a log.
+Every value pre-flight refuses, a name, a folder, a segment or an unknown argument, is printed masked: cut to 200 bytes and marked ` [cut]`, with every byte that is not printable ASCII shown as `?`,
+It also stops on a trailer holding a quote (`'`), a dollar sign or a backtick, because the run types the list into a shell command, and on one holding `##[` anywhere, which a GitHub workflow log reads as a command.
+PINS
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    [[ $changelog == *"$s"* ]] || { echo "CHANGELOG altered: $s"; false; }
+  done <<'PINS'
+So does a name holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, since pre-flight prints the name in a command a person may run.
+A branch name holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, or one that is a tag as well, is refused too.
+A refusal names the folder as given, never the path a link leads to, and every value pre-flight refuses is printed masked: cut to 200 bytes, with every byte that is not printable ASCII shown as `?`.
+It refuses a trailer holding a quote (`'`), a dollar sign or a backtick, because the run types the list into a shell command, and one holding `##[` anywhere, which a GitHub workflow log reads as a command.
+**`progress.sh` never removes a file it did not make.**
+PINS
+}
