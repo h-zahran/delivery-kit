@@ -512,8 +512,13 @@ link_fallback_refused() {
 @test "spec folder: a symbolic link out of the repository, into .git or the state directory, or dangling, is refused" {
   T="$BATS_TEST_TMPDIR/specdir-link"
   mkdir -p "$T/repo" "$T/outside"; cd "$T/repo"; git init -q -b work .; seed
-  # The first link decides whether this system can make one at all.
-  speclink "$T/outside" out || skip "this system cannot make a symbolic link"
+  # The first link decides which way this system goes, and the test never
+  # skips: a link is made, or, on Windows only, where a runner may not make
+  # one, the file a checkout makes in its place is refused as no folder.
+  local rc=0
+  link_or_file "$T/outside" out || rc=$?
+  [ "$rc" -ne 2 ] || false
+  if [ "$rc" -eq 1 ]; then link_fallback_refused "$T/repo" out/003-thing; return; fi
   speclink .git gitlink || { echo "fixture: the link gitlink was not made"; false; }
   probe --dir "$T/repo" --spec-dir 'out/003-thing'
   [ "$status" -ne 0 ]
