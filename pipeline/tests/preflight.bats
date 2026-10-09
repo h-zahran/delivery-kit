@@ -1220,3 +1220,36 @@ hidden_refused() {
   [ "$status" -eq 0 ] || { echo "refused: $stderr"; false; }
   [ "$(jq -r '.specDir' <<<"$output")" = "specs/.delivery-kit/003-thing" ]
 }
+
+# --- review 4 of PR #68 -------------------------------------------------------
+# Each test below states one rule review 4 added, its refusal text whole.
+
+@test "refusals show a refused value masked and cut, never its raw bytes" {
+  # Review 4, non-blocking 3: a value pre-flight refused, typed or read from
+  # a tracked key, was printed raw, so it could put a terminal escape or a
+  # bidi character on the operator's first screen. Every value a refusal
+  # prints is shown under the C locale, cut to 200 bytes then ` [cut]`, and
+  # each byte that is not printable ASCII as `?`.
+  T="$BATS_TEST_TMPDIR/shown"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local long
+  probe --dir "$T" $'--x\e[2J'
+  [ "$status" -eq 1 ] || { echo "unknown argument: status $status"; false; }
+  [[ "$stderr" == "preflight: unknown argument '--x?[2J' (legal: "* ]] || { echo "unknown argument: $stderr"; false; }
+  printf -v long '%0300d' 0
+  probe --dir "$T" "--$long"
+  [ "$status" -eq 1 ] || { echo "long argument: status $status"; false; }
+  [[ "$stderr" == "preflight: unknown argument '--${long:0:198} [cut]' (legal: "* ]] || { echo "not cut: $stderr"; false; }
+  probe --dir $'no\e[2Jdir'
+  [ "$status" -eq 1 ] || { echo "--dir: status $status"; false; }
+  [ "$stderr" = "preflight: cannot enter 'no?[2Jdir'" ] || { echo "--dir: $stderr"; false; }
+  probe --dir "$T" --base-branch-override $'in\e]0;pwn\a'
+  [ "$status" -eq 1 ] || { echo "override: status $status"; false; }
+  [ "$stderr" = "preflight: 'in?]0;pwn?' is not a legal branch name (--base-branch-override)" ] || { echo "override: $stderr"; false; }
+  probe --dir "$T" --spec-dir $'/x\e]0;pwned\a'
+  [ "$status" -eq 1 ] || { echo "absolute: status $status"; false; }
+  [ "$stderr" = "preflight: '/x?]0;pwned?' is not relative to the repository root (--spec-dir)" ] || { echo "absolute: $stderr"; false; }
+  probe --dir "$T" --spec-dir $'specs/a\xe2\x80\xaeb'
+  [ "$status" -eq 1 ] || { echo "segment: status $status"; false; }
+  [ "$stderr" = "preflight: 'specs/a???b' has the segment 'a???b'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ] \
+    || { echo "segment: $stderr"; false; }
+}
