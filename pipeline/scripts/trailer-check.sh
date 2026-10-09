@@ -20,9 +20,11 @@
 # HIDDEN_CHARS (hidden-chars.sh), is printed as its \u escape. Exit 2: the
 # call itself is wrong.
 #
-# The tools are jq alone, run once: preflight.sh's tests run this with a
-# PATH that holds jq and grep only, and each process costs time on Windows
-# (about 4.5 s per trailer when it took six).
+# The tools are jq alone, run once: each process costs time on Windows
+# (about 4.5 s per trailer when it took six). preflight.sh's tests run this
+# with a PATH that holds only the probe's own tools (awk, git, grep, head,
+# jq and od), and one of them with a PATH that holds nothing but a jq that
+# counts its calls.
 set -euo pipefail
 export LC_ALL=C
 
