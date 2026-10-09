@@ -1220,7 +1220,9 @@ hidden_refused() {
   [ "$status" -eq 0 ] || { echo "refused without git: $stderr"; false; }
   [ "$(jq -r '.baseBranch' <<<"$output")" = integration ]
   [ "$(jq -r '.featureBranch' <<<"$output")" = 003-x ]
-  [ "$(jq -r '.capabilities.git' <<<"$output")" = false ]
+  # The boolean false, not the string: `jq -r` prints both as false.
+  jq -e '.capabilities.git | type == "boolean" and . == false' <<<"$output" > /dev/null \
+    || { echo "git is not the boolean false: $(jq -c '.capabilities.git' <<<"$output")"; false; }
 }
 
 @test "feature branch and spec folder are checked in the repository, not in the caller's" {
