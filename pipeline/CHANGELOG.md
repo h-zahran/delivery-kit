@@ -78,7 +78,9 @@ All notable changes to the `pipeline` plugin.
   different name on a resume is reported, not applied: on a resume the
   run passes no override to pre-flight. A name that is not a local
   branch, a name that is a tag as well, or a name git would not accept
-  as a branch name, stops pre-flight, naming it. The
+  as a branch name, stops pre-flight, naming it. So does a name holding
+  a character other than a letter, a digit, `.`, `_`, `-` or `/`, since
+  pre-flight prints the name in a command a person may run. The
   `baseBranch` key is unchanged.
 - **A feature branch and a spec folder named for one run: the
   `--branch <name>` and `--spec-dir <path>` flags.** The spec tool's
@@ -93,7 +95,12 @@ All notable changes to the `pipeline` plugin.
   segment, a segment ending in a dot or a name Windows keeps for a device
   (`nul`, `con`), sits under `.delivery-kit/` or `.git` in any letter case,
   leads out through a symbolic link, already exists, or whose run name
-  already has a state file. Without `--branch`, the folder's last segment
+  already has a state file. A branch name holding a character other than
+  a letter, a digit, `.`, `_`, `-` or `/`, or one that is a tag as well,
+  is refused too. A refusal names the folder as given, never the path a
+  link leads to, and every value pre-flight refuses is printed masked:
+  cut to 200 bytes, with every byte that is not printable ASCII shown as
+  `?`. Without `--branch`, the folder's last segment
   gets the branch checks. Both are read on a fresh run only. On a
   resume, pre-flight prints the branch and the folder the run recorded.
 - **Trailers on every commit the run makes: the `commitTrailers` key and
@@ -115,6 +122,9 @@ All notable changes to the `pipeline` plugin.
   refuses a character that can disguise text in a terminal, from the one
   list questions are checked against, `scripts/hidden-chars.sh`, and a
   refusal shows each such character as its `\u` escape.
+  It refuses a trailer holding a quote (`'`), a dollar sign or a
+  backtick, because the run types the list into a shell command, and one
+  holding `##[` anywhere, which a GitHub workflow log reads as a command.
   Pre-flight and the commit subcommands run one file for the rule,
   `scripts/trailer-check.sh`, and the subcommands append the lines
   themselves, so no git `trailer.*` setting touches them. K shows each
@@ -127,6 +137,11 @@ All notable changes to the `pipeline` plugin.
 - **State writes no longer race.** Every write to a run's state file holds
   a lock and a temporary file of its own. Two writes at the same moment
   could lose one another's change, or leave the state file empty.
+- **`progress.sh` never removes a file it did not make.** On exit it
+  removed whatever its scratch-file names held, and a name inherited from
+  the caller's environment held someone else's file. The names now start
+  empty, and an inherited `STATE_LOCK` no longer reads as a lock already
+  held.
 
 ### Changed
 

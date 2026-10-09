@@ -92,3 +92,8 @@ A developer who types a malformed trailer, or one using the run's own `Piece`, `
 
 - The trailer rule is one file, `pipeline/scripts/trailer-check.sh`, run by pre-flight and by every commit. The two hand-kept copies had drifted: pre-flight accepted U+0085, the commits refused it. A control character is now one in Unicode's sense for both, and a refusal shows such a trailer as JSON.
 - `show-message --record` prints J's empty record commit, `Late: J` line and trailers included, so K can show it exactly.
+
+### Changed after review 4 (2026-10-10)
+
+- The list of refusals under review 2 above is the list as it stood then. Refused now, from every layer, in any letter case: the review-2 list; `On-behalf-of` as a token; a closing keyword anywhere in the trailer, the token included, before an issue written `#1`, `owner/repo#1`, `GH-1` or as the issue's URL (review 3); a character from `scripts/hidden-chars.sh`, shown as its `\u` escape (review 3); a quote (`'`), a dollar sign or a backtick, because the run types the list into a shell command (review 4, non-blocking 6); and `##[` anywhere, which a GitHub runner reads as a workflow command (review 4, minor). The full table, with each message, is in `contracts/trailer-contract.md`.
+- The message copy, the check's error file and `show-message --record`'s message are each made by `mktemp` in the run folder, and `progress.sh` starts each scratch-file name empty, so a name inherited from the environment is never removed (review 4, minor).

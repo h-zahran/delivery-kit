@@ -112,9 +112,14 @@ silently. A name git would not accept as a branch name stops pre-flight,
 naming it, and so does a name git expands to another, such as `@{-1}`, a
 lone `@`, which git reads as `HEAD`, and a name that is not a local
 branch: a tag, a commit id, `origin/main` or `refs/heads/main` is not
-one. A branch that exists only on `origin`, as in a fresh clone, is
-refused with the command that creates it, `git branch --track <name>
-origin/<name>`: B cuts the feature branch from the local branch. Like
+one. A local branch that is a tag as well is refused too: git would read
+the tag. So is a name holding a character other than a letter, a digit,
+`.`, `_`, `-` or `/`, though git would accept it: pre-flight prints the
+name in a command a person may run. A refused name is printed masked,
+as the next section says. A branch that exists only on `origin`, as in
+a fresh clone, is refused with the command that creates it, `git branch
+--track <name> origin/<name>`: B cuts the feature branch from the local
+branch. Like
 `verifyCommand`, the key can be replaced by a later layer but not
 returned to unset, because `null` is silence: remove it from the file
 that set it.
@@ -146,15 +151,26 @@ name may hold `/`. They are flags only, with no configuration key: each
 names one feature, so a value set once would name the same feature on
 every run. A caller that builds the names from its own settings passes
 them as flags. Pre-flight stops on a bad value, naming it: a branch name
-git would not accept or would expand, the base branch's own name in any
+git would not accept or would expand, one holding a character other than
+a letter, a digit, `.`, `_`, `-` or `/`, one that is a tag as well, which
+git would read in its place, the base branch's own name in any
 letter case or behind `origin/`, `heads/` or `refs/heads/`, or a branch
 that already exists here or on `origin`, in any letter case, or that
 clashes with one as a folder (`team` and `team/x`); a spec folder that
 is absolute, climbs out with `..`, has a segment that starts with a dash
 or holds a character other than letters, digits, dot, dash and
-underscore, sits under `.delivery-kit/` or `.git` in any letter case,
+underscore, has a segment that ends with a dot, which Windows drops, or
+that is a name Windows keeps for a device (`CON`, `PRN`, `AUX`, `NUL`,
+`COM0` to `COM9`, `LPT0` to `LPT9`, in any letter case, with or without
+an extension), sits under `.delivery-kit/` or `.git` in any letter case,
 leads through a symbolic link out of the repository or into either of
 those two, already exists, or whose run name already has a state file.
+A refusal names the folder as it was given, never the path a link leads
+to, so no user name reaches a log. Every value pre-flight refuses, a
+name, a folder, a segment or an unknown argument, is printed masked: cut
+to 200 bytes and marked ` [cut]`, with every byte that is not printable
+ASCII shown as `?`, so a value from a tracked file cannot put a terminal
+escape on the screen.
 Without `--branch`, the folder's last segment names the branch, so it
 gets the branch checks too. Both are read on a fresh run only. A resume
 keeps the branch and the folder the run recorded, and a different value
@@ -231,7 +247,10 @@ can disguise text in a terminal: a bidi, invisible or zero-width
 character, a variation selector, a tag character or a byte-order mark,
 from the one list in `scripts/hidden-chars.sh` that questions are
 checked against too. A refusal shows such a trailer as JSON, each of
-these characters as its `\u` escape, never raw. Every
+these characters as its `\u` escape, never raw. It also stops on a
+trailer holding a quote (`'`), a dollar sign or a backtick, because the
+run types the list into a shell command, and on one holding `##[`
+anywhere, which a GitHub workflow log reads as a command. Every
 commit the run makes carries the list, the spec commit included, and the
 same trailer is never added twice. The list is read on a fresh run only.
 A resume keeps the list the run recorded, and a different list on a

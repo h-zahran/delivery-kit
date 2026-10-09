@@ -81,3 +81,7 @@ An operator who resumes a run, typing a different `--base-branch`, is told that 
 - The override must be a LOCAL branch. Review 2 asked for "here or on `origin`", but review 3 measured that `git checkout -b <f> <base>` and `<base>..HEAD` fail (rc 128) on a name that is only `origin/<base>`. That case is refused with the command `git branch --track <base> origin/<base>`. Also, and `git check-ref-format --branch` must print it back unchanged. A lone `@` is refused by name: git creates the branch, but reads `@` as `HEAD` in a revision. A tag, a commit id, `origin/main` and `refs/heads/main` are refused. The check runs after the cd into `--dir` (item 7).
 - The Base branch line names the layer that set the override, never the word `override` (item 11). The layers are the flag, `~/.delivery-kit.json`, the repository's `.delivery-kit.json` and `--config` (item 12).
 - `SKILL.md`'s pre-flight call names `--base-branch-override`, and says the `--base-branch` flag goes as that argument (item 2).
+
+## Changed after review 4 (2026-10-10)
+
+- The override is refused when it holds a character other than a letter, a digit, `.`, `_`, `-` or `/`, though git accepts it: pre-flight prints it in the `git branch --track` command, and `x$(touch${IFS}PWNED)` is a legal branch name (review 4, blocking 1). An override that is a tag as well as a branch was already refused (review 3, item 5). Every refused value is printed masked: cut to 200 bytes, every byte that is not printable ASCII shown as `?` (non-blocking 3). The table is in `contracts/flag-contract.md`.
