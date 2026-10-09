@@ -1253,3 +1253,51 @@ hidden_refused() {
   [ "$stderr" = "preflight: 'specs/a???b' has the segment 'a???b'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ] \
     || { echo "segment: $stderr"; false; }
 }
+
+@test "branch names: a character other than a letter, a digit, dot, underscore, dash or slash is refused" {
+  # Review 4, blocking 1 and non-blocking 4: git accepts $ ( ) ; & | < > a
+  # quote, a backtick and any byte past 0x7f in a branch name, and the name
+  # is printed in refusals and typed into commands. Only the safe set passes.
+  T="$BATS_TEST_TMPDIR/branch-charset"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local bad want
+  for bad in 'y$(id)' 'a;b' 'a`b`' "a'b" 'a"b' 'a&b' 'a|b' 'a<b>' 'a{b}' 'a+b' $'feat\xe2\x80\xaegnp'; do
+    want="${bad//$'\xe2\x80\xae'/???}"
+    probe --dir "$T" --feature-branch "$bad"
+    [ "$status" -eq 1 ] || { echo "status $status: $bad"; false; }
+    [ "$stderr" = "preflight: '$want' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--feature-branch)" ] \
+      || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+  probe --dir "$T" --base-branch-override 'x;y'
+  [ "$status" -eq 1 ] || { echo "override: status $status"; false; }
+  [ "$stderr" = "preflight: 'x;y' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)" ] \
+    || { echo "override: $stderr"; false; }
+  probe --dir "$T" --feature-branch 'Team_1/a.b-C9'
+  [ "$status" -eq 0 ] || { echo "refused a safe name: $stderr"; false; }
+}
+
+@test "branch names: an override that would run a command, published only on origin, is refused and runs nothing" {
+  # Review 4, blocking 1, measured: a tracked baseBranchOverride naming a
+  # branch only origin has got a refusal holding the command that fixes it,
+  # git branch --track <name> origin/<name>, and with this name that command
+  # ran touch. Whatever command a refusal offers is run here, as an operator
+  # following it would, and no file PWNED may appear.
+  T="$BATS_TEST_TMPDIR/override-pwn"; mkdir -p "$T/repo"
+  git init -q --bare "$T/origin.git"
+  cd "$T/repo"; git init -q -b work .; seed
+  local name='x$(touch${IFS}PWNED)' cmd
+  git remote add origin "$T/origin.git"
+  git push -q origin "HEAD:refs/heads/$name" 2>/dev/null
+  git fetch -q origin
+  git show-ref --verify --quiet "refs/remotes/origin/$name" || { echo "fixture: origin has no such branch"; false; }
+  ! git show-ref --verify --quiet "refs/heads/$name" || { echo "fixture: the branch is local too"; false; }
+  probe --dir "$T/repo" --base-branch-override "$name"
+  [ "$status" -eq 1 ] || { echo "status $status"; false; }
+  case "$stderr" in
+    *"create the local branch first: "*)
+      cmd="${stderr#*create the local branch first: }"; cmd="${cmd% (--base-branch-override)}"
+      (cd "$T/repo" && bash -c "$cmd") >/dev/null 2>&1 || true ;;
+  esac
+  [ ! -e "$T/repo/PWNED" ] && [ ! -e "$T/PWNED" ] || { echo "the refusal's command ran the name: $stderr"; false; }
+  [ "$stderr" = "preflight: '$name' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)" ] \
+    || { echo "wrong reason: $stderr"; false; }
+}

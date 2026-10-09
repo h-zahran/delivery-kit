@@ -123,12 +123,22 @@ have_git=false; command -v git >/dev/null 2>&1 && have_git=true
 # a name it expands is not the name that was typed. A lone @ passes both
 # (measured, git 2.43.0), and git even creates the branch, but in a revision
 # @ means HEAD, so <base>..HEAD would read nothing: it is refused by name.
+# Then the name must hold only the safe characters below. The order keeps
+# each refusal's reason: @{-1} and HEAD are git's to refuse first.
 branch_ok() {
   local out
   shown br_s "$1"
   [ "$1" != @ ] || die "'@' is not a legal branch name here: git reads it as HEAD ($2)"
   out="$(git check-ref-format --branch "$1" 2>/dev/null)" && [ "$out" = "$1" ] \
     || die "'$br_s' is not a legal branch name ($2)"
+  # git accepts $ ( ) ; & | < > a quote, a backtick and any byte past 0x7f
+  # in a name (measured, review 4), and a branch's name is printed in
+  # refusals and typed into commands: the one that fixes an origin-only
+  # override ran a name like x$(touch${IFS}PWNED). So a name is a letter, a
+  # digit, '.', '_', '-' or '/' throughout, the spec folder's own discipline.
+  case "$1" in
+    *[!A-Za-z0-9._/-]*) die "'$br_s' holds a character other than a letter, a digit, '.', '_', '-' or '/' ($2)" ;;
+  esac
 }
 # branch_like <name> — the local or origin branch that <name> collides
 # with, or nothing: one equal to it in any letter case (a file system that
