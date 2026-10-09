@@ -33,7 +33,8 @@ Written only when `plugin_shape` holds.
 | 5 | entry source | the same, for `.source` | `:375` `ms` |
 | — | `.` | terminator | — |
 
-Field 3 is a single byte, not length-prefixed.
+Field 3 is a field like the others (`1:1` or `1:0`); it was a bare byte
+until phase H.7, which made every value of the record cut the same way.
 
 "Trailing line feeds removed" is a recursive step,
 `def nl: if endswith("\n") then .[:-1] | nl else . end;` — never

@@ -45,9 +45,7 @@ set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 # Bash's $( ) keeps an inner CR (measured: `a\nb` read as `a\r\nb`), so the
 # same file gave other values on Windows than on Linux. Every jq below runs
 # with -b, which writes the bytes as they are, so the values agree on every
-# system. The reverse walk still strips a trailing CR from each line it
-# reads; with -b there is none, and the strip stays as a guard that costs
-# nothing.
+# system.
 set -euo pipefail
 
 # The heading walk (scripts/check-versions-walk.awk) is found beside this
@@ -187,8 +185,7 @@ plugin_shape='if length == 0 then error else length == 1 and (.[0] | type == "ob
 # backslash, so no line holds a raw one), then `.`. On a false shape it
 # writes `false`, which makes -e exit 1; text that is not JSON makes jq exit
 # with its own error status, as before.
-# shellcheck disable=SC2016 # $ok is jq's variable, not the shell's
-market_read='('"$market_shape"') as $ok | if $ok | not then false else ([.[0].plugins[] | [.name, (.source // "")] | @tsv] | join("\n")) + "." end'
+market_read='if ('"$market_shape"') then ([.[0].plugins[] | [.name, (.source // "")] | @tsv] | join("\n")) + "." else false end'
 shape=0
 market="$(jq -b -e -s -j "$market_read" < .claude-plugin/marketplace.json 2>/dev/null)" || shape=$?
 case $shape in
@@ -200,29 +197,27 @@ esac
 entries_tsv=${market%.}
 
 # One jq per plugin reads its plugin.json on standard input and the
-# marketplace by its fixed path, and answers what were separate jq
-# processes:
-# the shape check; the name and the version; whether an entry has that
-# name; and the matching entries' versions and sources. Each value is
+# marketplace by its fixed path, and answers: the shape check; the name and
+# the version; whether an entry has that name (`1` or `0`); and the
+# matching entries' versions and sources. Each value is
 # what the old read gave on Linux: `// ""` where it said `// empty`, and
 # trailing line feeds removed, as $( ) removed them (nl, written as a
 # loop: Oniguruma's `$` also matches before an inner line feed). Several
 # entries with the name give their values joined by line feeds, as the old
 # read printed one per line. Every `+` joins two strings: a length the
 # program writes and a value the shape check has made a string.
-# shellcheck disable=SC2016 # $ok, $m and $n are jq's variables, not the shell's
+# shellcheck disable=SC2016 # $m and $n are jq's variables, not the shell's
 plugin_read='def nl: if endswith("\n") then .[:-1] | nl else . end;
 def field: "\(utf8bytelength):" + .;
-('"$plugin_shape"') as $ok
-| if $ok | not then false else
+if ('"$plugin_shape"') then
     (.[0].name // "" | nl) as $n
     | [$m[0].plugins[] | select(.name == $n)] as $hits
     | ($n | field) + (.[0].version // "" | nl | field)
-      + (if ($hits | length) > 0 then "1" else "0" end)
+      + (if ($hits | length) > 0 then "1" else "0" end | field)
       + ([$hits[] | .version // empty] | join("\n") | nl | field)
       + ([$hits[] | .source // empty] | join("\n") | nl | field)
       + "."
-  end'
+  else false end'
 
 # A value the gate did not write, read from a tracked file or the command
 # line, is printed only through shown, which stores a copy safe to print in
@@ -264,7 +259,6 @@ shown() {
 # locale, as jq's utf8bytelength counts them; it returns 1, leaving
 # `record` as it was, on a length that is not plain digits, a missing
 # colon, or a length past the end, and the caller stops with its own line.
-record=''
 take() {
   local LC_ALL=C n r
   n=${record%%:*}
@@ -392,16 +386,11 @@ for dir in */; do
     1) die "$p_s: plugin.json is not one object with a string name and version, and no NUL character" ;;
     *) die "$p_s: plugin.json is not valid JSON" ;;
   esac
-  [ "${record: -1}" = . ] || die "$p_s: plugin.json could not be read"
-  record=${record%.}
-  take pn || die "$p_s: plugin.json could not be read"
-  take pv || die "$p_s: plugin.json could not be read"
-  entry=${record:0:1}
-  record=${record:1}
-  case $entry in 0|1) ;; *) die "$p_s: plugin.json could not be read" ;; esac
-  take mv || die "$p_s: plugin.json could not be read"
-  take ms || die "$p_s: plugin.json could not be read"
-  [ -z "$record" ] || die "$p_s: plugin.json could not be read"
+  entry=
+  { [ "${record: -1}" = . ] && record=${record%.} \
+    && take pn && take pv && take entry && take mv && take ms \
+    && [ -z "$record" ] && case $entry in 0|1) ;; *) false ;; esac; } \
+    || die "$p_s: plugin.json could not be read"
   shown pn_s "$pn"
   shown pv_s "$pv"
   [ -n "$pn" ] || die "$p_s: plugin.json has no name"
@@ -421,11 +410,8 @@ for dir in */; do
   #
   # Different defects get different messages — no entry, an entry with no
   # version, an entry with no source — each of which has a separate fix and
-  # each of which has happened. They were separate jq processes, kept apart
-  # for that clarity; the processes came to dominate the suite's time, so
-  # plugin_read now answers each question in the one read of this plugin,
-  # as its own value, and the tests below keep each message its own.
-  # (specs/033-gate-fewer-processes/research.md R1, R3.)
+  # each of which has happened. plugin_read answers each as its own value
+  # (specs/033-gate-fewer-processes/research.md R1, R3).
   #
   # Existence and the version key are two different absences with two different
   # fixes, so they get two different messages. Without `// empty`, jq would
@@ -621,10 +607,9 @@ for dir in */; do
     if ! [ -f "$walk_file" ] || ! { : < "$walk_file"; } 2>/dev/null; then
       die "$p_s: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released"
     fi
-    walk_rc=0
     refusal="$(DATED_RE="$dated_re" LINE_LIMIT="$line_limit" QUOTE_CUT="$quote_cut" LC_ALL=C \
-      awk -f "$walk_file" "./$p/CHANGELOG.md" 2>/dev/null)" || walk_rc=$?
-    [ "$walk_rc" = 0 ] || die "$p_s: the heading walk did not run to the end — this tree is NOT released"
+      awk -f "$walk_file" "./$p/CHANGELOG.md" 2>/dev/null)" \
+      || die "$p_s: the heading walk did not run to the end — this tree is NOT released"
     # The walk masks its own text; `##[` is shown as `#?[` here, in bash,
     # as shown does, so the walk itself does not change.
     refusal=${refusal//"$hh"/$hm}
@@ -644,8 +629,7 @@ done
 # marketplace's one jq wrote at the top (market_read). One read for the whole
 # walk: an earlier shape read the names, then re-queried this same file once
 # per name to fetch the source of the entry it had just read — looking an
-# entry up by a value taken from that entry. A CR, were one there, would land
-# on the LAST field of the line, so the strip below sits on the source.
+# entry up by a value taken from that entry.
 #
 # jq runs in its OWN statement, never in a process substitution feeding the
 # loop. A process substitution's exit status is invisible to `set -e`: the shell
@@ -668,7 +652,6 @@ entries=0
 # The source the link walk below last walked.
 walked=''
 while IFS=$'\t' read -r en es; do
-  es="${es%$'\r'}"
   entries=$((entries + 1))
   if [ "$entries" -gt "$entries_limit" ]; then
     die "the marketplace lists more than $entries_limit entries, more than the gate walks"

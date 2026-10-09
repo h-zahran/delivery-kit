@@ -1227,13 +1227,11 @@ HELD_QUOTE_CUT=200
 
 @test "the tests hold the walk's three values as the gate sets them" {
   local g="$ROOT/scripts/check-versions.sh" name want got n
-  for name in dated_re line_limit quote_cut; do
-    case $name in
-      dated_re) want="dated_re='$HELD_DATED_RE'" ;;
-      line_limit) want="line_limit=$HELD_LINE_LIMIT" ;;
-      quote_cut) want="quote_cut=$HELD_QUOTE_CUT" ;;
-    esac
-    n=$(LC_ALL=C grep -c "^$name=" "$g")
+  for want in "dated_re='$HELD_DATED_RE'" "line_limit=$HELD_LINE_LIMIT" "quote_cut=$HELD_QUOTE_CUT"; do
+    name=${want%%=*}
+    # grep -c exits 1 on no match, which errexit would end the test on
+    # before the line below could say so.
+    n=$(LC_ALL=C grep -c "^$name=" "$g" || true)
     [ "$n" = 1 ] || { echo "V1: the gate sets $name on $n lines, expected one"; false; }
     got=$(LC_ALL=C grep "^$name=" "$g")
     [ "$got" = "$want" ] || { echo "V1: the gate has <$got>, the tests hold <$want>"; false; }
@@ -1264,8 +1262,7 @@ HELD_QUOTE_CUT=200
 #
 # The dated pattern is the TEST's own (HELD_DATED_RE above), the one the
 # plant steps below use (here in bracket spelling, as it reaches awk as a
-# string), and never read
-# from the gate: the fixture is the baseline the
+# string), and never read from the gate: the fixture is the baseline the
 # gate is judged against, so it must not depend on the code under test. A
 # fixture that took the gate's pattern would agree with a wrong gate, and
 # against a gate written another way (the quickstart's first-heading-only
@@ -1923,31 +1920,36 @@ forms_at() {
 # shown as `#?[`, the values it hands over) is pinned end to end by W1 and
 # by the runs that still go through forms_refused_gate
 # (specs/033-gate-fewer-processes/research.md R8).
-walk_file_run() {
-  DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" LC_ALL=C \
-    awk -f "$ROOT/scripts/check-versions-walk.awk" < "$1"
-}
 walk_on() {
-  run walk_file_run "$1"
+  DATED_RE="$HELD_DATED_RE" LINE_LIMIT="$HELD_LINE_LIMIT" QUOTE_CUT="$HELD_QUOTE_CUT" LC_ALL=C \
+    run awk -f "$ROOT/scripts/check-versions-walk.awk" < "$1"
+}
+
+# forms_says <clause> <fragment>...: the last output holds every fragment,
+# each matched as a literal.
+forms_says() {
+  local id=$1 f
+  shift
+  for f in "$@"; do
+    case "$output" in
+      *"$f"*) ;;
+      *) echo "$id: the refusal does not say \"$f\". output: $output"; return 1 ;;
+    esac
+  done
 }
 
 # forms_refused <clause> <fragment>...: the walk refuses the judged
 # plugin's changelog in the copy: it exits 0, as it always does, and prints
 # a refusal holding every fragment.
 forms_refused() {
-  local id=$1 f
+  local id=$1
   shift
   walk_on "$d/$copied/CHANGELOG.md"
   [ "$status" -eq 0 ] \
     || { echo "$id: the walk exited $status. output: $output"; return 1; }
   [ -n "$output" ] \
     || { echo "$id: the walk accepted the plant"; return 1; }
-  for f in "$@"; do
-    case "$output" in
-      *"$f"*) ;;
-      *) echo "$id: the walk's refusal does not say \"$f\". output: $output"; return 1 ;;
-    esac
-  done
+  forms_says "$id" "$@"
 }
 
 # forms_refused_gate <clause> <fragment>...: --released refuses the copy,
@@ -1955,7 +1957,7 @@ forms_refused() {
 # absolute path (U2). For the plants whose refusal the gate makes, or whose
 # line only the gate gives whole.
 forms_refused_gate() {
-  local id=$1 f
+  local id=$1
   shift
   run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
   forms_no_path "$id plant" || return 1
@@ -1965,12 +1967,7 @@ forms_refused_gate() {
     *"is NOT released"*) ;;
     *) echo "$id: --released refused, but not as an unreleased tree. output: $output"; return 1 ;;
   esac
-  for f in "$@"; do
-    case "$output" in
-      *"$f"*) ;;
-      *) echo "$id: the refusal does not say \"$f\". output: $output"; return 1 ;;
-    esac
-  done
+  forms_says "$id" "$@"
 }
 
 # forms_unclear <opener> <unclear line>: the fence is refused at the unclear
@@ -2527,6 +2524,16 @@ gate_run() {
   forms_no_path || return 1
 }
 
+# gate_run_utf8 <copy> [<argument>...]: as gate_run, with LANG set to the
+# UTF-8 locale forms_utf8 found and LC_ALL unset, as CI runners set them.
+gate_run_utf8() {
+  local c=$1
+  shift
+  run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; shift 3; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' \
+    _ "$utf8" "$ROOT" "$c" "$@"
+  forms_no_path || return 1
+}
+
 # gate_says <clause> <exit status> <fragment>...: the last run exited with
 # exactly that status, and its output holds every fragment, each matched as
 # a literal: `?` is the mask character and also a glob wildcard.
@@ -2839,25 +2846,25 @@ gate_safe_control() {
 @test "the gate starts one jq for the marketplace and one per plugin" {
   cd "$ROOT"
   forms_base two
-  local real bin log want form jq_starts
+  local real bin log want form jq_starts pj
   real=$(command -v jq) || { echo "fixture: jq is not on PATH"; false; }
   bin="$TEST_DIR/jq-logging"
   log="$TEST_DIR/jq_starts.log"
   mkdir -p "$bin"
-  printf '#!/usr/bin/env bash\nprintf x >> "%s"\nexec "%s" "$@"\n' "$log" "$real" > "$bin/jq"
+  printf '#!/bin/sh\nprintf x >> "%s"\nexec "%s" "$@"\n' "$log" "$real" > "$bin/jq"
   chmod +x "$bin/jq"
-  want=$(cd "$base" && LC_ALL=C ls -d -- */.claude-plugin/plugin.json | LC_ALL=C wc -l | tr -d ' ')
-  want=$((want + 1))
+  pj=("$base"/*/.claude-plugin/plugin.json)
+  [ -e "${pj[0]}" ] || { echo "fixture: no plugin.json in the base"; false; }
+  want=$(( ${#pj[@]} + 1 ))
   for form in default released; do
     : > "$log"
-    if [ "$form" = default ]; then
-      run bash -c 'b=$1 r=$2 c=$3; cd "$c" && PATH="$b:$PATH" bash "$r/scripts/check-versions.sh"' _ "$bin" "$ROOT" "$base"
-    else
-      run bash -c 'b=$1 r=$2 c=$3; cd "$c" && PATH="$b:$PATH" bash "$r/scripts/check-versions.sh" --released "$4"' _ "$bin" "$ROOT" "$base" "$copied"
-    fi
-    forms_no_path || return 1
-    [ "$status" -eq 0 ] || { echo "Q1: the $form form refused the fixture: $output"; false; }
-    jq_starts=$(LC_ALL=C wc -c < "$log" | tr -d ' ')
+    if [ "$form" = default ]; then set --; else set -- --released "$copied"; fi
+    PATH="$bin:$PATH" gate_run "$base" "$@"
+    gate_says "Q1 $form" 0
+    # The log is one `x` a start, with no line feed: its length is the count.
+    jq_starts=
+    IFS= read -r jq_starts < "$log" || true
+    jq_starts=${#jq_starts}
     [ "$jq_starts" = "$want" ] \
       || { echo "Q1: the $form form started jq $jq_starts times, expected $want (one, and one per plugin)"; false; }
   done
@@ -2873,9 +2880,8 @@ gate_safe_control() {
   forms_base one
   forms_put '## Notes ##[x'
   forms_at '## Notes ##[x'
-  run bash -c 'cd "$1" && bash "$2/scripts/check-versions.sh" --released "$3"' _ "$d" "$ROOT" "$copied"
-  forms_no_path || return 1
-  [ "$status" -eq 1 ] || { echo "W1: the gate exited $status, not 1. output: $output"; false; }
+  gate_run "$d" --released "$copied"
+  gate_says W1 1
   local want last
   want="check-versions.sh: $copied: line $line holds '## Notes #?[x', which is not a dated version heading — this tree is NOT released"
   last=${output##*$'\n'}
@@ -2894,28 +2900,27 @@ gate_safe_control() {
   cd "$ROOT"
   forms_base one
   local s="$TEST_DIR/w2" k want
+  mkdir -p "$s/scripts"
+  cp scripts/check-versions.sh "$s/scripts/"
+  cp -r "$base" "$s/t"
   for k in present missing directory failing; do
-    rm -rf "$s"
-    mkdir -p "$s/scripts"
-    cp scripts/check-versions.sh "$s/scripts/"
+    rm -rf "$s/scripts/check-versions-walk.awk"
     case $k in
       present) cp scripts/check-versions-walk.awk "$s/scripts/" ;;
       directory) mkdir "$s/scripts/check-versions-walk.awk" ;;
       failing) printf 'BEGIN { exit 3 }\n' > "$s/scripts/check-versions-walk.awk" ;;
     esac
-    cp -r "$base" "$s/t"
     run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
     forms_no_path || return 1
     if [ "$k" = present ]; then
-      [ "$status" -eq 0 ] || { echo "W2 control: the copied gate refused a released tree: $output"; false; }
+      gate_says "W2 control" 0
       continue
     fi
-    [ "$status" -eq 1 ] || { echo "W2 $k: the gate exited $status, not 1. output: $output"; false; }
     case $k in
       failing) want="$copied: the heading walk did not run to the end — this tree is NOT released" ;;
       *) want="$copied: the heading walk check-versions-walk.awk beside the gate could not be read — this tree is NOT released" ;;
     esac
-    [[ $output == *"check-versions.sh: $want"* ]] || { echo "W2 $k: the output does not say <$want>: $output"; false; }
+    gate_says "W2 $k" 1 "check-versions.sh: $want"
   done
 }
 
@@ -2926,11 +2931,12 @@ gate_safe_control() {
 @test "an apostrophe in the walk file's comments is harmless" {
   cd "$ROOT"
   forms_base one
-  local s="$TEST_DIR/w3"
+  local s="$TEST_DIR/w3" first
   mkdir -p "$s/scripts"
   cp scripts/check-versions.sh "$s/scripts/"
   { printf '%s\n' "# isn't"; cat scripts/check-versions-walk.awk; } > "$s/scripts/check-versions-walk.awk"
-  [ "$(head -n 1 "$s/scripts/check-versions-walk.awk")" = "# isn't" ] || { echo "fixture: the apostrophe did not land"; false; }
+  IFS= read -r first < "$s/scripts/check-versions-walk.awk" || true
+  [ "$first" = "# isn't" ] || { echo "fixture: the apostrophe did not land"; false; }
   cp -r "$base" "$s/t"
   run bash -c 'cd "$1/t" && bash ../scripts/check-versions.sh --released "$2"' _ "$s" "$copied"
   forms_no_path || return 1
@@ -2995,12 +3001,9 @@ gate_safe_control() {
     "plugin.json is not one object with a string name and version, and no NUL character"
   # The first plant again with a UTF-8 locale and LC_ALL unset, as CI
   # runners set them: the field cut must count bytes there too.
+  # gate_forged left that tree at $TEST_DIR/utf8-pn, and the gate only reads it.
   forms_utf8
-  c="$TEST_DIR/utf8-pn-locale"
-  cp -r "$base" "$c"
-  json_set "$c/$copied/.claude-plugin/plugin.json" '.name = "x\u00e9\ud83d\ude00y"' "" || return 1
-  run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; cd "$c" && bash "$r/scripts/check-versions.sh"' _ "$utf8" "$ROOT" "$c"
-  forms_no_path
+  gate_run_utf8 "$TEST_DIR/utf8-pn"
   gate_says P7 1 "plugin.json name 'x??????y' does not match its directory"
   gate_safe P7
 
@@ -3147,9 +3150,7 @@ gate_safe_control() {
   gate_safe X1
   forms_put '## Notes ##[p28x]x'
   forms_utf8
-  run bash -c 'unset LC_ALL; export LANG=$1; r=$2 c=$3; shift 3; cd "$c" && bash "$r/scripts/check-versions.sh" "$@"' \
-    _ "$utf8" "$ROOT" "$d" --released "$copied"
-  forms_no_path
+  gate_run_utf8 "$d" --released "$copied"
   gate_says X1 1 "holds '## Notes #?[p28x]x', which is not a dated version heading"
   gate_lacks X1 '##['
   gate_safe X1
