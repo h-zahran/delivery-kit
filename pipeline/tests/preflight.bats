@@ -1430,3 +1430,74 @@ hidden_refused() {
   [ "$status" -eq 0 ] || { echo "refused a near miss: $stderr"; false; }
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Note: #[x]","Note: ## [x]","Note: ##x["]' ]
 }
+
+# Review 4 measured these mutants surviving on 3fec620; each test below kills
+# its own: device names in any letter case (T1), a second spelling of the
+# repository's path (T3), the tag-plane neighbours (T2), and trailer-check.sh
+# needing jq alone, run once (T4).
+
+@test "spec folder: a device name is refused in any letter case, COM0 and LPT0 included" {
+  # Windows reads CON, PRN, AUX, NUL, COM0-9 and LPT0-9 as devices in any
+  # letter case and with any extension. The trailing-dot and device test names
+  # most of them in one case only, so a rule that matched lower case alone, or COM1-9 only,
+  # stayed green.
+  T="$BATS_TEST_TMPDIR/specdir-devices"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local bad
+  for bad in 'specs/Prn' 'specs/AUX' 'specs/Nul.md' 'specs/COM1' 'specs/com0' 'specs/LPT0'; do
+    probe --dir "$T" --spec-dir "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"has the segment '${bad#specs/}', a name Windows keeps for a device"* ]] \
+      || { echo "wrong reason: $bad: $stderr"; false; }
+  done
+}
+
+@test "spec folder: a repository reached through a second spelling of its path is not outside itself" {
+  # Git Bash mounts the Windows temp folder at /tmp as well, so one folder has
+  # two spellings, /tmp/... and /c/Users/.../Temp/...; git prints a third,
+  # C:/Users/..., which cd -P turns into the /tmp one. The folder and the
+  # repository's top must be spelled one way (review 3, item 6). Where a
+  # folder has one spelling (no cygpath), the same check runs on that one.
+  T="$BATS_TEST_TMPDIR/two-spellings"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  local m alt="$T"
+  if command -v cygpath >/dev/null 2>&1; then
+    m="$(cygpath -m "$T")"
+    alt="/$(printf '%s' "${m%%:*}" | tr 'A-Z' 'a-z')${m#*:}"
+  fi
+  probe --dir "$alt" --spec-dir specs/003-thing
+  [ "$status" -eq 0 ] || { echo "a good path refused: $stderr"; false; }
+  [ "$(jq -r '.specDir' <<<"$output")" = specs/003-thing ]
+}
+
+@test "trailers: the characters just past the tag-plane ranges are accepted" {
+  # The ranges U+E0000-E007F and U+E0100-E01EF are pinned at their edges as
+  # refused; their outside neighbours were not pinned as accepted, so a list
+  # widened past either edge stayed green.
+  local tc="$ROOT/pipeline/scripts/trailer-check.sh" c err rc
+  for c in '\udb3f\udfff' '\udb40\udc80' '\udb40\udcff' '\udb40\uddf0'; do
+    rc=0; err="$(bash "$tc" "\"Note: a${c}b\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 0 ] || { echo "refused: ${c}: $err"; false; }
+  done
+}
+
+@test "trailers: trailer-check.sh runs jq once, and needs nothing else on the search path" {
+  # trailer-check.sh says it runs jq alone, once (each process costs time on
+  # Windows). The probe's tests give it awk, git, grep, head and od as well,
+  # so a grep or a second jq brought back stayed green. A search path holding
+  # only a jq that counts its calls proves both, for an accepted trailer, a
+  # closing form and a hidden character.
+  local d="$BATS_TEST_TMPDIR/jq-only" tc="$ROOT/pipeline/scripts/trailer-check.sh" real out rc v
+  real="$(command -v jq)"
+  mkdir -p "$d"
+  printf '#!/bin/sh\nprintf x >> "%s"\nexec "%s" "$@"\n' "$d/count" "$real" > "$d/jq"
+  chmod +x "$d/jq"
+  for v in 'Plan-Item: X' 'Ref: fixes #1' 'Note: a\u202eb'; do
+    : > "$d/count"
+    rc=0; out="$(PATH="$d" "$BASH" "$tc" "\"$v\"" 2>&1)" || rc=$?
+    case "$v" in
+      Plan-Item*) [ "$rc" -eq 0 ] && [ "$out" = 'Plan-Item: X' ] || { echo "accepted trailer: rc $rc: $out"; false; } ;;
+      Ref*)       [ "$rc" -eq 1 ] && [ "$out" = "'Ref: fixes #1' would close an issue" ] || { echo "closing form: rc $rc: $out"; false; } ;;
+      *)          [ "$rc" -eq 1 ] && [[ $out == '"Note: a\u202eb" holds a character that can disguise text'* ]] || { echo "hidden: rc $rc: $out"; false; } ;;
+    esac
+    [ "$(cat "$d/count")" = x ] || { echo "jq ran $(wc -c < "$d/count") times for $v"; false; }
+  done
+}
