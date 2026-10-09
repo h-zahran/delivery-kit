@@ -226,9 +226,11 @@ about 215 times on this machine with links made.
 - A MOVE test keeps its name and assertions, and runs the walk directly:
   a helper `walk_on <changelog>` runs `awk -f "$ROOT/scripts/check-versions-walk.awk"`
   on standard input, with `DATED_RE`, `LINE_LIMIT`, `QUOTE_CUT` and
-  `LC_ALL=C` set from the test file's own copies. Its base run (a whole
-  normalised fixture through the gate) becomes one walk run on the
-  normalised changelog.
+  `LC_ALL=C` set from the test file's own copies. As built (Phase 5
+  record below), the conversion went through the shared helpers, and each
+  test's base run stayed a whole-gate run: it is the "dated base that
+  passes" end to end, one run per test, and it keeps every fixture proved
+  valid against the whole gate before any plant is judged.
 - **The test file holds its own copies of the three values** (they exist
   today: the dated pattern at `:1259` and `quote_cut=200` at `:3234`, both
   inside functions; `line_limit=1000` at `:2338`, already at file scope);
@@ -361,6 +363,19 @@ options" (4 plain runs, 4 compared). 259 runs: the suite's gate runs plus
 
 The file is about a third faster (mean 477 s to 313 s) while it holds five
 more tests; one gate run takes about half as long.
+
+**2026-10-08/09, the quickstart as one script (T029, T030).** Blocks 1-6
+ok: SC-001 (14 jq starts at `2b38f74`, 3 now), FR-005, FR-007, FR-006,
+FR-003 (`DIFFERENTIAL OK (199 runs, 17 LF runs, 10 differing)`, `CONTROL
+OK`; expected red over the wrapper, by the rule: the shell-options test,
+Q1 and W2). Block 7, the house suite: `1..431`, 430 ok, 1 not ok — test
+156, "every edge of every refused range is refused, and the characters
+beside them are not" (`pipeline/tests/pending.bats`), `timeout after 60s`.
+This branch changes nothing under `pipeline/`; the test passed alone in
+43.4 s, and passed in the F.5 baseline. It is the near-limit test the
+session handoff already lists as a follow-up. The owner's answer
+(2026-10-09): record it, and let phase J's full suite, the same command,
+give the verdict. shellcheck 0.11.0 over CI's file list: clean.
 
 **2026-10-08, Phase 3 mutants (T015),** each in a scratch worktree,
 each confirmed landed (the old text found once before, not after, and the

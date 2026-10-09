@@ -2830,7 +2830,7 @@ gate_safe_control() {
   gate_safe ctl || { echo "control: gate_safe refused the gate's own suffix"; return 1; }
 }
 
-# C1: the gate starts one jq for the marketplace and one for each plugin
+# Q1: the gate starts one jq for the marketplace and one for each plugin
 # directory holding a plugin.json, in both forms
 # (specs/033-gate-fewer-processes/research.md R1, R2). A jq that logs each
 # start and then runs the real one goes first on PATH; jq_starts is the
@@ -2856,10 +2856,10 @@ gate_safe_control() {
       run bash -c 'b=$1 r=$2 c=$3; cd "$c" && PATH="$b:$PATH" bash "$r/scripts/check-versions.sh" --released "$4"' _ "$bin" "$ROOT" "$base" "$copied"
     fi
     forms_no_path || return 1
-    [ "$status" -eq 0 ] || { echo "C1: the $form form refused the fixture: $output"; false; }
+    [ "$status" -eq 0 ] || { echo "Q1: the $form form refused the fixture: $output"; false; }
     jq_starts=$(LC_ALL=C wc -c < "$log" | tr -d ' ')
     [ "$jq_starts" = "$want" ] \
-      || { echo "C1: the $form form started jq $jq_starts times, expected $want (one, and one per plugin)"; false; }
+      || { echo "Q1: the $form form started jq $jq_starts times, expected $want (one, and one per plugin)"; false; }
   done
 }
 
