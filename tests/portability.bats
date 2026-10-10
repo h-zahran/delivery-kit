@@ -498,7 +498,9 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # prevent. Measured on a 48MB transcript whose readings fall inside the
   # 5000-line window but outside the 8MB byte cap, so the starvation fallback
   # fires and the file is read twice: 8.2s. The common capped path is 2.0s.
-  # 30 leaves ~3.6x over the worst case; 10 left 1.2x.
+  # 30 leaves ~3.6x over the worst case; 10 left 1.2x. Re-measured 2026-10-10,
+  # when the guard began reading 1MB first: the same transcript reads three
+  # times, 9.4s against 8.4s on a loaded machine, so 30 still leaves ~3.2x.
   hooked=0
   for dir in */; do
     p="${dir%/}"

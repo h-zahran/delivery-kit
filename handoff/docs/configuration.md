@@ -145,18 +145,22 @@ window that matches the model, the same setting re-warns normally.
 
 ## Read size
 
-`maxBytes` is how much of the tail of the transcript the guard reads on each
-tool call. The default of 8,000,000 is there because the hook runs after *every*
-tool call and a long session's transcript reaches tens of megabytes: reading
-48MB measured 7.2 seconds, against a hook timeout of 30. Capping it brings the
-ordinary case to about 2 seconds.
+`maxBytes` is the most of the tail of the transcript the guard reads before it
+falls back to the whole file. The default of 8,000,000 is there because the hook
+runs after *every* tool call and a long session's transcript reaches tens of
+megabytes: reading 48MB measured 7.2 seconds, against a hook timeout of 30.
 
-Lowering it is safe in the sense that matters — if the capped read does not
-contain enough readings to take an honest median, the guard re-reads without the
-cap rather than answering from a starved window. That fallback costs a second
-read, so a value low enough to trigger it routinely is slower than no cap at
-all. There is no reason to change this setting unless you have measured a
-problem.
+The guard reads the last 1,000,000 bytes first, or `maxBytes` if that is
+smaller, and reads more only when that holds fewer than the fifteen readings it
+takes a median of: next `maxBytes`, then the whole file. A read that already
+held the whole file is not made again. In 312 real transcripts the last 1MB
+held fifteen readings at 92.5% of the points measured, so most calls read 1MB.
+
+Lowering `maxBytes` is safe in the sense that matters — when a read does not
+contain enough readings to take an honest median, the guard reads more rather
+than answering from a starved window. Each extra read costs time, so a value low
+enough to starve routinely is slower than the default. There is no reason to
+change this setting unless you have measured a problem.
 
 ## Handoff directory
 

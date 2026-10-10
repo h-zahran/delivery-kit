@@ -1557,3 +1557,226 @@ load ../../tests/helper
     false
   }
 }
+
+# ---------------------------------------------------------------------------
+# What the guard SPENDS (audit item 12, 2026-10-10). The hook runs after every
+# tool call, and on Windows each process it starts costs about 90 ms. The
+# differential compares stdout and exit status, so it is blind to a process by
+# construction; these tests count them. Each count is EXACT: a shim that is
+# never found counts zero, which fails an exact count, where a "fewer than"
+# check would pass it.
+# ---------------------------------------------------------------------------
+
+# spawn_shims — a directory of jq, tail and wc that each write one line per run
+# to $TEST_DIR/counts/<tool>, then run the real tool. Sets SHIMS.
+#
+# THE DIRECTORY MAY HOLD NO DRIVE LETTER. A `C:/...` entry in PATH splits on its
+# own colon under Git Bash, the shim is never found, and every count reads 0.
+# cygpath turns a Windows temporary path into a POSIX one where it exists; a
+# colon that survives is refused rather than counted.
+spawn_shims() {
+  local d="$TEST_DIR/shim" tool real
+  if command -v cygpath >/dev/null 2>&1; then d="$(cygpath -u "$d")"; fi
+  case "$d" in *:*) echo "the shim directory holds a colon: $d"; return 1 ;; esac
+  mkdir -p "$d" "$TEST_DIR/counts"
+  for tool in jq tail wc; do
+    real="$(command -v "$tool")" || { echo "no $tool on PATH"; return 1; }
+    printf '#!/bin/sh\necho x >> "$PROC_COUNT_DIR/%s"\nexec "%s" "$@"\n' "$tool" "$real" > "$d/$tool"
+    chmod +x "$d/$tool"
+    : > "$TEST_DIR/counts/$tool"
+  done
+  SHIMS="$d"
+}
+
+# run_counted <transcript> — the guard with the shims first on PATH.
+run_counted() {
+  local payload
+  payload="$(hook_input "$1")"
+  run env PATH="$SHIMS:$PATH" PROC_COUNT_DIR="$TEST_DIR/counts" bash "$HOOK" <<< "$payload"
+}
+
+# spawns — "jq=N tail=N wc=N" for the last run_counted.
+spawns() {
+  printf 'jq=%s tail=%s wc=%s' \
+    "$(wc -l < "$TEST_DIR/counts/jq" | tr -d ' ')" \
+    "$(wc -l < "$TEST_DIR/counts/tail" | tr -d ' ')" \
+    "$(wc -l < "$TEST_DIR/counts/wc" | tr -d ' ')"
+}
+
+# pad_line <file> <bytes> — append ONE JSON line, exactly <bytes> long with its
+# newline, that holds no reading: a tool result, as far as the guard can tell.
+# Built by one pipeline rather than a loop, because a loop under bats' DEBUG
+# trap costs seconds.
+pad_line() {
+  [ "$2" -ge 22 ] || { echo "pad_line: $2 is under one line"; return 1; }
+  {
+    printf '{"type":"pad","x":"'
+    head -c "$(($2 - 22))" /dev/zero | tr '\0' 'A'
+    printf '"}\n'
+  } >> "$1"
+}
+
+# gap_transcript <gap> — fifteen readings of 100000, a <gap>-byte line, then
+# five readings of 130000. The last fifteen readings give a median of 100000,
+# 50% of the default window. A read that starts inside the gap sees only the
+# five, a median of 130000 at 65%. So a guard that answers from a starved read
+# prints 65%, and one that climbs prints 50%.
+gap_transcript() {
+  local f="$TEST_DIR/transcript.jsonl" i
+  : > "$f"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do append_entry "$f" 100000; done
+  pad_line "$f" "$1" || return 1
+  for i in 1 2 3 4 5; do append_entry "$f" 130000; done
+  printf '%s' "$f"
+}
+
+# edge_transcript <size> — exactly <size> bytes: a reading of 60000 as the FIRST
+# line, padding, then readings of 100000 and 140000. All three give a median of
+# 100000 (50%); without the first line the two left give 140000 (70%). A read
+# of <size>-1 bytes cuts the first byte, so the first line no longer parses.
+edge_transcript() {
+  local f="$TEST_DIR/transcript.jsonl" head
+  : > "$f"
+  append_entry "$f" 60000
+  head="$(wc -c < "$f" | tr -d ' ')"
+  # Each reading line append_entry writes is the same length for a six-digit
+  # count; measure one rather than trust arithmetic about it.
+  : > "$TEST_DIR/one"
+  append_entry "$TEST_DIR/one" 100000
+  local one; one="$(wc -c < "$TEST_DIR/one" | tr -d ' ')"
+  pad_line "$f" "$(($1 - head - 2 * one))" || return 1
+  append_entry "$f" 100000
+  append_entry "$f" 140000
+  [ "$(wc -c < "$f" | tr -d ' ')" -eq "$1" ] || { echo "edge_transcript: wrong size"; return 1; }
+  printf '%s' "$f"
+}
+
+@test "spend: a working jq costs no probe, and a small transcript is read once" {
+  # Six readings, so the first read starves — as every session's first
+  # fifteen turns do. The file is smaller than that read, so the read already
+  # held all of it and is not made again. Before 2026-10-10 this cost jq=5
+  # tail=3: a `jq --version` probe on every call, and an uncapped re-read of
+  # the same bytes.
+  spawn_shims
+  t="$(transcript_with 100000 100000 100000 100000 100000 100000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=3 tail=2 wc=1" ]
+}
+
+@test "spend: a 1MB read answers when it holds fifteen readings" {
+  spawn_shims
+  f="$TEST_DIR/transcript.jsonl"
+  : > "$f"
+  pad_line "$f" 1200000
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do append_entry "$f" 100000; done
+  run_counted "$f"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  # No wc: the size is asked only after a read starves.
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=3 tail=2 wc=0" ]
+}
+
+@test "spend: a starved 1MB read climbs to maxBytes and answers from it" {
+  spawn_shims
+  t="$(gap_transcript 1100000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  # 50%, not the 65% the starved read alone would give.
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=4 tail=4 wc=1" ]
+}
+
+@test "spend: when maxBytes starves too, the whole file answers" {
+  spawn_shims
+  write_config "$TEST_DIR/.delivery-kit.json" '{"maxBytes":1500000}'
+  t="$(gap_transcript 1600000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  # jq: payload, config, 1MB, maxBytes, the whole file, and the emission.
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=6 tail=5 wc=1" ]
+}
+
+@test "spend: a file of exactly 1MB is read once, and one byte more is read again" {
+  spawn_shims
+  t="$(edge_transcript 1000000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent at 1000000: $(spawns)"
+  [ "$(spawns)" = "jq=3 tail=2 wc=1" ]
+
+  spawn_shims
+  rm -f "$TMPDIR"/ctx-warned-*
+  t="$(edge_transcript 1000001)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  # 50% only if the first line was read: the 1MB read cut it, and alone the
+  # two readings left say 70%.
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent at 1000001: $(spawns)"
+  [ "$(spawns)" = "jq=4 tail=4 wc=1" ]
+}
+
+@test "spend: a maxBytes under 1MB is the only capped read" {
+  # The 1MB first read is never larger than maxBytes. Here maxBytes holds a few
+  # readings of twenty, so its read starves, the file is larger than it, and
+  # the whole file answers: one capped read and one uncapped, where a first
+  # read that ignored maxBytes would take the whole small file at once.
+  spawn_shims
+  write_config "$TEST_DIR/.delivery-kit.json" '{"maxBytes":1000}'
+  t="$(transcript_with 100000 100000 100000 100000 100000 100000 100000 100000 100000 100000 \
+                       100000 100000 100000 100000 100000 100000 100000 100000 100000 100000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  # jq: payload, config, the capped read, the whole file, and the emission.
+  [ "$(spawns)" = "jq=5 tail=3 wc=1" ]
+}
+
+@test "a jq that runs but fails is reported like a missing one" {
+  # The probe now runs only after the payload call fails, and it is the same
+  # probe: `jq --version`. A rule keyed on exit codes 126 and 127 would miss a
+  # jq that exits 1 — a broken install, a wrapper — and leave the guard silent
+  # with no hint. This shim exits 1, so only the probe rule reports it.
+  mkdir -p "$TEST_DIR/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$TEST_DIR/bin/jq"
+  chmod +x "$TEST_DIR/bin/jq"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  payload="$(hook_input "$t")"
+  run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.systemMessage | test("jq is not installed or cannot run")'
+  [ -f "$TMPDIR/dk-jq-hint" ]
+}
+
+@test "the payload is drained on every early exit, so the writer is never killed" {
+  # A reader that exits without reading leaves the writer on a closed pipe,
+  # killed at 141. Two early exits read nothing on their own: jq refusing a
+  # payload at its first token, and a jq that cannot start. 300KB is past any
+  # pipe buffer, so a writer the hook did not drain cannot finish.
+  {
+    printf '{not json'
+    head -c 300000 /dev/zero | tr '\0' 'x'
+  } > "$TEST_DIR/payload"
+  run bash -c 'cat "$1" | bash "$2"; echo "writer=${PIPESTATUS[0]}"' _ "$TEST_DIR/payload" "$HOOK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"writer=0"* ]]
+  [[ "$output" != *"systemMessage"* ]]
+
+  mkdir -p "$TEST_DIR/bin"
+  printf '#!/usr/bin/env bash\nexit 127\n' > "$TEST_DIR/bin/jq"
+  chmod +x "$TEST_DIR/bin/jq"
+  run bash -c 'PATH="$1:$PATH"; cat "$2" | bash "$3"; echo "writer=${PIPESTATUS[0]}"' \
+    _ "$TEST_DIR/bin" "$TEST_DIR/payload" "$HOOK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"writer=0"* ]]
+  [[ "$output" == *"jq is not installed or cannot run"* ]]
+}

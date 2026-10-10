@@ -52,37 +52,6 @@ is_valid_threshold() {
   is_positive_int "$1" && [ "$1" -lt 100 ]
 }
 
-# jq is a hard dependency: the hook parses the stdin payload and a JSONL
-# transcript, and reimplementing that in POSIX shell would be fragile exactly
-# where correctness matters. Without jq the guard cannot run — and a guard
-# that silently never fires is the failure this project exists to prevent.
-# Say so once, then stay out of the way. Detection runs jq rather than
-# looking it up on PATH: a jq that cannot execute is no more use than none.
-if ! jq --version >/dev/null 2>&1; then
-  flagdir="${TMPDIR:-${TEMP:-/tmp}}"
-  hint_flag="$flagdir/dk-jq-hint"
-  # CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. Every other path out
-  # of this hook ends with the payload consumed — by jq when it parses, and by
-  # the `|| cat` beside that call when it does not; this one does not run jq at
-  # all. A reader that exits without reading leaves the
-  # caller writing into a closed pipe. Measured 2026-09-02, a ~200KB payload:
-  # a reader that never reads leaves the writer at exit 141 — killed by the
-  # broken pipe — while a reader that consumes it leaves the writer at 0.
-  #
-  # This used to happen by accident: the whole payload was copied into a shell
-  # variable at the top of the file, before this branch could be reached, and
-  # then written back out to jq further down. That cost a process on EVERY run
-  # to protect a path taken once per machine. The cost now sits on the path
-  # that needs it. Do not delete this line because the guard is exiting anyway:
-  # what it protects is the caller, not this hook.
-  cat > /dev/null 2>&1
-  if [ ! -f "$hint_flag" ]; then
-    : 2>/dev/null > "$hint_flag"
-    printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
-  fi
-  exit 0
-fi
-
 # The separator, defined ONCE and used everywhere: handed to jq with --arg and
 # used again below to split. It was previously spelled two ways in four places —
 # a jq \u escape inside the programs and $'\037' in the shell — which a merge or a
@@ -131,20 +100,68 @@ US=$'\037'
 # the top of this file and written back out here through a pipe — a `cat` and a
 # `printf` subshell, on every run, for a value with exactly ONE consumer.
 #
-# THE `|| cat` IS NOT BELT AND BRACES. jq reads to end of input only while the
+# THE DRAIN AFTER A FAILED CALL IS NOT BELT AND BRACES. It was a `|| cat` beside
+# the call until the jq probe moved onto the same branch. jq reads to end of
+# input only while the
 # input keeps parsing: hand it something malformed at its FIRST token and it
 # aborts at once, having read a buffer's worth and no more. The caller is then
 # writing into a pipe nobody is reading, and takes the same broken-pipe death
-# the branch above exists to prevent — measured, 3 runs of 3, a 300KB payload
+# the drain exists to prevent — measured, 3 runs of 3, a 300KB payload
 # beginning `{not json`: writer exit 141 without this, 0 with it, and 0 on the
 # hook that copied stdin. This is the mirror image of the fault the copy's
 # removal closed, and it was found by review rather than by the harness, which
 # compares the hook's own stdout and never the writer's status.
 #
-# It costs NOTHING on the path that matters. `||` fires only when jq exits
+# It costs NOTHING on the path that matters. The branch runs only when jq exits
 # non-zero, which for a well-formed payload it never does, so the ordinary run
 # still spends the two processes this change removed and no more.
-payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)') || cat > /dev/null 2>&1
+#
+# jq is a hard dependency: the hook parses the stdin payload and a JSONL
+# transcript, and reimplementing that in POSIX shell would be fragile exactly
+# where correctness matters. Without jq the guard cannot run — and a guard
+# that silently never fires is the failure this project exists to prevent.
+# Say so once, then stay out of the way. Detection runs jq rather than
+# looking it up on PATH: a jq that cannot execute is no more use than none.
+#
+# THE PROBE RUNS ONLY AFTER THIS CALL FAILS. It used to run first, on every tool
+# call, to protect a path taken once per machine: one process, measured
+# 2026-10-10 at about 90 ms of the hook's ~750 ms floor on Windows (alternating
+# runs, the fastest of thirty each). A jq that cannot run fails this call too,
+# so asking `jq --version` only then gives the same answer to the same question,
+# and a malformed payload pays one extra process where the ordinary run pays
+# none. The rule is the old one exactly — the hint fires when `jq --version`
+# fails — and NOT a table of exit codes: 127 and 126 are the obvious ones, but a
+# jq that dies on a missing library, or a shim that exits 1, is just as unable
+# to run, and an exit-code rule that missed one would leave the guard silent
+# with no hint, which is the failure this branch exists to name.
+#
+# stderr goes to /dev/null on this call now, and that is a change. With jq
+# missing, bash prints "jq: command not found" from inside the substitution, so
+# without the redirect every tool call would print it, where the probe it
+# replaces said nothing and the hint says it once. The redirect also hides
+# jq's own parse error on a malformed payload, which used to reach stderr.
+# Nothing reads this hook's stderr, and the differential never compares it.
+#
+# CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. A reader that exits
+# without reading leaves the caller writing into a closed pipe. Measured
+# 2026-09-02, a ~200KB payload: a reader that never reads leaves the writer at
+# exit 141 — killed by the broken pipe — while a reader that consumes it leaves
+# the writer at 0. A jq that cannot start reads nothing, so the `cat` below
+# drains the payload BEFORE the hint and its `exit 0`, on the same branch that
+# drains it for a payload jq could not parse. Do not move the hint above it
+# because the guard is exiting anyway: what it protects is the caller, not
+# this hook.
+if ! payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)' 2>/dev/null); then
+  cat > /dev/null 2>&1
+  if ! jq --version >/dev/null 2>&1; then
+    hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint"
+    if [ ! -f "$hint_flag" ]; then
+      : 2>/dev/null > "$hint_flag"
+      printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
+    fi
+    exit 0
+  fi
+fi
 agent_id=${payload%%"$US"*};  rest=${payload#*"$US"}
 transcript=${rest%%"$US"*};   rest=${rest#*"$US"}
 session=${rest%%"$US"*}
@@ -405,7 +422,7 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 #
 # NO REGEX, AND THAT IS DELIBERATE. This was `test("^[0-9]")` for one commit.
 # `test` needs a jq built with its regular-expression library, this is the only
-# regex in any program the hook ships, and the availability probe at the top
+# regex in any program the hook ships, and the availability probe at the payload
 # cannot detect a missing FEATURE — a compile error would yield an empty summary,
 # a count of zero, a fallback, and a guard that says nothing. Every FINITE
 # number's text form begins with a digit or a minus sign, so refusing the minus
@@ -461,8 +478,6 @@ SUMMARY_JQ="[ inputs | ( $READINGS_JQ )? ]
   ]
 | map(tostring) | join(\$US)"
 
-summary=$(tail -c "$MAX_BYTES" "$transcript" | tail -n 5000 | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
-
 # The byte cap is a THIRD budget that does not measure readings either, so on
 # its own it reaches the 2026-08-07 incident by exactly the route `tail -n 300`
 # did. The floor is therefore the WINDOW, and must stay equal to it if the
@@ -495,11 +510,39 @@ summary=$(tail -c "$MAX_BYTES" "$transcript" | tail -n 5000 | jq -Rrn --arg US "
 # megabyte between consecutive readings. An ordinary session is nowhere near
 # that; a session whose tool results are that large pays ~1s and gets the right
 # answer, which is the trade already made above rather than a new one.
+#
+# THE READ NOW CLIMBS: 1MB FIRST, THEN maxBytes, THEN UNCAPPED, and it stops at
+# the first rung holding fifteen readings. Added 2026-10-10 (audit item 12).
+# The floor argument above is what makes this free: every rung is a byte suffix
+# of the same file, so a rung holding fifteen readings has the same last
+# fifteen as the uncapped read, and the answer cannot depend on which rung gave
+# it. What changes is the WORK. At the 8MB cap alone a 6.7MB transcript cost
+# 1.6-2.5s per tool call, while the last fifteen readings needed far less:
+# measured over 35,053 points in 312 real transcripts, half needed 114KB or
+# less, and 1MB held fifteen readings at 92.5% of them (2MB at 97.3%, 8MB at
+# every one; the largest needed 5.3MB). So 1MB answers almost every call, and
+# the 7.5% it starves pay one more read, of maxBytes — the trade the floor
+# already made one rung up.
+#
+# The worst path now reads three times where it read twice: 1MB, then maxBytes,
+# then uncapped. Measured 2026-10-10 on the 48MB transcript described above,
+# readings inside the line window and outside the byte cap: 9.4s against 8.4s
+# before (medians of six alternating runs on a loaded machine), still more
+# than three times under the 30-second timeout in hooks.json.
+#
+# The 1MB is a literal, not a setting. maxBytes keeps its meaning as the
+# largest capped read; a maxBytes at or under 1MB is the only capped read, so
+# `maxBytes: 1` still means what it always meant and no size is read twice.
+FIRST_BYTES=1000000
+
+# read_summary <bytes> — one rung: the last <bytes> of the transcript, then the
+# 5000-line window, through SUMMARY_JQ. An empty <bytes> is the uncapped read.
+# Sets summary and count.
+#
 # Split with parameter expansion, never `read`, for the reason spelled out at
 # the payload extraction above: `read` stops at the first newline and would
 # drop the field after it.
-count=${summary%%"$US"*}
-
+#
 # A count that is not a run of digits means STARVED, never satisfied, and the
 # direction is the whole point. The `grep -c` this replaces could not fail —
 # it always printed a number. One field of a joined string can be empty or
@@ -507,12 +550,53 @@ count=${summary%%"$US"*}
 # and evaluate FALSE, skipping the uncapped re-read. Skipping it is precisely
 # the 2026-08-07 failure the re-read was added to close, so a broken count must
 # fall back rather than press on.
-case $count in
-  ''|*[!0-9]*) count=0 ;;
-esac
+read_summary() {
+  if [ -n "$1" ]; then
+    summary=$(tail -c "$1" "$transcript" | tail -n 5000 | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
+  else
+    summary=$(tail -n 5000 "$transcript" | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
+  fi
+  count=${summary%%"$US"*}
+  case $count in
+    ''|*[!0-9]*) count=0 ;;
+  esac
+}
 
+# A RUNG THAT HELD THE WHOLE FILE IS NOT READ AGAIN (audit H7). Every session's
+# first fifteen turns hold fewer than fifteen readings, so until 2026-10-10
+# every one of those calls read the file twice — the capped read, then the
+# uncapped one — when the capped read had already taken all of it and the
+# second returned the same bytes. One `wc -c` decides it, and it runs only
+# after a rung has starved, so the ordinary call never pays for it.
+#
+# THE SIZE CAN ONLY STOP A CLIMB, NEVER START ONE, and an unknown size climbs.
+# A size that is empty or holds no digits leaves `covered` false, so every rung
+# is read as before — the direction this hook must fail in. The test is `-le`:
+# `tail -c N` on a file of exactly N bytes returns all of it. One byte more and
+# the first byte is cut, the first line no longer parses, and its reading is
+# lost, which is why the differential pins the edge at N+1.
+#
+# wc pads its number with spaces on macOS; only the digits are kept.
+covered() {
+  [ -n "$size" ] && [ "$size" -le "$1" ]
+}
+
+first=$FIRST_BYTES
+[ "$MAX_BYTES" -lt "$first" ] && first=$MAX_BYTES
+read_summary "$first"
 if [ "$count" -lt 15 ]; then
-  summary=$(tail -n 5000 "$transcript" | jq -Rrn --arg US "$US" "$SUMMARY_JQ" 2>/dev/null)
+  size=$(wc -c < "$transcript" 2>/dev/null)
+  size=${size//[!0-9]/}
+  if ! covered "$first"; then
+    if [ "$MAX_BYTES" -gt "$first" ]; then
+      read_summary "$MAX_BYTES"
+      if [ "$count" -lt 15 ] && ! covered "$MAX_BYTES"; then
+        read_summary ""
+      fi
+    else
+      read_summary ""
+    fi
+  fi
 fi
 
 # Derived ONCE, after the fallback has had its say, rather than either side of
