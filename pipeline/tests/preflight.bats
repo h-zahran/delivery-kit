@@ -698,22 +698,23 @@ hidden_refused() {
 
 @test "trailers: the hidden-character ranges' lower edges are refused and shown escaped" {
   hidden_refused \
-    '\u0080' '\u034f' '\u115f' '\u17b4' '\u180b' '\u200b' '\u2028' '\u202e' '\u206f' '\ufe00' \
-    '\ufeff' '\ufff9' '\udb40\udc00' '\udb40\udd00'
+    '\u0080' '\u00ad' '\u034f' '\u115f' '\u17b4' '\u180b' '\u200b' '\u2028' '\u202e' '\u206f' '\ufe00' \
+    '\ufeff' '\ufff0' '\ud82f\udca0' '\ud834\udd73' '\udb40\udc00'
 }
 
 @test "trailers: the hidden-character ranges' upper edges are refused and shown escaped" {
   hidden_refused \
     '\u009f' '\u061c' '\u1160' '\u17b5' '\u180f' '\u200f' '\u2029' '\u2060' '\u3164' '\ufe0f' \
-    '\uffa0' '\ufffb' '\udb40\udc7f' '\udb40\uddef'
+    '\uffa0' '\ufffb' '\ud82f\udca3' '\ud834\udd7a' '\udb43\udfff'
 }
 
 @test "trailers: the review's hidden characters are refused, and the characters beside the ranges are not" {
   hidden_refused \
-    '\u2066' '\u200c' '\u200d' '\u200e' '\u180e' '\udb40\udc01' '\udb40\udc41'
+    '\u2066' '\u200c' '\u200d' '\u200e' '\u180e' '\udb40\udc01' '\udb40\udc41' \
+    '\udb40\udc80' '\udb40\udcff' '\udb40\uddf0'
   local tc="$ROOT/pipeline/scripts/trailer-check.sh" c err rc
   for c in \
-    '\u00a0' '\u2010' '\u202f' '\u2027' '\u2070' '\ufe10' '\u180a' '\u1810' '\ufffc' \
+    '\u00a0' '\u00ac' '\u00ae' '\u2010' '\u202f' '\u2027' '\u2070' '\ufe10' '\u180a' '\u1810' '\uffef' '\ufffc' \
     'مرحبا' '👍🏽'; do
     rc=0; err="$(bash "$tc" "\"Note: a${c}b\"" 2>&1 >/dev/null)" || rc=$?
     [ "$rc" -eq 0 ] || { echo "refused: ${c}: $err"; false; }
@@ -1440,7 +1441,7 @@ hidden_refused() {
 
 # Review 4 measured these mutants surviving on 3fec620; each test below kills
 # its own: device names in any letter case (T1), a second spelling of the
-# repository's path (T3), the tag-plane neighbours (T2), and trailer-check.sh
+# repository's path (T3), the astral ranges' neighbours (T2), and trailer-check.sh
 # needing jq alone, run once (T4).
 
 @test "spec folder: a device name is refused in any letter case, COM0 and LPT0 included" {
@@ -1475,12 +1476,14 @@ hidden_refused() {
   [ "$(jq -r '.specDir' <<<"$output")" = specs/003-thing ]
 }
 
-@test "trailers: the characters just past the tag-plane ranges are accepted" {
-  # The ranges U+E0000-E007F and U+E0100-E01EF are pinned at their edges as
-  # refused; their outside neighbours were not pinned as accepted, so a list
-  # widened past either edge stayed green.
+@test "trailers: the characters just past the astral ranges are accepted" {
+  # The ranges U+1BCA0-1BCA3, U+1D173-1D17A and U+E0000-E0FFF are pinned at
+  # their edges as refused; their outside neighbours are pinned here as
+  # accepted, so a list widened past an edge goes red. U+E0080, U+E00FF and
+  # U+E01F0, the neighbours of the two narrower tag ranges before the
+  # whole block U+E0000-E0FFF was listed, are now refused (the test above).
   local tc="$ROOT/pipeline/scripts/trailer-check.sh" c err rc
-  for c in '\udb3f\udfff' '\udb40\udc80' '\udb40\udcff' '\udb40\uddf0'; do
+  for c in '\ud82f\udc9f' '\ud82f\udca4' '\ud834\udd72' '\ud834\udd7b' '\udb3f\udfff' '\udb44\udc00'; do
     rc=0; err="$(bash "$tc" "\"Note: a${c}b\"" 2>&1 >/dev/null)" || rc=$?
     [ "$rc" -eq 0 ] || { echo "refused: ${c}: $err"; false; }
   done
