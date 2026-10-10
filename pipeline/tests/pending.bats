@@ -415,25 +415,72 @@ checks() {
   refuses "is longer than 16384 bytes (16385)" ask-later "$F" F "$BATS_TEST_TMPDIR/over"
 }
 
-@test "every edge of every refused range is refused, and the characters beside them are not" {
-  local c i=0
-  # C1, U+034F, U+061C, the Hangul fillers, U+17B4-17B5, the Mongolian
-  # variation selectors, zero-width and bidi marks, U+2028-202E, U+2060-206F,
-  # the variation selectors, the BOM, U+FFF9-FFFB, and the tag and
-  # supplementary variation-selector planes: each range's two edges.
-  for c in '\xc2\x80' '\xc2\x9f' '\xcd\x8f' '\xd8\x9c' '\xe1\x85\x9f' '\xe1\x85\xa0' '\xe1\x9e\xb4' '\xe1\x9e\xb5' \
-           '\xe1\xa0\x8b' '\xe1\xa0\x8f' '\xe2\x80\x8b' '\xe2\x80\x8f' '\xe2\x80\xa8' '\xe2\x80\xa9' '\xe2\x80\xae' \
-           '\xe2\x81\xa0' '\xe2\x81\xaf' '\xe3\x85\xa4' '\xef\xb8\x80' '\xef\xb8\x8f' '\xef\xbb\xbf' '\xef\xbe\xa0' \
-           '\xef\xbf\xb9' '\xef\xbf\xbb' '\xf3\xa0\x80\x80' '\xf3\xa0\x81\xbf' '\xf3\xa0\x84\x80' '\xf3\xa0\x87\xaf'; do
-    printf "approve $c this?\n" > "$BATS_TEST_TMPDIR/u"
-    refuses "a character that can disguise text" ask-later "$F" F "$BATS_TEST_TMPDIR/u"
+# hidden_edges <refused>... -- <accepted>...: each refused character, inside a
+# question, is refused as one that can disguise text; each accepted one is
+# queued. The characters are printf escapes of their UTF-8 bytes. The edges
+# of every range in hidden-chars.sh are split over seven tests of at most
+# eight calls: each ask-later costs about a second and a half on Windows,
+# and one test of all of them sat at the 60 s limit under load.
+hidden_edges() {
+  local c i=0 ok=0
+  for c in "$@"; do
+    if [ "$c" = -- ]; then ok=1; continue; fi
+    if [ "$ok" = 0 ]; then
+      printf "approve $c this?\n" > "$BATS_TEST_TMPDIR/u"
+      refuses "a character that can disguise text" ask-later "$F" F "$BATS_TEST_TMPDIR/u" || return 1
+    else
+      i=$((i + 1))
+      printf "fine $i $c this?\n" > "$BATS_TEST_TMPDIR/ok$i"
+      runs ask-later "$F" F "$BATS_TEST_TMPDIR/ok$i" || return 1
+    fi
   done
-  for c in '\xc2\xa0' '\xe2\x80\x90' '\xe2\x80\xaf' '\xe2\x80\xa7' '\xe2\x81\xb0' '\xef\xb8\x90' \
-           '\xe1\xa0\x8a' '\xe1\xa0\x90' '\xef\xbf\xbc'; do
-    i=$((i + 1))
-    printf "fine $i $c this?\n" > "$BATS_TEST_TMPDIR/ok$i"
-    runs ask-later "$F" F "$BATS_TEST_TMPDIR/ok$i"
-  done
+}
+
+@test "hidden-character edges, C1 to U+061C: refused, and the characters beside them are not" {
+  # C1 (U+0080-009F), the soft hyphen U+00AD, U+034F, U+061C; beside them
+  # U+00A0, U+00AC, U+00AE.
+  hidden_edges '\xc2\x80' '\xc2\x9f' '\xc2\xad' '\xcd\x8f' '\xd8\x9c' -- '\xc2\xa0' '\xc2\xac' '\xc2\xae'
+}
+
+@test "hidden-character edges, the Hangul fillers to the Mongolian selectors: refused, and the characters beside them are not" {
+  # U+115F-1160, U+17B4-17B5, U+180B-180F; beside them U+180A, U+1810.
+  hidden_edges '\xe1\x85\x9f' '\xe1\x85\xa0' '\xe1\x9e\xb4' '\xe1\x9e\xb5' '\xe1\xa0\x8b' '\xe1\xa0\x8f' -- \
+    '\xe1\xa0\x8a' '\xe1\xa0\x90'
+}
+
+@test "hidden-character edges, the zero-width and bidi marks: refused, and the characters beside them are not" {
+  # U+200B-200F, U+2028-202E; beside them U+2010, U+202F, U+2027.
+  hidden_edges '\xe2\x80\x8b' '\xe2\x80\x8f' '\xe2\x80\xa8' '\xe2\x80\xa9' '\xe2\x80\xae' -- \
+    '\xe2\x80\x90' '\xe2\x80\xaf' '\xe2\x80\xa7'
+}
+
+@test "hidden-character edges, U+2060 to the variation selectors: refused, and the characters beside them are not" {
+  # U+2060-206F, U+3164, the variation selectors U+FE00-FE0F; beside them
+  # U+2070, U+FE10.
+  hidden_edges '\xe2\x81\xa0' '\xe2\x81\xaf' '\xe3\x85\xa4' '\xef\xb8\x80' '\xef\xb8\x8f' -- \
+    '\xe2\x81\xb0' '\xef\xb8\x90'
+}
+
+@test "hidden-character edges, the BOM to U+FFFB: refused, and the characters beside them are not" {
+  # The BOM U+FEFF, U+FFA0, U+FFF0-FFFB (unassigned, then the interlinear
+  # annotation marks), with U+FFF9, its edge before U+FFF0 was listed,
+  # inside; beside them U+FFEF, U+FFFC.
+  hidden_edges '\xef\xbb\xbf' '\xef\xbe\xa0' '\xef\xbf\xb0' '\xef\xbf\xbb' '\xef\xbf\xb9' -- \
+    '\xef\xbf\xaf' '\xef\xbf\xbc'
+}
+
+@test "hidden-character edges, the shorthand and musical format controls: refused, and the characters beside them are not" {
+  # U+1BCA0-1BCA3 and U+1D173-1D17A; beside them U+1BC9F, U+1BCA4, U+1D172,
+  # U+1D17B.
+  hidden_edges '\xf0\x9b\xb2\xa0' '\xf0\x9b\xb2\xa3' '\xf0\x9d\x85\xb3' '\xf0\x9d\x85\xba' -- \
+    '\xf0\x9b\xb2\x9f' '\xf0\x9b\xb2\xa4' '\xf0\x9d\x85\xb2' '\xf0\x9d\x85\xbb'
+}
+
+@test "hidden-character edges, the block U+E0000-E0FFF: refused, and the characters beside it are not" {
+  # Tags, supplementary variation selectors and the default-ignorable rest,
+  # with U+E0080 and U+E01F0 inside; beside it U+DFFFF, U+E1000.
+  hidden_edges '\xf3\xa0\x80\x80' '\xf3\xa0\xbf\xbf' '\xf3\xa0\x82\x80' '\xf3\xa0\x87\xb0' -- \
+    '\xf3\x9f\xbf\xbf' '\xf3\xa1\x80\x80'
 }
 
 @test "answer with no queue at all names the id as not queued" {
