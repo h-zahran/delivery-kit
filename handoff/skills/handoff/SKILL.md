@@ -102,10 +102,12 @@ Required sections:
 - **Resume protocol** — numbered steps the next session executes first. Step 1 is
   always: reconcile this document's claims — branch, SHA, PR and CI state —
   against actual git state, and report any discrepancy before proceeding. Write
-  it as: run the command in the Reconcile section at the end of this document
-  and report its output. That section does not exist yet; step 4 below writes
-  it, and it prints MATCH or MISMATCH for the branch, the commit and the
-  `git status` lines. PR and CI state it cannot see, so step 1 still names them
+  it as: run the one-line command in the `~~~sh` fence of the Reconcile section
+  at the end of this document (not the script below it) and report its output;
+  if the output does not end in a `RECONCILE:` line, the check did not run, so
+  say so and check by hand. That section does not exist yet; checklist step 4
+  (Record the state for the next session) writes it, and it prints MATCH or
+  MISMATCH for the branch, the commit and the `git status` lines. PR and CI state it cannot see, so step 1 still names them
   for a check by hand. If the document has no Reconcile section when the next
   session reads it, step 1 falls back to checking the branch, SHA and the
   Uncommitted work section by hand. **HEAD
@@ -120,7 +122,7 @@ Before you finish the document, verify that every file path and cross-reference
 in it resolves to a real file. Stale cross-document links have cost a session
 before.
 
-**Then save it and stop. Do not commit it and do not push it.** The document is
+**Then save it. Do not commit it and do not push it.** The document is
 durable because it is on disk, and the next session reads it from disk. Tell the
 developer the path.
 
@@ -131,7 +133,8 @@ checked from a subdirectory reports "not ignored". Act on the exit status:
 
 - **1, not ignored.** Include the document itself in the `git add` line you
   print in step 1, so a developer who does want a commit gets the work and the
-  record in one.
+  record in one, and list it in the Uncommitted work section as this run's
+  work, so that section and the Reconcile record describe the same tree.
 - **0, ignored.** `<docsDir>` is matched by `.gitignore`, `.git/info/exclude`
   or a global excludes file. Say so plainly: the handoff document is ignored and
   stays on this machine only — a fresh clone will not have it. Keep the document
@@ -176,12 +179,14 @@ A second run replaces the section rather than adding another.
 tree it describes, so nothing may change the repository after it: not the
 document, not the plan, not a memory file inside the repository. If something
 must change after all, run the command again. If it refuses (exit status other
-than 0), say so in the final message: the document then has no Reconcile
-section, and step 1 of its Resume protocol falls back to the check by hand.
+than 0), say so in the final message: the document then has no current
+Reconcile section (an earlier one, if any, is left as it was and will report
+MISMATCH), and step 1 of its Resume protocol falls back to the check by hand.
 
 When the record matches, the plugin's session-start hook will also name this
 document in the next fresh session in this repository, until the branch, the
-commit or the `git status` lines change.
+commit or the `git status` lines change, as long as it is among the newest
+twenty handoffs in `<docsDir>` and no newer one also matches.
 
 ### 5. Print the resume prompt and stop
 

@@ -15,10 +15,19 @@
 # drops backslashes from pasted text, and `git status` C-quotes an unusual
 # path with exactly those. So the check travels inside the document, and
 # step 1 of the Resume protocol runs it straight from the file with a short
-# command that holds no backslash. That command pipes the block into bash, so
-# bash reads its script from stdin, and a command inside the block that read
-# stdin would eat the rest of the script. None does: every git, sed, cmp and
-# diff in it names its input.
+# command. That command holds no backslash unless the document's own path
+# holds a single quote (written `'\''`).
+#
+# THE COMMAND PIPES THE BLOCK INTO BASH, so bash reads its script from stdin,
+# and anything inside the block that read stdin would eat the rest of the
+# script. sed, cmp and diff name their files. git is the trap: it runs hooks the
+# user configured, and review measured a `core.fsmonitor` hook reading 935
+# bytes of the script, after which the block printed nothing and exited 0. So
+# every git call in the block reads /dev/null. The command also finds the block
+# only AFTER the begin marker, the same block the session-start hook parses, so
+# a fence quoted earlier in the document is never the one that runs; and when it
+# finds no block it says so and exits 2, rather than feeding bash nothing, which
+# exits 0 in silence.
 #
 # NOTHING FROM GIT IS EVER CODE. A branch name may hold `$(`, a quote, `>` or a
 # backtick (git allows all four; PR #68's blocking finding was exactly this).
@@ -27,19 +36,37 @@
 # terminator or the closing fence. The terminator holds `~`, which git refuses
 # in a ref name, as a second guard. `git status` itself C-quotes a path holding
 # a control character, a quote, a backslash or any byte above 0x7f
-# (core.quotePath=true, pinned on both sides), so no path breaks a line.
+# (core.quotePath=true, pinned on both sides), so no path breaks a line. A
+# detached HEAD is recorded as `(detached HEAD)`, which holds a space, and git
+# refuses a space in a ref name, so no branch can be called that.
 #
-# THE DOCUMENT RECORDS ITSELF. It is written before this runs, so its own line
-# (`??` when new, ` M` when an older handoff was overwritten) is in the status
-# taken here. Adding the block changes the document's content, never its status
+# EVERY UNTRACKED FILE, NOT EVERY UNTRACKED DIRECTORY. With git's default,
+# `--untracked-files=normal`, a new directory is one line (`?? docs/`), and any
+# file added inside it later changes nothing: review measured a MATCH, and the
+# hook naming the document, after two files were added under such directories.
+# On a repository's first handoff the handoff directory is itself one of them.
+# So both sides list every file (`--untracked-files=all`), at the cost of a
+# longer record when a large untracked tree is not ignored.
+#
+# THE DOCUMENT RECORDS ITSELF, when git lists it. It is written before this
+# runs, so its line is in the status taken here: `??` when it is untracked,
+# ` M` when an older tracked handoff was overwritten, and none at all when git
+# ignores it. Adding the block changes the document's content, never its status
 # letters, so the record stays true after the write that carries it. Status, not
 # content: a further edit to a path that was already modified is not seen. The
 # block says so where the reader will see it.
 #
 # THE SAME COMMANDS ON BOTH SIDES. The block reads the state with the exact
-# command lines used here (GIT_OPTIONAL_LOCKS=0 so it never rewrites the index,
-# `-c core.quotePath=true`, `--porcelain=v1 --untracked-files=normal`), so a
-# config difference on the resuming machine cannot read as a MISMATCH.
+# command lines used here: GIT_OPTIONAL_LOCKS=0 so it never rewrites the index,
+# `-c core.quotePath=true`, `--porcelain=v1 --untracked-files=all
+# --no-renames`. `--no-renames` because `status.renames` is configurable, and
+# review measured a rename read as MISMATCH once the setting differed. The
+# branch comes from `git symbolic-ref -q HEAD` with `refs/heads/` cut off, not
+# from `--short`, which prints `heads/main` once a tag called `main` exists.
+#
+# THE STATE IS READ FIRST, before this script or the block creates any
+# temporary file, so a TMPDIR inside the repository cannot put one in the
+# record.
 #
 # bash 3.2 (macOS) compatible: no mapfile, no `${v,,}`, no `sed -i`.
 set -u
@@ -54,77 +81,88 @@ doc=$1
 [ -f "$doc" ] || die "not a file: $doc"
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
-# Both directories in this shell's own form, so the prefix test below compares
-# like with like (git prints D:/x on Windows, the shell spells it /d/x).
-docdir=$(cd "$(dirname "$doc")" && pwd -P) || die "cannot enter the document's directory"
-docbase=$(basename "$doc")
+docdir=$(CDPATH='' cd -- "$(dirname -- "$doc")" && pwd -P) || die "cannot enter the document's directory"
+docbase=$(basename -- "$doc")
 doc="$docdir/$docbase"
-topdir=$(cd "$top" && pwd -P) || die "cannot enter the repository top level"
 
 begin='<!-- handoff-reconcile v1: begin -->'
 end='<!-- handoff-reconcile v1: end -->'
 
-# A begin with no end below it is a document someone edited by hand. Cutting
-# from the begin to the end of the file would destroy whatever follows, so
-# refuse and leave the file as it is.
-nb=$(grep -cxF -- "$begin" "$doc")
-ne=$(grep -cxF -- "$end" "$doc")
-[ "$nb" = "$ne" ] || die "the document has $nb begin and $ne end markers; fix it by hand, nothing was written"
+# The markers must come in begin/end pairs, in that order. Anything else is a
+# document someone edited by hand, and cutting from a begin to wherever the
+# next end is, or to the end of the file, would destroy what follows. Refuse
+# and leave the file as it is. (Review measured the old count-only check
+# passing `end … begin …` and losing the text after the begin.)
+awk -v b="$begin" -v e="$end" '
+  $0 == b { if (open) bad = 1; open = 1 }
+  $0 == e { if (!open) bad = 1; open = 0 }
+  END { exit (bad || open) ? 1 : 0 }
+' "$doc" || die "the document's reconcile markers are unpaired or out of order; fix it by hand, nothing was written"
 
-cd "$topdir" || die "cannot enter the repository top level"
+cd "$top" || die "cannot enter the repository top level"
 
-# The status is taken FIRST, before the temporary file below exists, so the
-# record never lists a file of this script's own.
-work=$(mktemp -d) || die "mktemp failed"
-trap 'rm -rf "$work"' EXIT
-branch=$(git symbolic-ref --short -q HEAD) || branch='(detached)'
-head=$(git rev-parse --verify -q HEAD) || head='(no commits)'
-GIT_OPTIONAL_LOCKS=0 git -c core.quotePath=true status --porcelain=v1 --untracked-files=normal > "$work/status" ||
+st=$(GIT_OPTIONAL_LOCKS=0 git -c core.quotePath=true status --porcelain=v1 --untracked-files=all --no-renames </dev/null) ||
   die "git status failed"
+if branch=$(git symbolic-ref -q HEAD </dev/null); then
+  branch=${branch#refs/heads/}
+else
+  branch='(detached HEAD)'
+fi
+head=$(git rev-parse --verify -q HEAD </dev/null) || head='(no commits)'
 
-case "$docdir/" in
-  "$topdir"/*) rel=${docdir#"$topdir"}; rel=${rel#/}; rel=${rel:+$rel/}$docbase ;;
-  *) rel=$doc ;;
-esac
-# For the single-quoted path in the printed command: ' becomes '\''.
+# The printed path: relative to the top when the document lies in this
+# repository, as git itself says (two `pwd -P` results disagree across a mount
+# alias such as /tmp, or in letter case on Windows); absolute otherwise.
+if [ "$(git -C "$docdir" rev-parse --show-toplevel 2>/dev/null)" = "$top" ]; then
+  rel=$(git -C "$docdir" rev-parse --show-prefix)$docbase
+else
+  rel=$doc
+fi
 q="'\\''"
 qrel=${rel//\'/$q}
+
+work=$(mktemp -d) || die "mktemp failed"
+trap 'rm -rf "$work"' EXIT
 
 {
   printf '%s\n' "$begin"
   cat <<'EOF'
 ## Reconcile
 
-Written by the handoff plugin as the handoff's last step. Step 1 of the Resume
-protocol runs it: it reads this file and git, and changes nothing.
+Written by the handoff plugin as the handoff's last write. Step 1 of the Resume
+protocol runs the one-line command below: it reads this file and git, and
+changes nothing.
 
 EOF
   printf '%s\n' '~~~sh'
-  printf '%s\n' "cd \"\$(git rev-parse --show-toplevel)\" && awk 'f && /^\`\`\`\$/ {exit} f; /^\`\`\`bash handoff-reconcile\$/ {f=1}' '$qrel' | bash"
+  printf '%s\n' "cd \"\$(git rev-parse --show-toplevel)\" && awk 'm && f && /^\`\`\`\$/ {exit} m && f; m && /^\`\`\`bash handoff-reconcile\$/ {f=1} \$0 == \"$begin\" {m=1} END {if (!f) print \"echo RECONCILE: cannot run, no reconcile block found; exit 2\"}' '$qrel' | bash"
   printf '%s\n' '~~~'
   cat <<'EOF'
 
 It checks the branch, the commit and the `git status` lines against the ones
 recorded below, and prints MATCH or MISMATCH for each. It sees which paths
-changed, not what changed inside them.
+changed, not what changed inside them. Its last line starts `RECONCILE:`; if
+it does not, the check did not run.
 
 ```bash handoff-reconcile
 # Compares the state this handoff recorded with the repository now. Read-only.
-# The lines between the heredoc markers are data, never code.
-top=$(git rev-parse --show-toplevel 2>/dev/null) || { echo 'RECONCILE: cannot run: not inside a git repository'; exit 2; }
+# The lines between the heredoc markers are data, never code. Every git call
+# reads /dev/null: this script arrives on stdin, and a git hook would eat it.
+top=$(git rev-parse --show-toplevel 2>/dev/null </dev/null) || { echo 'RECONCILE: cannot run: not inside a git repository'; exit 2; }
 cd "$top" || exit 2
-t=$(mktemp -d) || exit 2
+now=$(GIT_OPTIONAL_LOCKS=0 git -c core.quotePath=true status --porcelain=v1 --untracked-files=all --no-renames </dev/null) ||
+  { echo 'RECONCILE: cannot run: git status failed'; exit 2; }
+if b=$(git symbolic-ref -q HEAD </dev/null); then b=${b#refs/heads/}; else b='(detached HEAD)'; fi
+h=$(git rev-parse --verify -q HEAD </dev/null) || h='(no commits)'
+t=$(mktemp -d) || { echo 'RECONCILE: cannot run: mktemp failed'; exit 2; }
 trap 'rm -rf "$t"' EXIT
 cat > "$t/want" <<'DK~END'
 EOF
   printf '|%s\n' "$branch" "$head"
-  sed 's/^/|/' "$work/status"
+  [ -z "$st" ] || printf '%s\n' "$st" | sed 's/^/|/'
   cat <<'EOF'
 DK~END
-b=$(git symbolic-ref --short -q HEAD) || b='(detached)'
-h=$(git rev-parse --verify -q HEAD) || h='(no commits)'
-GIT_OPTIONAL_LOCKS=0 git -c core.quotePath=true status --porcelain=v1 --untracked-files=normal > "$t/now" ||
-  { echo 'RECONCILE: cannot run: git status failed'; exit 2; }
+if [ -n "$now" ]; then printf '%s\n' "$now" > "$t/now"; else : > "$t/now"; fi
 wb=$(sed -n '1s/^|//p' "$t/want")
 wh=$(sed -n '2s/^|//p' "$t/want")
 sed '1,2d; s/^|//' "$t/want" > "$t/was"
@@ -140,7 +178,7 @@ else
   ok=0; more=''
   case $wh in
     *[!0-9a-f]* | '') ;;
-    *) git merge-base --is-ancestor "$wh" HEAD 2>/dev/null && more=' (the recorded commit is behind it: commits were added since the handoff)' ;;
+    *) git merge-base --is-ancestor "$wh" HEAD </dev/null 2>/dev/null && more=' (the recorded commit is behind it: commits were added since the handoff)' ;;
   esac
   printf 'MISMATCH head: recorded %s, now %s%s\n' "$wh" "$h" "$more"
 fi
@@ -160,13 +198,16 @@ EOF
 } > "$work/block"
 
 # Copy first, so the new file keeps the document's mode; then fill it with the
-# document minus any old block, plus the new one; then swap it in whole.
+# document minus any old block, plus the new one; then swap it in whole. Only
+# EMPTY lines at the end are dropped (so reruns do not pile them up); a line of
+# spaces anywhere, inside a code fence included, is kept as it was. On Windows
+# the awk here reads in text mode, so a CRLF document comes back LF.
 tmp="$docdir/.$docbase.reconcile-tmp"
 cp -p "$doc" "$tmp" 2>/dev/null || die "cannot write beside the document"
 trap 'rm -rf "$work" "$tmp"' EXIT
 {
   awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$doc" |
-    awk 'NF {for (; blank > 0; blank--) print ""; print; next} {blank++}'
+    awk 'length($0) {for (; blank > 0; blank--) print ""; print; next} {blank++}'
   printf '\n'
   cat "$work/block"
 } > "$tmp" || die "cannot write beside the document"

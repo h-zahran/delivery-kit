@@ -52,12 +52,17 @@ has_line() {
   printf 'b\n' >> a.txt
   run record
   [ "$status" -eq 0 ]
+  # Relative, though this repository lies under /tmp, which Git Bash mounts
+  # over a Windows path: the path comes from git, not from two `pwd -P` runs.
+  [ "$output" = 'reconcile block written to docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md' ]
   check_from
   [ "$status" -eq 0 ]
   has_line 'MATCH    branch: main'
   has_line "MATCH    head: $(git rev-parse HEAD)"
   has_line 'MATCH    tree: 2 status lines, as recorded'
   has_line 'RECONCILE: MATCH'
+  grep -qxF '| M a.txt' "$DOC"
+  grep -qxF '|?? docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md' "$DOC"
 }
 
 @test "reconcile: another branch at the same commit is a branch mismatch only" {
@@ -139,7 +144,7 @@ has_line() {
   record
   check_from
   [ "$status" -eq 0 ]
-  has_line 'MATCH    branch: (detached)'
+  has_line 'MATCH    branch: (detached HEAD)'
 }
 
 @test "reconcile: a repository with no commits is recorded and matched" {
@@ -202,10 +207,11 @@ has_line() {
   check_from
   [ "$status" -eq 0 ]
   has_line 'RECONCILE: MATCH'
+  grep -qxF '|?? "caf\303\251.txt"' "$DOC"
   rm "it's.txt"
   check_from
   [ "$status" -eq 1 ]
-  has_line "< ?? \"it's.txt\"" || has_line "< ?? it's.txt"
+  has_line "< ?? it's.txt"
 }
 
 @test "reconcile: a document path holding a quote is quoted in the printed command" {
@@ -258,7 +264,19 @@ has_line() {
   cp "$DOC" "$TEST_DIR/before"
   run record
   [ "$status" -eq 1 ]
-  [[ "$output" == *'1 begin and 0 end markers'* ]]
+  [[ "$output" == *'unpaired or out of order'* ]]
+  cmp "$DOC" "$TEST_DIR/before"
+}
+
+# Review measured the first version's count-only check passing this shape and
+# dropping everything after the begin marker.
+@test "reconcile: an end marker above a begin marker refuses and leaves the document byte-identical" {
+  mkrepo
+  printf '<!-- handoff-reconcile v1: end -->\nmiddle\n<!-- handoff-reconcile v1: begin -->\nkeep this\n' >> "$DOC"
+  cp "$DOC" "$TEST_DIR/before"
+  run record
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'unpaired or out of order'* ]]
   cmp "$DOC" "$TEST_DIR/before"
 }
 
@@ -280,4 +298,119 @@ has_line() {
   [ -z "$(find "$REPO" -name '*reconcile-tmp*')" ]
   run grep -c 'reconcile-tmp' "$DOC"
   [ "$output" = 0 ]
+}
+
+# Review found a false MATCH: with `--untracked-files=normal` a new directory is
+# one line, and a file added inside it later changed nothing.
+@test "reconcile: a file added inside an untracked directory is a tree mismatch" {
+  mkrepo
+  mkdir -p src
+  printf 'x\n' > src/one.c
+  record
+  printf 'x\n' > src/two.c
+  check_from
+  [ "$status" -eq 1 ]
+  has_line '> ?? src/two.c'
+  rm src/two.c
+  printf 'x\n' > docs/handoffs/notes.txt
+  check_from
+  [ "$status" -eq 1 ]
+  has_line '> ?? docs/handoffs/notes.txt'
+}
+
+@test "reconcile: a changed line with the same line count is a tree mismatch" {
+  mkrepo
+  printf 'c\n' > new.txt
+  record
+  mv new.txt other.txt
+  check_from
+  [ "$status" -eq 1 ]
+  has_line '< ?? new.txt'
+  has_line '> ?? other.txt'
+}
+
+# The step-1 command finds the block only after the begin marker, the same
+# block the session-start hook parses. Review measured a quoted earlier fence
+# answering MATCH for a repository that had moved.
+@test "reconcile: a fence quoted earlier in the document is not the one that runs" {
+  mkrepo
+  printf '\n```bash handoff-reconcile\necho RECONCILE: MATCH\n```\n' >> "$DOC"
+  record
+  git switch -q -c other
+  check_from
+  [ "$status" -eq 1 ]
+  has_line 'RECONCILE: MISMATCH'
+}
+
+# Fed nothing, bash exits 0 in silence; the command must say it did not run.
+@test "reconcile: a document whose block is gone says the check cannot run, rc 2" {
+  mkrepo
+  record
+  awk '$0 != "```bash handoff-reconcile"' "$DOC" > "$TEST_DIR/x" && cat "$TEST_DIR/x" > "$DOC"
+  check_from
+  [ "$status" -eq 2 ]
+  has_line 'RECONCILE: cannot run, no reconcile block found'
+}
+
+@test "reconcile: a block that cannot make its temporary directory exits 2 and never says MATCH" {
+  mkrepo
+  record
+  TMPDIR="$TEST_DIR/no-such-dir" check_from
+  [ "$status" -eq 2 ]
+  has_line 'RECONCILE: cannot run: mktemp failed'
+  [[ "$output" != *'MATCH'* ]]
+}
+
+# git runs hooks the user configured, and they inherit stdin, which is the
+# block's own script. Review measured an fsmonitor hook eating 935 bytes of it:
+# no output, rc 0.
+@test "reconcile: a git hook that reads stdin cannot eat the block" {
+  mkrepo
+  printf '#!/bin/sh\ncat > /dev/null\nexit 1\n' > "$TEST_DIR/fsmonitor"
+  chmod +x "$TEST_DIR/fsmonitor"
+  record
+  git config core.fsmonitor "$TEST_DIR/fsmonitor"
+  check_from
+  [ "$status" -eq 0 ]
+  has_line 'RECONCILE: MATCH'
+}
+
+@test "reconcile: settings that change git status output do not change the answer" {
+  mkrepo
+  git config core.quotePath false
+  printf 'x\n' > "$(printf 'caf\303\251.txt')"
+  git mv a.txt moved.txt
+  record
+  git config core.quotePath true
+  git config status.renames false
+  git config status.showUntrackedFiles no
+  check_from
+  [ "$status" -eq 0 ]
+  has_line 'RECONCILE: MATCH'
+}
+
+# `git symbolic-ref --short` prints heads/main once a tag called main exists.
+@test "reconcile: a tag named like the branch does not change the branch" {
+  mkrepo
+  record
+  git tag main
+  check_from
+  [ "$status" -eq 0 ]
+  has_line 'MATCH    branch: main'
+}
+
+@test "reconcile: a TMPDIR inside the repository does not enter the record" {
+  mkrepo
+  mkdir -p "$REPO/tmpd"
+  TMPDIR="$REPO/tmpd" record
+  TMPDIR="$REPO/tmpd" check_from
+  [ "$status" -eq 0 ]
+  has_line 'RECONCILE: MATCH'
+}
+
+@test "reconcile: a line of spaces in the document is kept as it was" {
+  mkrepo
+  printf '```text\n    \n```\n' >> "$DOC"
+  record
+  grep -qx '    ' "$DOC"
 }
