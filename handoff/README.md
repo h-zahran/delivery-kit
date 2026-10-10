@@ -52,7 +52,7 @@ A fixed set of sections, so the next session always knows where to look:
 | Deployments pending | Migrations and uploads not yet applied |
 | Pipeline state | Only when a pipeline run is live: the phase, and how to resume it |
 | Resume protocol | Numbered steps, starting with "check these claims against real git state" |
-| Reconcile | Written last: the check step 1 runs, MATCH or MISMATCH for the branch, the commit and the `git status` lines |
+| Reconcile | Written last: the check Resume step 1 runs, MATCH or MISMATCH for the branch, the commit and the `git status` lines |
 
 **It never writes to git.** No commit, no push, no `git add`, no stash. The hook
 fired on its own, so nothing here was asked for — a commit message would be the
@@ -80,7 +80,7 @@ to configure the guard.
 ```
 
 If the second command does not see the plugin, run `/reload-plugins` between
-them. Requires `jq` on PATH — the hook parses a JSONL transcript, and without
+them. Requires `jq` on PATH — the guard parses a JSONL transcript, and without
 `jq` it says so once rather than failing silently. Full steps, including
 Windows, are in [docs/install.md](docs/install.md).
 

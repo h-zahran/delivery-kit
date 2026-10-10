@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A handoff now ends with a check the next session runs.** The skill's
-  last step records the branch, the commit at HEAD and the `git status` lines
+  last write records the branch, the commit at HEAD and the `git status` lines
   into the document, as a block that compares them with the repository and
   prints MATCH or MISMATCH for each. Step 1 of the Resume protocol runs it
   from the file with one command, so drift since the handoff is printed rather

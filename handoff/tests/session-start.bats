@@ -52,10 +52,10 @@ names() {
   printf '%s' "$output" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' > /dev/null || { echo "not the expected JSON: $output"; return 1; }
   ctx=$(printf '%s' "$output" | jq -r '.hookSpecificOutput.additionalContext')
   msg=$(printf '%s' "$output" | jq -r '.systemMessage')
-  [[ "$ctx" == *": $1. "* ]] || { echo "context does not name $1: $ctx"; return 1; }
-  [[ "$msg" == "handoff: $1 matches"* ]] || { echo "message does not name $1: $msg"; return 1; }
-  [[ "$ctx" == *'Do not read it or act on it unless the user asks.'* ]]
-  case "$ctx" in *[Ff]ollow*) echo "the context directs: $ctx"; return 1 ;; esac
+  # Whole strings, not a banned word: review's mutant "Read it and resume the
+  # work it describes" passed a check that only refused "follow".
+  [ "$ctx" = "The handoff plugin found a handoff document whose recorded branch, commit and git status match this repository exactly: $1. It may describe unfinished work. Tell the user it exists. Do not read it or act on it unless the user asks." ] || { echo "context: $ctx"; return 1; }
+  [ "$msg" = "handoff: $1 matches this branch, commit and uncommitted changes. To continue that work, ask Claude to read it." ] || { echo "message: $msg"; return 1; }
 }
 
 silent() {
@@ -147,26 +147,47 @@ silent() {
   names docs/handoffs/2026-10-09-a-SESSION-HANDOFF.md
 }
 
-@test "session-start: docsDir comes from the environment, then the repository file, then the user file" {
+# docsDir precedence, one layer per test. The first version tested all four in
+# one test, recording four documents and starting the hook four times, and it
+# timed out at 60 s on a loaded machine. Each test records a matching handoff in
+# BOTH directories, so the hook names the loser if it reads the wrong one.
+both_matching() {
+  newdoc "$1/2026-10-10-t-SESSION-HANDOFF.md"
+  newdoc "$2/2026-10-10-t-SESSION-HANDOFF.md"
+  record "$1/2026-10-10-t-SESSION-HANDOFF.md"
+  record "$2/2026-10-10-t-SESSION-HANDOFF.md"
+}
+
+@test "session-start: docsDir from the repository file beats the user file" {
   mkrepo
   printf '{"handoff":{"docsDir":"from-home"}}' > "$HOME/.delivery-kit.json"
   printf '{"handoff":{"docsDir":"from-repo"}}' > .delivery-kit.json
-  for d in docs/handoffs from-home from-repo from-env; do
-    newdoc "$d/2026-10-10-t-SESSION-HANDOFF.md"
-  done
-  for d in docs/handoffs from-home from-repo from-env; do
-    record "$d/2026-10-10-t-SESSION-HANDOFF.md"
-  done
+  both_matching from-repo from-home
   start_hook
   names from-repo/2026-10-10-t-SESSION-HANDOFF.md
+}
+
+@test "session-start: docsDir from the environment beats the repository file" {
+  mkrepo
+  printf '{"handoff":{"docsDir":"from-repo"}}' > .delivery-kit.json
+  both_matching from-env from-repo
   export DELIVERY_KIT_HANDOFF_DIR=from-env
   start_hook
   names from-env/2026-10-10-t-SESSION-HANDOFF.md
-  unset DELIVERY_KIT_HANDOFF_DIR
+}
+
+@test "session-start: a malformed repository file leaves the user file's docsDir standing" {
+  mkrepo
+  printf '{"handoff":{"docsDir":"from-home"}}' > "$HOME/.delivery-kit.json"
   printf '{not json' > .delivery-kit.json
+  both_matching from-home docs/handoffs
   start_hook
   names from-home/2026-10-10-t-SESSION-HANDOFF.md
-  rm "$HOME/.delivery-kit.json"
+}
+
+@test "session-start: with no setting anywhere, docsDir is docs/handoffs" {
+  mkrepo
+  both_matching docs/handoffs elsewhere
   start_hook
   names docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
 }
@@ -178,7 +199,9 @@ silent() {
   start_hook
   names docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
   f=docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
-  awk '{ if ($0 == "|main") print "main"; else print }' "$f" > "$TEST_DIR/x" && cat "$TEST_DIR/x" > "$f"
+  # `xmain`, not `main`: a hook that skipped the prefix check would strip one
+  # character either way, and `ain` is silent for the wrong reason.
+  awk '{ if ($0 == "|main") print "xmain"; else print }' "$f" > "$TEST_DIR/x" && cat "$TEST_DIR/x" > "$f"
   start_hook
   silent
 }
@@ -247,4 +270,76 @@ silent() {
   [[ "$output" == *'/hooks/session-start.sh'* ]]
   run jq -r '.hooks.SessionStart | length' "$HANDOFF/hooks/hooks.json"
   [ "$output" = 1 ]
+}
+
+@test "session-start: silent once a file is added inside an untracked directory" {
+  mkrepo
+  newdoc docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  record docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  printf 'x\n' > docs/handoffs/notes.txt
+  start_hook
+  silent
+}
+
+@test "session-start: silent when one status line changes and the count does not" {
+  mkrepo
+  printf 'c\n' > new.txt
+  newdoc docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  record docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  mv new.txt other.txt
+  start_hook
+  silent
+}
+
+@test "session-start: a block cut short is not a match" {
+  mkrepo
+  newdoc docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  record docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  f=docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  awk '$0 != "DK~END"' "$f" > "$TEST_DIR/x" && cat "$TEST_DIR/x" > "$f"
+  start_hook
+  silent
+}
+
+# Both edges of the cap: the 21st-newest name is never read, the 20th is.
+@test "session-start: only the newest twenty handoffs by name are read" {
+  mkrepo
+  # Written in the shell, not through newdoc: two processes per file times
+  # twenty-one timed this test out on a loaded machine.
+  mkdir -p docs/handoffs
+  for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 21; do
+    printf '# Session handoff\n\nbody\n' > "docs/handoffs/2026-01-$n-t-SESSION-HANDOFF.md"
+  done
+  record docs/handoffs/2026-01-01-t-SESSION-HANDOFF.md
+  start_hook
+  silent
+  record docs/handoffs/2026-01-02-t-SESSION-HANDOFF.md
+  start_hook
+  names docs/handoffs/2026-01-02-t-SESSION-HANDOFF.md
+}
+
+@test "session-start: the repository comes from the payload's cwd, not the hook's own directory" {
+  mkrepo
+  newdoc docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  record docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  local cwd=$REPO
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) cwd=$(cygpath -w "$REPO") ;;
+  esac
+  cwd=${cwd//\\/\\\\}
+  mkdir -p "$TEST_DIR/plain"
+  cd "$TEST_DIR/plain"
+  run bash -c 'printf "{\"cwd\":\"%s\"}" "$1" | bash "$2"' _ "$cwd" "$HOOK"
+  names docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+}
+
+@test "session-start: a quotePath setting at record time does not change the match" {
+  mkrepo
+  git config core.quotePath false
+  printf 'x\n' > "$(printf 'caf\303\251.txt')"
+  newdoc docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  record docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
+  git config core.quotePath true
+  start_hook
+  names docs/handoffs/2026-10-10-t-SESSION-HANDOFF.md
 }

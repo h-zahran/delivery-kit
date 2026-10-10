@@ -3,13 +3,15 @@
 ## Prerequisites
 
 - Claude Code.
-- `jq` on PATH. The hook parses the stdin payload and a JSONL transcript, and
+- `jq` on PATH. The guard parses the stdin payload and a JSONL transcript, and
   without `jq` the guard cannot run. It says so once if it is missing, rather
   than failing silently — once per machine, not once per session, because
   without `jq` it cannot read which session it is in.
-- `git`, optionally. It is used only to find `.delivery-kit.json` when Claude
-  Code's working directory sits below your repository root. Without it, the
-  guard falls back to defaults rather than failing.
+- `git`, optionally. The guard uses it only to find `.delivery-kit.json` when
+  Claude Code's working directory sits below your repository root; without it,
+  the guard falls back to defaults rather than failing. The handoff's reconcile
+  record and the session-start hook need it: without git the record refuses and
+  the hook stays silent.
 
 | Platform | Install `jq` |
 |---|---|

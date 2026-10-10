@@ -241,6 +241,7 @@ sections, so the next session always knows where to look:
 | Deployments pending | Migrations and uploads not yet applied |
 | Pipeline state | Only when a pipeline run is live: the phase, and how to resume it |
 | Resume protocol | Numbered steps, starting with "check these claims against real git state" |
+| Reconcile | Written last: the check Resume step 1 runs, MATCH or MISMATCH for the branch, the commit and the `git status` lines |
 
 **5. Paste what it prints.** The last thing it does is hand you this, with the
 real path filled in:
@@ -251,7 +252,9 @@ Read docs/handoffs/2026-08-25-csv-export-SESSION-HANDOFF.md and continue from it
 Follow the Resume protocol.
 ```
 
-Open a fresh session, paste that, and the work carries on.
+Open a fresh session, paste that, and the work carries on. A fresh session in
+the same repository also has a session-start hook name the handoff, while the
+branch, commit and changed files still match it.
 
 **Your work is not committed, and that is deliberate.** The hook fired on its
 own, so nothing here was asked for by you — a commit message would be the
@@ -478,7 +481,7 @@ you get. Why, and what to check instead of the warning count, is in
 ## What is in this repository
 
 ```
-handoff/     the handoff plugin — hook, skills, docs, tests
+handoff/     the handoff plugin — hooks, skills, scripts, docs, tests
 pipeline/    the pipeline plugin — command, skills, scripts, docs, tests
 tests/       repo-wide tests: layout, and what may appear in shipped files
 specs/       the specifications real pipeline runs produced, kept as examples

@@ -97,7 +97,7 @@ plugin plus the repository root, and which tree a file belongs in is the
 first thing to get right when you add one:
 
 - The `handoff` plugin's surface lives under `handoff/` — `handoff/hooks/`,
-  `handoff/skills/`, `handoff/README.md`, `handoff/CHANGELOG.md`,
+  `handoff/scripts/`, `handoff/skills/`, `handoff/README.md`, `handoff/CHANGELOG.md`,
   `handoff/docs/`, `handoff/tests/` and `handoff/.claude-plugin/`. This is
   what a user installs.
 - The `pipeline` plugin's read-or-install surface lives under `pipeline/` —
