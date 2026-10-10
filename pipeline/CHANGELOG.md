@@ -142,6 +142,14 @@ All notable changes to the `pipeline` plugin.
   the caller's environment held someone else's file. The names now start
   empty, and an inherited `STATE_LOCK` no longer reads as a lock already
   held.
+- **More invisible characters are refused in a question, an answer and a
+  commit trailer.** The one list in `scripts/hidden-chars.sh` now holds the
+  soft hyphen (U+00AD), U+FFF0-FFF8, the shorthand format controls
+  (U+1BCA0-1BCA3), the musical format controls (U+1D173-1D17A) and the
+  block U+E0000-E0FFF at the start of plane 14, where it held only the
+  tags and the supplementary variation selectors. Each is in Unicode's
+  Default_Ignorable_Code_Point set: a font draws nothing for it. The list
+  is now spelled in escapes, so the file is ASCII.
 
 ### Changed
 
