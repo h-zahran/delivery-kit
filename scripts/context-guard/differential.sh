@@ -109,6 +109,58 @@ READING='{"message":{"usage":{"input_tokens":90000,"cache_read_input_tokens":900
 #
 # An empty <shape> keeps the original six readings, so every payload and
 # configuration shape below compares exactly what it compared before.
+# reading <tokens> — one main-chain reading line, with no newline.
+reading() {
+  printf '{"message":{"usage":{"input_tokens":%d}}}' "$1"
+}
+
+# pad <bytes> — JSON lines that hold no reading, exactly <bytes> long with their
+# newlines. Lines of 10000 bytes, then one line of whatever is left, so a shape
+# can put the file's size, or a reading, at an exact byte offset. Each line is
+# valid JSON, as a tool result is, so it costs the parser what a real one costs
+# and is not skipped as junk. Refuses less than one line's frame, so a shape
+# whose arithmetic went wrong stops instead of writing a file of the wrong size.
+pad() {
+  local left=$1 fill
+  [ "$left" -ge 22 ] || { printf 'differential: pad %s is under one line\n' "$left" >&2; exit 9; }
+  printf -v fill '%*s' 9978 ''
+  fill=${fill// /A}
+  while [ "$left" -gt 20000 ]; do
+    printf '{"type":"pad","x":"%s"}\n' "$fill"
+    left=$((left - 10000))
+  done
+  printf -v fill '%*s' $((left - 22)) ''
+  printf '{"type":"pad","x":"%s"}\n' "${fill// /A}"
+}
+
+# edge_file <size> — a file of exactly <size> bytes: a reading of 60000 as its
+# FIRST line, padding, then readings of 100000 and 140000 as its last two. All
+# three give a median of 100000, at 50% of the default window. Lose the first
+# line and the two left give 140000, at 70%. Cutting one byte off the front cuts
+# that first line, so a read of <size>-1 bytes answers 70% and a read of <size>
+# answers 50%: both speak, and they say different numbers.
+edge_file() {
+  local head tail
+  head=$(reading 60000)
+  tail=$(reading 100000)$'\n'$(reading 140000)
+  printf '%s\n' "$head"
+  pad $(($1 - ${#head} - 1 - ${#tail} - 1))
+  printf '%s\n' "$tail"
+}
+
+# gap_file <gap> — fifteen readings of 100000, <gap> bytes of padding, then five
+# readings of 130000. The last fifteen readings are ten of 100000 and the five,
+# a median of 100000 at 50%. A read that starts inside the gap holds only the
+# five, a median of 130000 at 65%. So a read that answers while starved says a
+# different number from the one that climbed.
+gap_file() {
+  local i=0
+  while [ "$i" -lt 15 ]; do reading 100000; printf '\n'; i=$((i + 1)); done
+  pad "$1"
+  i=0
+  while [ "$i" -lt 5 ]; do reading 130000; printf '\n'; i=$((i + 1)); done
+}
+
 write_transcript() {
   shape=$1
   case "$shape" in
@@ -221,6 +273,35 @@ write_transcript() {
         i=$((i + 1))
       done
       return 0 ;;
+    # THE READ LADDER (2026-10-10, audit item 12). The guard reads 1MB first,
+    # then maxBytes, then the whole file, and stops at the first read holding
+    # fifteen readings; a read that already held the whole file is not made
+    # again. Every shape below speaks at the default window, and each starved
+    # one is built so the starved read and the right read say DIFFERENT
+    # numbers — a guard that answers too early prints the wrong percentage.
+    #
+    # deep: twenty readings at the end of a 1.2MB file. The first read holds
+    # all twenty and answers; only the size of the file is new here.
+    deep)
+      pad 1200000
+      i=0
+      while [ "$i" -lt 20 ]; do reading 100000; printf '\n'; i=$((i + 1)); done
+      return 0 ;;
+    # The first read starves inside the gap, maxBytes holds the whole file.
+    gap-past-first)
+      gap_file 1100000
+      return 0 ;;
+    # Paired with maxBytes 1500000: both capped reads start inside the gap, and
+    # only the whole file answers.
+    gap-past-cap)
+      gap_file 1600000
+      return 0 ;;
+    # The size edges. At exactly 1MB the first read holds the whole file; one
+    # byte more and it cuts the first line, so the guard must read again.
+    edge-first)       edge_file 1000000; return 0 ;;
+    edge-first-plus)  edge_file 1000001; return 0 ;;
+    # Paired with maxBytes 1200000: one byte past the second read's edge.
+    edge-cap-plus)    edge_file 1200001; return 0 ;;
     *) printf 'differential: unknown transcript shape %s\n' "$shape" >&2; exit 9 ;;
   esac
   i=0
@@ -549,6 +630,15 @@ run_shape "transcript: median window matters"  "$P_MAIN" "" window
 # SPEAK cannot tell you it has stopped speaking.
 run_shape "transcript: sixteen, byte cap of 1"  "$P_MAIN" '{"contextGuard":{"maxBytes":1}}' sixteen
 run_shape "transcript: fourteen, byte cap of 1" "$P_MAIN" '{"contextGuard":{"maxBytes":1}}' fourteen
+# The read ladder. Each pair of sides must agree: the ladder may change how
+# much the guard reads, never what it answers. Built 2026-10-10 against the
+# hook before the ladder, with three controls that answer too early.
+run_shape "transcript: twenty readings past 1.2MB"     "$P_MAIN" "" deep
+run_shape "transcript: first read starves, cap answers" "$P_MAIN" "" gap-past-first
+run_shape "transcript: both caps starve, whole answers" "$P_MAIN" '{"contextGuard":{"maxBytes":1500000}}' gap-past-cap
+run_shape "transcript: exactly 1MB"                     "$P_MAIN" "" edge-first
+run_shape "transcript: 1MB and one byte"                "$P_MAIN" "" edge-first-plus
+run_shape "transcript: one byte past maxBytes"          "$P_MAIN" '{"contextGuard":{"maxBytes":1200000}}' edge-cap-plus
 
 printf '\nbaseline: %s\n' "$BASE"
 # AS EXPECTED, not IDENTICAL. The counter includes shapes asserted to DIFFER, so
