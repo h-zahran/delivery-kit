@@ -145,16 +145,19 @@ window that matches the model, the same setting re-warns normally.
 
 ## Read size
 
-`maxBytes` is the most of the tail of the transcript the guard reads before it
-falls back to the whole file. The default of 8,000,000 is there because the hook
-runs after *every* tool call and a long session's transcript reaches tens of
-megabytes: reading 48MB measured 7.2 seconds, against a hook timeout of 30.
+`maxBytes` is the largest slice from the end of the transcript the guard reads
+before it reads the whole file. The default of 8,000,000 is there because the
+hook runs after *every* tool call and a long session's transcript reaches tens
+of megabytes: reading 48MB measured 7.2 seconds, against a hook timeout of 30.
 
-The guard reads the last 1,000,000 bytes first, or `maxBytes` if that is
-smaller, and reads more only when that holds fewer than the fifteen readings it
-takes a median of: next `maxBytes`, then the whole file. A read that already
-held the whole file is not made again. In 312 real transcripts the last 1MB
-held fifteen readings at 92.5% of the points measured, so most calls read 1MB.
+The guard measures context from *readings*: the context size Claude Code
+records with each assistant message. It takes the median of the last fifteen.
+It reads the last 1,000,000 bytes first, or `maxBytes` if that is smaller, and
+reads more only when that slice holds fewer than fifteen readings: next
+`maxBytes`, then the whole file. A slice that already held the whole file is
+not read again. The first slice's size is fixed; only `maxBytes` can be set. In
+312 real transcripts, sampled at 35,053 moments, the last 1MB held fifteen
+readings 92.5% of the time, so most calls read at most 1MB.
 
 Lowering `maxBytes` is safe in the sense that matters — when a read does not
 contain enough readings to take an honest median, the guard reads more rather
