@@ -84,3 +84,39 @@ has() {
   ignored="$(region '**0, ignored.**' '**Any other status**')"
   has "$ignored" 'Add the document to the Uncommitted work section'
 }
+
+# Audit item 14 (2026-10-10): the handoff ends by recording branch, HEAD and the
+# `git status` lines into the document with handoff/scripts/reconcile-block.sh,
+# and the next session's first step runs that record. The script and its block
+# are tested in reconcile-block.bats; these pins hold the instructions that
+# make the skill use them, in the right place and order.
+
+@test "the handoff skill records the state with the plugin's script, as its last write" {
+  rec="$(region '### 4. Record the state for the next session' '### 5. Print the resume prompt and stop')"
+  has "$rec" 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/reconcile-block.sh" <path-to-handoff-document>'
+  has "$rec" 'From the repository root, run:'
+  has "$rec" '**This is the last write of the handoff.**'
+  has "$rec" 'nothing may change the repository after it'
+  has "$rec" 'If something must change after all, run the command again.'
+  # The record comes after durable knowledge, which may be written inside the
+  # repository; the region above proves it sits between steps 4 and 5, and
+  # this proves step 3 comes before it.
+  before="${FLAT%%'### 4. Record the state'*}"
+  has "$before" '### 3. Persist durable knowledge'
+}
+
+@test "the script the skill names is the one the plugin ships" {
+  rel="$(region 'bash "${CLAUDE_PLUGIN_ROOT}/' '" <path-to-handoff-document>')"
+  [ "$rel" = 'scripts/reconcile-block.sh' ]
+  [ -f "$HANDOFF/$rel" ]
+}
+
+@test "Resume step 1 runs the Reconcile section, and falls back to a check by hand without one" {
+  resume="$(region '**Resume protocol**' 'Before you finish the document')"
+  has "$resume" 'run the command in the Reconcile section at the end of this document and report its output'
+  has "$resume" 'PR and CI state it cannot see, so step 1 still names them for a check by hand'
+  has "$resume" 'If the document has no Reconcile section when the next session reads it, step 1 falls back to checking the branch, SHA and the Uncommitted work section by hand'
+  # The skill's refusal branch points at the same fallback.
+  rec="$(region '### 4. Record the state for the next session' '### 5. Print the resume prompt and stop')"
+  has "$rec" 'the document then has no Reconcile section, and step 1 of its Resume protocol falls back to the check by hand'
+}

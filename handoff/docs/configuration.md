@@ -170,3 +170,12 @@ change this setting unless you have measured a problem.
 `handoff.docsDir` is where the handoff document is written. One live handoff per
 run — each handoff overwrites the previous one for that run — so it is normally
 unambiguous which one to read.
+
+The session-start hook reads the same setting, with the same precedence, to
+find a handoff to name when a session starts. A relative value is taken from
+the top of the repository. It looks at the newest twenty files there whose
+names end in `-SESSION-HANDOFF.md`, newest by name (the name starts with the
+date; a file's modification time does not survive a clone), and names one only
+when its recorded branch, commit and `git status` lines all match. Without
+`jq` it cannot read the configuration files, so it uses the environment
+variable or the default.
