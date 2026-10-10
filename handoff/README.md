@@ -24,7 +24,14 @@ Follow the Resume protocol.
 ```
 
 Paste that into a fresh session and the work carries on. Nothing has to be
-rediscovered.
+rediscovered. The new session's first step runs a check the document carries,
+which prints MATCH or MISMATCH for the branch, the commit and the changed files,
+so anything that moved since the handoff is said out loud.
+
+Open a fresh session in the same repository without pasting anything, and a
+session-start hook names the handoff for you, as long as the branch, the commit
+and the changed files still match it exactly. It only names the file; what to
+do with it stays your choice.
 
 If you keep working past the warning, the guard nudges you again every 5% —
 not on every tool call.
@@ -45,6 +52,7 @@ A fixed set of sections, so the next session always knows where to look:
 | Deployments pending | Migrations and uploads not yet applied |
 | Pipeline state | Only when a pipeline run is live: the phase, and how to resume it |
 | Resume protocol | Numbered steps, starting with "check these claims against real git state" |
+| Reconcile | Written last: the check step 1 runs, MATCH or MISMATCH for the branch, the commit and the `git status` lines |
 
 **It never writes to git.** No commit, no push, no `git add`, no stash. The hook
 fired on its own, so nothing here was asked for — a commit message would be the
@@ -53,13 +61,15 @@ the commands, and the choice stays with you.
 
 ## What ships
 
-Three pieces. The first two work together and are useful apart; the third exists
-to configure the first.
+Four pieces. The guard and the handoff skill work together and are useful
+apart; the session-start hook finds what the skill wrote; the setup skill exists
+to configure the guard.
 
 | Piece | Kind | Does |
 |---|---|---|
 | The context guard | a `PostToolUse` hook | Measures context after each tool call, warns past a threshold, re-warns once per 5%. |
 | `handoff:handoff` | a skill | Writes the document above, prints the resume prompt, stops. |
+| The handoff finder | a `SessionStart` hook | When a session starts or is cleared, names a handoff whose recorded branch, commit and `git status` lines match the repository exactly. Silent otherwise. It never tells Claude to act on the file. |
 | `handoff:setup` | a skill | Measures your session, asks for your real window and stopping point, and writes those to `~/.delivery-kit.json` — machine facts, so once is enough. Where a repository has `.specify/`, it also offers to write the pipeline block into that repository's file. It asks first. |
 
 ## Install

@@ -101,7 +101,14 @@ Required sections:
   says.
 - **Resume protocol** — numbered steps the next session executes first. Step 1 is
   always: reconcile this document's claims — branch, SHA, PR and CI state —
-  against actual git state, and report any discrepancy before proceeding. **HEAD
+  against actual git state, and report any discrepancy before proceeding. Write
+  it as: run the command in the Reconcile section at the end of this document
+  and report its output. That section does not exist yet; step 4 below writes
+  it, and it prints MATCH or MISMATCH for the branch, the commit and the
+  `git status` lines. PR and CI state it cannot see, so step 1 still names them
+  for a check by hand. If the document has no Reconcile section when the next
+  session reads it, step 1 falls back to checking the branch, SHA and the
+  Uncommitted work section by hand. **HEAD
   should match the SHA recorded here exactly**, because this skill commits
   nothing — a HEAD ahead of it means someone else committed, which is worth
   reporting rather than waving through. The working tree should still be dirty in
@@ -151,7 +158,32 @@ update that store's index so the next session finds them. If the project keeps
 no such store, do not invent one: the Gotchas section of the document you just
 wrote is the store, and recording them there is enough.
 
-### 4. Print the resume prompt and stop
+### 4. Record the state for the next session
+
+From the repository root, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/reconcile-block.sh" <path-to-handoff-document>
+```
+
+It appends the Reconcile section to the document: the branch, the commit at
+HEAD and the `git status` lines as they are now, inside a block that compares
+them with the repository when the next session runs it. It reads git and writes
+only the document, so it stays inside this skill's rule against writing to git.
+A second run replaces the section rather than adding another.
+
+**This is the last write of the handoff.** The record is only as true as the
+tree it describes, so nothing may change the repository after it: not the
+document, not the plan, not a memory file inside the repository. If something
+must change after all, run the command again. If it refuses (exit status other
+than 0), say so in the final message: the document then has no Reconcile
+section, and step 1 of its Resume protocol falls back to the check by hand.
+
+When the record matches, the plugin's session-start hook will also name this
+document in the next fresh session in this repository, until the branch, the
+commit or the `git status` lines change.
+
+### 5. Print the resume prompt and stop
 
 End the final message with exactly this block, with the placeholder replaced by
 the real path of the document you just wrote, so the user can copy and paste it:

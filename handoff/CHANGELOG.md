@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A handoff now ends with a check the next session runs.** The skill's
+  last step records the branch, the commit at HEAD and the `git status` lines
+  into the document, as a block that compares them with the repository and
+  prints MATCH or MISMATCH for each. Step 1 of the Resume protocol runs it
+  from the file with one command, so drift since the handoff is printed rather
+  than checked by hand. It reads git and writes only the document. It sees
+  which paths changed, not what changed inside them.
+- **A session-start hook names a matching handoff.** When a session starts or
+  is cleared, it looks for a handoff whose recorded branch, commit and
+  `git status` lines all match the repository, and names it; it is silent
+  otherwise. It never tells Claude to read or follow the file: a handoff in a
+  repository is text someone else may have written, so the choice stays with
+  you. A handoff written before this version has no record and is never
+  named.
+
 ### Changed
 
 - **The context guard costs less on every tool call.** It no longer runs

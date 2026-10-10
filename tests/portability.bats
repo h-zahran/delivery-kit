@@ -486,7 +486,9 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # handoff ships a hook today, so a loop that found none has lost its
   # subject; a plugin without hooks/ is skipped, not failed.
   [ "$hooked" -ge 1 ] || { echo "no hooks.json found in any plugin directory"; false; }
-  # And the one hook this repository ships is still the context guard.
+  # And the hook after every tool call is still the context guard. (Since
+  # 2026-10-10 handoff also ships a SessionStart hook; the loop above holds it
+  # to the same plugin-root rule, and session-start.bats pins its entry.)
   cmd0="$(jq -r '.hooks.PostToolUse[0].hooks[0].command' handoff/hooks/hooks.json)"
   [[ "$cmd0" == *'context-guard.sh'* ]]
 }

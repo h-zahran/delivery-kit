@@ -1,6 +1,19 @@
 {
-  "description": "Warns when the session is running out of context and directs Claude to hand off",
+  "description": "Warns when the session is running out of context and directs Claude to hand off; names a matching handoff when a session starts",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
+            "shell": "bash",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "*",
