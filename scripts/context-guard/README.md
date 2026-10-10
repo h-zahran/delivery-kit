@@ -32,8 +32,10 @@ found both. The suite never would have.
 scripts/context-guard/differential.sh [<baseline-ref>]
 ```
 
-Runs a baseline copy of the hook and the working copy over 30 payload and
-configuration shapes, comparing stdout and exit code on each. Exit status is 0
+Runs a baseline copy of the hook and the working copy over every payload,
+configuration and transcript shape in the file (`grep -c '^run_shape '
+scripts/context-guard/differential.sh` counts them; it said 30 here long after
+it stopped being true), comparing stdout and exit code on each. Exit status is 0
 only when every shape matches.
 
 **Pin the baseline to a commit id, not a branch.** This repository
@@ -162,12 +164,25 @@ Measured 2026-10-10, working copy against `7b094cd`:
 | the hook with the read ladder | **55 shapes, 55 as expected, 0 unexpected**, 0 asserted to differ, 4 auto-relaxed, exit 0 |
 | a control that never climbs past the first read | **48 as expected, 7 unexpected** — the three byte-cap shapes from before and four of the six new ones |
 | a control that calls a file one byte too long already read | **53 as expected, 2 unexpected** — the two one-byte-past shapes |
-| a control that never makes the uncapped read | **53 as expected, 2 unexpected** — both-caps-starve and one byte past `maxBytes` |
+| a control that skips the whole-file read after a starved `maxBytes` read | **53 as expected, 2 unexpected** — both-caps-starve and one byte past `maxBytes` |
+
+All four rows were run again the same day on the hook with the review fix
+described below, the size measured after each read, with the same results.
 
 What the ladder saves is processes and bytes, never an answer, so this harness
 can show only that the answer did not move. The saving is pinned by the
 `spend:` tests in `handoff/tests/context-guard.bats`, which count every `jq`,
 `tail` and `wc` the guard starts, exactly.
+
+Review then found the one way the ladder could change an answer, and it is a
+way this harness cannot reach, because its transcripts hold still. Claude Code
+appends while the hook runs. The size was measured once, after the 1MB read,
+and reused to decide that the `maxBytes` read had held the whole file; a file
+that grew past `maxBytes` in between was cut at its start, and the guard went
+silent where the old one fired at 95%. The size is now measured again after the
+`maxBytes` read. The test "a transcript that grows during the hook is measured
+after each read" makes the file grow from inside a `wc` shim, and goes red on
+the hook before the fix.
 
 ### An asserted difference is relative to a baseline, and now says so
 
@@ -210,15 +225,18 @@ It compares **stdout and exit status only**. Two consequences, both measured
 rather than reasoned:
 
 - **A change that only costs a process is invisible.** The guard's reading count
-  decides whether the uncapped re-read runs; it never decides the answer. The
-  capped read is a byte suffix, so a suffix holding fifteen or more readings has
-  the same last fifteen as the file, and one holding fewer falls back under
-  either counting rule. Mutating the count rule to a plain `length` reports
-  **every shape as expected**. On a straddle of fourteen positive readings and one
-  negative — fifteen by `length`, fourteen by the digit rule — the shipped hook
-  spends 5 jq processes, the mutant spends 4, and both emit an identical 556
-  bytes. That rule is pinned by the spawn-counting rig in
-  `specs/015-guard-jq-spawn-two/quickstart.md`, and nothing here can pin it.
+  decides whether it reads more; it never decides the answer. Every read is a
+  byte suffix, so a suffix holding fifteen or more readings has the same last
+  fifteen as the file, and one holding fewer reads more under either counting
+  rule. Mutating the count rule to a plain `length` reports **every shape as
+  expected**. On a straddle of fourteen positive readings and one negative —
+  fifteen by `length`, fourteen by the digit rule — the shipped hook spent 5 jq
+  processes, the mutant 4, and both emitted an identical 556 bytes. That rule
+  was pinned by the spawn-counting rig in
+  `specs/015-guard-jq-spawn-two/quickstart.md`; since 2026-10-10 the size check
+  stops both sides after one read on that rig's short file, and the rule is
+  pinned by the `spend:` test for a negative reading instead. Nothing here can
+  pin it.
 - **A change that only moves stderr is invisible.** `run_shape` captures stderr
   per side and never compares it. Deliberate — the guard's contract is its
   stdout — but it means this harness cannot settle a question about diagnostics.
@@ -289,8 +307,9 @@ stops — which is why the rest were built to make it speak.
 
 One more claim was corrected rather than defended: the fourteen and fifteen and
 sixteen shapes do NOT exercise the fallback on their own. Without a byte cap
-the capped read already holds the whole file, so the re-read returns the same
-median and the floor never matters. The floor-to-zero control differs on the
+the capped read already holds the whole file, so the re-read returned the same
+median and the floor never mattered (since 2026-10-10 the guard sees this from
+the file's size and makes no re-read). The floor-to-zero control differs on the
 byte-cap shapes and on neither plain one. The plain counts still guard against
 a crash and against a shape-table slip; they were simply credited with more
 than they do.

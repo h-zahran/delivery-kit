@@ -11,17 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The context guard costs less on every tool call.** It no longer runs
   `jq --version` first on every call; it asks only after its first jq call
   fails, so a missing or broken jq is still reported once. It reads the last
-  1 MB of the transcript first and climbs to `maxBytes`, then to the whole
-  file, only when that read holds fewer than fifteen readings. In 312 real
-  transcripts, 1 MB held fifteen readings at 92.5% of 35,053 points. And a read
-  that already held the whole file is not made again, which was every call in
-  a session's first fifteen turns. The answer is the same on every path; what
-  changes is the work. On Windows, where each process costs about 90 ms, an
-  ordinary call starts one process fewer and a short session's call two
-  fewer; a call on a large transcript reads 1 MB where it read up to 8 MB.
-  The 7.5% of calls whose last 1 MB is starved make one more read. Two config
-  files are still read by two jq calls: one call would lose a good file to a
-  malformed one beside it, for a measured saving of under 100 ms.
+  1MB of the transcript first and reads `maxBytes`, then the whole file, only
+  when that slice holds fewer than fifteen readings. In 312 real transcripts,
+  sampled at 35,053 moments, the last 1MB held fifteen readings 92.5% of the
+  time. And a slice that already held the whole file is not read again, which
+  was every call before a session's fifteenth reading. The answer is the same
+  on every path; what changes is the work. On Windows, where a jq process
+  costs about 90 ms, an ordinary call starts one process fewer and an early
+  call two fewer; a call on a large transcript reads 1MB where it read up to
+  8MB. The few calls whose last 1MB holds too few readings make one more read.
 
 ## [2.2.1] - 2026-10-06
 

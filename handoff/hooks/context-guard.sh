@@ -102,8 +102,8 @@ US=$'\037'
 #
 # THE DRAIN AFTER A FAILED CALL IS NOT BELT AND BRACES. It was a `|| cat` beside
 # the call until the jq probe moved onto the same branch. jq reads to end of
-# input only while the
-# input keeps parsing: hand it something malformed at its FIRST token and it
+# input only while the input keeps parsing: hand it something malformed at its
+# FIRST token and it
 # aborts at once, having read a buffer's worth and no more. The caller is then
 # writing into a pipe nobody is reading, and takes the same broken-pipe death
 # the drain exists to prevent — measured, 3 runs of 3, a 300KB payload
@@ -127,13 +127,19 @@ US=$'\037'
 # call, to protect a path taken once per machine: one process, measured
 # 2026-10-10 at about 90 ms of the hook's ~750 ms floor on Windows (alternating
 # runs, the fastest of thirty each). A jq that cannot run fails this call too,
-# so asking `jq --version` only then gives the same answer to the same question,
+# so asking `jq --version` only then reaches every jq the old probe reported,
 # and a malformed payload pays one extra process where the ordinary run pays
-# none. The rule is the old one exactly — the hint fires when `jq --version`
-# fails — and NOT a table of exit codes: 127 and 126 are the obvious ones, but a
-# jq that dies on a missing library, or a shim that exits 1, is just as unable
-# to run, and an exit-code rule that missed one would leave the guard silent
-# with no hint, which is the failure this branch exists to name.
+# none. The test is the old one — `jq --version` failing — and NOT a table of
+# exit codes: 127 and 126 are the obvious ones, but a jq that dies on a missing
+# library, or a shim that exits 1, is just as unable to run, and an exit-code
+# rule that missed one would leave the guard silent with no hint, which is the
+# failure this branch exists to name.
+#
+# ONE CASE ANSWERS DIFFERENTLY, and it fails safe. A jq that parses the payload
+# but fails `--version` was reported as missing, and the guard stayed off; now
+# the payload call succeeds, the probe never runs, and the guard works. Found
+# by review with a shim that fails only `--version`; the differential cannot
+# see it, because it varies the hook and never jq.
 #
 # stderr goes to /dev/null on this call now, and that is a change. With jq
 # missing, bash prints "jq: command not found" from inside the substitution, so
@@ -332,10 +338,12 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # measured 48MB, and reading it cost 7.2s against a hook that runs on every
 # tool call — 1.4x under the old 10s timeout, and a hook killed by its timeout
 # emits nothing, which is a guard that is silently off. Hence the byte cap
-# below: 8MB brings the common path to 2.0s.
+# below: 8MB brought the common path to 2.0s, until 2026-10-10, when the first
+# read became 1MB (the ladder below).
 #
-# Run twice on the starved path, so it is written once here rather than
-# twice below, where the two copies would drift and only one would be tested.
+# Run once per read, up to three times on the starved path, so it is written
+# once here rather than at each read, where the copies would drift and only one
+# would be tested.
 #
 # READINGS_JQ IS THE PER-LINE RULE AND NOTHING ELSE.
 #
@@ -422,11 +430,11 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 #
 # NO REGEX, AND THAT IS DELIBERATE. This was `test("^[0-9]")` for one commit.
 # `test` needs a jq built with its regular-expression library, this is the only
-# regex in any program the hook ships, and the availability probe at the payload
-# cannot detect a missing FEATURE — a compile error would yield an empty summary,
-# a count of zero, a fallback, and a guard that says nothing. Every FINITE
-# number's text form begins with a digit or a minus sign, so refusing the minus
-# sign is the same test with no dependency.
+# regex in any program the hook ships, and the availability probe beside the
+# payload call cannot detect a missing FEATURE — a compile error would yield an
+# empty summary, a count of zero, a fallback, and a guard that says nothing.
+# Every FINITE number's text form begins with a digit or a minus sign, so
+# refusing the minus sign is the same test with no dependency.
 #
 # FINITE is the honest word, and this said "every number" until it was measured.
 # jq calls a NaN a number and renders it "null", which begins with neither — so
@@ -496,27 +504,33 @@ SUMMARY_JQ="[ inputs | ( $READINGS_JQ )? ]
 # a starved window would buy latency with the one failure this arithmetic
 # exists to prevent.
 #
-# That fallback reads the file twice, so it is NOT free and this comment will
-# not pretend otherwise: measured 8.2s where the uncapped code was 7.2s, on a
-# 48MB transcript whose readings sit inside the line window but outside the
-# byte cap. The timeout in hooks.json is 30 because of this path, not because
-# of the 2.0s common one. Trading ~1s in a case that needs megabytes between
+# That fallback read the file twice (until 2026-10-10; the ladder below reads
+# it up to three times), so it is NOT free and this comment will not pretend
+# otherwise: measured 8.2s where the uncapped code was 7.2s, on a 48MB
+# transcript whose readings sit inside the line window but outside the byte
+# cap. The timeout in hooks.json is 30 because of this path, not because of the
+# 2.0s common one of that time. Trading ~1s in a case that needs megabytes between
 # readings for 3.6x in every ordinary session is the right trade; a cap that
 # also bounded the fallback would be faster and occasionally wrong.
 #
 # Raising the floor from three to fifteen widened the door to that path, and
-# the honest way to state it is as a rate: the fallback now runs whenever the
-# capped 8MB holds fewer than fifteen readings, which needs upwards of half a
-# megabyte between consecutive readings. An ordinary session is nowhere near
-# that; a session whose tool results are that large pays ~1s and gets the right
-# answer, which is the trade already made above rather than a new one.
+# the honest way to state it is as a rate: the read of the whole file runs
+# whenever the capped 8MB holds fewer than fifteen readings, which needs upwards
+# of half a megabyte between consecutive readings. An ordinary session is
+# nowhere near that; a session whose tool results are that large pays ~1s and
+# gets the right answer, which is the trade already made above rather than a
+# new one. (The 1MB first read below climbs far more often — whenever readings
+# sit more than about 67KB apart — which is what it costs to make the common
+# read small.)
 #
 # THE READ NOW CLIMBS: 1MB FIRST, THEN maxBytes, THEN UNCAPPED, and it stops at
 # the first rung holding fifteen readings. Added 2026-10-10 (audit item 12).
 # The floor argument above is what makes this free: every rung is a byte suffix
 # of the same file, so a rung holding fifteen readings has the same last
 # fifteen as the uncapped read, and the answer cannot depend on which rung gave
-# it. What changes is the WORK. At the 8MB cap alone a 6.7MB transcript cost
+# it. (Claude Code appends while the hook runs, so a later rung can see lines an
+# earlier one did not; that is the timing every read here has always had, and
+# the size check below is written for it.) What changes is the WORK. At the 8MB cap alone a 6.7MB transcript cost
 # 1.6-2.5s per tool call, while the last fifteen readings needed far less:
 # measured over 35,053 points in 312 real transcripts, half needed 114KB or
 # less, and 1MB held fifteen readings at 92.5% of them (2MB at 97.3%, 8MB at
@@ -562,12 +576,23 @@ read_summary() {
   esac
 }
 
-# A RUNG THAT HELD THE WHOLE FILE IS NOT READ AGAIN (audit H7). Every session's
-# first fifteen turns hold fewer than fifteen readings, so until 2026-10-10
-# every one of those calls read the file twice — the capped read, then the
-# uncapped one — when the capped read had already taken all of it and the
+# A RUNG THAT HELD THE WHOLE FILE IS NOT READ AGAIN (audit H7). A session holds
+# fewer than fifteen readings until its fifteenth assistant message, so until
+# 2026-10-10 every call before that read the file twice — the capped read, then
+# the uncapped one — when the capped read had already taken all of it and the
 # second returned the same bytes. One `wc -c` decides it, and it runs only
 # after a rung has starved, so the ordinary call never pays for it.
+#
+# THE SIZE IS MEASURED AFTER THE READ IT VOUCHES FOR, and again after the next
+# one. Claude Code appends while the hook runs, and the file only grows: a size
+# taken AFTER a read is at least what that read saw, so "size <= cap" proves the
+# read held the whole file. A size taken BEFORE a read proves nothing about it.
+# Found by review on 2026-10-10: one size taken after the 1MB read and reused
+# for the maxBytes read let a transcript that grew past maxBytes in between skip
+# the whole-file read; the readings at its start were cut, and the guard stayed
+# silent where the old hook fired at 95%. A second `wc`, only when the maxBytes
+# read also starves, closes it. A transcript truncated in place would defeat
+# this; Claude Code has never been seen to do that.
 #
 # THE SIZE CAN ONLY STOP A CLIMB, NEVER START ONE, and an unknown size climbs.
 # A size that is empty or holds no digits leaves `covered` false, so every rung
@@ -577,6 +602,10 @@ read_summary() {
 # lost, which is why the differential pins the edge at N+1.
 #
 # wc pads its number with spaces on macOS; only the digits are kept.
+measure_size() {
+  size=$(wc -c < "$transcript" 2>/dev/null)
+  size=${size//[!0-9]/}
+}
 covered() {
   [ -n "$size" ] && [ "$size" -le "$1" ]
 }
@@ -585,13 +614,13 @@ first=$FIRST_BYTES
 [ "$MAX_BYTES" -lt "$first" ] && first=$MAX_BYTES
 read_summary "$first"
 if [ "$count" -lt 15 ]; then
-  size=$(wc -c < "$transcript" 2>/dev/null)
-  size=${size//[!0-9]/}
+  measure_size
   if ! covered "$first"; then
     if [ "$MAX_BYTES" -gt "$first" ]; then
       read_summary "$MAX_BYTES"
-      if [ "$count" -lt 15 ] && ! covered "$MAX_BYTES"; then
-        read_summary ""
+      if [ "$count" -lt 15 ]; then
+        measure_size
+        covered "$MAX_BYTES" || read_summary ""
       fi
     else
       read_summary ""

@@ -1698,9 +1698,11 @@ edge_transcript() {
   run_counted "$t"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.reason | test("at 50% of")'
-  # jq: payload, config, 1MB, maxBytes, the whole file, and the emission.
+  # jq: payload, config, 1MB, maxBytes, the whole file, and the emission. wc
+  # twice: after the 1MB read, and again after the maxBytes read, because the
+  # size must be measured after the read it vouches for.
   echo "spent: $(spawns)"
-  [ "$(spawns)" = "jq=6 tail=5 wc=1" ]
+  [ "$(spawns)" = "jq=6 tail=5 wc=2" ]
 }
 
 @test "spend: a file of exactly 1MB is read once, and one byte more is read again" {
@@ -1720,8 +1722,10 @@ edge_transcript() {
   # 50% only if the first line was read: the 1MB read cut it, and alone the
   # two readings left say 70%.
   echo "$output" | jq -e '.reason | test("at 50% of")'
+  # The 8MB read held the whole file but only three readings, so the size is
+  # measured again after it, and it stops there.
   echo "spent at 1000001: $(spawns)"
-  [ "$(spawns)" = "jq=4 tail=4 wc=1" ]
+  [ "$(spawns)" = "jq=4 tail=4 wc=2" ]
 }
 
 @test "spend: a maxBytes under 1MB is the only capped read" {
@@ -1739,6 +1743,104 @@ edge_transcript() {
   echo "spent: $(spawns)"
   # jq: payload, config, the capped read, the whole file, and the emission.
   [ "$(spawns)" = "jq=5 tail=3 wc=1" ]
+}
+
+@test "spend: exactly fifteen readings in the first read is enough" {
+  # The floor is fifteen, and fifteen meets it: no climb, no size.
+  spawn_shims
+  f="$TEST_DIR/transcript.jsonl"
+  : > "$f"
+  pad_line "$f" 1200000
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do append_entry "$f" 100000; done
+  run_counted "$f"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=3 tail=2 wc=0" ]
+}
+
+@test "spend: when maxBytes answers, the whole file is not read" {
+  # The file is larger than maxBytes and maxBytes is larger than 1MB. The 1MB
+  # read starts inside the second gap and holds five readings; the maxBytes
+  # read holds all twenty and answers. A guard that read the whole file anyway
+  # would cost the 48MB worst case on every call of a long session.
+  spawn_shims
+  write_config "$TEST_DIR/.delivery-kit.json" '{"maxBytes":1500000}'
+  f="$TEST_DIR/transcript.jsonl"
+  : > "$f"
+  pad_line "$f" 600000
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do append_entry "$f" 100000; done
+  pad_line "$f" 1100000
+  for i in 1 2 3 4 5; do append_entry "$f" 130000; done
+  run_counted "$f"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=5 tail=4 wc=1" ]
+}
+
+@test "spend: a maxBytes of exactly 1MB is read once" {
+  # The first read is then maxBytes itself, so there is no second capped read
+  # of the same size: the starved 1MB read goes straight to the whole file.
+  spawn_shims
+  write_config "$TEST_DIR/.delivery-kit.json" '{"maxBytes":1000000}'
+  t="$(gap_transcript 1100000)"
+  run_counted "$t"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=5 tail=3 wc=1" ]
+}
+
+@test "spend: a negative reading does not count toward the fifteen" {
+  # Fourteen readings and one negative one: fifteen by length, fourteen by the
+  # rule that counts only readings that do not start with a minus sign. That
+  # rule decides only whether the guard reads more, never the answer, so this
+  # count is the one place it can be seen. A first read holding all fifteen
+  # still climbs, then stops when the 8MB read held the whole file.
+  spawn_shims
+  f="$TEST_DIR/transcript.jsonl"
+  : > "$f"
+  pad_line "$f" 1200000
+  for i in 1 2 3 4 5 6 7; do append_entry "$f" 100000; done
+  append_entry "$f" -5
+  for i in 1 2 3 4 5 6 7; do append_entry "$f" 100000; done
+  run_counted "$f"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 50% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=4 tail=4 wc=2" ]
+}
+
+@test "a transcript that grows during the hook is measured after each read" {
+  # Claude Code appends to the transcript while the guard runs. Here the wc
+  # shim appends 18,000 bytes each time it measures, so the file grows past
+  # maxBytes between the 1MB read and the maxBytes read. The fifteen readings
+  # sit at the very start, which the maxBytes read then cuts off. A size taken
+  # before that read would say it held the whole file, skip the whole-file
+  # read, and leave the guard silent; measured after it, the size is past
+  # maxBytes and the whole file answers at 95%. Found by review, 2026-10-10.
+  spawn_shims
+  cat > "$SHIMS/wc" <<EOF
+#!/bin/sh
+echo x >> "\$PROC_COUNT_DIR/wc"
+"$(command -v wc)" "\$@"
+rc=\$?
+{ printf '{"type":"pad","x":"'; head -c 17978 /dev/zero | tr '\\0' 'A'; printf '"}\\n'; } >> "\$GROW_FILE"
+exit \$rc
+EOF
+  write_config "$TEST_DIR/.delivery-kit.json" '{"maxBytes":1200000}'
+  f="$TEST_DIR/transcript.jsonl"
+  : > "$f"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do append_entry "$f" 190000; done
+  pad_line "$f" "$((1195000 - $(wc -c < "$f" | tr -d ' ')))"
+  [ "$(wc -c < "$f" | tr -d ' ')" -eq 1195000 ]
+  payload="$(hook_input "$f")"
+  run env PATH="$SHIMS:$PATH" PROC_COUNT_DIR="$TEST_DIR/counts" GROW_FILE="$f" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 95% of")'
+  echo "spent: $(spawns)"
+  [ "$(spawns)" = "jq=6 tail=5 wc=2" ]
 }
 
 @test "a jq that runs but fails is reported like a missing one" {

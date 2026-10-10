@@ -92,8 +92,9 @@ READING='{"message":{"usage":{"input_tokens":90000,"cache_read_input_tokens":900
 # The fourteen and sixteen shapes sit either side of the floor of fifteen. Be
 # exact about what that buys, because the obvious reading is wrong: WITHOUT A
 # BYTE CAP THE FALLBACK IS A NO-OP. The capped read already holds the whole
-# file, so the re-read returns the same readings and the same median whichever
-# side of the floor the count lands. Measured: a mutant with the floor set to
+# file, so the re-read returned the same readings and the same median whichever
+# side of the floor the count lands (and since 2026-10-10 the guard sees that
+# from the file's size and does not re-read at all). Measured: a mutant with the floor set to
 # zero differs on the two BYTE-CAP shapes and on neither plain one.
 #
 # So the plain counts guard against a crash or a shape-table slip, and the
@@ -243,12 +244,16 @@ write_transcript() {
     #
     # Measured on a straddle of fourteen positive readings and one negative,
     # which is fifteen by `length` and fourteen by the digit rule: the shipped
-    # hook spends 5 jq processes and a `length` mutant spends 4, and both emit an
+    # hook spent 5 jq processes and a `length` mutant 4, and both emitted an
     # IDENTICAL 556 bytes. Mutating the count leaves every shape here as expected.
     # (The `junk alone under the byte cap` shape below is the one place the count
     # DOES reach the answer, and it reaches it through the fallback decision.)
-    # The rule is pinned by the spawn-counting rig in
-    # specs/015-guard-jq-spawn-two/quickstart.md, not by this harness.
+    # The rule was pinned by the spawn-counting rig in
+    # specs/015-guard-jq-spawn-two/quickstart.md. Since 2026-10-10 that rig
+    # cannot see it: on its short file the size check stops both sides after one
+    # read. It is pinned now by the test "spend: a negative reading does not
+    # count toward the fifteen" in handoff/tests/context-guard.bats, on a file
+    # larger than the first read.
     negative)
       printf '%s\n' "$READING" '{"message":{"usage":{"input_tokens":-5}}}' "$READING"
       return 0 ;;
