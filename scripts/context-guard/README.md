@@ -141,6 +141,34 @@ the readings at 50% of a 360000-token window, a threshold of 100 goes from
 while 99 and 101 are asserted the *same*, which is how the change is shown to
 be bounded rather than merely present.
 
+### Read-ladder shapes, added 2026-10-10
+
+Audit item 12 made the guard read the last 1MB first, then `maxBytes`, then the
+whole file, stopping at the first read that holds fifteen readings, and skip a
+read that already held the whole file. Six shapes cover it: twenty readings at
+the end of a 1.2MB file; a gap that starves the first read while `maxBytes`
+holds the file; a gap that starves both capped reads (with `maxBytes` 1500000);
+a file of exactly 1MB; a file of 1MB and one byte; and a file one byte past a
+`maxBytes` of 1200000. Every one makes the guard speak, and each starved shape
+is built so the starved read and the right read print different percentages:
+a gap shape says 65% from the starved read and 50% from the right one, an edge
+shape 70% and 50%, because cutting one byte off the front of the file cuts its
+first line, which holds a reading.
+
+Measured 2026-10-10, working copy against `7b094cd`:
+
+| Run | Result |
+|---|---|
+| the hook with the read ladder | **55 shapes, 55 as expected, 0 unexpected**, 0 asserted to differ, 4 auto-relaxed, exit 0 |
+| a control that never climbs past the first read | **48 as expected, 7 unexpected** — the three byte-cap shapes from before and four of the six new ones |
+| a control that calls a file one byte too long already read | **53 as expected, 2 unexpected** — the two one-byte-past shapes |
+| a control that never makes the uncapped read | **53 as expected, 2 unexpected** — both-caps-starve and one byte past `maxBytes` |
+
+What the ladder saves is processes and bytes, never an answer, so this harness
+can show only that the answer did not move. The saving is pinned by the
+`spend:` tests in `handoff/tests/context-guard.bats`, which count every `jq`,
+`tail` and `wc` the guard starts, exactly.
+
 ### An asserted difference is relative to a baseline, and now says so
 
 The 2026-09-03 row above was measured against `168edc1`, and its three asserted
