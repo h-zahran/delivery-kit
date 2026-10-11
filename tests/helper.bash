@@ -108,6 +108,12 @@ find_root() {
 # left by another run, can never match and is recomputed rather than believed.
 # Outside bats the run directory is empty and the cache is never read. The
 # layout suite tests both edges.
+#
+# DK_SUITE_ROOT_PID records which process resolved it. A test asserts that
+# value is NOT its own $$: a cache that silently stopped being read would
+# recompute and re-export in every test, and the root and key alone would
+# look exactly the same. ($$, not BASHPID: bash 3.2 has no BASHPID, and the
+# load runs in the test process itself, not in a subshell.)
 _dk_root_key="${BATS_RUN_TMPDIR:-}|$BATS_TEST_DIRNAME"
 if [ -n "${BATS_RUN_TMPDIR:-}" ] && [ -n "${DK_SUITE_ROOT:-}" ] \
   && [ "${DK_SUITE_ROOT_KEY:-}" = "$_dk_root_key" ]; then
@@ -117,7 +123,7 @@ else
     printf 'the checkout containing %s has no .claude-plugin/marketplace.json at its root\n' "$BATS_TEST_DIRNAME" >&2
     exit 1
   }
-  export DK_SUITE_ROOT="$ROOT" DK_SUITE_ROOT_KEY="$_dk_root_key"
+  export DK_SUITE_ROOT="$ROOT" DK_SUITE_ROOT_KEY="$_dk_root_key" DK_SUITE_ROOT_PID="$$"
 fi
 unset _dk_root_key
 

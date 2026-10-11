@@ -69,6 +69,11 @@ load_helper_with() {
   [ "$DK_SUITE_ROOT_KEY" = "$BATS_RUN_TMPDIR|$BATS_TEST_DIRNAME" ]
   [ "$ROOT" = "$DK_SUITE_ROOT" ]
   [ "$ROOT" = "$(find_root "$BATS_TEST_DIRNAME")" ]
+  # Resolved by another process (the file's first load), not by this test's
+  # own load: a cache recomputed and re-exported here would carry our $$.
+  [ -n "${DK_SUITE_ROOT_PID:-}" ] || { echo "no DK_SUITE_ROOT_PID exported"; false; }
+  [ "$DK_SUITE_ROOT_PID" != "$$" ] \
+    || { echo "ROOT was resolved in this test's own process ($$), not inherited"; false; }
 }
 
 @test "a cached ROOT under a matching key is used without recomputing" {
