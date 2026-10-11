@@ -118,7 +118,7 @@ claude
 In that session, ask Claude to do anything that runs a tool, such as listing
 the files in the current directory. Expect a `CONTEXT GUARD` message naming
 your context percentage after that first tool call, once: it warns again only
-when context climbs another 5%. The message tells Claude to finish its step
+when context crosses into the next 5% band. The message tells Claude to finish its step
 and run `handoff:handoff`; for this check, tell Claude not to, and end the
 session.
 
