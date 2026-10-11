@@ -133,33 +133,63 @@ flat() {
 @test "a skill the READMEs tell you to type carries its slash" {
   cd "$ROOT"
   local f bare=""
-  # A line of its own that starts with a bare plugin:skill is a command to
-  # type without the slash Claude Code lists it under.
+  # A line of its own (indented or not) that starts with a bare plugin:skill
+  # is a command to type without the slash Claude Code lists it under.
   for f in README.md handoff/README.md pipeline/README.md; do
-    if tr -d '\r' < "$f" | grep -nE -- '^(handoff|pipeline):[a-z]' > "$BATS_TEST_TMPDIR/bare"; then
+    if tr -d '\r' < "$f" | grep -nE -- '^[[:space:]]*(handoff|pipeline):[a-z]' > "$BATS_TEST_TMPDIR/bare"; then
       bare="$bare $f: $(tr '\n' ' ' < "$BATS_TEST_TMPDIR/bare")"
     fi
   done
   [ -z "$bare" ] || { echo "typed without its slash:$bare"; false; }
-  [[ $(flat README.md) == *'Claude Code lists each plugin skill as `/<plugin>:<skill>`'* ]] \
+  [[ $(flat README.md) == *'Type it as shown, slash included: Claude Code lists each plugin skill as `/<plugin>:<skill>`'* ]] \
     || { echo "the root README no longer says how a plugin skill is typed"; false; }
-  # "Asking in words works too" holds only while Claude may load the skill.
-  if grep -qE -- '^disable-model-invocation: *true' handoff/skills/setup/SKILL.md; then
-    echo "handoff:setup is no longer model-invocable, but the root README says asking in words works"; false
-  fi
+  # "Asking in words works too" (setup) and "or say *hand off*" (handoff) hold
+  # only while Claude may load each skill by itself.
+  [[ $(flat handoff/README.md) == *'You run `/handoff:handoff`, or say *hand off*.'* ]] \
+    || { echo "handoff/README.md no longer offers saying hand off"; false; }
+  for f in handoff/skills/setup/SKILL.md handoff/skills/handoff/SKILL.md; do
+    if grep -qE -- '^disable-model-invocation: *true' "$f"; then
+      echo "$f is no longer model-invocable, but a README says asking in words works"; false
+    fi
+  done
 }
 
-@test "the /pipeline description names every seed form the skill reads" {
+@test "the README says which of /pipeline and /pipeline:pipeline runs what" {
   cd "$ROOT"
-  local forms n desc form1
+  local p
+  p="$(flat pipeline/README.md)"
+  [[ $p == *'Typed bare, `/pipeline` runs the pipeline skill directly. `/pipeline:pipeline` goes through the plugin'"'"'s command, which hands the skill your seed unchanged.'* ]] \
+    || { echo "pipeline/README.md no longer says what bare /pipeline and /pipeline:pipeline run"; false; }
+  if [[ $p == *'resolves to the same command'* ]]; then echo "the old, measured-false sentence is back"; false; fi
+  # Bare /pipeline reaches the skill because the skill is named pipeline; the
+  # namespaced form is the command file's name.
+  grep -qx -- 'name: pipeline' pipeline/skills/pipeline/SKILL.md || { echo "the pipeline skill is no longer named pipeline"; false; }
+  [ -f pipeline/commands/pipeline.md ] || { echo "no commands/pipeline.md, so /pipeline:pipeline names nothing"; false; }
+}
+
+@test "the /pipeline:pipeline description names every seed form the skill reads" {
+  cd "$ROOT"
+  local forms n line desc form1 form2 form3
   forms="$(tr -d '\r' < pipeline/skills/pipeline/SKILL.md | awk '/^\*\*Seed forms\.\*\*/ { f = 1; next } f && /^## / { exit } f')"
   n="$(printf '%s\n' "$forms" | grep -cE -- '^[0-9]+\. ' || true)"
   [ "$n" = 3 ] || { echo "the skill now lists $n seed forms; the command description names three"; false; }
+  # Each form's operative words, read from the skill: form 1's pattern, form
+  # 2's trigger and source, form 3's name for what it passes through.
   form1="$(printf '%s\n' "$forms" | awk '/^1\. / { sub(/^[^`]*`/, ""); sub(/`.*$/, ""); print; exit }')"
+  form2="$(printf '%s\n' "$forms" | awk '/^2\. / { print; exit }')"
+  form3="$(printf '%s\n' "$forms" | awk '/^3\. / { print; exit }')"
   [ -n "$form1" ] || { echo "no backticked pattern read from the skill's first seed form"; false; }
-  desc="$(tr -d '\r' < pipeline/commands/pipeline.md | awk '/^description: / { sub(/^description: /, ""); print; exit }')"
+  [[ $form2 == *'`#` followed by digits — fetch that GitHub issue'* ]] || { echo "the skill's second seed form changed: $form2"; false; }
+  [[ $form3 == *'Anything else — the feature description, verbatim'* ]] || { echo "the skill's third seed form changed: $form3"; false; }
+  # The description is a double-quoted YAML string: unquoted, its `: ` and ` #`
+  # would end the value early. `claude plugin validate` does not catch that.
+  line="$(tr -d '\r' < pipeline/commands/pipeline.md | awk '/^description: / { print; exit }')"
+  [[ $line == 'description: "'*'"' ]] || { echo "the command description is not one double-quoted YAML string: $line"; false; }
+  desc="${line#description: \"}"; desc="${desc%\"}"
+  [[ $desc != *'"'* ]] || { echo "the quoted description holds a double quote of its own"; false; }
   [[ $desc == *"\`$form1\`"* ]] || { echo "the command description does not name the plan-file form $form1"; false; }
-  [[ $desc == *'a GitHub issue as `#123`'* ]] || { echo "the command description does not name the issue form"; false; }
+  local re='a GitHub issue as `#[0-9]+`'
+  [[ $desc =~ $re ]] || { echo "the command description does not name the issue form as # and digits"; false; }
   [[ $desc == *'a feature description in your own words'* ]] || { echo "the command description does not name the verbatim form"; false; }
 }
 
@@ -188,18 +218,28 @@ flat() {
   [ "$top" -gt 0 ] || { echo "no phase in main-plan.md ends at a # heading; the README need not name one"; false; }
 }
 
-@test "the README warns what a dry run leaves behind, naming the state file" {
+@test "the README warns what a dry run leaves behind, naming the run folder" {
   cd "$ROOT"
-  local root fmt state p
+  local root fmt rundir sfile slice row c
   root="$(sed -n 's/^STATE_ROOT="\(.*\)"$/\1/p' pipeline/scripts/progress.sh)"
-  fmt="$(sed -n "s/^state_file() { printf '\([^']*\)'.*/\1/p" pipeline/scripts/progress.sh)"
-  [ -n "$root" ] && [ -n "$fmt" ] || { echo "no STATE_ROOT or state_file() read from progress.sh: root=$root fmt=$fmt"; false; }
+  fmt="$(sed -n "s/^run_dir() { printf '\([^']*\)'.*/\1/p" pipeline/scripts/progress.sh)"
+  sfile="$(sed -n "s/^state_file() { printf '[^']*\/\([^'/]*\)'.*/\1/p" pipeline/scripts/progress.sh)"
+  [ -n "$root" ] && [ -n "$fmt" ] && [ -n "$sfile" ] || { echo "no STATE_ROOT, run_dir() or state file name read from progress.sh: root=$root fmt=$fmt file=$sfile"; false; }
   # shellcheck disable=SC2059 # the format is progress.sh's own
-  state="$(printf "$fmt" "$root" '<feature>')"
-  p="$(flat pipeline/README.md)"
-  [[ $p == *'`--dry-run` is not a preview of the spec phases.'* ]] || { echo "pipeline/README.md has no dry-run warning"; false; }
-  [[ $p == *"\`$state\`"* ]] || { echo "pipeline/README.md does not name the state file as $state"; false; }
-  [[ $p == *'the feature branch'* ]] && [[ $p == *'the spec folder'* ]] || { echo "the dry-run warning lost the branch or the spec folder"; false; }
+  rundir="$(printf "$fmt" "$root" '<feature>')/"
+  # The warning paragraph alone, from its first sentence to its last: the flag
+  # table above it says "the feature branch" and "the spec folder" too, so a
+  # whole-file match would pass with the warning inverted.
+  slice="$(tr -d '\r' < pipeline/README.md | awk '/^`--dry-run` is not a preview/ { f = 1 } f && /^$/ { exit } f { print }' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$slice" ] || { echo "no dry-run warning paragraph in pipeline/README.md"; false; }
+  [[ $slice == *'happy to branch from.'* ]] || { echo "the dry-run paragraph slice did not reach its last sentence: $slice"; false; }
+  for c in 'it creates the feature branch' 'and switches you onto it' 'the spec folder the spec tool writes' \
+           "the run's folder, \`$rundir\`, which holds the state file \`$sfile\`" 'All three are still there when it stops.' \
+           'You are left on the new branch with the spec folder uncommitted' 'a dry run stops before H'; do
+    [[ $slice == *"$c"* ]] || { echo "the dry-run paragraph lost: $c"; false; }
+  done
+  row="$(tr -d '\r' < pipeline/README.md | awk '/^\| `--dry-run` \|/ { print; exit }')"
+  [[ $row == *'Leaves a branch, a spec folder and a state file behind'* ]] || { echo "the --dry-run flag row lost its warning: $row"; false; }
   [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'Run the spec phases A–F.5 normally'* ]] \
     || { echo "the skill's --dry-run no longer runs the spec phases normally, which the warning rests on"; false; }
 }
@@ -211,8 +251,22 @@ flat() {
   [[ $p == *'`gh` must also be logged in: run `gh auth login` once'* ]] || { echo "pipeline/README.md does not say gh must be logged in"; false; }
   [[ $p == *'Pre-flight checks only that `gh` is on PATH, not that it is logged in'* ]] \
     || { echo "pipeline/README.md no longer says pre-flight checks presence only"; false; }
-  if grep -nE -- 'auth (status|login|token)' pipeline/scripts/preflight.sh > "$BATS_TEST_TMPDIR/auth"; then
-    echo "preflight.sh now checks gh login, so the README's presence-only sentence is stale: $(cat "$BATS_TEST_TMPDIR/auth")"; false
+  # Pre-flight runs no gh at all: the probe loop's body only looks gh up, and
+  # nothing outside the loop runs gh by any name or through the name it found.
+  # A verb list (auth status, auth login) would let `gh api user` through.
+  local pf loop rest
+  pf="$(tr -d '\r' < pipeline/scripts/preflight.sh)"
+  loop="$(printf '%s\n' "$pf" | awk '/^for c in gh / { f = 1; next } f && /^done$/ { exit } f')"
+  [[ $loop == *'command -v "$c"'* ]] || { echo "no gh probe loop that looks gh up with command -v in preflight.sh"; false; }
+  local used="${loop//command -v \"\$c\"/}"; used="${used//gh_command=\"\$c\"/}"
+  [[ $used != *'$c'* ]] || { echo "the gh probe loop uses the name for more than a lookup and a record: $loop"; false; }
+  rest="$(printf '%s\n' "$pf" | awk '/^for c in gh / { s = 1; next } s && /^done$/ { s = 0; next } s { next } /^[[:space:]]*#/ { next } { print }')"
+  # The allowed uses: its empty start, and handing it to jq for the report.
+  rest="${rest//gh_command=\"\"/}"; rest="${rest//--arg gh_command \"\$gh_command\"/}"; rest="${rest//ghCommand: \$gh_command/}"
+  [[ $rest != *'gh_command'* ]] || { echo "preflight.sh uses the found gh name outside the probe and its report"; false; }
+  if printf '%s\n' "$rest" | awk '{ l = $0; gsub(/"[^"]*"/, "", l); gsub(/'"'"'[^'"'"']*'"'"'/, "", l); sub(/[[:space:]]#.*$/, "", l); gsub(/--arg[a-z]* [A-Za-z_]+/, "", l); print l }' \
+       | grep -nE -- '(^|[;&|(`[:space:]])gh(\.exe|\.cmd)?([[:space:]]|$)' > "$BATS_TEST_TMPDIR/ghrun"; then
+    echo "preflight.sh now runs gh outside the probe loop, so the README's presence-only sentence may be stale: $(cat "$BATS_TEST_TMPDIR/ghrun")"; false
   fi
 }
 
@@ -221,7 +275,23 @@ flat() {
   local win
   win="$(section README.md '## Windows' | tr '\n' ' ' | tr -s ' ')"
   [[ $win == *'The Windows build of `jq` ends each line with CRLF'* ]] || { echo "the Windows section has no CRLF row"; false; }
-  [[ $win == *'use `jq -b`'* ]] || { echo "the CRLF row no longer names jq -b"; false; }
+  # The whole clause: a bare "use `jq -b`" is also a substring of its negation.
+  [[ $win == *'In your own scripts, use `jq -b`: it writes LF only.'* ]] || { echo "the CRLF row no longer tells you to use jq -b"; false; }
+  [[ $win == *'They never read `jq` line by line without `-b`'* ]] || { echo "the CRLF row no longer says how the plugins cope"; false; }
+  # The row names no file the pipeline writes: a state-file write may become
+  # LF-only, and the row must stay true either way.
+  if [[ $win == *'progress.json'* ]]; then echo "the Windows section names the state file again"; false; fi
+  # "Never line by line without -b": no shipped script feeds jq's output to a
+  # line reader (a process substitution, a pipe into while, mapfile or
+  # readarray) unless that jq call passes -b. jqs is progress.sh's -b wrapper.
+  local f bad=""
+  for f in handoff/hooks/*.sh handoff/scripts/*.sh pipeline/scripts/*.sh; do
+    if tr -d '\r' < "$f" | awk '/^[[:space:]]*#/ { next } /(< <\(|mapfile|readarray)[^#]*jq / || /jq [^#]*\| *(while|mapfile|readarray)/' \
+         | grep -vE -- 'jq -[a-zA-Z]*b ' > "$BATS_TEST_TMPDIR/reader"; then
+      bad="$bad $f: $(tr '\n' ' ' < "$BATS_TEST_TMPDIR/reader")"
+    fi
+  done
+  [ -z "$bad" ] || { echo "a line reader takes jq output without -b:$bad"; false; }
   grep -qF -- 'v="$(jq -b -r "$@")" || return 1' pipeline/scripts/progress.sh \
     || { echo "progress.sh's jqs no longer passes jq -b, which the CRLF row says"; false; }
   grep -qF -- "v=\${v%\$'\\r'}" handoff/hooks/session-start.sh \
