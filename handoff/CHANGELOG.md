@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The comment, and the same sentence in `scripts/context-guard/README.md`, now
   give a grep scoped to the commit those divergences came from. A test runs it
   and compares its count with the list.
+- **The guard's line to you names skills the way you type them.** The message
+  shown to you now says `/handoff:handoff` and `/handoff:setup`, with the
+  slash. The instruction to Claude is unchanged.
 
 ## [2.3.0] - 2026-10-11
 

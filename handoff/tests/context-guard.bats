@@ -2021,3 +2021,22 @@ fenced_block() {
   [[ "$readme_copy" == *"grep -cE '$pat' scripts/context-guard/differential.sh"* ]] \
     || { echo "scripts/context-guard/README.md does not give the hook's command: grep -cE '$pat'"; false; }
 }
+
+@test "the systemMessage names skills as the user types them; the reason to Claude does not change" {
+  # systemMessage is shown to the USER, who runs a skill by typing it with its
+  # slash, so it says /handoff:handoff and /handoff:setup. The reason is
+  # addressed to Claude, which invokes the skill by name, so it keeps the bare
+  # form. Every other test matches `handoff:setup` as a substring, which both
+  # forms satisfy; this one tells them apart. Over the window, so both the
+  # handoff and the setup sentence are present in both fields.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":200000}'
+  t="$(transcript_with 300000 300000 300000 300000 300000)"
+  run_hook "$t" slash-form
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.systemMessage | contains("then run /handoff:handoff.")'
+  echo "$output" | jq -e '.systemMessage | contains("run /handoff:setup to correct it.")'
+  echo "$output" | jq -e '.systemMessage | test("(^|[^/])handoff:(handoff|setup)") | not'
+  echo "$output" | jq -e '.reason | contains("Then invoke the handoff skill (handoff:handoff):")'
+  echo "$output" | jq -e '.reason | contains("After the handoff, run handoff:setup to correct this.")'
+  echo "$output" | jq -e '.reason | contains("/handoff:") | not'
+}

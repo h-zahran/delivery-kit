@@ -792,7 +792,7 @@ if [ "$ctx" -gt "$WINDOW" ]; then
     # as further keys are added — @test "the hedge and the deferred hint ride the
     # once-per-session note" in handoff/tests/context-guard.bats pins the placement, and
     # moving either out of this gate turns that test red.
-    sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run handoff:setup to correct it."
+    sysmsg_setup=" Observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens) — run /handoff:setup to correct it."
   fi
 fi
 
@@ -832,7 +832,7 @@ reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do N
 # Deliberately shorter than `reason`. This one is read by a human mid-task, not
 # parsed by a model, and the full instruction paragraph would be noise on a
 # terminal line.
-sysmsg="handoff: ${headline}. Finish the current step, then run handoff:handoff.${sysmsg_setup}"
+sysmsg="handoff: ${headline}. Finish the current step, then run /handoff:handoff.${sysmsg_setup}"
 
 jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
   '{decision:"block", reason:$reason, systemMessage:$sysmsg}'
