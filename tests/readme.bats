@@ -70,8 +70,9 @@ flat() {
   local f t miss="" n=0
   for f in README.md handoff/README.md pipeline/README.md; do
     # Inline (`handoff:setup`) and as a command line of its own inside a fence
-    # (mutation found the fenced quick-start step unread).
-    for t in $(tr -d '\r' < "$f" | grep -oE '`(handoff|pipeline):[a-z][a-z-]*`|^(handoff|pipeline):[a-z][a-z-]*( |$)' | tr -d '` ' | sort -u); do
+    # (mutation found the fenced quick-start step unread). Either may carry
+    # the slash a reader types (`/handoff:setup`).
+    for t in $(tr -d '\r' < "$f" | grep -oE '`/?(handoff|pipeline):[a-z][a-z-]*`|^/?(handoff|pipeline):[a-z][a-z-]*( |$)' | tr -d '`/ ' | sort -u); do
       n=$((n + 1))
       [ -f "${t%%:*}/skills/${t#*:}/SKILL.md" ] || miss="$miss $f:$t"
     done
@@ -80,7 +81,7 @@ flat() {
   [ -z "$miss" ] || { echo "named but not shipped:$miss"; false; }
 }
 
-@test "the quick start adds the marketplace, installs, then runs handoff:setup" {
+@test "the quick start adds the marketplace, installs, then runs /handoff:setup" {
   cd "$ROOT"
   local owner mname want qs la li ls distinct
   # The repository is named like the marketplace, so owner/name is the add line.
@@ -93,7 +94,7 @@ flat() {
   qs="$(section README.md '## Quick start')"
   la="$(printf '%s\n' "$qs" | awk -v w="$want" '$0 == w { print NR; exit }')"
   li="$(printf '%s\n' "$qs" | awk '$0 == "/plugin install handoff@delivery-kit" { print NR; exit }')"
-  ls="$(printf '%s\n' "$qs" | awk '$0 == "handoff:setup" { print NR; exit }')"
+  ls="$(printf '%s\n' "$qs" | awk '$0 == "/handoff:setup" { print NR; exit }')"
   [ -n "$la" ] && [ -n "$li" ] && [ -n "$ls" ] || { echo "quick start lacks a step: add=$la install=$li setup=$ls"; false; }
   [ "$la" -lt "$li" ] && [ "$li" -lt "$ls" ] || { echo "quick start order is add=$la install=$li setup=$ls"; false; }
 }
@@ -127,4 +128,108 @@ flat() {
     || { echo "the root README no longer says where ~/.delivery-kit.json is on Windows"; false; }
   [[ $(flat README.md) == *'Upgrading from the 1.x plugin called `delivery-kit`? Uninstall it **first**'* ]] \
     || { echo "the root README's quick start no longer says to uninstall the 1.x plugin first"; false; }
+}
+
+@test "a skill the READMEs tell you to type carries its slash" {
+  cd "$ROOT"
+  local f bare=""
+  # A line of its own that starts with a bare plugin:skill is a command to
+  # type without the slash Claude Code lists it under.
+  for f in README.md handoff/README.md pipeline/README.md; do
+    if tr -d '\r' < "$f" | grep -nE -- '^(handoff|pipeline):[a-z]' > "$BATS_TEST_TMPDIR/bare"; then
+      bare="$bare $f: $(tr '\n' ' ' < "$BATS_TEST_TMPDIR/bare")"
+    fi
+  done
+  [ -z "$bare" ] || { echo "typed without its slash:$bare"; false; }
+  [[ $(flat README.md) == *'Claude Code lists each plugin skill as `/<plugin>:<skill>`'* ]] \
+    || { echo "the root README no longer says how a plugin skill is typed"; false; }
+  # "Asking in words works too" holds only while Claude may load the skill.
+  if grep -qE -- '^disable-model-invocation: *true' handoff/skills/setup/SKILL.md; then
+    echo "handoff:setup is no longer model-invocable, but the root README says asking in words works"; false
+  fi
+}
+
+@test "the /pipeline description names every seed form the skill reads" {
+  cd "$ROOT"
+  local forms n desc form1
+  forms="$(tr -d '\r' < pipeline/skills/pipeline/SKILL.md | awk '/^\*\*Seed forms\.\*\*/ { f = 1; next } f && /^## / { exit } f')"
+  n="$(printf '%s\n' "$forms" | grep -cE -- '^[0-9]+\. ' || true)"
+  [ "$n" = 3 ] || { echo "the skill now lists $n seed forms; the command description names three"; false; }
+  form1="$(printf '%s\n' "$forms" | awk '/^1\. / { sub(/^[^`]*`/, ""); sub(/`.*$/, ""); print; exit }')"
+  [ -n "$form1" ] || { echo "no backticked pattern read from the skill's first seed form"; false; }
+  desc="$(tr -d '\r' < pipeline/commands/pipeline.md | awk '/^description: / { sub(/^description: /, ""); print; exit }')"
+  [[ $desc == *"\`$form1\`"* ]] || { echo "the command description does not name the plan-file form $form1"; false; }
+  [[ $desc == *'a GitHub issue as `#123`'* ]] || { echo "the command description does not name the issue form"; false; }
+  [[ $desc == *'a feature description in your own words'* ]] || { echo "the command description does not name the verbatim form"; false; }
+}
+
+@test "the plan-file seed is documented as the skill reads it" {
+  cd "$ROOT"
+  local p
+  p="$(flat pipeline/README.md)"
+  [[ $p == *'No script reads the plan file: Claude does, so nothing in the plugin fixes the heading level or where the section stops.'* ]] \
+    || { echo "pipeline/README.md no longer says how the plan-file seed is read"; false; }
+  # The sentence is true only while no script reads planFile.
+  if grep -lF -- 'planFile' pipeline/scripts/*.sh > "$BATS_TEST_TMPDIR/readers"; then
+    echo "a script now reads planFile, so the README's account of the plan-file seed is stale: $(tr '\n' ' ' < "$BATS_TEST_TMPDIR/readers")"; false
+  fi
+  [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'For the plan-file form, quote the section verbatim'* ]] \
+    || { echo "the skill no longer quotes the plan-file section verbatim, which the README says"; false; }
+  [[ $p == *'each phase is a `## Phase <N>: <title>` heading'* ]] \
+    || { echo "pipeline/README.md no longer shows the plan file's heading shape"; false; }
+}
+
+@test "the README warns what a dry run leaves behind, naming the state file" {
+  cd "$ROOT"
+  local root fmt state p
+  root="$(sed -n 's/^STATE_ROOT="\(.*\)"$/\1/p' pipeline/scripts/progress.sh)"
+  fmt="$(sed -n "s/^state_file() { printf '\([^']*\)'.*/\1/p" pipeline/scripts/progress.sh)"
+  [ -n "$root" ] && [ -n "$fmt" ] || { echo "no STATE_ROOT or state_file() read from progress.sh: root=$root fmt=$fmt"; false; }
+  # shellcheck disable=SC2059 # the format is progress.sh's own
+  state="$(printf "$fmt" "$root" '<feature>')"
+  p="$(flat pipeline/README.md)"
+  [[ $p == *'`--dry-run` is not a preview of the spec phases.'* ]] || { echo "pipeline/README.md has no dry-run warning"; false; }
+  [[ $p == *"\`$state\`"* ]] || { echo "pipeline/README.md does not name the state file as $state"; false; }
+  [[ $p == *'the feature branch'* ]] && [[ $p == *'the spec folder'* ]] || { echo "the dry-run warning lost the branch or the spec folder"; false; }
+  [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'Run the spec phases A–F.5 normally'* ]] \
+    || { echo "the skill's --dry-run no longer runs the spec phases normally, which the warning rests on"; false; }
+}
+
+@test "the README says gh must be logged in, and pre-flight does not check it" {
+  cd "$ROOT"
+  local p
+  p="$(flat pipeline/README.md)"
+  [[ $p == *'`gh` must also be logged in: run `gh auth login` once'* ]] || { echo "pipeline/README.md does not say gh must be logged in"; false; }
+  [[ $p == *'Pre-flight checks only that `gh` is on PATH, not that it is logged in'* ]] \
+    || { echo "pipeline/README.md no longer says pre-flight checks presence only"; false; }
+  if grep -nE -- 'auth (status|login|token)' pipeline/scripts/preflight.sh > "$BATS_TEST_TMPDIR/auth"; then
+    echo "preflight.sh now checks gh login, so the README's presence-only sentence is stale: $(cat "$BATS_TEST_TMPDIR/auth")"; false
+  fi
+}
+
+@test "the Windows CRLF row names jq -b, and the scripts it vouches for still cope" {
+  cd "$ROOT"
+  local win
+  win="$(section README.md '## Windows' | tr '\n' ' ' | tr -s ' ')"
+  [[ $win == *'The Windows build of `jq` ends each line with CRLF'* ]] || { echo "the Windows section has no CRLF row"; false; }
+  [[ $win == *'use `jq -b`'* ]] || { echo "the CRLF row no longer names jq -b"; false; }
+  grep -qF -- 'v="$(jq -b -r "$@")" || return 1' pipeline/scripts/progress.sh \
+    || { echo "progress.sh's jqs no longer passes jq -b, which the CRLF row says"; false; }
+  grep -qF -- "v=\${v%\$'\\r'}" handoff/hooks/session-start.sh \
+    || { echo "session-start.sh no longer strips a trailing CR from jq, which the CRLF row says"; false; }
+}
+
+@test "the handoff README's resume block is the skill's, on one Read line" {
+  cd "$ROOT"
+  local skill pre post got next
+  skill="$(tr -d '\r' < handoff/skills/handoff/SKILL.md | awk 'f { print; exit } $0 == "Resume with:" { f = 1 }')"
+  [[ $skill == *'<path-to-handoff-document>'* ]] || { echo "no placeholder line after 'Resume with:' in the skill: $skill"; false; }
+  pre="${skill%%<path-to-handoff-document>*}"
+  post="${skill#*<path-to-handoff-document>}"
+  got="$(tr -d '\r' < handoff/README.md | awk 'f { print; exit } $0 == "Resume with:" { f = 1 }')"
+  next="$(tr -d '\r' < handoff/README.md | awk 'f == 2 { print; exit } f { f++ } $0 == "Resume with:" { f = 1 }')"
+  [[ $got == "$pre"*"$post" ]] || { echo "README Read line '$got' is not the skill's '$skill'"; false; }
+  local mid="${got#"$pre"}"; mid="${mid%"$post"}"
+  [ -n "$mid" ] && [[ $mid != *' '* ]] || { echo "README path '$mid' is empty or holds a space"; false; }
+  [ "$next" = '```' ] || { echo "the README block continues past the Read line: '$next'"; false; }
 }

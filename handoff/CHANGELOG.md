@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The README's resume block is the one the skill prints.** Its Read line
+  was wrapped onto two lines; it is now one, word for word the skill's. The
+  README also types each skill with its slash: `/handoff:setup`.
+
 ### Fixed
 
 - **Checking that the guard fires no longer risks your configuration.** The

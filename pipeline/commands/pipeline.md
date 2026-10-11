@@ -1,5 +1,5 @@
 ---
-description: Drive one unit of work from a heading in a plan file to a verified build — specification, plan, tasks, implementation, review and release, with a human gate at every step that leaves the machine or cannot be undone by editing a file.
+description: "Drive one unit of work from a seed to a verified build — specification, plan, tasks, implementation, review and release, with a human gate at every step that leaves the machine or cannot be undone by editing a file. The seed is a `Phase <N>: <title>` heading in the plan file, a GitHub issue as `#123`, or a feature description in your own words."
 disable-model-invocation: true
 ---
 
