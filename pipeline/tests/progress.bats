@@ -138,6 +138,71 @@ setup() {
   [[ "$output" == *"letters, digits, dot, dash, underscore"* ]]
 }
 
+# "." and ".." pass the character rule and name directories that already
+# exist: `init ..` wrote .delivery-kit/progress.json and `init .` wrote
+# runs/progress.json before this refusal (measured). Every all-dots name is
+# refused by name, and nothing is written anywhere.
+@test "a feature name made only of dots is refused by name and writes nothing" {
+  local name
+  for name in . .. ...; do
+    run bash "$PROG" init "$name" b main web
+    [ "$status" -ne 0 ] || { echo "init '$name' was accepted"; false; }
+    [[ "$output" == *"feature name '$name' is only dots"* ]] || { echo "init '$name': $output"; false; }
+  done
+  [ ! -e .delivery-kit ] || { echo "a refused name still wrote: $(find .delivery-kit)"; false; }
+  # A dotted name that holds something else is still a name.
+  run bash "$PROG" init 1.2 b main web
+  [ "$status" -eq 0 ]
+  [ -f .delivery-kit/runs/1.2/progress.json ]
+}
+
+# phase_known used to be a substring match over the list, so a run of
+# adjacent names passed: "C C.5" and "A B" were measured to be accepted by
+# phase-start and by validate. Both shapes are refused now, everywhere.
+@test "a run of adjacent phase names is refused by phase-start and by validate" {
+  local sf=.delivery-kit/runs/001-demo/progress.json p
+  bash "$PROG" init 001-demo b main web
+  for p in 'C C.5' 'A B' ' A' 'A '; do
+    run bash "$PROG" phase-start 001-demo "$p"
+    [ "$status" -ne 0 ] || { echo "phase-start accepted '$p'"; false; }
+    [[ "$output" == *"unknown phase '$p'"* ]] || { echo "phase-start '$p': $output"; false; }
+  done
+  [ "$(jq -r .current_phase "$sf" | tr -d '\r')" = preflight ]
+  for p in 'C C.5' 'A B'; do
+    jq --arg p "$p" '.current_phase = $p' "$sf" > t.json
+    mv t.json "$sf"
+    run bash "$PROG" validate 001-demo
+    [ "$status" -ne 0 ] || { echo "validate accepted current_phase '$p'"; false; }
+    [[ "$output" == *"current_phase '$p' is not a phase this pipeline knows"* ]] || { echo "validate '$p': $output"; false; }
+  done
+}
+
+# Every real phase name is still accepted. The list is read from the
+# script's own refusal, which prints it, never typed here: a list written
+# into the test goes stale the day a phase is added. from-validate checks
+# the name before it looks for a state file, so for a run that does not
+# exist an accepted name gets "no state file" and a refused one "unknown
+# phase": one cheap process per name, and no jq.
+@test "every phase name the script lists is accepted, whole" {
+  local legal p n=0
+  run bash "$PROG" from-validate 001-none ZZZ
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown phase 'ZZZ'"* ]]
+  run bash "$PROG" phase-start 001-none ZZZ
+  legal="${output#*legal:}"; legal="${legal%)*}"
+  # The derivation is checked before it is trusted: an empty or broken one
+  # would make the loop below pass on nothing.
+  [[ " $legal " == *" preflight "* && " $legal " == *" C.5 "* && " $legal " == *" DONE "* ]] \
+    || { echo "the legal list did not parse: '$legal' from: $output"; false; }
+  for p in $legal; do
+    run bash "$PROG" from-validate 001-none "$p"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no state file at"* ]] || { echo "phase '$p' was refused: $output"; false; }
+    n=$((n + 1))
+  done
+  [ "$n" -ge 3 ]
+}
+
 @test "stdout carries nothing even when stderr is talking" {
   bash "$PROG" init 001-demo b main web
   jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock

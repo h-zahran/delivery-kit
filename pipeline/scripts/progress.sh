@@ -59,8 +59,17 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
 # Feature names come from the spec tool (NNN-slug). Anything else could
 # escape the runs directory, so the shape is enforced, loudly, everywhere.
-feature_ok() { case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac; }
-need_feature() { feature_ok "$1" || die "feature name '$1' — letters, digits, dot, dash, underscore only"; }
+# A name made only of dots passes that shape and still escapes: "." and ".."
+# are directories already, so `init ..` wrote .delivery-kit/progress.json
+# and `init .` wrote runs/progress.json (measured). It is refused by name.
+feature_ok() {
+  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ -n "${1//./}" ]
+}
+need_feature() {
+  case "$1" in ''|*[!.]*) ;; *) die "feature name '$1' is only dots, which names a directory that already exists, not a run" ;; esac
+  feature_ok "$1" || die "feature name '$1' — letters, digits, dot, dash, underscore only"
+}
 
 state_file() { printf '%s/runs/%s/progress.json' "$STATE_ROOT" "$1"; }
 lock_file()  { printf '%s/lock' "$STATE_ROOT"; }
@@ -69,18 +78,22 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # The full phase alphabet. DONE is the terminal marker, not a phase a run
 # works in — but phase-start accepts it so a finishing run can record it.
 PHASES=" preflight A B C C.5 D E F F.5 G H H.5 H.7 I J K L M N N.5 O DONE "
-# KNOWN HOLE, recorded rather than fixed here: this substring match accepts a
-# run of adjacent names — "A B" and "C C.5" were measured to pass. The fix is
-# the word-by-word loop kind_known uses below; it changes what phase-start and
-# validate accept, so it belongs to its own change.
-phase_known() { case "$PHASES" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+# Word by word, never a substring match: `case "$PHASES" in *" $1 "*)`
+# accepted a run of adjacent names, because "A B" and "C C.5" with their
+# surrounding spaces ARE substrings of the list (measured). An exact
+# comparison against each word refuses them, and anything else that is not
+# one whole name. The list is split on spaces only, never globbed: no name
+# holds a pattern character.
+phase_known() {
+  local p
+  for p in $PHASES; do [ "$p" = "$1" ] && return 0; done
+  return 1
+}
 
 # What a recorded commit holds. One list, read by the check and by its message.
 KINDS=" spec piece converge simplify review tests constitution other "
-# Word by word, never a substring match: the substring idiom above accepts
-# "spec piece", because that string with its surrounding spaces IS a
-# substring of the list — measured. An exact comparison against each word
-# refuses it, and anything else that is not one whole name.
+# Word by word, as phase_known is: a substring match accepts "spec piece",
+# for the same reason (measured).
 kind_known() {
   local k
   for k in $KINDS; do [ "$k" = "$1" ] && return 0; done
