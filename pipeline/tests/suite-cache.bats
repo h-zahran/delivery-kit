@@ -568,6 +568,21 @@ reuse() {
   runs suite-lookup "$F"
 }
 
+@test "under commit, a record under the right file name whose head is another commit is refused" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json" first other
+  first="$(git rev-parse HEAD)"
+  git commit -q --allow-empty -m other
+  other="$(git rev-parse HEAD)"
+  git reset -q --hard "$first"
+  runs suite-lookup "$F"
+  # Forged: the key, mode and digests are this tree's; only head differs.
+  jq --arg h "$other" '.head = $h' "$rec" > "$BATS_TEST_TMPDIR/forged.json"
+  mv "$BATS_TEST_TMPDIR/forged.json" "$rec"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
+}
+
 @test "a record made under one mode is never reused under another" {
   repo
   reuse files
