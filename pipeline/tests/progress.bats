@@ -268,7 +268,8 @@ setup() {
   for f in 001-a 002-b 003-c; do bash "$PROG" init "$f" b main web > /dev/null; done
   jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
   for f in 001-a 002-b 003-c; do
-    bash "$PROG" lock-take "$f" "s-$f" > /dev/null 2> "err-$f.txt" &
+    # A long wait: each taker queues behind the others, slowly on a loaded runner.
+    PROGRESS_LOCK_TRIES=300 bash "$PROG" lock-take "$f" "s-$f" > /dev/null 2> "err-$f.txt" &
     pids+=("$!")
   done
   i=0
