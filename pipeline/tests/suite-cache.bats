@@ -120,30 +120,126 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   [ "$K" = "$first" ]
 }
 
-@test "suite-key has no key when a tracked file is changed, staged or not" {
+@test "a changed tracked file changes the key, staged or not, and committing it does not" {
   repo
-  printf 'changed\n' >> README.md
-  refuses "the working tree has a change outside .delivery-kit/ (README.md)" suite-key "$F"
-  git add README.md
-  refuses "(README.md)" suite-key "$F"
-  git reset -q HEAD README.md
-  git checkout -q -- README.md
   key
-  # Staged only: the file is still in the working tree, deleted in the index.
+  local clean="$K"
+  printf 'changed\n' >> README.md
+  key
+  local dirty="$K"
+  [ "$dirty" != "$clean" ] || { echo "a changed tracked file left the key as it was"; false; }
+  # Staging changes nothing the suite reads, and neither does the commit: N
+  # can cite the run J made before J committed.
+  git add README.md
+  key
+  [ "$K" = "$dirty" ] || { echo "staging a change moved the key"; false; }
+  git commit -q -m changed
+  key
+  [ "$K" = "$dirty" ] || { echo "committing a change moved the key"; false; }
+  git revert --no-edit HEAD > /dev/null
+  key
+  [ "$K" = "$clean" ]
+  # Staged only: the file is still on disk, but now untracked.
   git rm -q --cached src/keep.sh
-  refuses "(src/keep.sh)" suite-key "$F"
+  key
+  [ "$K" != "$clean" ] || { echo "a file that left the index left the key as it was"; false; }
 }
 
-@test "suite-key has no key when an untracked file exists, but an ignored one is not seen" {
+@test "an untracked file changes the key, by its name and its bytes, but an ignored one is not seen" {
   repo
   key
   local clean="$K"
   printf 'noise\n' > build.log
   key
-  [ "$K" = "$clean" ]
+  [ "$K" = "$clean" ] || { echo "an ignored file moved the key"; false; }
   mkdir -p deep/er
   printf 'new\n' > deep/er/new.txt
-  refuses "(deep/er/new.txt)" suite-key "$F"
+  key
+  local one="$K"
+  [ "$one" != "$clean" ] || { echo "a new untracked file left the key as it was"; false; }
+  printf 'other\n' > deep/er/new.txt
+  key
+  [ "$K" != "$one" ] || { echo "an untracked file's bytes are not in the key"; false; }
+  printf 'new\n' > deep/er/new.txt
+  key
+  [ "$K" = "$one" ]
+  # The same bytes under another name: a test can read a file by its name.
+  mv deep/er/new.txt deep/er/renamed.txt
+  key
+  [ "$K" != "$one" ] || { echo "renaming an untracked file left the key as it was"; false; }
+  rm -r deep
+  key
+  [ "$K" = "$clean" ]
+}
+
+@test "a deleted tracked file changes the key, and is not the same as an empty one" {
+  repo
+  key
+  local clean="$K"
+  rm src/keep.sh
+  key
+  local gone="$K"
+  [ "$gone" != "$clean" ] || { echo "a deleted tracked file left the key as it was"; false; }
+  : > src/keep.sh
+  key
+  [ "$K" != "$gone" ] && [ "$K" != "$clean" ] || { echo "an emptied file keyed as a deleted or an unchanged one"; false; }
+  # Deleted from the index too: the path is in neither list.
+  git rm -q -f src/keep.sh
+  key
+  [ "$K" != "$gone" ] && [ "$K" != "$clean" ] || { echo "a file removed from the index keyed as one only deleted from disk"; false; }
+}
+
+@test "which of two files with the same bytes was deleted is in the key" {
+  repo
+  printf 'same\n' > a1.txt
+  printf 'same\n' > a2.txt
+  git add a1.txt a2.txt
+  git commit -q -m twins
+  rm a1.txt
+  key
+  local first="$K"
+  git checkout -q -- a1.txt
+  rm a2.txt
+  key
+  [ "$K" != "$first" ] || { echo "deleting one twin keyed as deleting the other"; false; }
+}
+
+@test "a change of line endings alone changes the key" {
+  repo
+  key
+  local clean="$K"
+  printf 'base\r\n' > README.md
+  key
+  [ "$K" != "$clean" ] || { echo "CRLF in place of LF left the key as it was"; false; }
+  printf 'side\n' > side.txt
+  key
+  local lf="$K"
+  printf 'side\r\n' > side.txt
+  key
+  [ "$K" != "$lf" ] || { echo "CRLF in an untracked file left the key as it was"; false; }
+}
+
+@test "a mode change git sees changes the key" {
+  repo
+  key
+  local clean="$K"
+  # The index mode, which every system can change.
+  git update-index --chmod=+x src/keep.sh
+  key
+  [ "$K" != "$clean" ] || { echo "an index mode change left the key as it was"; false; }
+  git update-index --chmod=-x src/keep.sh
+  key
+  [ "$K" = "$clean" ]
+  # The mode on disk, where the file system keeps one: Windows does not, so
+  # there git sees no change, and the key must not move either.
+  git config core.fileMode true
+  chmod +x src/keep.sh
+  key
+  if git diff-files --raw -- src/keep.sh | grep -q -- ' 100755 '; then
+    [ "$K" != "$clean" ] || { echo "a mode change on disk left the key as it was"; false; }
+  else
+    [ "$K" = "$clean" ] || { echo "a mode change git cannot see moved the key"; false; }
+  fi
 }
 
 @test "suite-key leaves .delivery-kit/ out of the tree it judges" {
@@ -221,13 +317,19 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   # A file a test left behind.
   key
   printf 'left\n' > leftover.txt
-  refuses "no suite key now" suite-record "$F" "$K" "$TAP" 0
+  refuses "is not what it was when the key was taken" suite-record "$F" "$K" "$TAP" 0
   [ "$(records)" = 0 ]
-  # A TAP file written inside the tree, outside .delivery-kit/, dirties it.
+  # A TAP file written inside the tree, outside .delivery-kit/, is such a file.
   rm leftover.txt
   key
   printf '1..1\nok 1 one\n' > suite.tap
-  refuses "(suite.tap)" suite-record "$F" "$K" suite.tap 0
+  refuses "is not what it was when the key was taken" suite-record "$F" "$K" suite.tap 0
+  [ "$(records)" = 0 ]
+  # A tree that has no key now records nothing either.
+  rm suite.tap
+  key
+  git update-index --assume-unchanged README.md
+  refuses "nothing recorded — no suite key now" suite-record "$F" "$K" "$TAP" 0
   [ "$(records)" = 0 ]
 }
 
@@ -252,10 +354,11 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   [ "$(jq -r '.rc | type' "$rec" | tr -d '\r')" = number ]
 }
 
-@test "a skip counts as an ok and is reported" {
+@test "a skip is red, and is counted" {
   repo
-  verdict_is green 0 '1..2' 'ok 1 one' 'ok 2 two # skip not here'
+  verdict_is red 0 '1..2' 'ok 1 one' 'ok 2 two # skip not here'
   [ "$(jq -c '[.ok, .skipped]' ".delivery-kit/suite-results/$K.json" | tr -d '\r')" = '[2,1]' ]
+  refuses "is red, and a red result is never reused" suite-lookup "$F"
 }
 
 @test "a TAP file with CRLF endings reads as it does with LF" {
@@ -310,14 +413,106 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   [ "$(sed -n 1p "$OUT")" = ".delivery-kit/suite-results/$K.json" ]
 }
 
-@test "suite-lookup finds nothing before a record, after a commit, or on a dirty tree" {
+@test "suite-lookup finds nothing before a record, or after a change, committed or not" {
   repo
   refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
   verdict_is green 0 '1..1' 'ok 1 one'
   printf 'dirty\n' >> README.md
-  refuses "no suite key" suite-lookup "$F"
+  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
   git commit -q -am 'a change'
   refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  git update-index --assume-unchanged README.md
+  refuses "no reusable result — no suite key" suite-lookup "$F"
+}
+
+@test "a green result on uncommitted work is reused after the work is committed" {
+  repo
+  printf 'fixed\n' >> src/keep.sh
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json"
+  runs suite-lookup "$F"
+  [ "$(sed -n 1p "$OUT")" = "$rec" ]
+  # J commits the files it ran on; N cites that run.
+  git commit -q -am 'J late commit'
+  runs suite-lookup "$F"
+  [ "$(sed -n 1p "$OUT")" = "$rec" ]
+  # One byte more, and it is another set of files.
+  printf 'x' >> src/keep.sh
+  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+}
+
+@test "a fresh run reuses a green result an earlier run recorded on the same uncommitted files" {
+  repo
+  mkdir -p work
+  printf 'wip\n' > work/new.sh
+  printf 'more\n' >> README.md
+  verdict_is green 0 '1..1' 'ok 1 one'
+  state 002-fresh
+  runs suite-lookup 002-fresh
+  [ "$(sed -n 1p "$OUT")" = ".delivery-kit/suite-results/$K.json" ]
+  [[ "$(sed -n 2p "$OUT")" == *"by run $F" ]] || { echo "the summary does not name the run that recorded it: $(cat "$OUT")"; false; }
+}
+
+# spec <feature> <dir> — an untracked spec file for the run, recorded as
+# its artifacts.spec, as B leaves it.
+spec() {
+  local sf=".delivery-kit/runs/$1/progress.json"
+  mkdir -p "$2"
+  printf '# spec\n' > "$2/spec.md"
+  jq --arg s "$2/spec.md" '.artifacts.spec = $s' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+}
+
+@test "F.5 with --base reuses an earlier run's green result on the tree before its own untracked spec" {
+  repo
+  verdict_is green 0 '1..2' 'ok 1 one' 'ok 2 two'
+  local rec=".delivery-kit/suite-results/$K.json"
+  state 002-next
+  spec 002-next specs/002-next
+  # The spec files are bytes the suite could read: these files have no record.
+  refuses "none is recorded for this tree, command and platform" suite-lookup 002-next
+  runs suite-lookup 002-next --base
+  [ "$(sed -n 1p "$OUT")" = "$rec" ]
+  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F — for these files without the untracked specs/002-next/" ]] \
+    || { echo "the summary does not say the spec directory was left out: $(cat "$OUT")"; false; }
+}
+
+@test "--base leaves out only the run's untracked spec directory" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  state 002-next
+  spec 002-next specs/002-next
+  # Any other change misses: an untracked file elsewhere, a tracked change.
+  printf 'other\n' > notes.txt
+  refuses "and without the untracked specs/002-next/, none is recorded for this tree, command and platform" suite-lookup 002-next --base
+  rm notes.txt
+  printf 'x\n' >> README.md
+  refuses "none is recorded" suite-lookup 002-next --base
+  git checkout -q -- README.md
+}
+
+@test "--base does not leave out a spec directory already tracked" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  state 002-next
+  spec 002-next specs/002-next
+  git add specs/002-next/spec.md
+  git commit -q -m spec
+  refuses "none is recorded" suite-lookup 002-next --base
+}
+
+@test "--base needs a spec file in a directory of its own, and is lookup's alone" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  state 002-next
+  printf 'x\n' > stray.txt
+  refuses "and none without the spec directory: " suite-lookup 002-next --base
+  printf '# spec\n' > spec.md
+  jq '.artifacts.spec = "spec.md"' .delivery-kit/runs/002-next/progress.json > t.json && mv t.json .delivery-kit/runs/002-next/progress.json
+  refuses "no spec directory to leave out" suite-lookup 002-next --base
+  refuses "usage: suite-lookup <feature> [--base]" suite-lookup 002-next --other
+  refuses "usage: suite-lookup <feature> [--base]" suite-lookup 002-next --base extra
+  refuses "usage: suite-key <feature>" suite-key 002-next --base
 }
 
 @test "a red result is never reused, and a later red replaces a green" {
@@ -382,15 +577,17 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   refuses "the tree holds a submodule (sub)" suite-key "$F"
 }
 
-@test "suite-key has no key when a tracked file under .delivery-kit/ is changed" {
+@test "a changed tracked file under .delivery-kit/ changes the key" {
   repo
   mkdir -p .delivery-kit/fixtures
   printf 'good\n' > .delivery-kit/fixtures/in.txt
   git add .delivery-kit/fixtures/in.txt
   git commit -q -m 'a tracked fixture'
   key
+  local before="$K"
   printf 'bad\n' > .delivery-kit/fixtures/in.txt
-  refuses "(.delivery-kit/fixtures/in.txt)" suite-key "$F"
+  key
+  [ "$K" != "$before" ] || { echo "a tracked file under .delivery-kit/ is not in the key"; false; }
 }
 
 @test "the key sees a file's bytes when a line-ending conversion hides them from git status" {
@@ -457,8 +654,12 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   refuses "is red" suite-lookup "$F"
   jq '.bytes = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
   refuses "records another tree, command or platform" suite-lookup "$F"
+  # The commit's tree is kept to be read, never compared: the key is the files.
   jq '.tree = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
-  refuses "records another tree, command or platform" suite-lookup "$F"
+  runs suite-lookup "$F"
+  # A green that counts a skip is not a green run's.
+  jq '.skipped = 1' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "is red" suite-lookup "$F"
   cp "$BATS_TEST_TMPDIR/green.json" "$rec"
   runs suite-lookup "$F"
 }
@@ -496,11 +697,35 @@ fake_uname() {
   key
 }
 
-@test "suite-key names the first change git lists" {
+@test "suite-key has no key with an unmerged path, or an untracked repository inside the tree" {
   repo
-  printf 'x\n' >> README.md
-  printf 'y\n' >> src/keep.sh
-  refuses "(README.md)" suite-key "$F"
+  git checkout -q -b side
+  printf 'side\n' > README.md
+  git commit -q -am side
+  git checkout -q main
+  printf 'main\n' > README.md
+  git commit -q -am main
+  git merge -q side > /dev/null 2>&1 || true
+  refuses "the index holds an unmerged path (README.md)" suite-key "$F"
+  git merge --abort
+  key
+  mkdir -p nested
+  git -C nested init -q
+  printf 'q\n' > nested/q.txt
+  refuses "an untracked directory holds a repository of its own (nested/)" suite-key "$F"
+}
+
+@test "an odd untracked file name survives the trip through quoting" {
+  repo
+  key
+  local clean="$K"
+  printf 'a\n' > "$(printf 'caf\303\251.txt')"
+  key
+  local one="$K"
+  [ "$one" != "$clean" ]
+  printf 'b\n' > "$(printf 'caf\303\251.txt')"
+  key
+  [ "$K" != "$one" ] || { echo "a quoted file name's bytes are not in the key"; false; }
 }
 
 @test "suite-lookup refuses a record whose key or platform was edited" {
@@ -554,8 +779,102 @@ fake_uname() {
   verdict_is green 0 '1..1' '   ' 'ok 1 one'
 }
 
-@test "an upper-case SKIP is counted" {
+@test "an upper-case SKIP is counted, and is red" {
   repo
-  verdict_is green 0 '1..1' 'ok 1 one # SKIP not here'
+  verdict_is red 0 '1..1' 'ok 1 one # SKIP not here'
   [ "$(jq -r .skipped ".delivery-kit/suite-results/$K.json" | tr -d '\r')" = 1 ]
+}
+
+# --- tap-check ----------------------------------------------------------------
+# tap-check judges any TAP file, keyed or not, by the rules suite-record keeps
+# its verdict by. It needs no feature and no repository.
+
+# tap_ok <want summary> <args...> / tap_no <fragment> <args...>
+tap_ok() {
+  local want="$1" rc=0; shift
+  bash "$PROG" tap-check "$@" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "exit $rc, expected 0: $(cat "$ERR")"; return 1; }
+  [ "$(cat "$OUT")" = "$want" ] || { echo "printed '$(cat "$OUT")', expected '$want'"; return 1; }
+}
+tap_no() {
+  local frag="$1" rc=0; shift
+  bash "$PROG" tap-check "$@" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "exit $rc, expected 1 naming: $frag; out: $(cat "$OUT")"; return 1; }
+  [[ "$(cat "$ERR")" == *"$frag"* ]] || { echo "stderr lacks '$frag': $(cat "$ERR")"; return 1; }
+  [ ! -s "$OUT" ] || { echo "a refusal printed on stdout: $(cat "$OUT")"; return 1; }
+  [[ "$(cat "$ERR")" != *"$BATS_TEST_TMPDIR"* ]] || { echo "a refusal printed the file's path: $(cat "$ERR")"; return 1; }
+}
+
+@test "tap-check passes a clean run, with or without the expected count, outside any repository" {
+  t="$BATS_TEST_TMPDIR/run.tap"
+  printf '1..3\nok 2 b\n# note\n\nok 1 a\nok 3 c\n' > "$t"
+  tap_ok 'suite ok: 1..3, 3 ok, 0 skipped, 0 not ok, 0 non-TAP' "$t"
+  tap_ok 'suite ok: 1..3, 3 ok, 0 skipped, 0 not ok, 0 non-TAP' "$t" 3
+  printf '1..1\r\nok 1 a\r\n' > "$t"
+  tap_ok 'suite ok: 1..1, 1 ok, 0 skipped, 0 not ok, 0 non-TAP' "$t"
+}
+
+@test "tap-check refuses a skip, a not ok, a stray line and a short count, each by name" {
+  t="$BATS_TEST_TMPDIR/run.tap"
+  printf '1..2\nok 1 a\nok 2 b # skip later\n' > "$t";  tap_no "1 skipped, and a skip is not a pass" "$t"
+  printf '1..2\nok 1 a\nok 2 b # SKIP later\n' > "$t";  tap_no "1 skipped" "$t" 2
+  printf '1..2\nok 1 a\nnot ok 2 b\n' > "$t";           tap_no "1 not ok" "$t"
+  printf '1..2\nok 1 a\nwarning: x\nok 2 b\n' > "$t";   tap_no "1 non-TAP line(s)" "$t"
+  printf '1..2\nok 1 a\n' > "$t";                       tap_no "ok count 1, expected 2" "$t"
+  printf '1..1\nok 1 a\nok 2 b\n' > "$t";               tap_no "ok count 2, expected 1" "$t"
+  printf '1..2\nok 1 a\nok 1 a\n' > "$t";               tap_no "1 test number(s) missing, repeated or outside the plan" "$t"
+  printf '1..2\nok 1 a\nok 2 b\n1..2\n' > "$t";         tap_no "a second plan line" "$t"
+  printf '\n\n' > "$t";                                 tap_no "the TAP file is empty" "$t"
+}
+
+@test "tap-check reads the plan line first, and against the expected count when one is given" {
+  t="$BATS_TEST_TMPDIR/run.tap"
+  printf 'ok 1 a\n1..1\n' > "$t";   tap_no "the first non-blank line is not a plan line 1..N with N at least 1" "$t"
+  printf '1..0\n' > "$t";           tap_no "the first non-blank line is not a plan line 1..N with N at least 1" "$t"
+  printf '1..01\nok 1 a\n' > "$t";  tap_no "not a plan line 1..N" "$t"
+  printf '1..2\nok 1 a\nok 2 b\n' > "$t"
+  tap_no "the first non-blank line is not the plan line 1..3" "$t" 3
+  tap_no "the first non-blank line is not the plan line 1..1" "$t" 1
+}
+
+@test "tap-check refuses bad arguments and a file it cannot read, never naming the file" {
+  t="$BATS_TEST_TMPDIR/run.tap"
+  printf '1..1\nok 1 a\n' > "$t"
+  tap_no "usage: progress.sh tap-check <tap-file> [<expected-count>]"
+  tap_no "where <expected-count> is a positive integer" "$t" 0
+  tap_no "where <expected-count> is a positive integer" "$t" 01
+  tap_no "where <expected-count> is a positive integer" "$t" x
+  tap_no "usage: progress.sh tap-check" "$t" 1 extra
+  tap_no "the TAP file does not exist or cannot be read" "$BATS_TEST_TMPDIR/none.tap"
+  tap_no "the TAP file does not exist or cannot be read" "$BATS_TEST_TMPDIR"
+  # An awk that cannot read is a refusal, and its own words never print.
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  printf '#!/bin/sh\necho "awk: cannot open %s" >&2\nexit 2\n' "$t" > "$BATS_TEST_TMPDIR/bin/awk"
+  chmod +x "$BATS_TEST_TMPDIR/bin/awk"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" tap_no "the TAP file cannot be read" "$t"
+}
+
+@test "suite-record keeps tap-check's verdict, and check-suite.sh holds no copy of the rules" {
+  repo
+  # One judge: every shape tap-check refuses, suite-record keeps as red.
+  local shape
+  for shape in '1..1\nok 1 a # skip x\n' '1..2\nok 1 a\nok 1 a\n' '1..1\nok 1 a\nstray\n' '1..0\n'; do
+    printf "$shape" > "$TAP"
+    tap_no "" "$TAP"
+    record 0
+    [ "$V" = red ] || { echo "suite-record called '$shape' $V, tap-check refused it"; false; }
+  done
+  printf '1..1\nok 1 a\n' > "$TAP"
+  tap_ok 'suite ok: 1..1, 1 ok, 0 skipped, 0 not ok, 0 non-TAP' "$TAP"
+  record 0
+  [ "$V" = green ]
+  # The repository's quickstart check hands the file to tap-check and judges
+  # nothing itself: a second copy of the rules is how the two drifted.
+  local cs="$ROOT/scripts/check-suite.sh"
+  if [ -f "$cs" ]; then
+    grep -q -- 'tap-check' "$cs" || { echo "check-suite.sh no longer calls tap-check"; false; }
+    if grep -n -E -- '(^|[^[:alnum:]_])awk([^[:alnum:]_]|$)' "$cs" | grep -v -E -- '^[0-9]+:[[:space:]]*#' > "$BATS_TEST_TMPDIR/awk.txt"; then
+      echo "check-suite.sh runs awk itself: $(cat "$BATS_TEST_TMPDIR/awk.txt")"; false
+    fi
+  fi
 }
