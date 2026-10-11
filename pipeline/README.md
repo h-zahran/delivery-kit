@@ -86,7 +86,7 @@ stop a run are listed under the table.
 |---|---|---|---|
 | Clarify | C | Every question, one at a time | nothing — only you know the answers |
 | Implementer | G | Who builds it: here, or a package for a cheaper model. Then, for a build here, how you review it: commits or pauses | the `implementer` setting answers who builds; nothing answers commits or pauses |
-| Commit | K | The commit list, each commit with its message and files; then what is left and the exact commit message | `--auto`, unless a path lies outside the feature or there is a commit it cannot show |
+| Commit | K | The commit list (a merged-in branch shows only as its merge), each commit with its message and files; then what is left and the exact commit message | `--auto`, unless a path lies outside the feature or there is a commit it cannot show |
 | Push & PR | L | Branch name, PR title, the full body with its review guide | `--auto`, except for the stops L names itself, such as a commit it cannot show |
 | Release | O | The exact command, and where it publishes | `--auto-release` only |
 
@@ -208,14 +208,18 @@ the lock, and never advances a phase.
   explicit `--script sh|ps` or the interactive picker fires. Tested against
   0.15.x through 0.16.x; other versions warn and continue.
 - `jq`, on every platform. On Windows, check it from Git Bash: see
-  [the Windows notes](../README.md#windows).
+  [the Windows notes](../README.md#windows). On Windows, `gh` must be found by
+  that name in Git Bash: the review phase M runs the code-review plugin, which
+  calls plain `gh`, and a `gh.cmd` alone (as Scoop installs it) is not enough
+  there.
 - `git`, on every platform. Unlike the optional tools below, an absent `git`
   does not degrade a phase — it stops the run at pre-flight, because branching,
   committing and opening a pull request are all git operations and pre-flight's
   own branch and working-tree reads are git commands. Pre-flight names it and
-  points at the download page; nothing is installed for you.
+  points at <https://git-scm.com/downloads>; nothing is installed for you.
 - Optional, each degrading a *named* phase when absent, announced before any
-  work starts: `gh` for the pull-request phases; a browser or an attached
+  work starts: `gh` for the pull-request phases (without it the run pushes,
+  prints a comparison link, and skips the review phase M); a browser or an attached
   device for the runtime check; the code-review and simplify plugins for their
   phases.
 

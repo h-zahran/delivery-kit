@@ -57,9 +57,9 @@ A fixed set of sections, so the next session always knows where to look:
 **It never writes to git.** No commit, no push, no `git add`, no stash. The hook
 fired on its own, so nothing here was asked for — a commit message would be the
 machine's, not yours. Instead it records the uncommitted work in full and prints
-the commands, and the choice stays with you. Note the corollary: `git clean`,
-`git checkout` and `git stash` will discard that work, because it is still only
-in your working tree.
+the commands, and the choice stays with you. Note the corollary: `git clean` and
+`git checkout` will discard that work, and `git stash` will take it out of your
+working tree, because it is still only there.
 
 You can also invoke the skill yourself at any time. Say "hand off", or "stop
 after this batch and hand off".
@@ -127,7 +127,9 @@ getting right, and the two ways of being wrong are not the same:
 That is why the default is conservative. On a 1M-token model the defaults do not
 merely fire early: the first warning reports a percentage well over 100. One
 line fixes it. If you are ever unsure between two window sizes, **take the
-smaller one**: guessing high is the answer that fails quietly.
+smaller one**: guessing high is the answer that fails quietly. And set
+`contextGuard.thresholdTokens` too: an absolute stopping point, decided from
+the transcript alone, so it still fires when the window is wrong.
 
 The easy way is `handoff:setup`. It measures the session, proposes a window when
 the measurement supports one, asks where you want it to stop, and writes the

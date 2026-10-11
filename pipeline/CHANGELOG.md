@@ -158,9 +158,11 @@ All notable changes to the `pipeline` plugin.
   held: the sample pre-flight block, stopping and resuming, what a failed
   phase leaves, the `#123` seed that stops without a remote or `gh`, and a
   troubleshooting table. Its flag table, now called Flags, lists `--auto`
-  and `--auto-release` too, and a test checks that every flag in the
-  skill's table has a row there. The root page has a Windows section for
-  both plugins.
+  and `--auto-release` too, and a test checks that it lists the same flags
+  as the skill's table. It also says that without `gh` the run pushes,
+  prints a comparison link and skips the review phase, and that on Windows
+  that phase needs `gh` by that name. The root page has a Windows section
+  for both plugins.
 - **Three configuration rules moved from the skill to
   `docs/configuration.md`, word for word.** How a later layer's `null`
   merges, and when an `implementer` value stops the run, are now in the

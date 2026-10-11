@@ -980,13 +980,15 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
     # own literal text and fails the same way.
     [ -f "$f" ] || { echo "link-test entry '$f' does not resolve; the list has gone stale"; false; }
     while IFS= read -r link; do
-      case "$link" in http*|https*|mailto:*|'#'*) continue ;; esac
+      case "$link" in http*|https*|mailto:*) continue ;; esac
       target="${link%%#*}"
-      [ -n "$target" ] || continue
       # Counted here rather than per file, so a file that ships with only
       # external links cannot stand in for one whose relative links vanished.
       checked=$((checked + 1))
-      resolved="$(dirname "$f")/$target"
+      # A bare `#x` points into this same file. Until the README rewrite of
+      # item 15 those were skipped, so renaming a heading that its own page
+      # linked to stayed green.
+      if [ -n "$target" ]; then resolved="$(dirname "$f")/$target"; else resolved="$f"; fi
       if [ ! -e "$resolved" ]; then
         broken="$broken $f->$link"
         continue
@@ -999,17 +1001,27 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
       # rots first, because headings get reworded and links do not.
       #
       # Slugged the way GitHub does it: lowercase, drop everything that is not
-      # a letter, digit, space or hyphen — which is what removes the backticks
-      # and the `@` in a heading like "Upgrading from `delivery-kit@delivery-kit`"
-      # — then spaces to hyphens.
+      # a letter, digit, underscore, space or hyphen — which is what removes
+      # the backticks and the `@` in a heading like "Upgrading from
+      # `delivery-kit@delivery-kit`" — then EACH space to a hyphen. GitHub does
+      # not collapse spaces, so "Windows — notes" is `windows--notes`; the old
+      # `s/ +/-/g` read the right link as broken and the wrong one as fine. A
+      # repeated heading gets `-1`, `-2`; a `#` line inside a code fence is not
+      # a heading. (Review of item 15 measured each of these going the wrong
+      # way.) The awk uses no `{m,n}` interval, which not every CI awk reads.
       anchor="${link#*#}"
       [ "$anchor" != "$link" ] && [ -n "$anchor" ] || continue
       [ -f "$resolved" ] || continue
-      if ! grep -E '^#{1,6} ' "$resolved" \
-          | sed -E 's/^#+ +//' \
-          | tr '[:upper:]' '[:lower:]' \
-          | sed -E 's/[^a-z0-9 -]//g; s/ +/-/g' \
-          | grep -qxF "$anchor"; then
+      if ! tr -d '\r' < "$resolved" \
+          | awk '
+              /^ *(```|~~~)/ { fence = !fence; next }
+              fence { next }
+              /^#+ / {
+                t = $0; sub(/^#+ +/, "", t); sub(/[ #]*$/, "", t)
+                t = tolower(t); gsub(/[^a-z0-9_ -]/, "", t); gsub(/ /, "-", t)
+                if (t in seen) { print t "-" seen[t]; seen[t]++ } else { print t; seen[t] = 1 }
+              }' \
+          | grep -qxF -- "$anchor"; then
         broken="$broken $f->$link"
       fi
     done < <(grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\(//; s/\)$//')
@@ -1035,10 +1047,10 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
     grep -qF "($p/README.md)" README.md || { echo "root README.md does not link $p/README.md"; false; }
     grep -qF "/plugin install $pn@delivery-kit" README.md || { echo "root README.md does not show '/plugin install $pn@delivery-kit'"; false; }
   done
-  # The root README deep-links to this heading's anchor, and the link test
-  # strips '#...' fragments, so a rename breaks that link silently (global
-  # constraint; scaffold item 9). Pinned in this gate because this is the
-  # test that owns the root documents' promises.
+  # The root README deep-links to this heading's anchor. The link test has
+  # checked anchors since 2026-09-03, so this pin is a second guard: it names
+  # the exact heading, in the test that owns the root documents' promises
+  # (global constraint; scaffold item 9).
   grep -qF '### Upgrading from `delivery-kit@delivery-kit`' handoff/README.md \
     || { echo "handoff/README.md renamed the upgrade heading the root README deep-links to"; false; }
   [ "$checked" -ge 1 ] || { echo "no plugin directories found under $ROOT"; false; }
