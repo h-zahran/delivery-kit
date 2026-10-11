@@ -292,8 +292,8 @@ flat() {
     fi
   done
   [ -z "$bad" ] || { echo "a line reader takes jq output without -b:$bad"; false; }
-  grep -qF -- 'v="$(jq -b -r "$@")" || return 1' pipeline/scripts/progress.sh \
-    || { echo "progress.sh's jqs no longer passes jq -b, which the CRLF row says"; false; }
+  grep -qF -- 'v="$(jq ${JQB:+"$JQB"} -r "$@")" || return 1' pipeline/scripts/progress.sh \
+    || { echo "progress.sh's jqs no longer passes the probed jq -b, which the CRLF row says"; false; }
   grep -qF -- "v=\${v%\$'\\r'}" handoff/hooks/session-start.sh \
     || { echo "session-start.sh no longer strips a trailing CR from jq, which the CRLF row says"; false; }
 }
