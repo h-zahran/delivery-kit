@@ -1940,7 +1940,7 @@ PINS
   done <<'PINS'
 A name that is not a local branch, a name that is a tag as well, or a name git would not accept as a branch name, stops pre-flight, naming it.
 holds an odd segment, a segment ending in a dot or a name Windows keeps for a device (`nul`, `con`), sits under `.delivery-kit/` or `.git` in any letter case,
-`Signed-off-by`, `On-behalf-of`, a closing keyword anywhere in the trailer before an issue in any form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the issue's URL),
+`Signed-off-by`, `On-behalf-of`, a closing keyword (`Close`, `Fix`, `Resolve` and their forms) as the token, or anywhere in the trailer before an issue in any form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the issue's URL),
 It refuses a character that can disguise text in a terminal, from the one list questions are checked against, `scripts/hidden-chars.sh`, and a refusal shows each such character as its `\u` escape.
 PINS
 }
@@ -1982,9 +1982,9 @@ PINS
   done <<'PINS'
 So does a name holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, since pre-flight prints the name in a command a person may run.
 A branch name holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, or one that is a tag as well, is refused too.
-A refusal names the folder as given, never the path a link leads to, and every value pre-flight refuses is printed masked: cut to 200 bytes, with every byte that is not printable ASCII shown as `?`.
+A refusal names the folder as given, never the path a link leads to, and every name, folder, segment or unknown argument pre-flight refuses is printed masked: cut to 200 bytes and marked ` [cut]`, with every byte that is not printable ASCII shown as `?`.
 It refuses a trailer holding a quote (`'`), a dollar sign or a backtick, because the run types the list into a shell command, and one holding `##[` anywhere, which a GitHub workflow log reads as a command.
-**`progress.sh` never removes a file it did not make.**
+A scratch-file name or a `STATE_LOCK` inherited from the environment is ignored, so `progress.sh` never removes a file it did not make.
 PINS
 }
 

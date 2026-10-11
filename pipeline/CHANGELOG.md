@@ -142,7 +142,9 @@ All notable changes to the `pipeline` plugin.
 
 - **State writes no longer race.** Every write to a run's state file holds
   a lock and a temporary file of its own. Two writes at the same moment
-  could lose one another's change, or leave the state file empty.
+  could lose one another's change, or leave the state file empty. A
+  scratch-file name or a `STATE_LOCK` inherited from the environment is
+  ignored, so `progress.sh` never removes a file it did not make.
 
 ### Changed
 
