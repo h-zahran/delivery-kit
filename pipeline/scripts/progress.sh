@@ -452,10 +452,20 @@ cmd_piece_next() {
   esac
 }
 
+# The repository lock is a file naming its holder, and every look at it and
+# every change to it — lock-take's staleness check, its removal of a stale
+# lock and its claim, lock-release's check and removal — happens while this
+# process holds <lock>.lock, the same mkdir lock every state write takes.
+# Without it two takers could both find one stale lock: the first removed it
+# and claimed the repository, then the second's removal deleted the FIRST
+# one's new lock, and both believed they held it. A guard left by a taker
+# that died is broken after a minute, as state_lock breaks any; a stale
+# repository lock is still taken over below, by the same rules as before.
 cmd_lock_take() {
   feature="$1"; session="${2:-}"
   [ -n "$session" ] || die "lock-take needs a session id"
   lf="$(lock_file)"; mkdir -p "$STATE_ROOT"
+  state_lock "$lf"
   if [ -f "$lf" ]; then
     holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
     hs="$(state_file "${holder:-missing}")"
@@ -476,20 +486,25 @@ cmd_lock_take() {
       exit 1
     fi
   fi
-  # noclobber makes creation atomic: two takers race, one wins, the loser
-  # lands in the live-lock branch above on its retry.
-  ( set -C; jq -n --arg f "$feature" --arg s "$session" --arg t "$(now)" \
+  # noclobber still guards the claim itself: anything at the path by now —
+  # a directory, or a lock written by an older copy of this script, which
+  # takes no guard — makes the claim fail rather than overwrite it.
+  ( set -C; jq -b -n --arg f "$feature" --arg s "$session" --arg t "$(now)" \
       '{feature: $f, session: $s, taken_at: $t}' > "$lf" ) 2>/dev/null \
     || die "lost the lock race; run lock-take again"
+  state_unlock
 }
 
 cmd_lock_release() {
   feature="$1"
   lf="$(lock_file)"
   [ -f "$lf" ] || return 0   # a clean stop releases; releasing twice is a no-op
+  state_lock "$lf"
+  [ -f "$lf" ] || { state_unlock; return 0; }
   holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
   [ "$holder" = "$feature" ] || die "lock is held by '$holder', not '$feature' — not releasing it"
   rm -f "$lf"
+  state_unlock
 }
 
 # =============================================================================

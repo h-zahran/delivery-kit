@@ -212,6 +212,75 @@ setup() {
   [[ "$stderr" == *"stale"* ]]
 }
 
+# lock-take used to remove a stale lock and create its own in two steps, so
+# two takers that both found one stale lock could both win: the second's
+# removal deleted the first one's new lock. Every look at the lock and every
+# change to it now happens under the guard directory <lock>.lock. A guard
+# held by someone else makes lock-take wait, then refuse — and it must not
+# have touched the stale lock meanwhile, which is what the old code did.
+@test "lock-take and lock-release wait for the lock guard, then refuse and change nothing" {
+  bash "$PROG" init 001-demo b main web
+  jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
+  cp .delivery-kit/lock before.json
+  mkdir .delivery-kit/lock.lock
+  PROGRESS_LOCK_TRIES=2 run bash "$PROG" lock-take 001-demo session-one
+  [ "$status" -ne 0 ] || { echo "lock-take claimed the repository past a held guard"; false; }
+  [[ "$output" == *"is locked by another write"* ]] || { echo "$output"; false; }
+  cmp before.json .delivery-kit/lock
+  # lock-release is a check and a removal too: under a held guard it waits
+  # and refuses, and the lock it would have removed stands.
+  rmdir .delivery-kit/lock.lock
+  rm .delivery-kit/lock
+  bash "$PROG" lock-take 001-demo session-one
+  cp .delivery-kit/lock mine.json
+  mkdir .delivery-kit/lock.lock
+  PROGRESS_LOCK_TRIES=2 run bash "$PROG" lock-release 001-demo
+  [ "$status" -ne 0 ] || { echo "lock-release removed the lock past a held guard"; false; }
+  [[ "$output" == *"is locked by another write"* ]] || { echo "$output"; false; }
+  cmp mine.json .delivery-kit/lock
+  rmdir .delivery-kit/lock.lock
+  bash "$PROG" lock-release 001-demo
+  [ ! -e .delivery-kit/lock ]
+  [ ! -e .delivery-kit/lock.lock ]
+}
+
+# Stale recovery still works at both levels: a guard left by a taker that
+# died is broken after a minute, and the stale lock under it is taken over.
+@test "a guard left by a dead taker is broken, and a stale lock is still taken over" {
+  bash "$PROG" init 001-demo b main web
+  jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
+  mkdir .delivery-kit/lock.lock
+  # POSIX -t, which GNU and BSD touch both read; years old, so far past a minute.
+  touch -t 202001010000 .delivery-kit/lock.lock
+  run bash "$PROG" lock-take 001-demo session-one
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"broke a stale lock"* ]]
+  [[ "$output" == *"taking over a stale lock"* ]]
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = 001-demo ]
+  [ ! -e .delivery-kit/lock.lock ]
+}
+
+# Three takers at once over one stale lock: exactly one wins, and the lock
+# names it. Each waits on its own pid: a bare `wait` in bats also waits for
+# its timeout watcher.
+@test "takers at the same moment over one stale lock: exactly one wins" {
+  local f pids=() wins=0 winner='' i
+  for f in 001-a 002-b 003-c; do bash "$PROG" init "$f" b main web > /dev/null; done
+  jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
+  for f in 001-a 002-b 003-c; do
+    bash "$PROG" lock-take "$f" "s-$f" > /dev/null 2> "err-$f.txt" &
+    pids+=("$!")
+  done
+  i=0
+  for f in 001-a 002-b 003-c; do
+    if wait "${pids[$i]}"; then wins=$((wins + 1)); winner="$f"; fi
+    i=$((i + 1))
+  done
+  [ "$wins" -eq 1 ] || { echo "$wins takers won"; cat err-*.txt; false; }
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = "$winner" ]
+  [ ! -e .delivery-kit/lock.lock ]
+}
+
 # ---------------------------------------------------------------------------
 # The `read` subcommand. Shipped skill documents instruct their readers to get a
 # run's state through it rather than by reading the file, and one of them warns
