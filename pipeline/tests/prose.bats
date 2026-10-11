@@ -2021,3 +2021,33 @@ PINS
     false
   fi
 }
+
+# --- pipeline hardening: abandon, get, -b, init's metrics file ---------------
+# Each pin is a whole sentence, so a mutant that flips one clause — "keeps"
+# to "deletes", "no longer" to "still" — goes red, not only one that deletes
+# the sentence.
+@test "the skill's abandon runs progress.sh abandon and keeps the state file" {
+  local flat
+  flat="$(prose_slice '^## Resume$' '^Before any recorded answer is used' flat 'resume')" || return 1
+  pins_in "$flat" 'resume' <<'PINS'
+or abandon (`progress.sh abandon <feature>`: it marks the run abandoned, so pre-flight no longer counts it as live, and releases the lock if that run holds it; the state file is kept; touch nothing else).
+PINS
+}
+
+@test "the ground rules name get, jq -b, and init's metrics file" {
+  local flat
+  flat="$(prose_slice '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
+  pins_in "$flat" 'ground rules' <<'PINS'
+`progress.sh get <feature> <key|filter>` prints one value with LF endings; a `jq` of your own whose output is read by line takes `-b`.
+per severity, loop iterations, agents dispatched). `init` makes the first one. This plugin exists because prompts were measured; it measures itself.
+PINS
+}
+
+@test "the status skill reports an abandoned run as waiting on nothing" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/pipeline/skills/status/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$flat" 'status skill' <<'PINS'
+A state file that records `abandoned` belongs to a run the owner ended with `progress.sh abandon`: it waits on nothing. Say so, with the phase and time `abandoned` records, and look no further. Otherwise, first, a failure entry
+(`/pipeline --resume`) for a live run; nothing for a state file whose phase is DONE, or that records `abandoned`.
+PINS
+}

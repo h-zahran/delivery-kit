@@ -21,6 +21,8 @@ are your hands, and the state file is your memory.
   carry CRLF line endings — parse it with `jq`, or capture through
   command substitution. NEVER pipe it into a `while read` loop; `read`
   keeps the trailing CR and every string comparison silently fails.
+  `progress.sh get <feature> <key|filter>` prints one value with LF
+  endings; a `jq` of your own whose output is read by line takes `-b`.
 - **State writes**: the phase alphabet goes through `progress.sh`
   (`phase-start` at the START of every phase, `phase-done` on
   completion); other keys go through `progress.sh state-set <feature>
@@ -47,7 +49,8 @@ are your hands, and the state file is your memory.
 - **Metrics:** at each phase boundary run `progress.sh metrics
   <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json`
   from the state file and keeps keys you add with `jq` (findings fixed
-  per severity, loop iterations, agents dispatched). This plugin exists
+  per severity, loop iterations, agents dispatched). `init` makes the
+  first one. This plugin exists
   because prompts were measured; it measures itself.
 - **A missing tool is its own question.** When the run needs a tool the machine lacks, stop: name the tool, show the exact install command, and record the answer in the state file. Never install anything silently.
   This rule is for a tool the run cannot continue without; an optional
@@ -1035,7 +1038,9 @@ phases later. The resume prompt (shown
 when a live run exists and `--resume` was not given) offers: resume at
 the recorded phase; `--from <phase>` (validated by
 `progress.sh from-validate`); or abandon
-(release the lock, keep the state file, touch nothing else). If the
+(`progress.sh abandon <feature>`: it marks the run abandoned, so
+pre-flight no longer counts it as live, and releases the lock if that
+run holds it; the state file is kept; touch nothing else). If the
 handoff plugin is installed, a live run also appears in its handoff
 document; if it is absent, the state file alone is the memory — say
 which of the two you are working from.

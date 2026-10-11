@@ -4,8 +4,29 @@ All notable changes to the `pipeline` plugin.
 
 ## [Unreleased]
 
+### Added
+
+- **`abandon <feature>`** ends a run for good without finishing it. It
+  records `abandoned` in the state file, with the phase the run stopped at
+  and the time, keeps the state file and every other key, and releases the
+  repository lock if that run holds it. A DONE run is refused, and a run
+  already abandoned keeps its first record. The resume prompt's abandon
+  runs it, and `pipeline:status` reports an abandoned run as waiting on
+  nothing. Before it, an abandoned run's state file read as a live run for
+  good. A state file without the key is unchanged and still valid.
+- **`get <feature> <key|filter>`** prints one value from the state file,
+  read-only, through `jq -b`, so no line it prints ends with a CR.
+- **Pre-flight names the runs it judges.** `tree.liveRuns` lists every
+  live run by name, and `tree.unreadableRuns` every state file that is not
+  one JSON object with a `current_phase`.
+
 ### Changed
 
+- **`init` makes `pipeline-run.json`** when it is absent, on a fresh run
+  and on a resume, so the run's metrics no longer depend on the
+  orchestrator remembering to start them. One that exists is left for
+  `metrics`, which still keeps the keys the orchestrator added, and now
+  writes through a temporary file of its own.
 - **The docs say what a run will touch before it touches it.** The
   `/pipeline:pipeline` command's description names all three seed forms, not
   only the plan-file heading. The README says that bare `/pipeline` runs the
@@ -15,6 +36,27 @@ All notable changes to the `pipeline` plugin.
   folder and the run folder, and leaves you on the branch; and that `gh` must
   be logged in as well as installed. The commands it tells you to type carry
   their slash: `/pipeline:status`.
+
+### Fixed
+
+- **A DONE or abandoned run is not live, and an unreadable state file is
+  not either.** Pre-flight's `runsLive` read any state file that was not
+  DONE as a live run, garbage included, with no warning. An unreadable one
+  is now warned about, named, and not counted.
+- **Two `lock-take` calls can no longer both win.** A stale lock was
+  removed and the new one created in two steps, so a second taker could
+  remove the first one's new lock. `lock-take` and `lock-release` now do
+  all their work under one guard; a guard left by a process that died is
+  broken after a minute, and a stale lock is still taken over, as is one
+  held by an abandoned run.
+- **A run of phase names is no longer a phase.** `phase-start` and
+  `validate` accepted `C C.5` and `A B`; each name is now matched whole.
+- **`.` and `..` are not feature names.** `init ..` wrote
+  `.delivery-kit/progress.json`, and `init .` wrote `runs/progress.json`.
+  A name made only of dots is refused, by name.
+- **The state file, the lock and the metrics file are written with LF on
+  Windows.** A native Windows `jq` wrote them with CRLF line endings; every
+  file `progress.sh` writes with `jq` now passes `-b`.
 
 ## [1.4.0] - 2026-10-11
 
