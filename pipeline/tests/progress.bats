@@ -187,7 +187,7 @@ setup() {
   local legal p n=0
   run bash "$PROG" from-validate 001-none ZZZ
   [ "$status" -ne 0 ]
-  [[ "$output" == *"unknown phase 'ZZZ'"* ]]
+  [[ "$output" == *"unknown phase 'ZZZ'"* ]] || false
   run bash "$PROG" phase-start 001-none ZZZ
   legal="${output#*legal:}"; legal="${legal%)*}"
   # The derivation is checked before it is trusted: an empty or broken one
@@ -254,8 +254,8 @@ setup() {
   touch -t 202001010000 .delivery-kit/lock.lock
   run bash "$PROG" lock-take 001-demo session-one
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"broke a stale lock"* ]]
-  [[ "$output" == *"taking over a stale lock"* ]]
+  [[ "$output" == *"broke a stale lock"* ]] || false
+  [[ "$output" == *"taking over a stale lock"* ]] || false
   [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = 001-demo ]
   [ ! -e .delivery-kit/lock.lock ]
 }
@@ -327,11 +327,11 @@ setup() {
   # machine, so a test that read whatever the file happened to hold would pass
   # everywhere and prove nothing on most of them.
   #
-  # ON WINDOWS THIS LINE IS A NO-OP, and that is not a reason to delete it. The
-  # jq build there writes CRLF, so `init` already produced a CRLF state file and
-  # this conversion changes nothing — measured. On Linux and macOS, where jq
-  # writes LF, this line is the only thing that creates the condition, so those
-  # two CI jobs are where the constructed half is actually exercised.
+  # This line is the only thing that creates the condition, on every
+  # system. Until the state file was written with `jq -b`, a Windows jq wrote
+  # it in CRLF and this line changed nothing there; now every jq writes LF,
+  # and a state file written by an older release on Windows is the CRLF file
+  # this line stands in for.
   awk '{printf "%s\r\n", $0}' "$sf" > t.json
   mv t.json "$sf"
 
@@ -358,6 +358,26 @@ setup() {
     esac
   done < out.txt
   [ "$kept" = yes ]
+}
+
+# Every file progress.sh writes with jq is written with -b. A Windows jq
+# without it wrote the state file in CRLF (measured, jq 1.8.1); on Linux and
+# macOS jq writes LF either way, so the Windows job is where this goes red.
+# The CR bytes are counted with tr, never matched by grep: Git Bash grep
+# drops a CR from a pattern.
+@test "every write leaves the state file, the lock and the metrics file with no CR" {
+  local sf=.delivery-kit/runs/001-demo/progress.json f
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" phase-start 001-demo B
+  bash "$PROG" phase-done 001-demo B
+  bash "$PROG" commit-add 001-demo tests 0123456789abcdef0123456789abcdef01234567 "" ""
+  bash "$PROG" state-set 001-demo gates C '"x"'
+  bash "$PROG" lock-take 001-demo session-one
+  bash "$PROG" metrics 001-demo > /dev/null
+  for f in "$sf" .delivery-kit/lock .delivery-kit/runs/001-demo/pipeline-run.json; do
+    [ -s "$f" ] || { echo "$f was not written"; false; }
+    [ "$(LC_ALL=C tr -cd '\r' < "$f" | wc -c | tr -d ' ')" = 0 ] || { echo "$f holds a CR"; false; }
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -445,10 +465,11 @@ setup() {
   # from eight to ten with commit-add and piece-next, to twenty with the
   # commit mechanics (snapshot to drop-stale), to twenty-one with
   # remainder-commit, to twenty-four with suite-key, suite-record and
-  # suite-lookup, to twenty-five with show-message, and to twenty-nine with
-  # ask-later, pending, answer and pending-check, edited here rather than
-  # pinned by a second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check>"* ]]
+  # suite-lookup, to twenty-five with show-message, to twenty-nine with
+  # ask-later, pending, answer and pending-check, and to thirty-one with
+  # abandon and get, edited here rather than pinned by a second, weaker test
+  # beside this one.
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check|abandon|get>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
@@ -1154,4 +1175,138 @@ $(fixture_heading 'Phase 9b: ')|T007"
     [ "$(cat "$f" 2>/dev/null)" = keep ] || { echo "the file named by an inherited $n was removed"; false; }
   done
   [ -d "$WORK/STATE_LOCK.keep" ] || { echo "the folder named by an inherited STATE_LOCK was removed"; false; }
+}
+
+# ---------------------------------------------------------------------------
+# abandon and get.
+# ---------------------------------------------------------------------------
+
+# The skill's abandon keeps the state file, so before this command a run the
+# owner abandoned read as live for ever. abandon records a terminal marker
+# beside the phase the run stopped at, keeps every other key, and releases
+# the repository lock this run holds.
+@test "abandon marks the run, keeps the state file and its phase, and releases its own lock" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" phase-start 001-demo F
+  bash "$PROG" lock-take 001-demo session-one
+  jq 'del(.abandoned)' "$sf" > before.json
+  run --separate-stderr bash "$PROG" abandon 001-demo
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ -z "$output" ]
+  [[ "$stderr" == *"released the repository lock"* ]] || false
+  [ ! -e .delivery-kit/lock ]
+  jq -e '.abandoned | type == "object" and (.at | type) == "string" and .phase == "F"' "$sf" > /dev/null
+  [ "$(jq -r .current_phase "$sf" | tr -d '\r')" = F ]
+  # Nothing but the marker changed.
+  [ "$(jq -c 'del(.abandoned)' "$sf")" = "$(jq -c . before.json)" ]
+  bash "$PROG" validate 001-demo
+}
+
+@test "abandon twice keeps the first record; a DONE run is refused; another run's lock stands" {
+  local sf=.delivery-kit/runs/001-demo/progress.json at
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" init 002-other b main web
+  bash "$PROG" lock-take 002-other session-two
+  bash "$PROG" abandon 001-demo
+  at="$(jq -r .abandoned.at "$sf")"
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = 002-other ]
+  run bash "$PROG" abandon 001-demo
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already abandoned"* ]] || false
+  [ "$(jq -r .abandoned.at "$sf")" = "$at" ]
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = 002-other ]
+  bash "$PROG" phase-start 002-other DONE
+  run bash "$PROG" abandon 002-other
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"002-other is DONE"* ]] || false
+  jq -e 'has("abandoned") | not' .delivery-kit/runs/002-other/progress.json > /dev/null
+  run bash "$PROG" abandon 003-none
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no state file"* ]] || false
+}
+
+# An abandoned run is not live, so a lock it still holds is stale — the
+# shape a crash between abandon's two steps leaves.
+@test "a lock held by an abandoned run is stale to lock-take" {
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" init 002-other b main web
+  bash "$PROG" lock-take 001-demo session-one
+  cp .delivery-kit/lock held.json
+  bash "$PROG" abandon 001-demo
+  cp held.json .delivery-kit/lock
+  run bash "$PROG" lock-take 002-other session-two
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"taking over a stale lock"* ]] || false
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = 002-other ]
+}
+
+# A state file a 1.4.0 release wrote, with no abandoned key, still validates
+# and is still live to lock-take: the marker is additive.
+@test "a state file without the marker still validates and its lock is still live" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  mkdir -p .delivery-kit/runs/001-demo .delivery-kit/runs/002-other
+  jq -n '{feature: "001-demo", branch: "b", baseBranch: "main", projectType: "web",
+    current_phase: "H", completed_phases: ["preflight","A","B"], timestamps: {}, artifacts: {},
+    pr_url: "", commits: [], implementer: "", test_baseline: "", last_task: "",
+    deferred_ambiguities: [], analyze_changelog: [], config: {}, speckit: {}, capabilities: {}, gates: {}}' > "$sf"
+  bash "$PROG" validate 001-demo
+  bash "$PROG" lock-take 001-demo session-one
+  bash "$PROG" init 002-other b main web
+  run bash "$PROG" lock-take 002-other session-two
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"locked by a live run"* ]] || false
+}
+
+# get prints one value through jq -b: a key's string raw, a filter's lines
+# with no CR, JSON for anything else. It writes nothing.
+@test "get prints a key or a filter's answer with no CR, and writes nothing" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" state-set 001-demo config '{"codeRoots": ["src", "lib"]}'
+  cp "$sf" before.json
+  bash "$PROG" get 001-demo current_phase > out.txt
+  [ "$(cat out.txt)" = preflight ]
+  bash "$PROG" get 001-demo '.config.codeRoots[]' > out.txt
+  [ "$(LC_ALL=C tr -cd '\r' < out.txt | wc -c | tr -d ' ')" = 0 ] || { echo "get printed a CR"; false; }
+  [ "$(cat out.txt)" = "$(printf 'src\nlib')" ]
+  [ "$(bash "$PROG" get 001-demo config | jq -c .)" = '{"codeRoots":["src","lib"]}' ]
+  cmp before.json "$sf"
+  run bash "$PROG" get 001-demo
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"usage: get"* ]] || false
+  run bash "$PROG" get 001-demo --rawfile
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"starts with a dash"* ]] || false
+}
+
+# The metrics file used to exist only if the orchestrator remembered to run
+# metrics; runs were measured without one. init makes it, on a fresh run
+# and on a resume where it is missing, and leaves one that exists alone: the
+# keys the orchestrator added there are kept. init's stdout is still its
+# path alone.
+@test "init makes the metrics file when it is absent and leaves an existing one alone" {
+  local M=.delivery-kit/runs/001-demo/pipeline-run.json
+  run --separate-stderr bash "$PROG" init 001-demo b main web
+  [ "$status" -eq 0 ]
+  [ "$output" = ".delivery-kit/runs/001-demo/progress.json" ]
+  [ -f "$M" ] || { echo "init made no metrics file"; false; }
+  jq -e '.feature == "001-demo" and .current_phase == "preflight" and .commits.total == 0' "$M" > /dev/null
+  # A resume keeps what the orchestrator added: init does not rewrite it.
+  jq '.agents_dispatched = {F: 3}' "$M" > t.json; mv t.json "$M"
+  cp "$M" kept.json
+  run --separate-stderr bash "$PROG" init 001-demo b main web
+  [ "$status" -eq 0 ]
+  [ "$output" = ".delivery-kit/runs/001-demo/progress.json" ]
+  cmp kept.json "$M"
+  # A resume that finds none makes one.
+  rm "$M"
+  bash "$PROG" phase-start 001-demo D
+  bash "$PROG" init 001-demo b main web > /dev/null
+  jq -e '.current_phase == "D"' "$M" > /dev/null
+  # One it cannot read does not stop init, and is not overwritten by it.
+  printf '[1]' > "$M"
+  run --separate-stderr bash "$PROG" init 001-demo b main web
+  [ "$status" -eq 0 ]
+  [ "$(cat "$M")" = '[1]' ]
 }
