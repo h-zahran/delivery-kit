@@ -1341,6 +1341,12 @@ run_shard() {
   [ "$status" -eq 1 ] || { echo "a failing test passed the shard: $output"; false; }
   run_shard 1 '1..1' 'ok 1 a in 5ms'
   [ "$status" -eq 1 ] || { echo "a bats failure on clean TAP passed the shard: $output"; false; }
+  # The status is read from PIPESTATUS, so it survives a shell WITHOUT
+  # pipefail too, where the pipe itself reports tee's 0.
+  printf '%s\n' '1..1' 'ok 1 a in 5ms' > "$TEST_DIR/stub.tap"
+  run env STUB_RC=1 STUB_TAP="$TEST_DIR/stub.tap" STUB_ARGS="$TEST_DIR/stub.args" \
+    SUITE=some/suite bash -e "$step"
+  [ "$status" -eq 1 ] || { echo "without pipefail, a bats failure passed the shard: $output"; false; }
 }
 
 @test "CI pins its runner images, jq and actionlint, each tool with a checksum" {
