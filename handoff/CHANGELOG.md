@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The README's resume block is the one the skill prints.** Its Read line
   was wrapped onto two lines; it is now one, word for word the skill's. The
-  README also types each skill with its slash: `/handoff:setup`.
+  commands the README tells you to type carry their slash: `/handoff:setup`.
 
 ### Fixed
 
