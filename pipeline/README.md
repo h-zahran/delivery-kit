@@ -230,7 +230,7 @@ you are happy to branch from.
   `--non-interactive` exists only from 0.16.x: a 0.15.x scripted init needs an
   explicit `--script sh|ps` or the interactive picker fires. Tested against
   0.15.x through 0.16.x; other versions warn and continue.
-- `jq`, on every platform. On Windows, check it from Git Bash: see
+- `jq` 1.6 or later, on every platform. On Windows, check it from Git Bash: see
   [the Windows notes](../README.md#windows). On Windows, `gh` must be found by
   that name in Git Bash: the review phase M runs the code-review plugin, which
   calls plain `gh`, and a `gh.cmd` alone (as Scoop installs it) is not enough

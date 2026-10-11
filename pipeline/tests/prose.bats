@@ -2078,3 +2078,13 @@ Only a lock whose run has no state file, is already DONE, or was abandoned, is t
 | "…is locked by another write (.delivery-kit/lock.lock)" | Another `lock-take` or `lock-release` was claiming the lock at that moment | Wait about a minute and rerun: a claim takes a second, and a guard left by a process that died is broken after a minute. |
 PINS
 }
+
+# progress.sh probes jq -b because jq 1.6 refuses it off Windows; 1.6 is
+# the oldest jq the scripts support, and the README's requirements say so.
+@test "the README names the oldest jq supported" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$flat" 'README requirements' <<'PINS'
+- `jq` 1.6 or later, on every platform.
+PINS
+}
