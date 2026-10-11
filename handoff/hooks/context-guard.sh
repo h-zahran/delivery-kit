@@ -358,14 +358,16 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # It also records divergences from the pre-refactor hook. The count went one,
 # then two, then three as successive rounds of review measured further; all are
 # kept, and the differential asserts each rather than hiding it. TAKE THE NUMBER
-# FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong twice:
-# `grep -cE '^run_shape .* diff@[0-9a-f]+$' scripts/context-guard/differential.sh`.
-# The anchor is scoped to ANCHORED assertions on purpose: a later feature added
-# a threshold divergence that is asserted the same way but belongs to a
-# different rule, and an unscoped count answers 4 for a list of 3. The
-# anchor is not decoration: a bare ` diff$` also matches a comment about the
-# diff command and answered four where the truth was three, in the same breath
-# as telling the reader to count rather than trust prose.
+# FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong three times:
+# `grep -cE '^run_shape .* diff@f495823$' scripts/context-guard/differential.sh`
+# prints 3, one per entry below. It is scoped to f495823, the commit that
+# brought these divergences in, on purpose: a later fix (5ff33c6, a threshold
+# of exactly 100) added a divergence asserted the same way that belongs to a
+# different rule, so the wider `diff@[0-9a-f]+$` prints 4 for this list of 3.
+# This sentence named that wider grep and called it 3 until 2026-10-11. The
+# anchor is not decoration either: a bare ` diff$` also matches a comment about
+# the diff command and answered four where the truth was three, in the same
+# breath as telling the reader to count rather than trust prose.
 #
 #   1. The concatenation is NOT parseable as a number — "abc". The old code
 #      emitted it as a line, the separate median call then failed to parse the
