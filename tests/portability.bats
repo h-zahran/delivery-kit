@@ -239,7 +239,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # scan off and the test would go on passing. Fail safe, never fail silent
 # applies to the guard that protects the guard.
 # Word boundaries come from `-w`, not `\b`. `\b` is a GNU extension and is not
-# in POSIX ERE, and CI runs macos-latest with BSD grep, where it either errors
+# in POSIX ERE, and CI runs the macOS runner with BSD grep, where it either errors
 # out or is read as a literal `b` — the first exits 2, the second matches
 # nothing, and under the old `-ne 0` both looked like a clean repository. `-w`
 # is POSIX, behaves identically on GNU for an alternation of plain words, and
@@ -621,7 +621,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # agree with each other, so only plugin-vs-changelog can see this.
   c="$TEST_DIR/version-fire-changelog"
   cp -r "$base" "$c"
-  # awk, not `sed -i`. BSD sed — which is macos-latest's sed — requires an
+  # awk, not `sed -i`. BSD sed — the macOS runner's sed — requires an
   # argument after -i and has no address 0, so the GNU one-liner this replaces
   # failed there with "invalid command code" while passing on the other two
   # platforms. Measured on CI, not guessed: the first version of this fixture
@@ -769,7 +769,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
 # `dartboard` — ahead of one that passes, so a grep whose `-w` abandons a line
 # after the leftmost candidate fails returns no match here and trips the
 # assertion below. That divergence is the unsafe one: it is a false negative on
-# a real leak, and it would survive a first green run on macos-latest. A bare
+# a real leak, and it would survive a first green run on the macOS runner. A bare
 # `flutter` matches under `-w`, under `\b` and under no word handling at all,
 # so it could not tell any of those apart.
 #
@@ -1161,13 +1161,23 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   read -r -a cisuites <<< "${suiteline//,/ }"
   [ "${#cisuites[@]}" -ge 1 ] || { echo "the ci.yml suite matrix is empty"; false; }
   # Every entry must hold a tracked suite, or its shard runs nothing; and no
-  # entry may sit beneath another, or bats runs those tests in two shards.
+  # entry may sit beneath another, or repeat, or bats runs those tests in two
+  # shards. An entry must be a plain relative path: `.` (or `./x`, `x/`,
+  # `../x`, `/x`) would slip past the ancestor comparison, which is textual,
+  # while `.` contains every other entry.
   for s in "${cisuites[@]}"; do
+    case "$s" in
+      .|./*|*/|/*|..|../*|*/..|*/../*|*/./*|*/.)
+        echo "the ci.yml suite matrix names '$s'; entries must be plain relative paths"; false ;;
+    esac
     [ -n "$(git ls-files -- "$s/*.bats")" ] \
       || { echo "the ci.yml suite matrix names '$s', which holds no tracked .bats file"; false; }
+    seen=0
     for o in "${cisuites[@]}"; do
+      [ "$o" = "$s" ] && seen=$((seen + 1))
       case "$o" in "$s"/*) echo "ci.yml shards '$o' AND its ancestor '$s'; those tests would run twice"; false ;; esac
     done
+    [ "$seen" -eq 1 ] || { echo "the ci.yml suite matrix names '$s' $seen times; those tests would run twice"; false; }
   done
   # The path the command runs is the matrix's, and every combination of OS
   # and suite exists: the job runs on matrix.os, and nothing EXCLUDES a
@@ -1178,6 +1188,26 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
     || { echo "the ci.yml test job no longer runs on matrix.os"; false; }
   if grep -qE '^ *exclude:' "$wf"; then
     echo "ci.yml carries a matrix exclude:, so some suite no longer runs on every OS"; false
+  fi
+  # Nor may a condition drop or excuse a shard: no `continue-on-error:`
+  # anywhere in the test job, and no `if:` on the job itself or on its shard
+  # step. (Setup steps keep their own `if:` keyed on the bats cache and the
+  # runner's symlink support; a shard whose setup is skipped wrongly fails.)
+  # The slices go to files and are grepped there, never through a herestring.
+  awk '/^  test:$/ { on = 1; next } on && /^  [^ #]/ { exit } on' "$wf" > "$TEST_DIR/testjob.yml"
+  [ -s "$TEST_DIR/testjob.yml" ] || { echo "no 'test:' job found in ci.yml"; false; }
+  awk 'index($0, "- name: Run the ${{ matrix.suite }} suite") { on = 1; print; next }
+       on && /^      - / { exit }
+       on' "$TEST_DIR/testjob.yml" > "$TEST_DIR/shardstep.yml"
+  [ -s "$TEST_DIR/shardstep.yml" ] || { echo "no shard step found in the ci.yml test job"; false; }
+  if grep -qE '^[[:space:]]*continue-on-error:' "$TEST_DIR/testjob.yml"; then
+    echo "the ci.yml test job carries continue-on-error:, which can excuse a failing shard"; false
+  fi
+  if grep -qE '^    if:' "$TEST_DIR/testjob.yml"; then
+    echo "the ci.yml test job carries a job-level if:, which can skip shards"; false
+  fi
+  if grep -qE '^[[:space:]]*(- )?if:' "$TEST_DIR/shardstep.yml"; then
+    echo "the ci.yml shard step carries an if:, which can skip a shard"; false
   fi
   cimatrix=" ${cisuites[*]} "
 
@@ -1301,11 +1331,19 @@ run_shard() {
 
   # Green, with one test over the 30 s budget and one exactly at it: the job
   # passes, the slow one is annotated, the one at the budget is not.
-  run_shard 0 '1..3' 'ok 1 fast in 12ms' 'ok 2 slow one in 30001ms' 'ok 3 at budget in 30000ms'
+  # Test 4's NAME ends in a timing-shaped phrase: only the real timing at the
+  # end of the line may be read. Test 5's name carries a %, which a workflow
+  # command must receive escaped as %25.
+  run_shard 0 '1..5' 'ok 1 fast in 12ms' 'ok 2 slow one in 30001ms' 'ok 3 at budget in 30000ms' \
+    'ok 4 named in 40000ms in 5ms' 'ok 5 50% slow in 31000ms'
   [ "$status" -eq 0 ] || { echo "a green shard with a slow test failed: $output"; false; }
   [[ $output == *"::warning title=slow test in some/suite::test 2 slow one took 30001 ms"* ]] \
     || { echo "no slow-test warning for the 30001 ms test: $output"; false; }
   [[ $output != *"at budget took"* ]] || { echo "a test AT the budget was warned about: $output"; false; }
+  [[ $output != *"test 4 named"* ]] \
+    || { echo "a timing-shaped test NAME was read as the timing: $output"; false; }
+  [[ $output == *"::warning title=slow test in some/suite::test 5 50%25 slow took 31000 ms"* ]] \
+    || { echo "the % in a slow test's name was not escaped as %25: $output"; false; }
   # The stub saw the shard's own suite as the only path, with the flags.
   [ "$(cat "$TEST_DIR/stub.args")" = "$(printf '%s\n' -r --print-output-on-failure --timing some/suite)" ] \
     || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
@@ -1319,6 +1357,10 @@ run_shard() {
   run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip why'
   [ "$status" -eq 1 ] && [[ $output == *"::error title=skipped tests::"* ]] \
     || { echo "a skipped test passed the shard: $output"; false; }
+  # And a bare skip, with no reason after it.
+  run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=skipped tests::"* ]] \
+    || { echo "a bare skip passed the shard: $output"; false; }
 
   # A shard that ran nothing: a zero plan, and no plan line at all.
   run_shard 0 '1..0'
@@ -1335,6 +1377,21 @@ run_shard() {
   run_shard 0 '1..1' 'ok 1 a in 1ms' 'ok 2 b in 1ms'
   [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
     || { echo "a shard reporting more tests than planned passed: $output"; false; }
+  # The right COUNT with the wrong numbers: a stray number, a repeat, a zero.
+  run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 7 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
+    || { echo "a stray test number stood in for a missing test: $output"; false; }
+  run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 1 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
+    || { echo "a repeated test number stood in for a missing test: $output"; false; }
+  run_shard 0 '1..2' 'ok 0 a in 1ms' 'ok 2 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
+    || { echo "test number 0 stood in for test 1: $output"; false; }
+
+  # A not-ok line fails the shard even when bats itself exits 0.
+  run_shard 0 '1..2' 'ok 1 a in 1ms' 'not ok 2 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=failed tests::"* ]] \
+    || { echo "a not-ok test passed the shard because bats exited 0: $output"; false; }
 
   # A failing test fails the shard, and so does a bats failure on clean TAP.
   run_shard 1 '1..1' 'not ok 1 a in 5ms'
