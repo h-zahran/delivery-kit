@@ -762,15 +762,20 @@ SPAN
   assert_span span_n "$flat" 'phase N gained, lost or reworded text around its rules. An appended skip clause ("when the PR is absent, skip N") inverts DEGRADED, NEVER SKIPPED while leaving its anchor intact.' || false
 }
 
-@test "F.5, J and N reuse only a green suite result for the identical clean tree" {
+@test "F.5, J and N reuse only a green suite result for identical files" {
   local flat
   flat="$(prose_slice '^\*\*F\.5 — test baseline\.\*\*' '^\*\*G — implementer gate\.\*\*' flat 'phase F.5')" || return 1
 
   # The reuse rule, pinned through its two conditions. A green result alone is
-  # not enough: it must be this tree, clean, under this command. Dropping
-  # either half lets a result stand for code it never ran on.
-  grep -qF 'a `suite-lookup <feature>` that exits 0 — a GREEN result for this identical clean tree and command — instead of running; red or missing, run.' <<<"$flat" \
-    || { echo 'the suite reuse rule altered — only a GREEN result for the IDENTICAL CLEAN tree and command may stand in for a run'; false; }
+  # not enough: it must be these files, byte for byte, under this command.
+  # Dropping either half lets a result stand for code it never ran on.
+  grep -qF 'a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files and command, committed or not — instead of running; red or missing, run.' <<<"$flat" \
+    || { echo 'the suite reuse rule altered — only a GREEN result for IDENTICAL files and command may stand in for a run'; false; }
+  # --base is F.5's alone, and leaves out only the run's own untracked spec
+  # directory: widened to J or N, or to any untracked file, it cites a result
+  # for code the run has since written.
+  [[ "$flat" == *'F.5 adds `--base`, which also accepts one for these files without the run'"'"'s untracked spec directory.'* ]] \
+    || { echo 'the --base rule altered — only F.5 may leave out, and only the run'"'"'s untracked spec directory'; false; }
   # How a run is kept. The key is taken BEFORE the run, so a tree that changed
   # while the suite ran is refused at the record.
   grep -qF '`progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after' <<<"$flat" \
@@ -782,7 +787,7 @@ SPAN
 
 span_f5() {
   cat <<'SPAN'
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for this identical clean tree and command — instead of running; red or missing, run. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files and command, committed or not — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 SPAN
 }
 
@@ -1520,8 +1525,10 @@ PINS
 
 # The user-facing account of suite reuse lives in docs/phases.md, not in
 # SKILL.md. Its rules are pinned here through the clauses that bound a reuse:
-# a mutant that turns "never reused" into "may be reused", or "clean" into
-# "may be dirty", tells the reader a result stands for code it never ran on.
+# a mutant that turns "never reused" into "may be reused", "identical" into
+# "similar", or drops the untracked files from the key, tells the reader a
+# result stands for code it never ran on. Matched with [[ == ]], never grep
+# through a process substitution, which was measured to false-match.
 @test "phases.md states the suite reuse rules the state helper enforces" {
   local doc="$ROOT/pipeline/docs/phases.md" flat rows
   [ -f "$doc" ] && [ -r "$doc" ] || { echo "cannot read $doc"; false; }
@@ -1530,29 +1537,66 @@ PINS
   [ -n "$flat" ] || { echo 'phases.md has no "## Reusing a suite run" section'; false; }
   local want
   for want in \
-    'the working tree is **clean**: no change, tracked, staged or untracked, except an untracked file under `.delivery-kit/`' \
-    'no file hidden from `git status` by `assume-unchanged` or `skip-worktree`; and no submodule;' \
-    'the committed tree is **identical** to the one the result was recorded on, and so are the **bytes** of every tracked file as they sit on disk, read with no filter and no line-ending conversion' \
-    'the result is **green**: exit code 0, a plan line `1..N` first, exactly N `ok` lines numbered 1 to N in any order' \
+    'the **files** are **identical** to the ones the result was recorded on: every tracked path, with its index mode and whether it is still on disk, and every untracked path git does not ignore, except an untracked file under `.delivery-kit/`;' \
+    'every such file'"'"'s **bytes** as they sit on disk, read with no filter and no line-ending conversion' \
+    'A change committed, staged or only in the working tree counts the same, so N can cite the run J made before J committed it;' \
+    'there is no file hidden from `git status` by `assume-unchanged` or `skip-worktree`, no unmerged path, no submodule, and no untracked directory that holds a repository of its own;' \
+    'the result is **green**: exit code 0, a plan line `1..N` first, exactly N `ok` lines numbered 1 to N in any order, none of them a skip, no `not ok`' \
     'a red result is never reused, because F.5 needs its failures verbatim, and J and N need to see them.' \
+    'A skip is red too: a test that did not run has not passed.' \
     'The analyzer is never cited; it always runs.' \
     'What the key cannot see, a reuse assumes unchanged: files git ignores' \
+    'and git'"'"'s own records around the files — the commit, its history and refs, and what is staged rather than only on disk.' \
     'A phase that cites quotes those two lines verbatim; at F.5 they are the `test_baseline`.' \
-    'A tree with uncommitted work has no key, so a phase that runs on one always runs the suite and records nothing.'
+    'Only the untracked spec directory is left out: any other change, and a spec directory already tracked, still counts. A result is never recorded under that narrower key;' \
+    '`progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule to any TAP file, keyed or not'
   do
-    grep -qF -- "$want" < <(printf '%s\n' "$flat") \
-      || { echo "phases.md's reuse section no longer says: $want"; false; }
+    [[ "$flat" == *"$want"* ]] || { echo "phases.md's reuse section no longer says: $want"; false; }
   done
-  # The phase table: F.5, J and N reuse only a green result on the identical tree.
+  # The phase table: F.5, J and N reuse only a green result on identical files.
   rows="$(tr -d '\r' < "$doc")"
   for want in \
-    '| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature'"'"'s, and phase J classifies against this record. May reuse a green result on the identical tree instead' \
-    '| J | analyzer and full suite | Runs both commands (or reuses a green suite result on the identical tree) and classifies' \
-    '| N | re-verify | Runs the analyzer and the suite again (or reuses a green suite result on the identical tree), classifies'
+    '| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature'"'"'s, and phase J classifies against this record. May reuse a green result on identical files instead, or on the files as they were before the feature' \
+    '| J | analyzer and full suite | Runs both commands (or reuses a green suite result on identical files) and classifies' \
+    '| N | re-verify | Runs the analyzer and the suite again (or reuses a green suite result on identical files), classifies'
   do
-    grep -qF -- "$want" < <(printf '%s\n' "$rows") \
-      || { echo "phases.md's phase table no longer says: $want"; false; }
+    [[ "$rows" == *"$want"* ]] || { echo "phases.md's phase table no longer says: $want"; false; }
   done
+}
+
+# Phase F's loop ends early and narrows, still under its cap (P11 in the
+# 2026-10 audit: one run's rounds found 29, 20, 16, 14 and 5 findings, a
+# fresh full pass each time, and hit the cap). Pinned through the operative
+# clauses: "no CRITICAL or HIGH" turned into "no finding", or "is the last"
+# into "may be the last", or the narrowing dropped, each changes how long the
+# loop runs, and the insertion guard catches a clause added beside them.
+@test "phase F ends after a round with no CRITICAL or HIGH finding, and narrows later rounds" {
+  local flat
+  flat="$(prose_slice '^\*\*F — analyze, auto-fix loop\.\*\*' '^\*\*F\.5 — test baseline\.\*\*' flat 'phase F')" || return 1
+  [[ "$flat" == *'A round that finds no CRITICAL or HIGH finding is the last: fix its findings, then end the loop.'* ]] \
+    || { echo 'the early stop altered — a round with no CRITICAL or HIGH finding ends the loop, after its findings are fixed'; false; }
+  [[ "$flat" == *'A later round checks only the findings still open and the text the last fixes changed, never a fresh full pass.'* ]] \
+    || { echo 'the narrowing altered — a later round checks only what is still open and what the fixes changed'; false; }
+  [[ "$flat" == *'at most `maxAnalyzeIters` iterations.'* ]] \
+    || { echo 'the cap altered — the loop is still bounded by maxAnalyzeIters'; false; }
+  assert_span span_f "$flat" 'phase F gained, lost or reworded text around its loop rules. An appended clause ("or when the round found fewer findings than the last") ends the loop on CRITICAL findings while leaving the anchors intact.'
+  # The page that explains the loop says the same.
+  local doc="$ROOT/pipeline/docs/phases.md" sec
+  sec="$(awk '/^## The analyze loop$/ { on = 1; next } on && /^## / { exit } on' "$doc" | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$sec" ] || { echo 'phases.md has no "## The analyze loop" section'; false; }
+  for want in \
+    'A round that finds no CRITICAL or HIGH finding is the last: its findings are fixed' \
+    'A round after the first checks only the findings still open and the text the last round'"'"'s fixes changed.' \
+    'a loop that reaches `maxAnalyzeIters` without such a round is a conditional stop'
+  do
+    [[ "$sec" == *"$want"* ]] || { echo "phases.md's analyze loop section no longer says: $want"; false; }
+  done
+}
+
+span_f() {
+  cat <<'SPAN'
+**F — analyze, auto-fix loop.** Run `/speckit-analyze`. Fan the fixes out across agents grouped by target artefact (never two agents on one file), capped by `maxParallelAgents`, at most `maxAnalyzeIters` iterations. A round that finds no CRITICAL or HIGH finding is the last: fix its findings, then end the loop. A later round checks only the findings still open and the text the last fixes changed, never a fresh full pass. A cap breach is a conditional stop. Log each iteration in `analyze_changelog`. **F.5 — test baseline.**
+SPAN
 }
 
 # The waiting-question rule, pinned through what bounds it: a question waits
