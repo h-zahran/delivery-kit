@@ -619,7 +619,7 @@ assert_span() {
 
 span_redflags() {
   cat <<'SPAN'
-## Red flags — findings are fixed or surfaced, never waved through If you notice one of these thoughts, stop: you are rationalising. | Thought | Reality | |---|---| | "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. | | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. | | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. | | "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical clean tree and command. Focused runs are for iterating, not for verdicts. | | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. | | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. | | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. | | "Re-running this phase might duplicate work" | Phases are idempotent by design. If re-entry is unsafe, that is a bug to surface, not a reason to skip validation. | ## When a phase fails
+## Red flags — findings are fixed or surfaced, never waved through If you notice one of these thoughts, stop: you are rationalising. | Thought | Reality | |---|---| | "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. | | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. | | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. | | "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical files, git state as `suiteReuse` says, and command. Focused runs are for iterating, not for verdicts. | | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. | | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. | | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. | | "Re-running this phase might duplicate work" | Phases are idempotent by design. If re-entry is unsafe, that is a bug to surface, not a reason to skip validation. | ## When a phase fails
 SPAN
 }
 
@@ -637,7 +637,7 @@ SPAN
 
 span_j() {
   cat <<'SPAN'
-**J — analyzer and full suite.** Run `analyzeCommand`, then `testCommand` (or cite the suite, as F.5 allows). Classify every failure against `test_baseline`: pre-existing failures are reported, not owned; new failures are this run's to fix. Fixes for independent failures fan out. Loop until clean against baseline, at most `maxVerifyIters` iterations; a cap breach is a conditional stop — show the failures that survived and ask whether to continue; a hard failure still stops the run outright. J makes its late commit (see H.5) once, when its loop ends — never once per iteration. A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into J's own commit message and the pull-request body. In the single-commit flow J makes no commit, and K's commit message carries them instead. In the piece flow, when a waved-through red must be carried and J changed no file, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message named above carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint, a token, a machine path or a user name, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.**
+**J — analyzer and full suite.** Run `analyzeCommand`, then `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against `test_baseline`: pre-existing failures are reported, not owned; new failures are this run's to fix. Fixes for independent failures fan out. Loop until clean against baseline, at most `maxVerifyIters` iterations; a cap breach is a conditional stop — show the failures that survived and ask whether to continue; a hard failure still stops the run outright. J makes its late commit (see H.5) once, when its loop ends — never once per iteration. A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into J's own commit message and the pull-request body. In the single-commit flow J makes no commit, and K's commit message carries them instead. In the piece flow, when a waved-through red must be carried and J changed no file, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message named above carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint, a token, a machine path or a user name, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.**
 SPAN
 }
 
@@ -667,7 +667,7 @@ SPAN
 
 span_n() {
   cat <<'SPAN'
-**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again (or cite the suite, as F.5 allows), classify against baseline, commit fixes (`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.**
+**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against baseline, commit fixes (`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.**
 SPAN
 }
 
@@ -769,7 +769,7 @@ SPAN
   # The reuse rule, pinned through its two conditions. A green result alone is
   # not enough: it must be these files, byte for byte, under this command.
   # Dropping either half lets a result stand for code it never ran on.
-  grep -qF 'a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files and command, committed or not — instead of running; red or missing, run.' <<<"$flat" \
+  grep -qF 'a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run.' <<<"$flat" \
     || { echo 'the suite reuse rule altered — only a GREEN result for IDENTICAL files and command may stand in for a run'; false; }
   # --base is F.5's alone, and leaves out only the run's own untracked spec
   # directory: widened to J or N, or to any untracked file, it cites a result
@@ -787,7 +787,7 @@ SPAN
 
 span_f5() {
   cat <<'SPAN'
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files and command, committed or not — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 SPAN
 }
 
@@ -816,7 +816,7 @@ redflag_rows_pinned_here() {
   cat <<'ROWS'
 | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. |
 | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. |
-| "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical clean tree and command. Focused runs are for iterating, not for verdicts. |
+| "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical files, git state as `suiteReuse` says, and command. Focused runs are for iterating, not for verdicts. |
 | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. |
 | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. |
 | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |
@@ -1537,16 +1537,24 @@ PINS
   [ -n "$flat" ] || { echo 'phases.md has no "## Reusing a suite run" section'; false; }
   local want
   for want in \
-    'the **files** are **identical** to the ones the result was recorded on: every tracked path, with its index mode and whether it is still on disk, and every untracked path git does not ignore, except an untracked file under `.delivery-kit/`;' \
+    '**`commit`**, the default: the files below **and** git'"'"'s state around them — HEAD'"'"'s commit id, and every tracked path'"'"'s index mode and object id.' \
+    'is never told a result that does not hold. The price: once K commits, N cannot cite the run J made before it.' \
+    '**`files`**: the files alone. A change committed, staged or only in the working tree counts the same, so N can cite the run J made before J committed it' \
+    'Choose it only for a suite that reads no git state: under `files`, a commit message, the index, HEAD and the branch'"'"'s history are all invisible, and a check over a branch range that was vacuous when J ran is reused as green after K gives it commits to read.' \
+    '**`off`**: nothing is kept and nothing is reused.' \
+    'the **files** are **identical** to the ones the result was recorded on: every tracked path still on disk and every untracked path git does not ignore, except an untracked file under `.delivery-kit/`;' \
     'every such file'"'"'s **bytes** as they sit on disk, read with no filter and no line-ending conversion' \
-    'A change committed, staged or only in the working tree counts the same, so N can cite the run J made before J committed it;' \
+    'under `commit`, git'"'"'s state is identical too, as above;' \
+    'and so is the `suiteReuse` mode: a result recorded under one mode is never reused under another;' \
     'there is no file hidden from `git status` by `assume-unchanged` or `skip-worktree`, no unmerged path, no submodule, and no untracked directory that holds a repository of its own;' \
     'the result is **green**: exit code 0, a plan line `1..N` first, exactly N `ok` lines numbered 1 to N in any order, none of them a skip, no `not ok`' \
     'a red result is never reused, because F.5 needs its failures verbatim, and J and N need to see them.' \
     'A skip is red too: a test that did not run has not passed.' \
     'The analyzer is never cited; it always runs.' \
     'What the key cannot see, a reuse assumes unchanged: files git ignores' \
-    'and git'"'"'s own records around the files — the commit, its history and refs, and what is staged rather than only on disk.' \
+    'an empty directory (git lists no directory, only files), a rename that changes only a name'"'"'s letter case on a file system that ignores case' \
+    'Under `files`, git'"'"'s own records too, as above.' \
+    'F.5 asks with `suite-lookup <feature> --base`; J and N never do.' \
     'A phase that cites quotes those two lines verbatim; at F.5 they are the `test_baseline`.' \
     'Only the untracked spec directory is left out: any other change, and a spec directory already tracked, still counts. A result is never recorded under that narrower key;' \
     '`progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule to any TAP file, keyed or not'
@@ -1587,10 +1595,14 @@ PINS
   for want in \
     'A round that finds no CRITICAL or HIGH finding is the last: its findings are fixed' \
     'A round after the first checks only the findings still open and the text the last round'"'"'s fixes changed.' \
-    'a loop that reaches `maxAnalyzeIters` without such a round is a conditional stop'
+    'a loop that reaches `maxAnalyzeIters` without such a round is a conditional stop' \
+    'its findings are fixed — every finding is still fixed or deferred with its reason, never dropped — and no further round runs.'
   do
     [[ "$sec" == *"$want"* ]] || { echo "phases.md's analyze loop section no longer says: $want"; false; }
   done
+  # The phase table's F row, through its operative words.
+  [[ "$(tr -d '\r' < "$doc")" == *'| F | analyze | Runs the spec-kit analyze command and fixes what it finds, in a capped loop that ends after a round with no critical or high finding'* ]] \
+    || { echo "phases.md's F row no longer says the loop ends after a round with no critical or high finding"; false; }
 }
 
 span_f() {

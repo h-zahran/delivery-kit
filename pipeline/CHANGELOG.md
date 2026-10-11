@@ -24,14 +24,22 @@ All notable changes to the `pipeline` plugin.
 - **Pre-flight names the runs it judges.** `tree.liveRuns` lists every
   live run by name, and `tree.unreadableRuns` every state file that is not
   one JSON object with a `current_phase`.
-
 - **`progress.sh tap-check <tap-file> [<expected-count>]`** judges any TAP
   file, keyed or not: the plan line first, one plan line, as many `ok` lines
   as the plan names, numbered 1 to N in any order, no skip, no `not ok` and
   no stray line. It prints one summary line, or the first rule the file
-  breaks, and never the file's path. `suite-record` judges with the same
-  rules, and the repository's `scripts/check-suite.sh` now hands its file to
-  `tap-check` instead of holding a second copy of them.
+  breaks, and never the file's path. It needs only bash and awk.
+  `suite-record` judges with the same rules, and the repository's
+  `scripts/check-suite.sh` now hands its file to `tap-check` instead of
+  holding a second copy of them — so `check-suite.sh` also refuses a test
+  number that is missing, repeated or outside the plan, which its own copy
+  did not check. (The repository's CI still reads its shards' TAP with checks
+  of its own.)
+- **The `suiteReuse` setting** says what a kept suite result must match
+  before F.5, J or N cite it. `commit`, the default, covers the files and
+  git's state around them: HEAD's commit id and the index. `files` covers
+  the files alone. `off` keeps and reuses nothing, and so does any other
+  value. A record names its mode and is never reused under another.
 - **`suite-lookup <feature> --base`**, for F.5: when these files have no
   green result, it also looks up the same files without the run's untracked
   spec directory — the tree before this feature. Only that directory is left
@@ -53,20 +61,28 @@ All notable changes to the `pipeline` plugin.
   folder and the run folder, and leaves you on the branch; and that `gh` must
   be logged in as well as installed. The commands it tells you to type carry
   their slash: `/pipeline:status`.
-
-- **A suite result is kept for uncommitted work too.** The key is the files
-  themselves: every tracked path with its index mode and whether it is on
-  disk, every untracked path git does not ignore (outside `.delivery-kit/`),
-  every such file's bytes on disk, and a tracked file's mode on disk where
-  git sees modes. A J iteration on uncommitted fixes now records its run, and
-  N can cite that run after J commits the same files. A new untracked file,
+- **A suite result is kept for uncommitted work too.** The key covers every
+  tracked path still on disk and every untracked path git does not ignore
+  (outside `.delivery-kit/`), each file's bytes on disk and its mode, so a J
+  iteration on uncommitted fixes now records its run. A new untracked file,
   a deleted tracked file and a change of line endings alone each change the
-  key; an ignored file does not. An unmerged path, or an untracked directory
-  that holds a repository of its own, means no key, as a submodule and an
+  key; an ignored file does not. What else it covers depends on
+  `suiteReuse`. Under `commit`, the default, a staged change, a commit, an
+  amended message or a moved HEAD is a change too, so a suite that reads a
+  commit message, staged bytes or a branch range such as `main...HEAD` is
+  never told a result that does not hold — and N cannot cite J's run once K
+  commits. Under `files`, git's state is invisible: N can cite J's run after
+  J commits the same files, including a file J added or deleted, but a
+  suite that reads a commit message, the index or a branch range can be
+  told a result that does not hold. Neither mode sees an ignored file, an
+  empty directory, or a rename that changes only letter case where the
+  file system ignores case. An unmerged path, or an untracked directory that
+  holds a repository of its own, means no key, as a submodule and an
   assume-unchanged or skip-worktree entry already did.
 - **A skipped test makes a suite result red.** A skip was counted as an ok
   and reported; a test that did not run has not passed, so a run with a skip
-  is no longer reused, and `suite-lookup` refuses a record that counts one.
+  is now recorded red and never reused, and `suite-lookup` refuses a record
+  that counts one.
 - **Phase F ends early and narrows.** A round that finds no CRITICAL or HIGH
   finding is the last: its findings are fixed and the loop ends. A later
   round checks only the findings still open and the text the last fixes
