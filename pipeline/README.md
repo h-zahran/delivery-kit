@@ -28,7 +28,7 @@ Phase A finds that section and quotes it verbatim as the feature
 description. No script reads the plan file: Claude does, so nothing in the
 plugin fixes the heading level or where the section stops. This repository's
 own plan is the shape it was built against: each phase is a
-`## Phase <N>: <title>` heading, and its section runs to the next `##`
+`## Phase <N>: <title>` heading, and its section runs to the next `#` or `##`
 heading. Keep to that shape and the section has one reading. Copy the heading
 text rather than retyping it, so a dash in the title is the same dash.
 

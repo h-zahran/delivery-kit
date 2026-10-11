@@ -177,6 +177,15 @@ flat() {
     || { echo "the skill no longer quotes the plan-file section verbatim, which the README says"; false; }
   [[ $p == *'each phase is a `## Phase <N>: <title>` heading'* ]] \
     || { echo "pipeline/README.md no longer shows the plan file's heading shape"; false; }
+  # Where a section ends, as this repository's own plan has it: a phase holds
+  # no deeper heading, and one phase is followed by a `#` heading, not `##`.
+  [[ $p == *'its section runs to the next `#` or `##` heading'* ]] \
+    || { echo "pipeline/README.md no longer says where a plan-file section ends"; false; }
+  local deeper top
+  deeper="$(tr -d '\r' < main-plan.md | awk '/^## Phase [0-9]+:/ { p = 1; next } /^##? / { p = 0 } p && /^###/ { c++ } END { print c + 0 }')"
+  top="$(tr -d '\r' < main-plan.md | awk '/^## Phase [0-9]+:/ { p = 1; next } p && /^# / { c++ } /^##? / { p = 0 } END { print c + 0 }')"
+  [ "$deeper" = 0 ] || { echo "main-plan.md has $deeper deeper heading(s) inside a phase; the README's section end is stale"; false; }
+  [ "$top" -gt 0 ] || { echo "no phase in main-plan.md ends at a # heading; the README need not name one"; false; }
 }
 
 @test "the README warns what a dry run leaves behind, naming the state file" {
