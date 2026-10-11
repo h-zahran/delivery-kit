@@ -367,7 +367,7 @@ reuse() {
   # A commit made while the suite ran.
   printf 'later\n' >> README.md
   git commit -q -am later
-  refuses "the tree, the command or the platform is not what it was when the key was taken" \
+  refuses "nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken" \
     suite-record "$F" "$K" "$TAP" 0
   [ "$(records)" = 0 ]
   # A file a test left behind.
@@ -501,11 +501,11 @@ reuse() {
 @test "under files, a new untracked file and an unstaged deletion read the same once committed" {
   repo
   reuse files
-  printf 'new test\n' > src/new.sh
+  printf 'new test\n' > src/a-new.sh
   rm README.md
   verdict_is green 0 '1..1' 'ok 1 one'
   local rec=".delivery-kit/suite-results/$K.json"
-  git add src/new.sh README.md
+  git add src/a-new.sh README.md
   git commit -q -m 'J adds a test file and deletes another'
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = "$rec" ] || { echo "J's run on the same files was not reused after the commit"; false; }
