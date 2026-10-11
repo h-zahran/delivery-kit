@@ -394,7 +394,10 @@ that fail the audit. Record `artifacts.tasks`.
 **F — analyze, auto-fix loop.** Run `/speckit-analyze`. Fan the fixes
 out across agents grouped by target artefact (never two agents on one
 file), capped by `maxParallelAgents`, at most `maxAnalyzeIters`
-iterations. A cap breach is a conditional stop. Log each iteration in
+iterations. A round that finds no CRITICAL or HIGH finding is the last:
+fix its findings, then end the loop. A later round checks only the
+findings still open and the text the last fixes changed, never a fresh
+full pass. A cap breach is a conditional stop. Log each iteration in
 `analyze_changelog`.
 
 **F.5 — test baseline.** Run `testCommand`. Record the result verbatim
@@ -405,9 +408,10 @@ Every full `testCommand` run is bracketed: `progress.sh suite-key
 <feature>` before it, its stdout and stderr in one file in the run
 directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a
 refusal, only means nothing is kept). F.5, J and N may cite, quoting its two
-lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for this
-identical clean tree and command — instead of running; red or missing,
-run.
+lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these
+identical files and command, committed or not — instead of running; red or
+missing, run. F.5 adds `--base`, which also accepts one for these files
+without the run's untracked spec directory.
 
 **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 it: implement with Claude here, or produce a handoff package for a

@@ -52,7 +52,17 @@ output and calls `bash scripts/check-suite.sh <expected> <tap-file>` rather
 than writing its own check. The script compares the plan line with the `ok`
 count and refuses a skipped test, a `not ok` and any stray line, each by
 name. Hand-written copies of that check drifted apart — some counted skips
-and some did not — which is why there is now one.
+and some did not — which is why there is now one: the script hands the file
+to `pipeline/scripts/progress.sh tap-check`, the rules the pipeline's own
+suite records are judged by.
+
+A quickstart run inside a pipeline run need not run the suite again when
+`bash pipeline/scripts/progress.sh suite-lookup <feature>` exits 0 and its
+second line starts `1..<expected>,`: the run's test command already passed on
+these exact files. Quote both lines in place of the check. The quickstart
+records nothing itself — a record names the run's test command, and only a
+run of that command, bracketed by `suite-key` and `suite-record`, may stand
+for it.
 
 Expect all tests to pass on Linux, macOS, and Windows under Git Bash. CI runs
 all three; a change that passes on only one is not finished.

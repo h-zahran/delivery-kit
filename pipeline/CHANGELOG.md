@@ -25,6 +25,18 @@ All notable changes to the `pipeline` plugin.
   live run by name, and `tree.unreadableRuns` every state file that is not
   one JSON object with a `current_phase`.
 
+- **`progress.sh tap-check <tap-file> [<expected-count>]`** judges any TAP
+  file, keyed or not: the plan line first, one plan line, as many `ok` lines
+  as the plan names, numbered 1 to N in any order, no skip, no `not ok` and
+  no stray line. It prints one summary line, or the first rule the file
+  breaks, and never the file's path. `suite-record` judges with the same
+  rules, and the repository's `scripts/check-suite.sh` now hands its file to
+  `tap-check` instead of holding a second copy of them.
+- **`suite-lookup <feature> --base`**, for F.5: when these files have no
+  green result, it also looks up the same files without the run's untracked
+  spec directory — the tree before this feature. Only that directory is left
+  out, and nothing is ever recorded under that key.
+
 ### Changed
 
 - **`init` makes `pipeline-run.json`** when it is absent, on a fresh run
@@ -41,6 +53,25 @@ All notable changes to the `pipeline` plugin.
   folder and the run folder, and leaves you on the branch; and that `gh` must
   be logged in as well as installed. The commands it tells you to type carry
   their slash: `/pipeline:status`.
+
+- **A suite result is kept for uncommitted work too.** The key is the files
+  themselves: every tracked path with its index mode and whether it is on
+  disk, every untracked path git does not ignore (outside `.delivery-kit/`),
+  every such file's bytes on disk, and a tracked file's mode on disk where
+  git sees modes. A J iteration on uncommitted fixes now records its run, and
+  N can cite that run after J commits the same files. A new untracked file,
+  a deleted tracked file and a change of line endings alone each change the
+  key; an ignored file does not. An unmerged path, or an untracked directory
+  that holds a repository of its own, means no key, as a submodule and an
+  assume-unchanged or skip-worktree entry already did.
+- **A skipped test makes a suite result red.** A skip was counted as an ok
+  and reported; a test that did not run has not passed, so a run with a skip
+  is no longer reused, and `suite-lookup` refuses a record that counts one.
+- **Phase F ends early and narrows.** A round that finds no CRITICAL or HIGH
+  finding is the last: its findings are fixed and the loop ends. A later
+  round checks only the findings still open and the text the last fixes
+  changed, never a fresh full pass, still at most `maxAnalyzeIters` rounds.
+  `docs/phases.md` explains the loop in its new section "The analyze loop".
 
 ### Fixed
 
