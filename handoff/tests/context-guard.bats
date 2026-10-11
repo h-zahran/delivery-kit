@@ -1936,9 +1936,12 @@ install_confirm_section() {
   mkdir -p "$repo"
   printf '{"contextGuard":{"thresholdPct":90},"pipeline":{"planFile":"main-plan.md"}}\n' > "$repo/.delivery-kit.json"
   cp "$repo/.delivery-kit.json" "$TEST_DIR/config-before"
+  # The doc says the variable beats BOTH files, so the user-level one is set too.
+  printf '{"contextGuard":{"thresholdPct":95}}\n' > "$HOME/.delivery-kit.json"
+  cp "$HOME/.delivery-kit.json" "$TEST_DIR/home-config-before"
   t="$(transcript_with 20000 20000 20000 20000 20000)"   # 10% of 200000
 
-  # Without the override the repository's 90% keeps the guard silent: that is
+  # Without the override the configured 90% keeps the guard silent: that is
   # what makes the firing below the override's doing.
   run_hook --cwd "$repo" "$t" before
   [ "$status" -eq 0 ]
@@ -1951,6 +1954,7 @@ install_confirm_section() {
   echo "$output" | jq -e '.reason | test("CONTEXT GUARD")'
   echo "$output" | jq -e --arg p "threshold ${value}%" '.reason | contains($p)'
   cmp "$repo/.delivery-kit.json" "$TEST_DIR/config-before"
+  cmp "$HOME/.delivery-kit.json" "$TEST_DIR/home-config-before"
 }
 
 @test "the hook's divergence-count command prints the length of the list it introduces" {
