@@ -57,7 +57,12 @@ A fixed set of sections, so the next session always knows where to look:
 **It never writes to git.** No commit, no push, no `git add`, no stash. The hook
 fired on its own, so nothing here was asked for — a commit message would be the
 machine's, not yours. Instead it records the uncommitted work in full and prints
-the commands, and the choice stays with you.
+the commands, and the choice stays with you. Note the corollary: `git clean`,
+`git checkout` and `git stash` will discard that work, because it is still only
+in your working tree.
+
+You can also invoke the skill yourself at any time. Say "hand off", or "stop
+after this batch and hand off".
 
 ## What ships
 
@@ -121,7 +126,8 @@ getting right, and the two ways of being wrong are not the same:
 
 That is why the default is conservative. On a 1M-token model the defaults do not
 merely fire early: the first warning reports a percentage well over 100. One
-line fixes it.
+line fixes it. If you are ever unsure between two window sizes, **take the
+smaller one**: guessing high is the answer that fails quietly.
 
 The easy way is `handoff:setup`. It measures the session, proposes a window when
 the measurement supports one, asks where you want it to stop, and writes the
@@ -136,8 +142,25 @@ answers for you. Or set it by hand:
 
 Save that as `.delivery-kit.json` in your repository root, or at
 `~/.delivery-kit.json` for facts about your machine rather than a project — the
-repository file wins. Every setting is documented in
-[docs/configuration.md](docs/configuration.md).
+repository file wins. A value that is not a positive integer is ignored and the
+layer beneath it stands, so **no invalid value can disable the guard**. Every
+setting is documented in [docs/configuration.md](docs/configuration.md).
+
+The guard is silent until it has something to say, so check once that it
+fires: lower the threshold on purpose for one check. The steps are in
+[docs/install.md](docs/install.md).
+
+## Troubleshooting
+
+| What you see | Why | What to do |
+|---|---|---|
+| A percentage over 100, plus `WINDOW MISCONFIGURED` | `windowTokens` is smaller than your real window | Run `handoff:setup`. The note already names the minimum true window. |
+| The guard never fires at all | `windowTokens` set too large — nothing can detect this | Set `contextGuard.thresholdTokens` as well. It is decided from the transcript alone, so it still fires when the window is wrong. |
+| The guard is silent, and you saw a one-off note about `jq` | `jq` is missing or cannot run | Install it and restart the session. On Windows, check from Git Bash. |
+| You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there. It never edits a shared repository file for a guard key, and never edits one unasked — the only thing it writes there is the pipeline block, offered where `.specify/` exists and only if you accept. |
+| Two `CONTEXT GUARD` warnings, or advice naming a plugin you removed | An old `delivery-kit@delivery-kit` install is still present | See [Upgrading](#upgrading-from-delivery-kitdelivery-kit). Do not judge by warning count — run `/plugin` and read the list. |
+
+On Windows, also read [the Windows notes](../README.md#windows).
 
 ## Why this exists
 
