@@ -12,11 +12,11 @@ repository root:
 claude --plugin-dir ./handoff --plugin-dir ./pipeline
 ```
 
-`--plugin-dir` loads a plugin from a directory for that session only, so
-start a new session to pick up an edit. If you also have a plugin installed
-from the marketplace, disable that copy first
-(`claude plugin disable handoff@delivery-kit`), so you know which one ran.
-Check the manifests before you open a pull request:
+`--plugin-dir` loads a plugin from a directory for that session only. It
+replaces an installed plugin of the same name for that session, so you do
+not need to uninstall or disable yours. After an edit, run `/reload-plugins`
+in the session to load the change. Check the manifests before you open a
+pull request:
 
 ```
 claude plugin validate .
@@ -71,7 +71,9 @@ load bearing beyond their size:
 
 `tests/portability.bats` fails the build if project-specific vocabulary, an
 absolute local path, or the name of a tool this project does not depend on
-appears anywhere a user reads or installs. That surface spans a tree per
+appears anywhere a user reads or installs. The vocabulary is names from the
+project the plugins were extracted from: none of them may appear in a shipped
+file, so the plugins stay usable by anyone. That surface spans a tree per
 plugin plus the repository root, and which tree a file belongs in is the
 first thing to get right when you add one:
 
@@ -147,8 +149,8 @@ link test's list in the same commit; skills need no list edit — their
   one reported a check the newer one does not have at all, so a local green
   did not imply a green gate. Install the pinned release locally before
   concluding anything from a local run. Then run what the job runs, from the
-  repository root, in bash 4 or later (macOS's own bash 3.2 has no
-  `mapfile`):
+  repository root, in bash 4.4 or later (`mapfile -d` needs it, and macOS's
+  own bash 3.2 has no `mapfile` at all):
 
   ```bash
   mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/')
@@ -157,6 +159,12 @@ link test's list in the same commit; skills need no list edit — their
 
   `tests/readme.bats` holds these two lines equal to the job's, so they move
   together.
+- **CI pins its other tools too.** CI pins jq 1.8.2 and verifies its
+  checksum; use the same release locally. CI pins actionlint 1.7.12, which
+  lints the workflow file and runs the shell in its inline `run:` steps
+  through the pinned shellcheck. CI runs one suite root per shard, but a
+  local run still names every suite path, as
+  [Running the tests](#running-the-tests) says.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.
 

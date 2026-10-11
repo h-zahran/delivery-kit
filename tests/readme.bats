@@ -308,6 +308,15 @@ flat() {
     [[ $'\n'"$contrib"$'\n' == *$'\n'"$l"$'\n'* ]] || { echo "CONTRIBUTING.md does not carry CI's line: $l"; false; }
   done <<< "$ci"
   [[ $contrib == *'claude --plugin-dir ./handoff --plugin-dir ./pipeline'* ]] || { echo "CONTRIBUTING.md lost the local plugin loop"; false; }
+  local cflat
+  cflat="$(flat CONTRIBUTING.md)"
+  [[ $cflat == *'After an edit, run `/reload-plugins` in the session to load the change.'* ]] \
+    || { echo "CONTRIBUTING.md no longer says how to load an edit"; false; }
+  # mapfile -d arrived in bash 4.4; the discovery line uses it.
+  [[ $ci == *'mapfile -d '* ]] && [[ $cflat == *'in bash 4.4 or later (`mapfile -d` needs it'* ]] \
+    || { echo "CONTRIBUTING.md no longer names the bash that mapfile -d needs"; false; }
+  [[ $cflat == *'The vocabulary is names from the project the plugins were extracted from: none of them may appear in a shipped file'* ]] \
+    || { echo "CONTRIBUTING.md no longer says what the vocabulary scan guards"; false; }
 }
 
 @test "CONTRIBUTING puts the maintainer exclude steps after the tests" {
