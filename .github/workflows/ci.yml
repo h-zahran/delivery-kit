@@ -98,9 +98,11 @@ env:
 
 # EVERY JOB CARRIES A timeout-minutes. The default is 360, so a hung step —
 # a test waiting on stdin, a network fetch that never returns — would hold a
-# runner for six hours before anything went red. Limits are about three times
-# the slowest duration measured over the last ten runs (2026-10-06), so an
-# ordinary slow runner never trips them and a hang is reported in minutes.
+# runner for six hours before anything went red. Each limit is set well above
+# the slowest duration measured for that job, so an ordinary slow runner never
+# trips it and a hang is still reported in minutes. The figure, its source and
+# the resulting ratio are written beside each limit, not here, so no single
+# multiplier is claimed for limits whose ratios differ.
 #
 # RUNNER IMAGES ARE PINNED BY LABEL, never `-latest`. A `-latest` label moves
 # to a new OS release on GitHub's schedule, which changes bash, coreutils and
@@ -122,15 +124,30 @@ jobs:
     # The matrix is a full cross product: there is no `exclude:`, and the
     # `include:` entries below only ADD a key to the combinations whose os
     # matches, so every suite root runs on every OS. tests/portability.bats
-    # pins both halves: that the suite list covers every tracked .bats file,
-    # and that nothing excludes a combination.
+    # pins what can be read from this file: the suite list covers every
+    # tracked .bats file, with no entry repeated, nested in another, or `.`;
+    # there is no `exclude:`; no `continue-on-error:` anywhere in this job;
+    # and no `if:` on the job or on its shard step. It cannot see a
+    # combination lost some other way, such as a label no runner serves.
     #
-    # Per OS, because the legs differ tenfold. Measured on the WHOLE suite, ten
-    # runs before sharding: windows 275-511 s, macOS 83-159 s, ubuntu 30-45 s.
-    # A shard runs a subset of that suite, so the whole-suite figure bounds
-    # every shard from above without a per-shard measurement. Windows gets 20
-    # (2.3x the slowest whole suite); macOS and ubuntu get 10, which also
-    # absorbs a bats cache miss and the jq download.
+    # Per OS, because the legs differ by an order of magnitude.
+    #
+    # WINDOWS: 40. Measured 2026-10-11 in review, from the bats step of the
+    # last ten green UNSHARDED runs: the whole suite took 1028-1566 s, and the
+    # pipeline/tests part of it alone 763-1168 s (the 1168 s is run
+    # 38139381767). pipeline/tests is the slowest shard, so 1168 s (19.5 min)
+    # is the governing figure; 40 minutes is about 2x it, with room for setup.
+    # The first sharded run, 38167376375, took 11.6 min for its slowest
+    # Windows job. An earlier version of this comment quoted 275-511 s for the
+    # whole Windows suite; that figure was wrong, and the 20-minute limit
+    # derived from it sat at 97% of a measured shard.
+    #
+    # macOS and ubuntu: 10. Their figures are carried from the earlier comment,
+    # not re-measured here: whole suite, ten runs before 2026-10-06, macOS
+    # 83-159 s and ubuntu 30-45 s. On them, 10 minutes is about 3.8x the
+    # slowest whole macOS suite, which bounds every macOS shard, and it absorbs
+    # a bats cache miss and the jq download. Re-derive all three limits from
+    # the sharded runs' own durations once a few have accumulated.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -143,7 +160,7 @@ jobs:
           - os: macos-26
             timeout: 10
           - os: windows-2025
-            timeout: 20
+            timeout: 40
     env:
       # bats-core v1.11.0.
       #
@@ -353,8 +370,11 @@ jobs:
       # line. So the TAP is kept and read back, and the shard FAILS unless
       #   - a plan line exists and plans at least one test (a shard that ran
       #     nothing must never be green),
-      #   - the ok plus not-ok lines equal the plan, and
-      #   - no test was skipped.
+      #   - no test was skipped,
+      #   - no test reported not ok (whatever bats exited with), and
+      #   - the result lines number exactly 1..N, each once, for a plan of
+      #     1..N: a matching COUNT is not enough, since a stray or repeated
+      #     number could stand in for a test that never ran.
       #
       # --timing adds " in Nms" to every result line (measured with the pinned
       # bats writing to a pipe; its tap formatter spells it " # in N ms", and
@@ -404,8 +424,21 @@ jobs:
             echo "::error title=skipped tests::$SUITE skipped $skipped test(s); a skip is a failure here"
             exit 1
           fi
-          if [ "$((passed + failed))" -ne "$planned" ]; then
-            echo "::error title=plan mismatch::$SUITE planned $planned tests but reported $((passed + failed)); some were counted and never run"
+          if [ "$failed" -ne 0 ]; then
+            echo "::error title=failed tests::$SUITE reported $failed not-ok test(s)"
+            exit 1
+          fi
+          numbering="$(awk -v n="$planned" '
+            /^(not )?ok [0-9]+ / {
+              k = ($1 == "not") ? $3 : $2
+              k += 0
+              if (k < 1 || k > n || seen[k]++) bad = 1
+              c++
+            }
+            END { print ((bad || c != n) ? "bad" : "ok") }
+          ' "$tap")"
+          if [ "$((passed + failed))" -ne "$planned" ] || [ "$numbering" != ok ]; then
+            echo "::error title=plan mismatch::$SUITE planned tests 1..$planned but reported $((passed + failed)) result(s) (numbering check: $numbering); some were counted and never run"
             exit 1
           fi
           exit "$rc"
@@ -413,8 +446,9 @@ jobs:
   version:
     name: version agreement
     runs-on: ubuntu-24.04
-    # Measured 4-7 s over ten runs; 5 minutes is generous and still bounded,
-    # and absorbs the jq download.
+    # Measured 4-7 s over ten runs before the jq download was added; 5 minutes
+    # is about 40x that, deliberately loose because the download and its
+    # retries are network time no run has measured yet. Still bounded.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -525,7 +559,8 @@ jobs:
     name: shell analysis
     runs-on: ubuntu-24.04
     # Measured 4-7 s over ten runs, before the analysers were downloaded here.
-    # 10 minutes leaves room for the downloads' retries on a bad network day.
+    # 10 minutes is about 85x that, deliberately loose: it is there for the two
+    # downloads' retries on a bad network day, which no run has measured.
     timeout-minutes: 10
     # Declared once, at job level, because two steps read each: the install
     # step fetches and verifies the release, and the step that uses it refuses
