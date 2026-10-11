@@ -1127,7 +1127,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # the invocation names it OR any ancestor of it — demanding the literal
   # token forced the line to grow for tests/unit/, which bats would then run
   # TWICE, since overlapping path arguments are not deduplicated. Two copies
-  # of the command are policed: ci.yml's, and the contributing guide's — the
+  # are policed: ci.yml's suite matrix, and the contributing guide's command — the
   # guide's paragraph warns that running a subset "is the failure this
   # project exists to prevent, arriving by way of its own contributing
   # guide", and until this test read the guide, nothing held that copy to it.
@@ -1136,10 +1136,50 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # command substitution aborts the test AT THAT LINE, so the named
   # diagnostic below it never runs. It cannot mask a real failure — an empty
   # line is rejected on the next line either way.
-  ciline="$(grep -m1 -E '^ *run: *bash .*bats.* -r ' .github/workflows/ci.yml || true)"
-  [ -n "$ciline" ] || { echo "no 'run: bash ... bats ... -r' line found in ci.yml"; false; }
+  #
+  # CI is SHARDED: one job per OS per suite root, and the one bats invocation
+  # names "$SUITE", which the step maps from the matrix. So ci.yml's coverage
+  # is not read off the command line but off the matrix's `suite:` list, and
+  # the command line must be the one invocation and must take its path from
+  # that list. A second bats line would be a second copy to police, so
+  # exactly one is required.
+  wf=.github/workflows/ci.yml
+  ciline="$(grep -m1 -E '^ *(run: *)?bash .*bats.* -r ' "$wf" || true)"
+  [ -n "$ciline" ] || { echo "no 'bash ... bats ... -r' line found in ci.yml"; false; }
+  n="$(grep -cE '^ *(run: *)?bash .*bats/bin/bats' "$wf" || true)"
+  [ "$n" -eq 1 ] || { echo "expected exactly one bats invocation in ci.yml, found $n"; false; }
   docline="$(grep -m1 -E '^bash .*bats.* -r ' CONTRIBUTING.md || true)"
   [ -n "$docline" ] || { echo "no 'bash ... bats ... -r' command found in CONTRIBUTING.md"; false; }
+
+  # The suite list, read from the one flow-sequence line `suite: [a, b, c]`.
+  # Exactly one, so a second matrix cannot quietly be the one that counts.
+  n="$(grep -cE '^ *suite: *\[[^]]*\] *$' "$wf" || true)"
+  [ "$n" -eq 1 ] || { echo "expected exactly one 'suite: [...]' matrix line in ci.yml, found $n"; false; }
+  suiteline="$(grep -m1 -E '^ *suite: *\[[^]]*\] *$' "$wf")"
+  suiteline="${suiteline#*[}"
+  suiteline="${suiteline%]*}"
+  read -r -a cisuites <<< "${suiteline//,/ }"
+  [ "${#cisuites[@]}" -ge 1 ] || { echo "the ci.yml suite matrix is empty"; false; }
+  # Every entry must hold a tracked suite, or its shard runs nothing; and no
+  # entry may sit beneath another, or bats runs those tests in two shards.
+  for s in "${cisuites[@]}"; do
+    [ -n "$(git ls-files -- "$s/*.bats")" ] \
+      || { echo "the ci.yml suite matrix names '$s', which holds no tracked .bats file"; false; }
+    for o in "${cisuites[@]}"; do
+      case "$o" in "$s"/*) echo "ci.yml shards '$o' AND its ancestor '$s'; those tests would run twice"; false ;; esac
+    done
+  done
+  # The path the command runs is the matrix's, and every combination of OS
+  # and suite exists: the job runs on matrix.os, and nothing EXCLUDES a
+  # combination. (`include:` only adds keys to matching combinations.)
+  grep -qE '^ *SUITE: \$\{\{ matrix\.suite \}\} *$' "$wf" \
+    || { echo "ci.yml no longer maps SUITE from matrix.suite"; false; }
+  grep -qE '^ *runs-on: \$\{\{ matrix\.os \}\} *$' "$wf" \
+    || { echo "the ci.yml test job no longer runs on matrix.os"; false; }
+  if grep -qE '^ *exclude:' "$wf"; then
+    echo "ci.yml carries a matrix exclude:, so some suite no longer runs on every OS"; false
+  fi
+  cimatrix=" ${cisuites[*]} "
 
   # A token inside a trailing comment must not count — not a path token as
   # coverage, and not the flag as the flag ("# --print-output-on-failure was
@@ -1156,6 +1196,10 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   case "$docline" in *--print-output-on-failure*) ;; *) echo "CONTRIBUTING.md bats command lost --print-output-on-failure"; false ;; esac
   case " $ciline " in *" -r "*) ;; *) echo "ci.yml bats line lost -r after comment-stripping"; false ;; esac
   case " $docline " in *" -r "*) ;; *) echo "CONTRIBUTING.md bats command lost -r after comment-stripping"; false ;; esac
+  # CI's line also prints per-test timings (the slow-test warning reads
+  # them) and runs the shard's suite, by name, as its only path.
+  case " $ciline " in *" --timing "*) ;; *) echo "ci.yml bats line lost --timing"; false ;; esac
+  case "$ciline" in *' "$SUITE"'*) ;; *) echo "ci.yml bats line no longer runs \"\$SUITE\""; false ;; esac
 
   # Discovery is over TRACKED files — see the SKILL.md test above for why.
   # Dirnames are computed in the shell so a path with a space cannot be split
@@ -1164,7 +1208,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # directory literally named `bash` or `-r` would be miscounted as covered —
   # this repository names its suite directories, and names none of them that.
   checked=0
-  for line in "$ciline" "$docline"; do
+  for line in "$cimatrix" "$docline"; do
     missing=""
     suites=""
     while IFS= read -r f; do
@@ -1215,6 +1259,125 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # deleting it cannot leave the three release names agreeing about nothing.
   pin="$(grep -m1 -oE '^ *BATS_PIN: [0-9a-f]{40}$' .github/workflows/ci.yml | grep -oE '[0-9a-f]{40}' || true)"
   [ -n "$pin" ] || { echo "no 40-character BATS_PIN found in ci.yml; the release names above agree about nothing"; false; }
+}
+
+# The CI shard step decides whether a shard is green, and that decision is
+# shell, so it is RUN here rather than read. Its script is cut out of ci.yml
+# by the step's name and executed the way the runner executes it (bash with
+# errexit and pipefail), against a STUB bats that prints canned TAP and exits
+# with a chosen status. Every refusal is fired directly, at its edges.
+shard_step_script() {
+  # -> prints the path of the extracted script
+  local out="$TEST_DIR/shard-step.sh"
+  awk '
+    index($0, "- name: Run the ${{ matrix.suite }} suite") { found = 1; next }
+    found && !inblock && /^ *- / { exit }
+    found && !inblock && /^ *run: *[|]$/ { inblock = 1; ind = -1; next }
+    inblock {
+      if ($0 ~ /^ *$/) { print ""; next }
+      match($0, /^ */)
+      if (ind < 0) ind = RLENGTH
+      if (RLENGTH < ind) exit
+      print substr($0, ind + 1)
+    }
+  ' "$ROOT/.github/workflows/ci.yml" > "$out"
+  [ -s "$out" ] || { echo "no run: block found under the shard step in ci.yml" >&2; return 1; }
+  printf '%s' "$out"
+}
+
+# run_shard <bats exit status> <TAP line>... ; the stub prints the lines.
+run_shard() {
+  local rc="$1"
+  shift
+  printf '%s\n' "$@" > "$TEST_DIR/stub.tap"
+  run env STUB_RC="$rc" STUB_TAP="$TEST_DIR/stub.tap" STUB_ARGS="$TEST_DIR/stub.args" \
+    SUITE=some/suite bash -eo pipefail "$step"
+}
+
+@test "a CI shard fails on a skip, an empty plan or a plan mismatch, and only warns when slow" {
+  step="$(shard_step_script)"
+  mkdir -p "$HOME/bats/bin"
+  printf '%s\n' 'printf "%s\n" "$@" > "$STUB_ARGS"' 'cat "$STUB_TAP"' 'exit "$STUB_RC"' > "$HOME/bats/bin/bats"
+
+  # Green, with one test over the 30 s budget and one exactly at it: the job
+  # passes, the slow one is annotated, the one at the budget is not.
+  run_shard 0 '1..3' 'ok 1 fast in 12ms' 'ok 2 slow one in 30001ms' 'ok 3 at budget in 30000ms'
+  [ "$status" -eq 0 ] || { echo "a green shard with a slow test failed: $output"; false; }
+  [[ $output == *"::warning title=slow test in some/suite::test 2 slow one took 30001 ms"* ]] \
+    || { echo "no slow-test warning for the 30001 ms test: $output"; false; }
+  [[ $output != *"at budget took"* ]] || { echo "a test AT the budget was warned about: $output"; false; }
+  # The stub saw the shard's own suite as the only path, with the flags.
+  [ "$(cat "$TEST_DIR/stub.args")" = "$(printf '%s\n' -r --print-output-on-failure --timing some/suite)" ] \
+    || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
+  # The tap formatter's spelling of the timing is read too.
+  run_shard 0 '1..1' 'ok 1 slow one # in 45000 ms'
+  [ "$status" -eq 0 ]
+  [[ $output == *"::warning title=slow test in some/suite::test 1 slow one took 45000 ms"* ]] \
+    || { echo "the ' # in N ms' timing was not read: $output"; false; }
+
+  # A skip is a failure, though bats exits 0 for it.
+  run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip why'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=skipped tests::"* ]] \
+    || { echo "a skipped test passed the shard: $output"; false; }
+
+  # A shard that ran nothing: a zero plan, and no plan line at all.
+  run_shard 0 '1..0'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=empty shard::"* ]] \
+    || { echo "a 1..0 shard passed: $output"; false; }
+  run_shard 0 'ok 1 a in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=empty shard::"* ]] \
+    || { echo "a shard with no plan line passed: $output"; false; }
+
+  # Counted and never run, and the other direction.
+  run_shard 0 '1..3' 'ok 1 a in 1ms' 'ok 2 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
+    || { echo "a shard reporting fewer tests than planned passed: $output"; false; }
+  run_shard 0 '1..1' 'ok 1 a in 1ms' 'ok 2 b in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=plan mismatch::"* ]] \
+    || { echo "a shard reporting more tests than planned passed: $output"; false; }
+
+  # A failing test fails the shard, and so does a bats failure on clean TAP.
+  run_shard 1 '1..1' 'not ok 1 a in 5ms'
+  [ "$status" -eq 1 ] || { echo "a failing test passed the shard: $output"; false; }
+  run_shard 1 '1..1' 'ok 1 a in 5ms'
+  [ "$status" -eq 1 ] || { echo "a bats failure on clean TAP passed the shard: $output"; false; }
+}
+
+@test "CI pins its runner images, jq and actionlint, each tool with a checksum" {
+  wf="$ROOT/.github/workflows/ci.yml"
+  # No moving image label anywhere outside a comment.
+  if grep -vE '^ *#' "$wf" | grep -qE -- '-latest'; then
+    echo "ci.yml names a -latest image outside a comment:"; grep -vE '^ *#' "$wf" | grep -E -- '-latest'; false
+  fi
+  # The test matrix runs one pinned label per OS, all three present.
+  osline="$(grep -m1 -E '^ *os: *\[[^]]*\] *$' "$wf" || true)"
+  [ -n "$osline" ] || { echo "no 'os: [...]' matrix line in ci.yml"; false; }
+  for family in ubuntu macos windows; do
+    re="(\[|[[:space:]])$family-[0-9][^],]*[],]"
+    [[ $osline =~ $re ]] \
+      || { echo "the os matrix has no version-pinned $family label: $osline"; false; }
+  done
+
+  # jq: one version, one checksum per asset, installed and verified by steps
+  # defined once and reused by alias in the version job.
+  grep -qE "^  JQ_VERSION: '?[0-9]+[.][0-9]+([.][0-9]+)?'?$" "$wf" || { echo "no JQ_VERSION pin in ci.yml"; false; }
+  for asset in LINUX_AMD64 MACOS_ARM64 WINDOWS_AMD64; do
+    grep -qE "^  JQ_SHA256_$asset: [0-9a-f]{64}$" "$wf" || { echo "no 64-hex JQ_SHA256_$asset in ci.yml"; false; }
+  done
+  for anchor in install-jq check-jq; do
+    [ "$(grep -cE -- "^ *- &$anchor$" "$wf")" -eq 1 ] || { echo "expected one '- &$anchor' step in ci.yml"; false; }
+    [ "$(grep -cE -- "^ *- \*$anchor$" "$wf")" -ge 1 ] || { echo "no job reuses '*$anchor' in ci.yml"; false; }
+  done
+  grep -qF -- '[ "$got" = "$want" ] || {' "$wf" || { echo "the jq install no longer compares its checksum"; false; }
+  grep -qF -- '[ "$have" = "jq-$JQ_VERSION" ] || {' "$wf" || { echo "nothing asserts the jq version in ci.yml"; false; }
+
+  # actionlint: pinned, checksummed, run with the pinned shellcheck, after a
+  # control that must go red.
+  grep -qE "^ *ACTIONLINT_VERSION: '?[0-9]+[.][0-9]+[.][0-9]+'?$" "$wf" || { echo "no ACTIONLINT_VERSION pin"; false; }
+  grep -qE '^ *ACTIONLINT_SHA256: [0-9a-f]{64}$' "$wf" || { echo "no 64-hex ACTIONLINT_SHA256"; false; }
+  grep -qF -- '[ "$got" = "$ACTIONLINT_SHA256" ] || {' "$wf" || { echo "the actionlint install no longer compares its checksum"; false; }
+  grep -qF -- "grep -q -- 'SC2086' \"\$RUNNER_TEMP/canary.out\"" "$wf" || { echo "the actionlint positive control is gone"; false; }
+  grep -qF -- 'actionlint -shellcheck "$sc" -- "${workflows[@]}"' "$wf" || { echo "actionlint no longer lints the workflows with the pinned shellcheck"; false; }
 }
 
 # ---------------------------------------------------------------------------
