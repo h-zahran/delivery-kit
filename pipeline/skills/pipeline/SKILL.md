@@ -237,13 +237,15 @@ through 10 keep the numbers they have always had.
    Phase B, immediately after `init` creates the state file, and
    nothing before B holds it. On a resume, take it here, before
    anything else runs. A refusal names the holding run and the removal
-   command — surface both and stop. The script takes over stale locks
-   (no state file, or state DONE) by itself; everything else is
-   reported, never assumed.
+   command — surface both and stop; `locked by another write` means a
+   claim is in progress: wait about a minute and rerun. The script takes
+   over stale locks (no state file, or state DONE or abandoned) by
+   itself; everything else is reported, never assumed.
 8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the
-   resume prompt — the recorded phase, `--from <phase>` (validated by
-   `from-validate`), or abandon. Abandon ends this walk: no later item
-   fires.
+   resume prompt for each run `tree.liveRuns` names — the recorded
+   phase, `--from <phase>` (validated by `from-validate`), or abandon.
+   Abandon ends this walk: no later item fires. Name each run in
+   `tree.unreadableRuns` to the user; never resume one.
 9. **Constitution not set** (`speckit.constitutionSet` false): OFFER
    running `/speckit-constitution` once — the principles are the
    owner's to write, declining is fine, and the offer is not repeated
@@ -1040,7 +1042,8 @@ the recorded phase; `--from <phase>` (validated by
 `progress.sh from-validate`); or abandon
 (`progress.sh abandon <feature>`: it marks the run abandoned, so
 pre-flight no longer counts it as live, and releases the lock if that
-run holds it; the state file is kept; touch nothing else). If the
+run holds it; the state file is kept, and no command resumes the run;
+touch nothing else). If the
 handoff plugin is installed, a live run also appears in its handoff
 document; if it is absent, the state file alone is the memory — say
 which of the two you are working from.

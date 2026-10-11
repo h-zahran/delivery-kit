@@ -14,6 +14,10 @@ All notable changes to the `pipeline` plugin.
   runs it, and `pipeline:status` reports an abandoned run as waiting on
   nothing. Before it, an abandoned run's state file read as a live run for
   good. A state file without the key is unchanged and still valid.
+  Abandon is final: `init` on a resume, `from-validate`, `lock-take` and
+  `phase-start` refuse an abandoned run, naming it, so it can never take
+  the lock or start a phase again; `validate`, `read`, `get`, `metrics` and
+  `abandon` still read it.
 - **`get <feature> <key|filter>`** prints one value from the state file,
   read-only, through `jq -b`, so no line it prints ends with a CR.
 - **Pre-flight names the runs it judges.** `tree.liveRuns` lists every
@@ -49,14 +53,21 @@ All notable changes to the `pipeline` plugin.
   all their work under one guard; a guard left by a process that died is
   broken after a minute, and a stale lock is still taken over, as is one
   held by an abandoned run.
-- **A run of phase names is no longer a phase.** `phase-start` and
-  `validate` accepted `C C.5` and `A B`; each name is now matched whole.
+- **A run of phase names is no longer a phase.** `phase-start`,
+  `phase-done`, `from-validate` and `validate` accepted `C C.5` and `A B`;
+  each name is now matched whole, and a glob character is never a pattern.
 - **`.` and `..` are not feature names.** `init ..` wrote
   `.delivery-kit/progress.json`, and `init .` wrote `runs/progress.json`.
-  A name made only of dots is refused, by name.
+  A name made only of dots is refused, by name, and so is a name ending in a
+  dot, which Windows drops from a folder name. Pre-flight reads a run whose
+  name starts with a dot too.
 - **The state file, the lock and the metrics file are written with LF on
   Windows.** A native Windows `jq` wrote them with CRLF line endings; every
-  file `progress.sh` writes with `jq` now passes `-b`.
+  file `progress.sh` writes with `jq` now passes `-b` when that `jq` takes
+  it. `-b` is probed once per command, never assumed: jq 1.6, the default
+  package on Ubuntu 22.04 and Debian 12, refuses it off Windows, where `jq`
+  writes LF anyway, and pre-flight reads each run without it. The oldest
+  `jq` supported is 1.6.
 
 ## [1.4.0] - 2026-10-11
 

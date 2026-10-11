@@ -94,7 +94,7 @@ Required sections:
   uploads NOT yet applied.
 - **Pipeline state** — only when a pipeline run is live in this
   repository: a state file under `.delivery-kit/runs/` whose recorded
-  phase is not `DONE`. Record the feature, the current phase, the state
+  phase is not `DONE` and that records no `abandoned`. Record the feature, the current phase, the state
   file path, the gate awaiting an answer if any, and the exact resume
   invocation (`/pipeline --resume`). When no run is live, omit the
   section — unlike Uncommitted work, absence here means exactly what it

@@ -2030,7 +2030,7 @@ PINS
   local flat
   flat="$(prose_slice '^## Resume$' '^Before any recorded answer is used' flat 'resume')" || return 1
   pins_in "$flat" 'resume' <<'PINS'
-or abandon (`progress.sh abandon <feature>`: it marks the run abandoned, so pre-flight no longer counts it as live, and releases the lock if that run holds it; the state file is kept; touch nothing else).
+or abandon (`progress.sh abandon <feature>`: it marks the run abandoned, so pre-flight no longer counts it as live, and releases the lock if that run holds it; the state file is kept, and no command resumes the run; touch nothing else).
 PINS
 }
 
@@ -2049,5 +2049,32 @@ PINS
   pins_in "$flat" 'status skill' <<'PINS'
 A state file that records `abandoned` belongs to a run the owner ended with `progress.sh abandon`: it waits on nothing. Say so, with the phase and time `abandoned` records, and look no further. Otherwise, first, a failure entry
 (`/pipeline --resume`) for a live run; nothing for a state file whose phase is DONE, or that records `abandoned`.
+PINS
+}
+
+@test "pre-flight's lock and live-run items name abandoned runs, the guard refusal and the run lists" {
+  local flat
+  flat="$(prose_slice '^7[.] [*][*]Lock:[*][*]' '^9[.] [*][*]Constitution not set' flat 'pre-flight items 7 and 8')" || return 1
+  pins_in "$flat" 'pre-flight' <<'PINS'
+A refusal names the holding run and the removal command — surface both and stop; `locked by another write` means a claim is in progress: wait about a minute and rerun. The script takes over stale locks (no state file, or state DONE or abandoned) by itself; everything else is reported, never assumed.
+8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the resume prompt for each run `tree.liveRuns` names — the recorded phase, `--from <phase>` (validated by `from-validate`), or abandon. Abandon ends this walk: no later item fires. Name each run in `tree.unreadableRuns` to the user; never resume one.
+PINS
+}
+
+# A handoff must never tell the next session to resume an abandoned run.
+@test "the handoff's pipeline state section skips an abandoned run" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/handoff/skills/handoff/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$flat" 'handoff skill' <<'PINS'
+only when a pipeline run is live in this repository: a state file under `.delivery-kit/runs/` whose recorded phase is not `DONE` and that records no `abandoned`.
+PINS
+}
+
+@test "the README's troubleshooting names an abandoned run's lock and the guard refusal" {
+  local flat
+  flat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$flat" 'README troubleshooting' <<'PINS'
+Only a lock whose run has no state file, is already DONE, or was abandoned, is taken over automatically. |
+| "…is locked by another write (.delivery-kit/lock.lock)" | Another `lock-take` or `lock-release` was claiming the lock at that moment | Wait about a minute and rerun: a claim takes a second, and a guard left by a process that died is broken after a minute. |
 PINS
 }
