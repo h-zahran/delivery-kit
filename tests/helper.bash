@@ -96,10 +96,30 @@ find_root() {
   printf '%s' "$top"
 }
 
-ROOT="$(find_root "$BATS_TEST_DIRNAME")" || {
-  printf 'the checkout containing %s has no .claude-plugin/marketplace.json at its root\n' "$BATS_TEST_DIRNAME" >&2
-  exit 1
-}
+# Resolved ONCE PER FILE, not once per test. bats sources a suite, and so
+# this file, once in the process that runs the file and then again in a child
+# process for every test, and find_root costs a git spawn and two subshells
+# each time. The first load exports the answer; every test's load inherits it.
+# find_root itself is unchanged, and still runs for the first load of a file.
+#
+# The cache is trusted only under a KEY naming this bats run and this suite
+# directory. BATS_RUN_TMPDIR is created fresh for every run (bats refuses one
+# that already exists), so a value exported into the developer's shell, or
+# left by another run, can never match and is recomputed rather than believed.
+# Outside bats the run directory is empty and the cache is never read. The
+# layout suite tests both edges.
+_dk_root_key="${BATS_RUN_TMPDIR:-}|$BATS_TEST_DIRNAME"
+if [ -n "${BATS_RUN_TMPDIR:-}" ] && [ -n "${DK_SUITE_ROOT:-}" ] \
+  && [ "${DK_SUITE_ROOT_KEY:-}" = "$_dk_root_key" ]; then
+  ROOT="$DK_SUITE_ROOT"
+else
+  ROOT="$(find_root "$BATS_TEST_DIRNAME")" || {
+    printf 'the checkout containing %s has no .claude-plugin/marketplace.json at its root\n' "$BATS_TEST_DIRNAME" >&2
+    exit 1
+  }
+  export DK_SUITE_ROOT="$ROOT" DK_SUITE_ROOT_KEY="$_dk_root_key"
+fi
+unset _dk_root_key
 
 # The plugin root, one level below the repository root. Named for the suites
 # that drive the hook; portability.bats spells its paths out on purpose — its
@@ -139,13 +159,22 @@ setup() {
   export TMPDIR="$TEST_DIR/tmp"
   export HOME="$TEST_DIR/home"
   mkdir -p "$TMPDIR" "$HOME"
-  unset DELIVERY_KIT_WINDOW_TOKENS DELIVERY_KIT_THRESHOLD_PCT DELIVERY_KIT_HANDOFF_DIR
-  unset DELIVERY_KIT_MAX_BYTES
-  # The absolute tripwire reads this one, and "unset" is the state the guard's
-  # default behaviour depends on — so a developer who has it exported would
-  # otherwise run a suite that silently disagrees with CI, starting with the
-  # test that asserts the unset case behaves as 1.0.x.
-  unset DELIVERY_KIT_THRESHOLD_TOKENS
+  # EVERY DELIVERY_KIT_* variable in the environment is unset, by prefix, not
+  # by a list. The shipped code reads five today (WINDOW_TOKENS, THRESHOLD_PCT,
+  # THRESHOLD_TOKENS, HANDOFF_DIR, MAX_BYTES), and a developer or runner with
+  # any of them exported would otherwise run a suite that silently disagrees
+  # with CI: the absolute tripwire, for one, depends on THRESHOLD_TOKENS being
+  # unset, starting with the test that asserts the unset case behaves as
+  # 1.0.x. A hand list was split over three lines here and read by review as
+  # covering only the first three; a sixth variable added later would have
+  # been missed for real. The prefix covers names that do not exist yet. The
+  # layout suite exports all five plus an invented sixth and asserts none
+  # reaches a test.
+  #
+  # ${!prefix@} expands to the names of the set variables with that prefix
+  # (bash 3.2 has it); with none set, `unset` receives no operand and is a
+  # no-op.
+  unset "${!DELIVERY_KIT_@}"
 }
 
 teardown() {
