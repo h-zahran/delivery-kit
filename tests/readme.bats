@@ -219,6 +219,29 @@ flat() {
     || { echo "session-start.sh no longer strips a trailing CR from jq, which the CRLF row says"; false; }
 }
 
+@test "CONTRIBUTING gives the local plugin loop and CI's own shellcheck lines" {
+  cd "$ROOT"
+  local ci contrib l
+  ci="$(tr -d '\r' < .github/workflows/ci.yml | awk '/^ *mapfile -d .. files < <\(git ls-files/ || /^ *shellcheck --norc / { sub(/^ */, ""); print }')"
+  [ "$(printf '%s\n' "$ci" | grep -c -- .)" = 2 ] || { echo "expected one discovery line and one shellcheck line in ci.yml, read: $ci"; false; }
+  contrib="$(tr -d '\r' < CONTRIBUTING.md | awk '{ sub(/^ */, ""); print }')"
+  while IFS= read -r l; do
+    [[ $'\n'"$contrib"$'\n' == *$'\n'"$l"$'\n'* ]] || { echo "CONTRIBUTING.md does not carry CI's line: $l"; false; }
+  done <<< "$ci"
+  [[ $contrib == *'claude --plugin-dir ./handoff --plugin-dir ./pipeline'* ]] || { echo "CONTRIBUTING.md lost the local plugin loop"; false; }
+}
+
+@test "CONTRIBUTING puts the maintainer exclude steps after the tests" {
+  cd "$ROOT"
+  local tests maint ex
+  tests="$(tr -d '\r' < CONTRIBUTING.md | awk '$0 == "## Running the tests" { print NR; exit }')"
+  maint="$(tr -d '\r' < CONTRIBUTING.md | awk '$0 == "## Maintainers" { print NR; exit }')"
+  ex="$(tr -d '\r' < CONTRIBUTING.md | awk 'index($0, ">> .git/info/exclude") { print NR; exit }')"
+  [ -n "$tests" ] && [ -n "$maint" ] && [ -n "$ex" ] || { echo "missing: tests=$tests maintainers=$maint exclude=$ex"; false; }
+  [ "$tests" -lt "$maint" ] && [ "$maint" -lt "$ex" ] || { echo "order is tests=$tests maintainers=$maint exclude=$ex"; false; }
+  if grep -nF -- 'This plugin was extracted' CONTRIBUTING.md; then echo "the stale one-plugin sentence is back"; false; fi
+}
+
 @test "the handoff README's resume block is the skill's, on one Read line" {
   cd "$ROOT"
   local skill pre post got next

@@ -1,49 +1,28 @@
 # Contributing
 
-## After cloning
+Keeping private notes in your clone? Read [Maintainers](#maintainers) before
+your first `git add`.
 
-Do this before anything else, and before your first `git add`:
+## Trying a change in Claude Code
+
+Load your working copy for one session, without installing it. From the
+repository root:
 
 ```
-git clone <url> delivery-kit && cd delivery-kit
-printf '%s\n' '/.claude/' '/docs/' '/.delivery-kit/' >> .git/info/exclude
-git check-ignore -v docs/ .claude/ .delivery-kit/
-git check-ignore -v pipeline/docs/ handoff/docs/ || echo 'correct: plugin docs are NOT ignored'
+claude --plugin-dir ./handoff --plugin-dir ./pipeline
 ```
 
-**The third command must name `.git/info/exclude` for all three paths.** If it
-prints nothing, or names `.gitignore` instead, the lines did not land and you
-should not trust the tree yet.
+`--plugin-dir` loads a plugin from a directory for that session only, so
+start a new session to pick up an edit. If you also have a plugin installed
+from the marketplace, disable that copy first
+(`claude plugin disable handoff@delivery-kit`), so you know which one ran.
+Check the manifests before you open a pull request:
 
-**The fourth command must print that line.** If it names an exclude rule
-instead, the patterns are not anchored and both plugins' shipped `docs/`
-directories are being ignored.
-
-**The leading slashes are load bearing.** A pattern without one matches a
-directory of that name at *any* depth, so a bare `docs/` silently ignores
-`pipeline/docs/` and `handoff/docs/` — two published surfaces — as well as the
-private archive it was aimed at. Measured on 2026-09-03: a new page added under
-`pipeline/docs/` was skipped by `git add -A` with no message at all, and the
-only symptom was a link to it failing to resolve. A leading slash anchors the
-pattern to the repository root, which is the only place these three exist.
-
-A fresh clone carries `.gitignore`, which is tracked and published. It does
-**not** carry `.git/info/exclude`, which is per-clone and travels with nobody.
-Until those lines exist, `docs/` is ignored by nothing at all — in a public
-repository — and a single `git add -A` from any tool or session publishes
-whatever is in it. That is a measured near-miss, recorded in the exclude file
-itself on 2026-08-25.
-
-These three are named here on purpose and the private tool directories are not:
-`docs/`, `.claude/` and `.delivery-kit/` are generic directory names, so writing
-them in a published file discloses nothing. The patterns live in
-`.git/info/exclude` rather than in `.gitignore` precisely because some of the
-things listed there would disclose a private toolchain by name, and this
-instruction does not defeat that.
-
-One caveat worth knowing: an exclude pattern never applies to a path that is
-already tracked. These lines stop new files appearing; they do nothing about
-anything already in the index.
+```
+claude plugin validate .
+claude plugin validate ./handoff
+claude plugin validate ./pipeline
+```
 
 ## Running the tests
 
@@ -129,10 +108,6 @@ catch. When a prose file ships outside a skills directory, it joins the
 link test's list in the same commit; skills need no list edit — their
 `SKILL.md` files are discovered by glob.
 
-This plugin was extracted from a specific codebase, and re-importing that
-codebase's vocabulary one pull request at a time is the most likely way it
-becomes unusable for everyone else.
-
 ## Conventions
 
 - Conventional commit messages: `feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`.
@@ -171,9 +146,67 @@ becomes unusable for everyone else.
   image shipped an older release than a developer machine had, and the older
   one reported a check the newer one does not have at all, so a local green
   did not imply a green gate. Install the pinned release locally before
-  concluding anything from a local run.
+  concluding anything from a local run. Then run what the job runs, from the
+  repository root, in bash 4 or later (macOS's own bash 3.2 has no
+  `mapfile`):
+
+  ```bash
+  mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/')
+  shellcheck --norc -f gcc -- "${files[@]}"
+  ```
+
+  `tests/readme.bats` holds these two lines equal to the job's, so they move
+  together.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.
+
+## Maintainers
+
+### After cloning
+
+The maintainer keeps a private archive in `docs/` inside the clone. If you
+keep private notes in yours, do this before your first `git add`:
+
+```
+git clone <url> delivery-kit && cd delivery-kit
+printf '%s\n' '/.claude/' '/docs/' '/.delivery-kit/' >> .git/info/exclude
+git check-ignore -v docs/ .claude/ .delivery-kit/
+git check-ignore -v pipeline/docs/ handoff/docs/ || echo 'correct: plugin docs are NOT ignored'
+```
+
+**The third command must name `.git/info/exclude` for all three paths.** If it
+prints nothing, or names `.gitignore` instead, the lines did not land and you
+should not trust the tree yet.
+
+**The fourth command must print that line.** If it names an exclude rule
+instead, the patterns are not anchored and both plugins' shipped `docs/`
+directories are being ignored.
+
+**The leading slashes are load bearing.** A pattern without one matches a
+directory of that name at *any* depth, so a bare `docs/` silently ignores
+`pipeline/docs/` and `handoff/docs/` — two published surfaces — as well as the
+private archive it was aimed at. Measured on 2026-09-03: a new page added under
+`pipeline/docs/` was skipped by `git add -A` with no message at all, and the
+only symptom was a link to it failing to resolve. A leading slash anchors the
+pattern to the repository root, which is the only place these three exist.
+
+A fresh clone carries `.gitignore`, which is tracked and published. It does
+**not** carry `.git/info/exclude`, which is per-clone and travels with nobody.
+Until those lines exist, `docs/` is ignored by nothing at all — in a public
+repository — and a single `git add -A` from any tool or session publishes
+whatever is in it. That is a measured near-miss, recorded in the exclude file
+itself on 2026-08-25.
+
+These three are named here on purpose and the private tool directories are not:
+`docs/`, `.claude/` and `.delivery-kit/` are generic directory names, so writing
+them in a published file discloses nothing. The patterns live in
+`.git/info/exclude` rather than in `.gitignore` precisely because some of the
+things listed there would disclose a private toolchain by name, and this
+instruction does not defeat that.
+
+One caveat worth knowing: an exclude pattern never applies to a path that is
+already tracked. These lines stop new files appearing; they do nothing about
+anything already in the index.
 
 ## Scope
 
