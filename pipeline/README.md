@@ -136,10 +136,12 @@ never merges the pull request it opens: it opens one and stops.
 A failed phase rolls nothing back. The working tree is the evidence, and
 cleanup is your call.
 
-## Other flags
+## Flags
 
 | Flag | Effect |
 |---|---|
+| `--auto` | Collapse the commit and push gates. Not clarify, not implementer, not release. |
+| `--auto-release` | Collapse release as well. Never implied by `--auto`. |
 | `--resume` | Re-enter a live run at the phase it recorded. |
 | `--until <phase>` | Stop cleanly after that phase — state intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
