@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Checking that the guard fires no longer risks your configuration.** The
+  install page used to say: save a test `.delivery-kit.json` in the repository
+  root, run a tool call, then delete the file. A repository that already had
+  one lost it, overwritten and then deleted. The check now starts one session
+  with `DELIVERY_KIT_THRESHOLD_PCT=1` in the environment, with the commands for
+  Git Bash and PowerShell and how to undo each. It changes no file, and it
+  works whatever either configuration file holds, because the variable beats
+  both.
+- **A comment in the guard gave a count its own command did not print.** It
+  said a grep over the differential prints 3, one per divergence listed below
+  it; the grep printed 4, because a later divergence is recorded the same way.
+  The comment, and the same sentence in `scripts/context-guard/README.md`, now
+  give a grep that prints 3. A test runs it and compares the two.
+
 ## [2.3.0] - 2026-10-11
 
 ### Added
