@@ -59,8 +59,12 @@ says why.
 **3. With handoff: tell the guard your real context window.** Do this first.
 
 ```
-handoff:setup
+/handoff:setup
 ```
+
+Type it as shown, slash included: Claude Code lists each plugin skill as
+`/<plugin>:<skill>`. Asking in words, such as *set up handoff*, works too,
+because Claude can load a skill by itself when your request matches it.
 
 The guard assumes a 200,000-token window. Set too small, it fires early, and
 you see it at once. Set too large, it **never fires at all**, and you find out
@@ -139,6 +143,7 @@ for Windows is required, and Git Bash is where a tool must be visible.
 |---|---|---|
 | `jq --version` works in PowerShell, but the guard says `jq` is missing | PowerShell and Git Bash can see different programs | Check from Git Bash. Install with `winget install jqlang.jq`, then open a new Git Bash and the session again. |
 | `gh` works in PowerShell, but Git Bash says `gh: command not found` | Some package managers, Scoop among them, install `gh` as `gh.cmd` only | Pre-flight looks for `gh`, `gh.exe` and `gh.cmd`, and the run's own calls use the one it finds. But the review phase (M) runs the separate code-review plugin, which calls plain `gh`. Install a `gh` that Git Bash finds by that name, for example `winget install GitHub.cli`, which gives `gh.exe`. |
+| A file the pipeline wrote, such as `.delivery-kit/runs/<feature>/progress.json`, has CRLF line ends, or a value your own script reads from `jq` ends in a stray carriage return | The Windows build of `jq` ends each line with CRLF, where Linux and macOS get LF | Nothing, for the plugins: their scripts read `jq` through `$( )`, which drops a trailing CR, strip any CR left where one could stay, and the pipeline's state script passes `jq -b`. In your own scripts, use `jq -b`: it writes LF only. |
 | You cannot find `~/.delivery-kit.json` | `~` is Git Bash's home folder | It is in your Windows user folder: `%USERPROFILE%\.delivery-kit.json`, or under `%HOME%` if you set that variable. |
 
 Each plugin's own troubleshooting table: [handoff](handoff/README.md#troubleshooting)

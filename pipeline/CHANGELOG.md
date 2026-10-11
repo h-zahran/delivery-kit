@@ -2,6 +2,18 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Changed
+
+- **The docs say what a run will touch before it touches it.** The
+  `/pipeline` description names all three seed forms, not only the plan-file
+  heading. The README says how a plan-file seed is read (Claude reads the
+  section; no script fixes its heading level), that `--dry-run` still creates
+  the feature branch, the spec folder and the state file, that `gh` must be
+  logged in as well as installed, and that a skill is typed with its slash:
+  `/pipeline:status`.
+
 ## [1.4.0] - 2026-10-11
 
 ### Added

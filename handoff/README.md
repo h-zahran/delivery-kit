@@ -14,13 +14,12 @@ Finish ONLY the current atomic step — do NOT start the next batch or task.
 Then invoke the handoff skill (handoff:handoff) ...
 ```
 
-You finish the step you are on. You run `handoff:handoff`. It writes one
-document and prints this:
+You finish the step you are on. You run `/handoff:handoff`, or say *hand off*.
+It writes one document and prints this:
 
 ```
 Resume with:
-Read docs/handoffs/2026-08-25-csv-export-SESSION-HANDOFF.md and continue from it.
-Follow the Resume protocol.
+Read docs/handoffs/2026-08-25-csv-export-SESSION-HANDOFF.md and continue from it. Follow the Resume protocol.
 ```
 
 Paste that into a fresh session and the work carries on. Nothing has to be
@@ -131,7 +130,7 @@ smaller one**: guessing high is the answer that fails quietly. And set
 `contextGuard.thresholdTokens` too: an absolute stopping point, decided from
 the transcript alone, so it still fires when the window is wrong.
 
-The easy way is `handoff:setup`. It measures the session, proposes a window when
+The easy way is `/handoff:setup`. It measures the session, proposes a window when
 the measurement supports one, asks where you want it to stop, and writes the
 answers for you. Or set it by hand:
 
@@ -156,7 +155,7 @@ fires: lower the threshold on purpose for one check. The steps are in
 
 | What you see | Why | What to do |
 |---|---|---|
-| A percentage over 100, plus `WINDOW MISCONFIGURED` | `windowTokens` is smaller than your real window | Run `handoff:setup`. The note already names the minimum true window. |
+| A percentage over 100, plus `WINDOW MISCONFIGURED` | `windowTokens` is smaller than your real window | Run `/handoff:setup`. The note already names the minimum true window. |
 | The guard never fires at all | `windowTokens` set too large — nothing can detect this | Set `contextGuard.thresholdTokens` as well. It is decided from the transcript alone, so it still fires when the window is wrong. |
 | The guard is silent, and you saw a one-off note about `jq` | `jq` is missing or cannot run | Install it and restart the session. On Windows, check from Git Bash. |
 | You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there. It never edits a shared repository file for a guard key, and never edits one unasked — the only thing it writes there is the pipeline block, offered where `.specify/` exists and only if you accept. |

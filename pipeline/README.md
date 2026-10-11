@@ -19,7 +19,18 @@ The seed is read three ways, in that order: text shaped like
 `Phase <N>: <title>` is pulled out of your plan file; `#` plus digits fetches
 that GitHub issue; anything else is the feature description, verbatim. With no
 GitHub remote or no `gh`, a `#123` seed **stops** rather than quietly
-specifying a feature called "#123".
+specifying a feature called "#123". A `gh` that is not logged in fails there
+too: see [Requirements](#requirements).
+
+**The plan-file seed.** Type the heading's text, `Phase <N>: <title>`, as it
+stands in the file the `planFile` setting names (`main-plan.md` by default).
+Phase A finds that section and quotes it verbatim as the feature
+description. No script reads the plan file: Claude does, so nothing in the
+plugin fixes the heading level or where the section stops. This repository's
+own plan is the shape it was built against: each phase is a
+`## Phase <N>: <title>` heading, and its section runs to the next `##`
+heading. Keep to that shape and the section has one reading. Copy the heading
+text rather than retyping it, so a dash in the title is the same dash.
 
 ## What you see first
 
@@ -165,7 +176,7 @@ the next invocation offers to resume.
 ```
 /pipeline <seed> --until G     # run to that phase, then stop cleanly
 /pipeline --resume             # pick up where it left off
-pipeline:status                # where am I, what is it waiting on, what do I type
+/pipeline:status               # where am I, what is it waiting on, what do I type
 ```
 
 `--until` leaves the state file intact and releases the lock, so the run is
@@ -181,13 +192,20 @@ the lock, and never advances a phase.
 | `--resume` | Re-enter a live run at the phase it recorded. |
 | `--until <phase>` | Stop cleanly after that phase — state intact, lock released, resumable. |
 | `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
-| `--dry-run` | Run the spec phases for real, then print what the rest would do and stop. |
+| `--dry-run` | Leaves a branch, a spec folder and a state file behind (see below the table). Runs the spec phases for real, then prints what the rest would do and stops. |
 | `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it. |
 | `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
 | `--branch <name>` | Name the feature branch. Default: the run's name. |
 | `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
 | `--trailer <token: value>` | Add a trailer to every commit. Adds to the `commitTrailers` key. Repeat for more. |
 | `--config <path>` | Merge a JSON file over the resolved settings. |
+
+`--dry-run` is not a preview of the spec phases. It runs them as a normal run
+does, so it creates the feature branch (named by `--branch`, else the
+feature's name, such as `012-csv-export`), the spec folder the spec tool
+writes (`specs/012-csv-export/`, or your `--spec-dir`), and the run's state
+file, `.delivery-kit/runs/<feature>/progress.json`. All three are still there
+when it stops. Run it on a tree you are happy to branch from.
 
 ## Requirements
 
@@ -222,6 +240,10 @@ the lock, and never advances a phase.
   prints a comparison link, and skips the review phase M); a browser or an attached
   device for the runtime check; the code-review and simplify plugins for their
   phases.
+- `gh` must also be logged in: run `gh auth login` once, and `gh auth status`
+  to check. Pre-flight checks only that `gh` is on PATH, not that it is logged
+  in, so a logged-out `gh` shows as present and fails at the first phase that
+  calls it: A for a `#123` seed, L when it opens the pull request.
 
 ## Configure
 
