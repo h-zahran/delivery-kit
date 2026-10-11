@@ -2124,11 +2124,12 @@ cmd_pending_check() {
 # again. config.suiteReuse says what else the key covers:
 #   commit    (the default) the files, AND git's state around them: HEAD's
 #             commit id, and each tracked path's index mode and object id,
-#             so a staged change, a commit, an amended message or a moved
-#             branch is a change. A suite that reads git — a trailer in
-#             `git log -1`, staged bytes through `git show :path`, a range
-#             such as main...HEAD — is never told a result that does not
-#             hold. The price: N cannot cite J's run once K commits.
+#             so a staged change, a commit, an amended message or HEAD
+#             moved is a change. A suite that reads HEAD's commit or the
+#             index — a trailer in `git log -1`, staged bytes through
+#             `git show :path` — is never told a result that does not hold.
+#             Other refs are not keyed: a fetch would move every key. The
+#             price: N cannot cite J's run once K commits.
 #   files     the files alone: a change committed, staged or only in the
 #             working tree counts the same, so N can cite J's run on the
 #             files J then committed. For a suite that reads no git state.
@@ -2149,8 +2150,10 @@ cmd_pending_check() {
 # record made under one mode is never reused under another. Records live
 # repository-wide, in .delivery-kit/suite-results/, so a later run finds
 # them. The verdict comes from the TAP, never from the exit code alone; see
-# TAP_AWK. What the key cannot see, a reuse assumes unchanged: files git
-# ignores, an empty directory, the environment and the tools' versions, an
+# TAP_AWK. What the key cannot see, a reuse assumes unchanged: git's refs
+# other than HEAD's commit — the branch's name, tags, and other branches,
+# the base among them, so a range check against a base that moved can be
+# reused — files git ignores, an empty directory, the environment and the tools' versions, an
 # untracked file's own mode, a tracked file's mode where git ignores it
 # (core.fileMode false), and a rename that changes only letter case where
 # the file system ignores case; under files, all of git's own records too.
@@ -2219,7 +2222,8 @@ suite_key() {
 # one on disk where diff-files reports one other than the index's — a file
 # listed only because its time changed holds the same pair — else the index
 # mode, and 100644 for an untracked file, so a file reads the same tracked
-# or untracked. The caller sorts the lines, so where a path sits in git's
+# or untracked — unless git records it as 100755 once added. The caller
+# sorts the lines, so where a path sits in git's
 # lists does not move the key. Every path stays as git quoted it.
 # shellcheck disable=SC2016 # an awk program: its $ names are awk's
 SUITE_KEY_AWK='
@@ -2406,7 +2410,7 @@ cmd_suite_key() {
 # result on a set of files is the one that stands, and lookup never reuses
 # a red one.
 cmd_suite_record() {
-  local key="${2:-}" tap="${3:-}" rc="${4:-}" verdict out tmp jqb=-b
+  local key="${2:-}" tap="${3:-}" rc="${4:-}" verdict out tmp
   [ $# -eq 4 ] || die "usage: suite-record <feature> <key> <tap-file> <rc>"
   case "$rc" in [0-9]|[0-9][0-9]|[0-9][0-9][0-9]) ;; *) die "the exit code '$rc' is not a number from 0 to 999" ;; esac
   if [ ! -f "$tap" ] || [ ! -r "$tap" ]; then die "the TAP file does not exist or cannot be read"; fi
@@ -2422,13 +2426,12 @@ cmd_suite_record() {
   # one file.
   tmp="$(mktemp "$SUITE_DIR/.record.XXXXXX")" || die "could not make a temporary record"
   # -b: a native Windows jq writes no CR, so a record is the same bytes on
-  # every system. jq 1.6 has no -b: where the dispatch probed jq and set JQB
-  # ("-b", or empty when jq lacks it), that is used; unset, -b as before.
-  # tree is HEAD's tree when the result was recorded, kept to be read, never
-  # compared.
-  if [ "${JQB+set}" = set ]; then jqb="$JQB"; fi
+  # every system. Literal -b until the dispatch probes jq and sets JQB
+  # (jq 1.6 has no -b); then this becomes jq ${JQB:+"$JQB"}. An inherited
+  # JQB is never trusted here. tree is HEAD's tree when the result was
+  # recorded, kept to be read, never compared.
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  if ! jq ${jqb:+"$jqb"} -n --arg key "$SK_KEY" --arg mode "$SK_MODE" --arg head "$SK_HEAD" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
+  if ! jq -b -n --arg key "$SK_KEY" --arg mode "$SK_MODE" --arg head "$SK_HEAD" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
        --arg verdict "$verdict" --arg feature "$1" --arg tap "$tap" --arg at "$(now)" \
        --argjson plan "$TJ_PLAN" --argjson ok "$TJ_OK" --argjson skipped "$TJ_SKIP" --argjson notOk "$TJ_NOT" \
        --argjson nonTap "$TJ_STRAY" --argjson rc "$((10#$rc))" \
