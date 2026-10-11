@@ -77,22 +77,42 @@ round is a conditional stop, as it always was.
 The full test command can take a long time, and a phase often runs it on
 files it has already passed on. Each full run is therefore recorded, and
 F.5, J and N may cite a recorded result instead of running the command
-again — only when all of these hold:
+again. The `suiteReuse` setting says what a recorded result must match:
+
+- **`commit`**, the default: the files below **and** git's state around
+  them — HEAD's commit id, and every tracked path's index mode and object
+  id. A staged change, a commit, an amended message or a branch moved to
+  another commit is a change, so a suite that reads git — a trailer in the
+  last commit message, staged bytes through `git show :<path>`, a check over
+  a branch range such as `main...HEAD` — is never told a result that does not
+  hold. The price: once K commits, N cannot cite the run J made before it.
+- **`files`**: the files alone. A change committed, staged or only in the
+  working tree counts the same, so N can cite the run J made before J
+  committed it, even when J's fixes added or deleted a file. Choose it only
+  for a suite that reads no git state: under `files`, a commit message, the
+  index, HEAD and the branch's history are all invisible, and a check over
+  a branch range that was vacuous when J ran is reused as green after K
+  gives it commits to read.
+- **`off`**: nothing is kept and nothing is reused. Any other value keeps
+  and reuses nothing either.
+
+A result is reused only when all of these hold:
 
 - the **files** are **identical** to the ones the result was recorded on:
-  every tracked path, with its index mode and whether it is still on disk,
-  and every untracked path git does not ignore, except an untracked file
-  under `.delivery-kit/`; every such file's **bytes** as they sit on disk,
-  read with no filter and no line-ending conversion — a file `git status`
-  calls unchanged still counts when its bytes differ, and a change of line
-  endings alone is a change; and a tracked file's mode on disk, where git
-  sees modes. A change committed, staged or only in the working tree counts
-  the same, so N can cite the run J made before J committed it;
+  every tracked path still on disk and every untracked path git does not
+  ignore, except an untracked file under `.delivery-kit/`; every such
+  file's **bytes** as they sit on disk, read with no filter and no
+  line-ending conversion — a file `git status` calls unchanged still counts
+  when its bytes differ, and a change of line endings alone is a change;
+  and each file's mode — a tracked file's mode on disk where git sees
+  modes, else its index mode, and `100644` for an untracked file;
+- under `commit`, git's state is identical too, as above;
 - there is no file hidden from `git status` by `assume-unchanged` or
   `skip-worktree`, no unmerged path, no submodule, and no untracked
   directory that holds a repository of its own;
-- the **test command** is the same string, and the **platform** (`uname -s` and
-  `uname -m`) is the same;
+- the **test command** is the same string, the **platform** (`uname -s` and
+  `uname -m`) is the same, and so is the `suiteReuse` mode: a result recorded
+  under one mode is never reused under another;
 - the result is **green**: exit code 0, a plan line `1..N` first, exactly N
   `ok` lines numbered 1 to N in any order, none of them a skip, no
   `not ok`, and no other line but a `#` comment or a blank one.
@@ -105,43 +125,49 @@ failures verbatim, and J and N need to see them. A skip is red too: a test
 that did not run has not passed. The analyzer is never cited; it always runs.
 
 What the key cannot see, a reuse assumes unchanged: files git ignores (a
-dependency directory, a `.env` file), the environment, the tools' versions,
-an untracked file's mode, a tracked file's mode where git ignores it
-(`core.fileMode` false), and git's own records around the files — the
-commit, its history and refs, and what is staged rather than only on disk.
-A suite that reads any of these can be told a result that does not hold.
-Records have no age limit and are shared by every run in the repository, so
-after a change to any of these, delete `.delivery-kit/suite-results/` and the
-next phase runs the suite.
+dependency directory, a `.env` file), an empty directory (git lists no
+directory, only files), a rename that changes only a name's letter case on
+a file system that ignores case (Windows and macOS by default), the
+environment, the tools' versions, an untracked file's own mode, and a
+tracked file's mode where git ignores it (`core.fileMode` false). Under
+`files`, git's own records too, as above. A suite that reads any of these
+can be told a result that does not hold. Records have no age limit and are
+shared by every run in the repository, so after a change to any of these,
+delete `.delivery-kit/suite-results/` and the next phase runs the suite.
 
 The state helper does the keeping. `progress.sh suite-key <feature>` prints
 the key before a run, or exits 1 and says why there is none.
 `progress.sh suite-record <feature> <key> <tap-file> <rc>` records the run and
-prints `green` or `red`. It refuses when the files no longer have the key
-they had before the run — a file changed meanwhile, or a file a test left
-behind outside `.delivery-kit/` — so the run's output belongs under
-`.delivery-kit/runs/<feature>/`. A file a test changed and then restored, or
-wrote where git ignores it, is not seen. `progress.sh suite-lookup <feature>`
-exits 0, printing the record's path and counts, only for a green result on the
-current key. A phase that cites quotes those two lines verbatim; at F.5 they
-are the `test_baseline`. Records live in `.delivery-kit/suite-results/`, so a
-later run's F.5 can reuse an earlier one.
+prints `green` or `red`. It refuses when what the key covers is no longer
+what it was before the run — a file changed meanwhile, or a file a test left
+behind outside `.delivery-kit/`, and under `commit` a commit made meanwhile —
+so the run's output belongs under `.delivery-kit/runs/<feature>/`. A file a
+test changed and then restored, or wrote where git ignores it, is not seen.
+`progress.sh suite-lookup <feature>` exits 0, printing the record's path and
+counts, only for a green result on the current key. A phase that cites
+quotes those two lines verbatim; at F.5 they are the `test_baseline`. Records
+live in `.delivery-kit/suite-results/`, so a later run's F.5 can reuse an
+earlier one.
 
-F.5 asks with `suite-lookup <feature> --base`. At F.5 the run's own spec
-directory is new and untracked, so the files never match a result an earlier
-run recorded. `--base` first looks up these files, then the same files
-without the untracked files under the run's spec directory — the files as
-they were before this feature, which is what a baseline describes. Only the
-untracked spec directory is left out: any other change, and a spec directory
-already tracked, still counts. A result is never recorded under that
-narrower key; the run F.5 makes is recorded for the files it ran on.
+F.5 asks with `suite-lookup <feature> --base`; J and N never do. At F.5 the
+run's own spec directory is new and untracked, so the files never match a
+result an earlier run recorded. `--base` first looks up these files, then
+the same files without the untracked files under the run's spec directory —
+the files as they were before this feature, which is what a baseline
+describes. Only the untracked spec directory is left out: any other change,
+and a spec directory already tracked, still counts. A result is never
+recorded under that narrower key; the run F.5 makes is recorded for the
+files it ran on. A spec file at the top level, under `.delivery-kit/`, or
+outside the repository has no spec directory to leave out.
 
 `progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule
 to any TAP file, keyed or not, and prints one summary line or the first rule
-the file breaks; `suite-record` judges with the same rules. Reuse fires when
-nothing changed since a green run: N citing J when nothing changed after J's
-green run, J's late commit included; a phase re-entered on the same files; or
-a later run's F.5 on a tree an earlier run passed.
+the file breaks; `suite-record` judges with the same rules, and the
+repository's own quickstart check calls it. It needs only bash and awk.
+Reuse fires when nothing the key covers changed since a green run: a phase
+re-entered on the same files; a later run's F.5 on a tree an earlier run
+passed; and, under `files`, N citing J when nothing changed after J's green
+run but J's late commit.
 
 ## Questions that wait
 

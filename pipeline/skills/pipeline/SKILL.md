@@ -101,6 +101,7 @@ the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 | `devCommand` | unset | N.5 web strategy's server |
 | `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
 | `maxVerifyIters` | 5 | Phase J cap |
+| `suiteReuse` | `commit` | What a kept suite result must match: `commit` (files and git state), `files`, or `off` |
 
 `null` means *work it out* — of the MERGED result, not of a layer, where
 `null` is silence as above: `projectType` from detection, commands and
@@ -409,8 +410,8 @@ Every full `testCommand` run is bracketed: `progress.sh suite-key
 directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a
 refusal, only means nothing is kept). F.5, J and N may cite, quoting its two
 lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these
-identical files and command, committed or not — instead of running; red or
-missing, run. F.5 adds `--base`, which also accepts one for these files
+identical files, git state as `suiteReuse` says, and command — instead of
+running; red or missing, run. F.5 adds `--base`, which also accepts one for these files
 without the run's untracked spec directory.
 
 **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
@@ -670,7 +671,7 @@ message — contract compliance, security, tests — per that skill's
 contract. Fixes fan out, and I ends with its late commit (see H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
-`testCommand` (or cite the suite, as F.5 allows). Classify every failure against
+`testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against
 `test_baseline`:
 pre-existing failures are reported, not owned; new failures are this
 run's to fix. Fixes for independent failures fan out. Loop until clean
@@ -846,7 +847,7 @@ finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
 conditional stop.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
-`testCommand` again (or cite the suite, as F.5 allows), classify against
+`testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against
 baseline, commit fixes
 (`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER
 SKIPPED: without a pull request it
@@ -1018,7 +1019,7 @@ If you notice one of these thoughts, stop: you are rationalising.
 | "Fix everything" is implied, I can skip the small ones | Every finding is fixed, or explicitly deferred with its reason recorded. Silent skips are the failure this pipeline exists to close. |
 | "The cap is close, I'll mark the rest resolved" | A cap breach is a conditional stop that shows the remainder. Marking unresolved work resolved is fabrication. |
 | "The baseline probably covers this failure" | Classify against the RECORDED baseline, not memory. Probably is not a classification. |
-| "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical clean tree and command. Focused runs are for iterating, not for verdicts. |
+| "The suite is slow, the focused test is enough" | J and N run the full commands, or cite a green `suite-lookup`, which needs the identical files, git state as `suiteReuse` says, and command. Focused runs are for iterating, not for verdicts. |
 | "The reviewer would accept this" | The reviewer decides that, in phase M. Pre-accepting on their behalf skips the review. |
 | "It works on the happy path, ship it" | N.5 exists because "it compiles" once shipped a broken build. Verify, or report that you could not. |
 | "The gate will obviously be answered yes" | Gates exist because the answer is not yours. Show the content, wait. |
