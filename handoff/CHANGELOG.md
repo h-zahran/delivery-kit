@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-10-11
 
 ### Added
 
@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise. It never tells Claude to read or follow the file: a handoff in a
   repository is text someone else may have written, so the choice stays with
   you. A handoff written before this version has no record and is never
-  named.
+  named. The hook reads the newest twenty handoffs in `docsDir`, by file
+  name. Both this hook and the check above need git: without it the record
+  refuses and the hook stays silent.
 
 ### Changed
 
@@ -33,15 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The context guard costs less on every tool call.** It no longer runs
   `jq --version` first on every call; it asks only after its first jq call
   fails, so a missing or broken jq is still reported once. It reads the last
-  1MB of the transcript first and reads `maxBytes`, then the whole file, only
+  1MB of the transcript first (or `maxBytes`, if that is smaller) and reads `maxBytes`, then the whole file, only
   when that slice holds fewer than fifteen readings. In 312 real transcripts,
   sampled at 35,053 moments, the last 1MB held fifteen readings 92.5% of the
   time. And a slice that already held the whole file is not read again, which
   was every call before a session's fifteenth reading. The answer is the same
-  on every path; what changes is the work. On Windows, where a jq process
+  on every path; what changes is the work. One case answers differently,
+  and fails safe: a jq that parses the payload but fails `--version` used to
+  turn the guard off, and now the guard runs. On Windows, where a jq process
   costs about 90 ms, an ordinary call starts one process fewer and an early
   call two fewer; a call on a large transcript reads 1MB where it read up to
-  8MB. The few calls whose last 1MB holds too few readings make one more read.
+  8MB. A call whose last 1MB holds too few readings makes at most one more
+  read; the worst case, a large transcript whose readings lie beyond
+  `maxBytes`, now reads three times where it read twice.
 
 ## [2.2.1] - 2026-10-06
 

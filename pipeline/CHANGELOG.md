@@ -2,7 +2,7 @@
 
 All notable changes to the `pipeline` plugin.
 
-## [Unreleased]
+## [1.4.0] - 2026-10-11
 
 ### Added
 
@@ -14,8 +14,9 @@ All notable changes to the `pipeline` plugin.
 - **`spec-commit <feature>`** commits the spec directory alone as
   `docs(spec): <feature>`, once, and makes no commit for a spec the owner
   already committed.
-- **`piece-commit <feature> <message-file>`** commits exactly the files the
-  piece changed plus the tasks file, refuses a piece with a task not marked
+- **`piece-commit <feature> <message-file>`** commits the paths `git status`
+  lists that it did not list when the piece started, plus the tasks file (a
+  file already uncommitted when the piece started is left for K), refuses a piece with a task not marked
   `[X]`, never commits from an empty path list (which would commit whatever is
   staged), adds the `Tasks:` and `Piece:` lines, and records the commit. A
   piece committed before a crash is recorded from its commit, not rebuilt.
@@ -47,9 +48,10 @@ All notable changes to the `pipeline` plugin.
   `test_baseline` or `last_task`, validates the result before it replaces
   the state file, and refuses every other key.
 - **`suite-key`, `suite-record` and `suite-lookup`** keep each full run of the
-  test command on a clean tree, so J, N and a later run's F.5 can cite a green
-  result instead of running the suite again. A result is reused only for a
-  clean working tree with no submodule whose committed tree, tracked files'
+  test command on a clean tree, so F.5, J and N, and a later run's F.5, can cite
+  a green result instead of running the suite again. A result is reused only
+  for a clean working tree with no submodule and no index entry marked
+  assume-unchanged or skip-worktree, whose committed tree, tracked files'
   bytes on disk, test command and platform are the ones it was recorded on,
   and only when its TAP is green: exit 0, a plan line first, exactly that many
   `ok` lines numbered 1 to N, no `not ok` and no stray line. A tree that no
@@ -63,8 +65,11 @@ All notable changes to the `pipeline` plugin.
   `pending-check` stops the run before L pushes while one is open, under
   `--auto` too; after L nothing waits. An answer stands, and the same
   question from the same phase is never asked again; `state-set` cannot
-  write the queue. The handoff package's parts move to
-  `docs/handoff-package.md`, and `git stash` joins the never-bend rules.
+  write the queue. A question or answer file is refused when it is blank,
+  longer than 16,384 bytes, or holds a control character other than tab and
+  line feed, or a character from the one list in `scripts/hidden-chars.sh`
+  (bidi, invisible and zero-width characters, variation selectors, tag
+  characters, the byte-order mark) that trailers are checked against too.
   `pipeline:status` names every open question.
 - **A base branch that beats the remote's default: the
   `baseBranchOverride` key and the `--base-branch <name>` flag.** Where
@@ -98,9 +103,9 @@ All notable changes to the `pipeline` plugin.
   already has a state file. A branch name holding a character other than
   a letter, a digit, `.`, `_`, `-` or `/`, or one that is a tag as well,
   is refused too. A refusal names the folder as given, never the path a
-  link leads to, and every value pre-flight refuses is printed masked:
-  cut to 200 bytes, with every byte that is not printable ASCII shown as
-  `?`. Without `--branch`, the folder's last segment
+  link leads to, and every name, folder, segment or unknown argument
+  pre-flight refuses is printed masked: cut to 200 bytes and marked
+  ` [cut]`, with every byte that is not printable ASCII shown as `?`. Without `--branch`, the folder's last segment
   gets the branch checks. Both are read on a fresh run only. On a
   resume, pre-flight prints the branch and the folder the run recorded.
 - **Trailers on every commit the run makes: the `commitTrailers` key and
@@ -116,8 +121,9 @@ All notable changes to the `pipeline` plugin.
   run's own `Piece`, `Late` and `Tasks` tokens, naming it. It also
   refuses, from every layer, a trailer that would act on GitHub or name
   another author: `skip-checks`, `Co-authored-by`, `Signed-off-by`,
-  `On-behalf-of`, a closing keyword anywhere in the trailer before an
-  issue in any form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the
+  `On-behalf-of`, a closing keyword (`Close`, `Fix`, `Resolve` and their
+  forms) as the token, or anywhere in the trailer before an issue in any
+  form GitHub reads (`#1`, `owner/repo#1`, `GH-1`, the
   issue's URL), or a value holding `[skip ci]` or its spellings. It
   refuses a character that can disguise text in a terminal, from the one
   list questions are checked against, `scripts/hidden-chars.sh`, and a
@@ -137,22 +143,12 @@ All notable changes to the `pipeline` plugin.
 - **State writes no longer race.** Every write to a run's state file holds
   a lock and a temporary file of its own. Two writes at the same moment
   could lose one another's change, or leave the state file empty.
-- **`progress.sh` never removes a file it did not make.** On exit it
-  removed whatever its scratch-file names held, and a name inherited from
-  the caller's environment held someone else's file. The names now start
-  empty, and an inherited `STATE_LOCK` no longer reads as a lock already
-  held.
-- **More invisible characters are refused in a question, an answer and a
-  commit trailer.** The one list in `scripts/hidden-chars.sh` now holds the
-  soft hyphen (U+00AD), U+FFF0-FFF8, the shorthand format controls
-  (U+1BCA0-1BCA3), the musical format controls (U+1D173-1D17A) and the
-  block U+E0000-E0FFF at the start of plane 14, where it held only the
-  tags and the supplementary variation selectors. Each is in Unicode's
-  Default_Ignorable_Code_Point set: a font draws nothing for it. The list
-  is now spelled in escapes, so the file is ASCII.
 
 ### Changed
 
+- **The handoff package's parts moved to `docs/handoff-package.md`, and
+  `git stash` joined the never-bend rules.** Stash hides work as surely as
+  `git reset --hard`, `git clean` and `git checkout --` discard it.
 - **The README is the pipeline's full guide.** The marketplace's root README
   is now a short start page, so this README gained what only the root page
   held: the sample pre-flight block, stopping and resuming, what a failed

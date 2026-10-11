@@ -46,8 +46,7 @@ Redaction binds every part: where a source holds a credential, an
 endpoint or a token, the package carries the fact and its location,
 never the value. And the derivation carries the never-bend table's
 destructive-git rule — no `git reset --hard`, no `git clean`, no
-`git checkout --` on tracked files — and adds a fourth imperative of
-its own: no `git stash`. Stash hides work as surely as the others
+`git checkout --` on tracked files, no `git stash`. Stash hides work as surely as the others
 discard it; the prohibition binds the package's reader and this
 orchestrator alike, resumed trees included, and an uncommitted tree
 is the one place with no recovery point.
