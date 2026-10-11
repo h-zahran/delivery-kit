@@ -22,6 +22,10 @@
 # through command substitution and jq's exit codes, never `while read`, and
 # the commit commands also pass jq -b (binary output, no CR) and strip any
 # CR left. git's path lists are read NUL-separated from a file instead.
+# Every file this script writes with jq — the state file, the lock, the
+# metrics file — is written with -b too, so it holds LF line endings on
+# every system: a Windows jq without it wrote the state file in CRLF
+# (measured, jq 1.8.1). The short -b only, as jqs explains.
 set -euo pipefail
 
 STATE_ROOT=".delivery-kit"
@@ -53,7 +57,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check|abandon|get> <feature> [args]"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -189,11 +193,12 @@ cmd_init() {
     # Idempotent: an existing, valid state file is the run's memory and is
     # never clobbered — re-running init is how a resumed session finds it.
     cmd_validate "$feature" >/dev/null
+    init_metrics "$feature" "$sf"
     printf '%s\n' "$sf"
     return 0
   fi
   mkdir -p "${sf%/*}"
-  jq -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
+  jq -b -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
     feature: $f, branch: $b, baseBranch: $bb, projectType: $pt,
     current_phase: "preflight", completed_phases: [],
     timestamps: {}, artifacts: {}, pr_url: "", commits: [],
@@ -201,7 +206,20 @@ cmd_init() {
     deferred_ambiguities: [], analyze_changelog: [],
     config: {}, speckit: {}, capabilities: {}, gates: {}
   }' > "$sf"
+  init_metrics "$feature" "$sf"
   printf '%s\n' "$sf"
+}
+
+# init_metrics <feature> <state file> — the run file, made by init when it
+# is absent, on a fresh run and on a resume alike; one that exists is left
+# for metrics to refresh. A failure here is said and does not stop init:
+# the state file is the run's memory, and metrics at the next phase
+# boundary tries again. Nothing reaches stdout, which carries init's path.
+init_metrics() {
+  local mf
+  mf="$(run_dir "$1")/pipeline-run.json"
+  [ ! -e "$mf" ] || return 0
+  ( metrics_write "$1" "$2" ) > /dev/null || warn "could not make $mf now; progress.sh metrics makes it"
 }
 
 cmd_phase_start() {
@@ -214,7 +232,7 @@ cmd_phase_start() {
   # write is an in-place update either way.
   state_lock "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
-  if ! jq --arg p "$phase" --arg t "$(now)" \
+  if ! jq -b --arg p "$phase" --arg t "$(now)" \
      '.current_phase = $p
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {started: $t})' \
      "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
@@ -229,7 +247,7 @@ cmd_phase_done() {
   sf="$(cmd_validate "$feature")"
   state_lock "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
-  if ! jq --arg p "$phase" --arg t "$(now)" \
+  if ! jq -b --arg p "$phase" --arg t "$(now)" \
      '.completed_phases = (if (.completed_phases | index($p)) then .completed_phases else .completed_phases + [$p] end)
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {done: $t})' \
      "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
@@ -386,7 +404,7 @@ cmd_commit_add() {
 
   state_lock "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — nothing recorded"
-  if ! jq "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — nothing recorded"; fi
+  if ! jq -b "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — nothing recorded"; fi
   mv "$tmp" "$sf"
   state_unlock
 }
@@ -452,6 +470,13 @@ cmd_piece_next() {
   esac
 }
 
+# RUN_END_JQ — how a run stands, in one word: "abandoned" when `abandon`
+# marked it (any abandoned value but null or false), "done" when its phase
+# is DONE, else "live". Read by lock-take's staleness check and by abandon;
+# preflight.sh judges runsLive by the same rule, in its own copy, since it
+# cannot source this file.
+RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end'
+
 # The repository lock is a file naming its holder, and every look at it and
 # every change to it — lock-take's staleness check, its removal of a stale
 # lock and its claim, lock-release's check and removal — happens while this
@@ -471,7 +496,9 @@ cmd_lock_take() {
     hs="$(state_file "${holder:-missing}")"
     stale=false
     if [ -z "$holder" ] || [ ! -f "$hs" ]; then stale=true
-    elif [ "$(jq -r '.current_phase // empty' "$hs" 2>/dev/null)" = "DONE" ]; then stale=true; fi
+    else
+      case "$(jqs "$RUN_END_JQ" "$hs" 2>/dev/null || true)" in done|abandoned) stale=true ;; esac
+    fi
     if [ "$stale" = true ]; then
       # A crashed session must never lock the repository permanently — that
       # failure mode turns a safety feature into an outage.
@@ -505,6 +532,59 @@ cmd_lock_release() {
   [ "$holder" = "$feature" ] || die "lock is held by '$holder', not '$feature' — not releasing it"
   rm -f "$lf"
   state_unlock
+}
+
+# abandon <feature> — ends a run for good without finishing it. It records
+# `abandoned: {at, phase}` in the state file, the phase being where the run
+# stopped, and current_phase is left as it was: the state file is kept as
+# the run's record, and is still valid for every release that reads it,
+# since no required key changes. Pre-flight no longer counts the run as
+# live, and a lock it holds is stale to lock-take. Then the repository lock
+# is released if this run holds it, and left alone if another run does. A
+# DONE run is refused: it has nothing to abandon. A run already abandoned
+# keeps its first record, and its lock is still released, so a re-run after
+# a crash between the two steps finishes the job. Prints nothing.
+cmd_abandon() {
+  local st holder
+  feature="$1"
+  [ $# -eq 1 ] || die "usage: abandon <feature>"
+  sf="$(cmd_validate "$feature")"
+  state_lock "$sf"
+  st="$(jqs "$RUN_END_JQ" "$sf")" || die "$sf could not be read"
+  case "$st" in
+    live)      state_write "$sf" '.abandoned = {at: $at, phase: .current_phase}' --arg at "$(now)" ;;
+    abandoned) warn "$feature is already abandoned: its first record stands" ;;
+    done)      die "$feature is DONE: a finished run is not abandoned" ;;
+    *)         die "$sf: could not tell how the run stands ('$st') — nothing written" ;;
+  esac
+  state_unlock
+  lf="$(lock_file)"
+  [ -f "$lf" ] || return 0
+  state_lock "$lf"
+  holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
+  if [ -f "$lf" ] && [ "$holder" = "$feature" ]; then
+    rm -f "$lf"
+    warn "released the repository lock, which $feature held"
+  fi
+  state_unlock
+}
+
+# get <feature> <key|filter> — one value from the state file, read-only, for
+# the orchestrator: a bare key name (letters, digits, underscore) prints that
+# top-level key, anything else is a jq filter. Strings print raw, everything
+# else as JSON, and always through jq -b, so a native Windows jq ends no line
+# with a CR — a value read line by line compares as written.
+cmd_get() {
+  local q="${2:-}"
+  feature="$1"
+  { [ $# -eq 2 ] && [ -n "$q" ]; } || die "usage: get <feature> <key-or-jq-filter>"
+  # A filter is never an option: one starting with a dash would reach jq as one.
+  case "$q" in -*) die "get: '$q' starts with a dash, which jq would read as an option" ;; esac
+  sf="$(cmd_validate "$feature")"
+  case "$q" in
+    [A-Za-z_]*) case "$q" in *[!A-Za-z0-9_]*) ;; *) jq -b -r --arg k "$q" '.[$k]' "$sf"; return ;; esac ;;
+  esac
+  jq -b -r "$q" "$sf"
 }
 
 # =============================================================================
@@ -926,7 +1006,7 @@ state_write() {
   if [ "${STATE_LOCK:-}" = "$f.lock" ]; then held=1; fi
   state_lock "$f"
   tmp="$(mktemp "$f.XXXXXX")" || die "could not make a temporary file beside $f — the state file is unchanged"
-  if ! jq "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
+  if ! jq -b "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
   if ! ( validate_file "$tmp" ) > /dev/null; then rm -f "$tmp"; die "the write would leave $f invalid — the state file is unchanged"; fi
   mv "$tmp" "$f"
   if [ "$held" -eq 0 ]; then state_unlock; fi
@@ -1768,19 +1848,29 @@ cmd_metrics() {
   feature="$1"
   [ $# -eq 1 ] || die "usage: metrics <feature>"
   sf="$(cmd_validate "$feature")"
-  commits_ok "$sf"
+  metrics_write "$feature" "$sf"
+  printf '%s\n' "$MF_PATH"
+}
+
+# metrics_write <feature> <state file> — writes the run file, through a
+# temporary file of this write's own, and sets MF_PATH to it. init runs it
+# too, so the file exists from the run's first moment and never depends on
+# the orchestrator remembering to make it.
+metrics_write() {
   local mf tmp
-  mf="$(run_dir "$feature")/pipeline-run.json"
-  tmp="$mf.tmp"
+  commits_ok "$2"
+  mf="$(run_dir "$1")/pipeline-run.json"
+  MF_PATH="$mf"
   if [ -f "$mf" ]; then
     [ "$(jqs -s 'length == 1 and (.[0] | type) == "object"' "$mf" 2>/dev/null)" = true ] \
       || die "$mf is not one JSON object — not overwriting it"
-    jq --slurpfile m "$mf" "$METRICS_JQ" "$sf" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
+    tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf — it is unchanged"
+    jq -b --slurpfile m "$mf" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
   else
-    jq --argjson m '[]' "$METRICS_JQ" "$sf" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
+    tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf"
+    jq -b --argjson m '[]' "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
   fi
   mv "$tmp" "$mf"
-  printf '%s\n' "$mf"
 }
 
 # --- state-set ----------------------------------------------------------------
@@ -2223,5 +2313,7 @@ case "$cmd" in
   pending)       shift 2; cmd_pending "$feature_arg" "$@" ;;
   answer)        shift 2; cmd_answer "$feature_arg" "$@" ;;
   pending-check) shift 2; cmd_pending_check "$feature_arg" "$@" ;;
+  abandon)       shift 2; cmd_abandon "$feature_arg" "$@" ;;
+  get)           shift 2; cmd_get "$feature_arg" "$@" ;;
   *) usage ;;
 esac
