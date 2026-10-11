@@ -69,7 +69,9 @@ flat() {
   cd "$ROOT"
   local f t miss="" n=0
   for f in README.md handoff/README.md pipeline/README.md; do
-    for t in $(tr -d '\r' < "$f" | grep -oE '`(handoff|pipeline):[a-z][a-z-]*`' | tr -d '`' | sort -u); do
+    # Inline (`handoff:setup`) and as a command line of its own inside a fence
+    # (mutation found the fenced quick-start step unread).
+    for t in $(tr -d '\r' < "$f" | grep -oE '`(handoff|pipeline):[a-z][a-z-]*`|^(handoff|pipeline):[a-z][a-z-]*( |$)' | tr -d '` ' | sort -u); do
       n=$((n + 1))
       [ -f "${t%%:*}/skills/${t#*:}/SKILL.md" ] || miss="$miss $f:$t"
     done
