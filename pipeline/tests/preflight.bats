@@ -819,8 +819,11 @@ hidden_refused() {
     || { echo "a live run was not named: $(jq -c .tree <<<"$output")"; false; }
   bash "$P" abandon 002-gone
   probe --dir "$T" --base-branch main
-  jq -e '.tree.runsLive == false and .tree.liveRuns == []' <<<"$output" > /dev/null \
-    || { echo "an abandoned run read as live: $(jq -c .tree <<<"$output")"; false; }
+  # Ended, not unreadable: a judge that missed the marker and fell through
+  # to "unreadable" would also leave runsLive false (measured, mutation).
+  jq -e '.tree.runsLive == false and .tree.liveRuns == [] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
+    || { echo "an abandoned run read as live or unreadable: $(jq -c .tree <<<"$output")"; false; }
+  [[ "$stderr" != *"is not one JSON object"* ]] || { echo "an abandoned run was warned about: $stderr"; false; }
   bash "$P" init 003-live b main web > /dev/null
   bash "$P" init 004-live b main web > /dev/null
   probe --dir "$T" --base-branch main
