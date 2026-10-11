@@ -81,14 +81,19 @@ again. The `suiteReuse` setting says what a recorded result must match:
 
 - **`commit`**, the default: the files below **and** git's state around
   them — HEAD's commit id, and every tracked path's index mode and object
-  id. A staged change, a commit, an amended message or a branch moved to
-  another commit is a change, so a suite that reads git — a trailer in the
-  last commit message, staged bytes through `git show :<path>`, a check over
-  a branch range such as `main...HEAD` — is never told a result that does not
-  hold. The price: once K commits, N cannot cite the run J made before it.
+  id. A staged change, a commit, an amended message or HEAD moved to
+  another commit is a change, so a suite that reads HEAD's commit or the
+  index — a trailer in the last commit message, staged bytes through
+  `git show :<path>` — is never told a result that does not hold. Other refs
+  are not in the key: the branch's name, tags, and other branches, the base
+  among them. A check over a range such as `main...HEAD` is safe from a new
+  commit on HEAD, but not from `main` moving while HEAD stays. The price:
+  once K commits, N cannot cite the run J made before it.
 - **`files`**: the files alone. A change committed, staged or only in the
   working tree counts the same, so N can cite the run J made before J
-  committed it, even when J's fixes added or deleted a file. Choose it only
+  committed it, even when J's fixes deleted a file or added one — except a
+  new executable file where git records modes: untracked it reads `100644`,
+  and committed `100755`, so that reuse is lost. Choose it only
   for a suite that reads no git state: under `files`, a commit message, the
   index, HEAD and the branch's history are all invisible, and a check over
   a branch range that was vacuous when J ran is reused as green after K
@@ -124,7 +129,10 @@ the suite runs again: a red result is never reused, because F.5 needs its
 failures verbatim, and J and N need to see them. A skip is red too: a test
 that did not run has not passed. The analyzer is never cited; it always runs.
 
-What the key cannot see, a reuse assumes unchanged: files git ignores (a
+What the key cannot see, a reuse assumes unchanged: git's refs other than
+HEAD's commit — the branch's name, tags, and other branches, the base among
+them, so a branch-range check against a base that moved can be reused —
+files git ignores (a
 dependency directory, a `.env` file), an empty directory (git lists no
 directory, only files), a rename that changes only a name's letter case on
 a file system that ignores case (Windows and macOS by default), the

@@ -101,7 +101,7 @@ the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 | `devCommand` | unset | N.5 web strategy's server |
 | `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
 | `maxVerifyIters` | 5 | Phase J cap |
-| `suiteReuse` | `commit` | What a kept suite result must match: `commit` (files and git state), `files`, or `off` |
+| `suiteReuse` | `commit` | What a kept suite result must match: `commit` (files, HEAD's commit and index), `files`, or `off` |
 
 `null` means *work it out* — of the MERGED result, not of a layer, where
 `null` is silence as above: `projectType` from detection, commands and

@@ -68,15 +68,17 @@ All notable changes to the `pipeline` plugin.
   a deleted tracked file and a change of line endings alone each change the
   key; an ignored file does not. What else it covers depends on
   `suiteReuse`. Under `commit`, the default, a staged change, a commit, an
-  amended message or a moved HEAD is a change too, so a suite that reads a
-  commit message, staged bytes or a branch range such as `main...HEAD` is
-  never told a result that does not hold — and N cannot cite J's run once K
-  commits. Under `files`, git's state is invisible: N can cite J's run after
-  J commits the same files, including a file J added or deleted, but a
-  suite that reads a commit message, the index or a branch range can be
-  told a result that does not hold. Neither mode sees an ignored file, an
-  empty directory, or a rename that changes only letter case where the
-  file system ignores case. An unmerged path, or an untracked directory that
+  amended message or a moved HEAD is a change too, so a suite that reads
+  HEAD's commit message or staged bytes is never told a result that does not
+  hold — and N cannot cite J's run once K commits. Under `files`, git's state
+  is invisible: N can cite J's run after J commits the same files, including
+  a file J deleted or added (but not a new executable file where git records
+  modes), while a suite that reads a commit message, the index or a branch
+  range can be told a result that does not hold. Neither mode sees the
+  branch's name, tags or other branches — the base among them, so a
+  branch-range check against a base that moved can be reused — an ignored
+  file, an empty directory, or a rename that changes only letter case where
+  the file system ignores case. An unmerged path, or an untracked directory that
   holds a repository of its own, means no key, as a submodule and an
   assume-unchanged or skip-worktree entry already did.
 - **A skipped test makes a suite result red.** A skip was counted as an ok
