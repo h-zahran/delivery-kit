@@ -21,12 +21,13 @@
 # substitution strips the trailing CR it emits, `read` does not (measured
 # repeatedly in this repository's suite) — so this script reads jq only
 # through command substitution and jq's exit codes, never `while read`, and
-# the commit commands also pass jq -b (binary output, no CR) and strip any
-# CR left. git's path lists are read NUL-separated from a file instead.
-# Every file this script writes with jq — the state file, the lock, the
-# metrics file — is written with -b too, so it holds LF line endings on
-# every system: a Windows jq without it wrote the state file in CRLF
-# (measured, jq 1.8.1). The short -b only, as jqs explains.
+# the commit commands also pass $JQB (jq -b where this jq takes it: binary
+# output, no CR) and strip any CR left. git's path lists are read
+# NUL-separated from a file instead. Every file this script writes with jq —
+# the state file, the lock, the metrics file — is written with $JQB too, so
+# it holds LF line endings on every system: a Windows jq without -b wrote
+# the state file in CRLF (measured, jq 1.8.1). jq 1.6 is the oldest jq
+# this script supports.
 set -euo pipefail
 
 STATE_ROOT=".delivery-kit"
@@ -62,18 +63,34 @@ usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|fro
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
+# JQB is -b when this jq takes it, and empty when it does not. -b (binary
+# output) keeps a native Windows jq from ending every line with CR, and
+# every jq 1.7 or later takes it on every system; jq 1.6 takes it only on
+# Windows, and refuses it elsewhere as an unknown option, where jq writes LF
+# without it. So it is probed, once per process, by the dispatch below —
+# never assumed. validate and read do not use it and spawn no probe.
+JQB=''
+jq_b_probe() { if jq -b -n 1 >/dev/null 2>&1; then JQB=-b; else JQB=''; fi; }
+
 # Feature names come from the spec tool (NNN-slug). Anything else could
 # escape the runs directory, so the shape is enforced, loudly, everywhere.
 # A name made only of dots passes that shape and still escapes: "." and ".."
 # are directories already, so `init ..` wrote .delivery-kit/progress.json
 # and `init .` wrote runs/progress.json (measured). It is refused by name.
+# So is a name ending in a dot: Win32 drops a trailing dot, so a native
+# Windows jq cannot open .delivery-kit/runs/a./progress.json, and
+# preflight.sh refuses such a spec folder segment for the same reason. One
+# rule covers both, since a name made only of dots ends in one.
 feature_ok() {
-  case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
-  [ -n "${1//./}" ]
+  case "$1" in ''|*[!A-Za-z0-9._-]*|*.) return 1 ;; esac
+  return 0
 }
 need_feature() {
   feature_ok "$1" && return 0
-  case "$1" in ''|*[!.]*) die "feature name '$1' — letters, digits, dot, dash, underscore only" ;; esac
+  case "$1" in
+    ''|*[!A-Za-z0-9._-]*) die "feature name '$1' — letters, digits, dot, dash, underscore only" ;;
+    *[!.]*) die "feature name '$1' ends with a dot, which Windows drops from a folder name" ;;
+  esac
   die "feature name '$1' is only dots, which names a directory that already exists, not a run"
 }
 
@@ -195,12 +212,13 @@ cmd_init() {
     # Idempotent: an existing, valid state file is the run's memory and is
     # never clobbered — re-running init is how a resumed session finds it.
     cmd_validate "$feature" >/dev/null
+    not_abandoned "$feature" "$sf"
     init_metrics "$feature" "$sf"
     printf '%s\n' "$sf"
     return 0
   fi
   mkdir -p "${sf%/*}"
-  jq -b -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
+  jq ${JQB:+"$JQB"} -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
     feature: $f, branch: $b, baseBranch: $bb, projectType: $pt,
     current_phase: "preflight", completed_phases: [],
     timestamps: {}, artifacts: {}, pr_url: "", commits: [],
@@ -233,8 +251,9 @@ cmd_phase_start() {
   # to re-enter. Re-entering a completed phase is safe by design; this
   # write is an in-place update either way.
   state_lock "$sf"
+  not_abandoned "$feature" "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
-  if ! jq -b --arg p "$phase" --arg t "$(now)" \
+  if ! jq ${JQB:+"$JQB"} --arg p "$phase" --arg t "$(now)" \
      '.current_phase = $p
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {started: $t})' \
      "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
@@ -249,7 +268,7 @@ cmd_phase_done() {
   sf="$(cmd_validate "$feature")"
   state_lock "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
-  if ! jq -b --arg p "$phase" --arg t "$(now)" \
+  if ! jq ${JQB:+"$JQB"} --arg p "$phase" --arg t "$(now)" \
      '.completed_phases = (if (.completed_phases | index($p)) then .completed_phases else .completed_phases + [$p] end)
       | .timestamps[$p] = ((.timestamps[$p] // {}) + {done: $t})' \
      "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — the state file is unchanged"; fi
@@ -265,6 +284,7 @@ cmd_from_validate() {
   [ -n "$phase" ] || die "from-validate needs a phase"
   phase_known "$phase" || die "unknown phase '$phase'"
   sf="$(cmd_validate "$feature")"
+  not_abandoned "$feature" "$sf"
   need=""
   case "$phase" in
     D)         need="spec" ;;
@@ -406,7 +426,7 @@ cmd_commit_add() {
 
   state_lock "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — nothing recorded"
-  if ! jq -b "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — nothing recorded"; fi
+  if ! jq ${JQB:+"$JQB"} "${jqargs[@]}" "$ENTRY_JQ"' .commits += [entry]' "$sf" > "$tmp"; then rm -f "$tmp"; die "the write to $sf failed — nothing recorded"; fi
   mv "$tmp" "$sf"
   state_unlock
 }
@@ -479,6 +499,19 @@ cmd_piece_next() {
 # cannot source this file.
 RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end'
 
+# not_abandoned <feature> <state file> — abandon is terminal: a run it ended
+# is never worked on again. Without this, a resumed abandoned run took the
+# lock and started phases while pre-flight reported no live run and another
+# run's lock-take read its lock as stale, so two runs held the repository at
+# once. init on a resume, from-validate, lock-take and phase-start refuse it,
+# by name; validate, read, get, metrics and abandon itself still read it.
+not_abandoned() {
+  local st
+  st="$(jqs "$RUN_END_JQ" "$2")" || die "$2 could not be read"
+  [ "$st" != abandoned ] \
+    || die "run '$1' was abandoned: an abandoned run is ended and is never resumed or worked on again — start a new run under another name"
+}
+
 # The repository lock is a file naming its holder, and every look at it and
 # every change to it — lock-take's staleness check, its removal of a stale
 # lock and its claim, lock-release's check and removal — happens while this
@@ -493,6 +526,7 @@ cmd_lock_take() {
   [ -n "$session" ] || die "lock-take needs a session id"
   lf="$(lock_file)"; mkdir -p "$STATE_ROOT"
   state_lock "$lf"
+  if [ -f "$(state_file "$feature")" ]; then not_abandoned "$feature" "$(state_file "$feature")"; fi
   if [ -f "$lf" ]; then
     holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
     hs="$(state_file "${holder:-missing}")"
@@ -518,7 +552,7 @@ cmd_lock_take() {
   # noclobber still guards the claim itself: anything at the path by now —
   # a directory, or a lock written by an older copy of this script, which
   # takes no guard — makes the claim fail rather than overwrite it.
-  ( set -C; jq -b -n --arg f "$feature" --arg s "$session" --arg t "$(now)" \
+  ( set -C; jq ${JQB:+"$JQB"} -n --arg f "$feature" --arg s "$session" --arg t "$(now)" \
       '{feature: $f, session: $s, taken_at: $t}' > "$lf" ) 2>/dev/null \
     || die "lost the lock race; run lock-take again"
   state_unlock
@@ -575,7 +609,7 @@ cmd_abandon() {
 # get <feature> <key|filter> — one value from the state file, read-only, for
 # the orchestrator: a bare key name (letters, digits, underscore) prints that
 # top-level key, anything else is a jq filter. Strings print raw, everything
-# else as JSON, and always through jq -b, so a native Windows jq ends no line
+# else as JSON, and always through $JQB, so a native Windows jq ends no line
 # with a CR — a value read line by line compares as written.
 cmd_get() {
   local q="${2:-}"
@@ -585,9 +619,9 @@ cmd_get() {
   case "$q" in -*) die "get: '$q' starts with a dash, which jq would read as an option" ;; esac
   sf="$(cmd_validate "$feature")"
   case "$q" in
-    [A-Za-z_]*) case "$q" in *[!A-Za-z0-9_]*) ;; *) jq -b -r --arg k "$q" '.[$k]' "$sf"; return ;; esac ;;
+    [A-Za-z_]*) case "$q" in *[!A-Za-z0-9_]*) ;; *) jq ${JQB:+"$JQB"} -r --arg k "$q" '.[$k]' "$sf"; return ;; esac ;;
   esac
-  jq -b -r "$q" "$sf"
+  jq ${JQB:+"$JQB"} -r "$q" "$sf"
 }
 
 # =============================================================================
@@ -603,12 +637,13 @@ cmd_get() {
 # =============================================================================
 
 # jqs <jq arguments...> — jq's raw answer through command substitution, with
-# -b so a native Windows jq writes no CR, and any CR left stripped anyway.
+# $JQB so a native Windows jq writes no CR, and any CR left stripped anyway.
 # The SHORT -b only: jq 1.7 parses it on every platform (a no-op off
-# Windows), while the long --binary is an unknown option there.
+# Windows), while the long --binary is an unknown option there; jq 1.6
+# parses neither off Windows, which is why JQB is probed.
 jqs() {
   local v
-  v="$(jq -b -r "$@")" || return 1
+  v="$(jq ${JQB:+"$JQB"} -r "$@")" || return 1
   printf '%s' "${v//$'\r'/}"
 }
 
@@ -919,7 +954,7 @@ with_trailers() {
   TR_ERR="$(mktemp "$RD/trailer-check.XXXXXX")" || die "could not make a temporary file in $RD — no commit is made"
   i=0
   while [ "$i" -lt "$n" ]; do
-    j="$(jq -b -c --argjson i "$i" '.config.commitTrailers[$i]' "$sf")" \
+    j="$(jq ${JQB:+"$JQB"} -c --argjson i "$i" '.config.commitTrailers[$i]' "$sf")" \
       || die "$sf could not be read for config.commitTrailers — no commit is made"
     j="${j%$'\r'}"
     t="$("$BASH" "$SCRIPT_DIR/trailer-check.sh" "$j" 2>"$TR_ERR")" \
@@ -1009,7 +1044,7 @@ state_write() {
   if [ "${STATE_LOCK:-}" = "$f.lock" ]; then held=1; fi
   state_lock "$f"
   tmp="$(mktemp "$f.XXXXXX")" || die "could not make a temporary file beside $f — the state file is unchanged"
-  if ! jq -b "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
+  if ! jq ${JQB:+"$JQB"} "$@" "$prog" "$f" > "$tmp"; then rm -f "$tmp"; die "the write to $f failed — the state file is unchanged"; fi
   if ! ( validate_file "$tmp" ) > /dev/null; then rm -f "$tmp"; die "the write would leave $f invalid — the state file is unchanged"; fi
   mv "$tmp" "$f"
   if [ "$held" -eq 0 ]; then state_unlock; fi
@@ -1868,10 +1903,10 @@ metrics_write() {
     [ "$(jqs -s 'length == 1 and (.[0] | type) == "object"' "$mf" 2>/dev/null)" = true ] \
       || die "$mf is not one JSON object — not overwriting it"
     tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf — it is unchanged"
-    jq -b --slurpfile m "$mf" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
+    jq ${JQB:+"$JQB"} --slurpfile m "$mf" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
   else
     tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf"
-    jq -b --argjson m '[]' "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
+    jq ${JQB:+"$JQB"} --argjson m '[]' "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
   fi
   mv "$tmp" "$mf"
 }
@@ -2286,6 +2321,7 @@ cmd_suite_lookup() {
 cmd="${1:-}"; [ $# -ge 2 ] || usage
 feature_arg="$2"
 need_feature "$feature_arg"
+case "$cmd" in validate|read) ;; *) jq_b_probe ;; esac
 case "$cmd" in
   init)          shift 2; cmd_init "$feature_arg" "$@" ;;
   read)          cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;

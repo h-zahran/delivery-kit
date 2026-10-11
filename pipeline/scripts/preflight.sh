@@ -426,18 +426,23 @@ dirty=false
 [ -n "$(git status --porcelain 2>/dev/null || true)" ] && dirty=true
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it
 # (an abandoned value other than null or false): the rule progress.sh's
-# RUN_END_JQ states, copied here because this script cannot source that
+# RUN_END_JQ states, copied below because this script cannot source that
 # one. Every live run is named, in liveRuns. A state file that is not one
 # JSON object with a string current_phase — unreadable, empty, garbage —
 # used to read as a live run, silently, for good: abandon cannot mark a
 # file it cannot read. It is named in unreadableRuns, warned about, and not
 # counted as live; resuming it fails at validate, which names the fault.
+# The rule's text is the same line in both scripts, and a test holds the two
+# copies equal. The answer is one word through command substitution, which
+# drops jq's trailing CR, so no -b: jq 1.6 refuses -b off Windows. A run
+# whose name starts with a dot is a run too, so the two dot globs read it.
+RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end'
 runs_live=false; live_runs='[]'; unreadable_runs='[]'
-for s in .delivery-kit/runs/*/progress.json; do
+for s in .delivery-kit/runs/*/progress.json .delivery-kit/runs/.[!.]*/progress.json .delivery-kit/runs/..?*/progress.json; do
   [ -e "$s" ] || continue
   r="${s%/progress.json}"; r="${r##*/}"
-  st="$(jq -b -r -s 'if length == 1 and (.[0] | type) == "object" and (.[0].current_phase | type) == "string"
-    then .[0] | if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end
+  st="$(jq -r -s 'if length == 1 and (.[0] | type) == "object" and (.[0].current_phase | type) == "string"
+    then .[0] | '"$RUN_END_JQ"'
     else "unreadable" end' "$s" 2>/dev/null)" || st=unreadable
   case "$st" in
     done|abandoned) ;;
