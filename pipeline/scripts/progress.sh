@@ -9,7 +9,8 @@
 # lines, a heading and its task ids; the commit commands print the commit
 # id they recorded; --list prints paths, one per line; guide prints the
 # review guide and commit-list prints K's list; suite-key prints a key,
-# suite-record a verdict, and suite-lookup a record's path and a summary.
+# suite-record a verdict, and suite-lookup a record's path and a summary;
+# get prints the value it was asked for.
 #
 # Everything this file writes lives under .delivery-kit/, and the commit
 # commands write git commits, never a path under it. The state directory is
