@@ -424,12 +424,28 @@ adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 
 dirty=false
 [ -n "$(git status --porcelain 2>/dev/null || true)" ] && dirty=true
-runs_live=false
+# A run is live unless its phase is DONE or `progress.sh abandon` marked it
+# (an abandoned value other than null or false): the rule progress.sh's
+# RUN_END_JQ states, copied here because this script cannot source that
+# one. Every live run is named, in liveRuns. A state file that is not one
+# JSON object with a string current_phase — unreadable, empty, garbage —
+# used to read as a live run, silently, for good: abandon cannot mark a
+# file it cannot read. It is named in unreadableRuns, warned about, and not
+# counted as live; resuming it fails at validate, which names the fault.
+runs_live=false; live_runs='[]'; unreadable_runs='[]'
 for s in .delivery-kit/runs/*/progress.json; do
-  [ -f "$s" ] || continue
-  if [ "$(jq -r '.current_phase // empty' "$s" 2>/dev/null || true)" != "DONE" ]; then
-    runs_live=true; break
-  fi
+  [ -e "$s" ] || continue
+  r="${s%/progress.json}"; r="${r##*/}"
+  st="$(jq -b -r -s 'if length == 1 and (.[0] | type) == "object" and (.[0].current_phase | type) == "string"
+    then .[0] | if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end
+    else "unreadable" end' "$s" 2>/dev/null)" || st=unreadable
+  case "$st" in
+    done|abandoned) ;;
+    live) runs_live=true; live_runs="$(jq -n --argjson a "$live_runs" --arg r "$r" '$a + [$r]')" ;;
+    *) shown run_s "$r"
+       warn "the state file of run '$run_s' is not one JSON object with a current_phase — not counted as live; repair or remove .delivery-kit/runs/$run_s/progress.json"
+       unreadable_runs="$(jq -n --argjson a "$unreadable_runs" --arg r "$r" '$a + [$r]')" ;;
+  esac
 done
 
 # --- degradations, named before any work starts ------------------------------
@@ -462,6 +478,7 @@ jq -n \
   --argjson adb "$adb_present" \
   --argjson git "$git_present" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
+  --argjson live_runs "$live_runs" --argjson unreadable_runs "$unreadable_runs" \
   --argjson skips "$skips" '{
   projectType: $ptype, projectTypeSource: $ptype_source,
   speckit: {
@@ -475,5 +492,5 @@ jq -n \
   remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
   capabilities: { jq: true, git: $git, gh: $gh, adb: $adb },
   willSkip: $skips,
-  tree: { dirty: $dirty, runsLive: $runs_live }
+  tree: { dirty: $dirty, runsLive: $runs_live, liveRuns: $live_runs, unreadableRuns: $unreadable_runs }
 }'

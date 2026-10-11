@@ -768,9 +768,11 @@ hidden_refused() {
 
 @test "capabilities reports jq true and booleans for gh and adb" {
   probe --dir "$FIX/web" --base-branch main
-  [ "$(jq -r '.capabilities.jq' <<<"$output")" = "true" ]
-  [[ "$(jq -r '.capabilities.gh' <<<"$output")" =~ ^(true|false)$ ]]
-  [[ "$(jq -r '.capabilities.adb' <<<"$output")" =~ ^(true|false)$ ]]
+  jq -e '.capabilities.jq == true' <<<"$output" > /dev/null
+  # The type, never a pattern over jq -r's text: -r prints the string "true"
+  # exactly as it prints the boolean, so a pattern passed on both.
+  jq -e '.capabilities.gh | type == "boolean"' <<<"$output" > /dev/null
+  jq -e '.capabilities.adb | type == "boolean"' <<<"$output" > /dev/null
 }
 
 @test "willSkip names phases L and M in a repository with no remote" {
@@ -794,6 +796,61 @@ hidden_refused() {
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.tree.dirty' <<<"$output")" = "true" ]
   [ "$(jq -r '.tree.runsLive' <<<"$output")" = "true" ]
+}
+
+# A DONE run and an abandoned one are not live. Both are made by the real
+# progress.sh, so the marker pre-flight reads is the one abandon writes. A
+# mutant that compared current_phase with anything but DONE passed this
+# suite before this test (measured: 35 of 35).
+@test "a DONE run and an abandoned run are not live; each live run is named" {
+  local P="$PIPELINE/scripts/progress.sh"
+  T="$BATS_TEST_TMPDIR/ended"
+  mkdir -p "$T"; cd "$T"; git init -q .
+  bash "$P" init 001-done b main web > /dev/null
+  bash "$P" phase-start 001-done DONE
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ]
+  jq -e '.tree.runsLive == false and .tree.liveRuns == [] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
+    || { echo "a DONE run read as live: $(jq -c .tree <<<"$output")"; false; }
+  bash "$P" init 002-gone b main web > /dev/null
+  bash "$P" phase-start 002-gone F
+  probe --dir "$T" --base-branch main
+  jq -e '.tree.runsLive == true and .tree.liveRuns == ["002-gone"]' <<<"$output" > /dev/null \
+    || { echo "a live run was not named: $(jq -c .tree <<<"$output")"; false; }
+  bash "$P" abandon 002-gone
+  probe --dir "$T" --base-branch main
+  jq -e '.tree.runsLive == false and .tree.liveRuns == []' <<<"$output" > /dev/null \
+    || { echo "an abandoned run read as live: $(jq -c .tree <<<"$output")"; false; }
+  bash "$P" init 003-live b main web > /dev/null
+  bash "$P" init 004-live b main web > /dev/null
+  probe --dir "$T" --base-branch main
+  jq -e '.tree.runsLive == true and .tree.liveRuns == ["003-live", "004-live"]' <<<"$output" > /dev/null \
+    || { echo "the live runs were not both named: $(jq -c .tree <<<"$output")"; false; }
+  jq -e '.tree.runsLive | type == "boolean"' <<<"$output" > /dev/null
+}
+
+# A state file pre-flight cannot read as a run used to count as live,
+# silently and for good: abandon cannot mark a file it cannot read. It is
+# warned about, named, and not counted; the report stays pure JSON.
+@test "an unreadable state file is warned about and named, never counted as live" {
+  local f
+  T="$BATS_TEST_TMPDIR/garbage"
+  mkdir -p "$T"; cd "$T"; git init -q .
+  for f in 001-garbage 002-empty 003-array 004-twice 005-nophase; do mkdir -p ".delivery-kit/runs/$f"; done
+  printf 'garbage' > .delivery-kit/runs/001-garbage/progress.json
+  : > .delivery-kit/runs/002-empty/progress.json
+  printf '[1]' > .delivery-kit/runs/003-array/progress.json
+  printf '{"current_phase":"B"}{"current_phase":"B"}' > .delivery-kit/runs/004-twice/progress.json
+  printf '{"current_phase":7}' > .delivery-kit/runs/005-nophase/progress.json
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  jq -e '.tree.runsLive == false and .tree.liveRuns == []
+    and .tree.unreadableRuns == ["001-garbage", "002-empty", "003-array", "004-twice", "005-nophase"]' <<<"$output" > /dev/null \
+    || { echo "unreadable state files were misjudged: $(jq -c .tree <<<"$output")"; false; }
+  for f in 001-garbage 002-empty 003-array 004-twice 005-nophase; do
+    [[ "$stderr" == *"the state file of run '$f' is not one JSON object with a current_phase"* ]] \
+      || { echo "no warning named $f: $stderr"; false; }
+  done
 }
 
 @test "constitutionSet is false on a fresh-init-shaped constitution" {
