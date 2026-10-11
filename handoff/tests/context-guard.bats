@@ -861,7 +861,7 @@ load ../../tests/helper
   n="$(printf '%s\n' "$found" | grep -c .)"
   [ "$n" -eq 1 ] || { echo "expected one merge expression, found $n:"; echo "$found"; false; }
   # The delimiters go through variables rather than being written inline with a
-  # backslash-escaped quote. `macos-latest` is in the CI matrix and runs bash
+  # backslash-escaped quote. The macOS runner in the CI matrix runs bash
   # 3.2, which nothing here can exercise locally, so the extraction is kept to
   # the plainest POSIX form available — a quoted variable in the expansion,
   # where there is no escaping left to be read differently by an older shell.
@@ -978,7 +978,8 @@ load ../../tests/helper
   snippet="$TEST_DIR/envcheck.sh"
   sed -n '/^for v in DELIVERY_KIT_/,/^done$/p' "$HANDOFF/skills/setup/SKILL.md" > "$snippet"
   [ -s "$snippet" ] || { echo "no DELIVERY_KIT_ environment check in handoff/skills/setup/SKILL.md"; false; }
-  # helper.bash unsets all four in setup(), so this is the clean case.
+  # helper.bash clears every DELIVERY_KIT_ variable in setup(), so this is the
+  # clean case.
   run bash "$snippet"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -1015,7 +1016,8 @@ load ../../tests/helper
   # delimiter: the four interior lines of the program contain no apostrophe.
   # Delimiters are then stripped with parameter expansion rather than another
   # sed script, so that no quote has to be escaped through a second layer —
-  # macos-latest runs bash 3.2 and nothing here can exercise it locally.
+  # the macOS runner in the CI matrix runs bash 3.2 and nothing here can
+  # exercise it locally.
   #
   # ONE ANCHOR SERVES BOTH FILES NOW, and that is the point of the change that
   # brought it about. The skill's anchor used to be the literal text
