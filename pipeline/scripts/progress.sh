@@ -551,6 +551,7 @@ cmd_abandon() {
   sf="$(cmd_validate "$feature")"
   state_lock "$sf"
   st="$(jqs "$RUN_END_JQ" "$sf")" || die "$sf could not be read"
+  # shellcheck disable=SC2016 # a jq program: $at is jq's
   case "$st" in
     live)      state_write "$sf" '.abandoned = {at: $at, phase: .current_phase}' --arg at "$(now)" ;;
     abandoned) warn "$feature is already abandoned: its first record stands" ;;
