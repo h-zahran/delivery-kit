@@ -76,7 +76,7 @@ larger than that, the defaults are wrong in the direction you meet immediately â
 the first warning reports a percentage well over 100 and adds a
 `WINDOW MISCONFIGURED` note.
 
-The quickest way to fix it is to run `handoff:setup` in a session. It
+The quickest way to fix it is to run `/handoff:setup` in a session. It
 measures the context that session has actually accumulated, proposes a window
 when the measurement supports one, asks where you want the guard to stop, and
 merges the answers into `~/.delivery-kit.json`. That is the user-level file, so
