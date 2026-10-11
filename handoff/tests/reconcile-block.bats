@@ -355,7 +355,12 @@ has_line() {
 @test "reconcile: a block that cannot make its temporary directory exits 2 and never says MATCH" {
   mkrepo
   record
-  TMPDIR="$TEST_DIR/no-such-dir" check_from
+  # A failing mktemp first on PATH. A missing TMPDIR is not enough: macOS
+  # mktemp falls back to /tmp (CI measured MATCH there).
+  mkdir -p "$TEST_DIR/bin"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$TEST_DIR/bin/mktemp"
+  chmod +x "$TEST_DIR/bin/mktemp"
+  PATH="$TEST_DIR/bin:$PATH" check_from
   [ "$status" -eq 2 ]
   has_line 'RECONCILE: cannot run: mktemp failed'
   [[ "$output" != *'MATCH'* ]]
