@@ -13,14 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   root, run a tool call, then delete the file. A repository that already had
   one lost it, overwritten and then deleted. The check now starts one session
   with `DELIVERY_KIT_THRESHOLD_PCT=1` in the environment, with the commands for
-  Git Bash and PowerShell and how to undo each. It changes no file, and it
-  works whatever either configuration file holds, because the variable beats
-  both.
+  Git Bash and PowerShell and how to undo each. It changes no configuration
+  file, and it works whatever either one holds, because the variable beats
+  both. The page also gives the first prompt to type, word for word, and that
+  prompt tells Claude not to run any skill: when the guard fires, Claude
+  otherwise starts the handoff in the same turn and writes a handoff document
+  before you can stop it.
 - **A comment in the guard gave a count its own command did not print.** It
   said a grep over the differential prints 3, one per divergence listed below
   it; the grep printed 4, because a later divergence is recorded the same way.
   The comment, and the same sentence in `scripts/context-guard/README.md`, now
-  give a grep that prints 3. A test runs it and compares the two.
+  give a grep scoped to the commit those divergences came from. A test runs it
+  and compares its count with the list.
 
 ## [2.3.0] - 2026-10-11
 
