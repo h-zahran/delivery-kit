@@ -89,21 +89,44 @@ wins. Every setting is in [configuration.md](configuration.md).
 
 ## Confirm it is working
 
-The guard is deliberately quiet until it has something to say, so lower the
-threshold temporarily to see it fire. Set `windowTokens` to your model's real
-window at the same time — otherwise this check reports a percentage over 100
-and a `WINDOW MISCONFIGURED` note, which is correct behaviour but a confusing
-thing to meet first:
+The guard is deliberately quiet until it has something to say, so lower its
+threshold for one session to see it fire. Do it with an environment variable,
+not a configuration file: `DELIVERY_KIT_THRESHOLD_PCT` beats both
+`.delivery-kit.json` files, so the check works whatever they hold, and it
+changes neither of them. A repository may already have a `.delivery-kit.json`
+(`handoff:setup` offers to write one for the pipeline's settings), and a test
+file saved over it would replace it.
 
-```json
-{ "contextGuard": { "thresholdPct": 1, "windowTokens": 1000000 } }
+The variable has to be in the environment of the shell that starts Claude
+Code, because the hook inherits Claude Code's environment. Setting it inside a
+running session, through Claude's Bash tool, does not reach the hook.
+
+In Git Bash, or a macOS or Linux shell, put it in front of the command. It
+applies to that one `claude` process and nothing else:
+
+```bash
+DELIVERY_KIT_THRESHOLD_PCT=1 claude
 ```
 
-Save that as `.delivery-kit.json` in your repository root — the repository file
-rather than the user-level `~/.delivery-kit.json`, because this is a deliberate
-misconfiguration you are about to undo, and it should not outlive the check or
-follow you into other projects. Run any tool call in a session, and expect a
-`CONTEXT GUARD` message naming your context percentage. Then delete the file.
+In PowerShell, set it for the window, then start Claude Code:
+
+```powershell
+$env:DELIVERY_KIT_THRESHOLD_PCT = '1'
+claude
+```
+
+In that session, ask Claude to do anything that runs a tool, such as listing
+the files in the current directory. Expect a `CONTEXT GUARD` message naming
+your context percentage after that first tool call, once: it warns again only
+when context climbs another 5%. The message tells Claude to finish its step
+and run `handoff:handoff`; for this check, tell Claude not to, and end the
+session.
+
+To undo it: in Git Bash there is nothing to undo, because the variable ended
+with that `claude` process. In PowerShell, run
+`Remove-Item Env:\DELIVERY_KIT_THRESHOLD_PCT`, or close the window. If you are
+unsure whether it is still set, `handoff:setup` reports any `DELIVERY_KIT_*`
+variable it finds, with its value.
 
 ## Uninstall
 
