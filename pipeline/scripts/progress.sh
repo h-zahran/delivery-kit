@@ -71,8 +71,9 @@ feature_ok() {
   [ -n "${1//./}" ]
 }
 need_feature() {
-  case "$1" in ''|*[!.]*) ;; *) die "feature name '$1' is only dots, which names a directory that already exists, not a run" ;; esac
-  feature_ok "$1" || die "feature name '$1' — letters, digits, dot, dash, underscore only"
+  feature_ok "$1" && return 0
+  case "$1" in ''|*[!.]*) die "feature name '$1' — letters, digits, dot, dash, underscore only" ;; esac
+  die "feature name '$1' is only dots, which names a directory that already exists, not a run"
 }
 
 state_file() { printf '%s/runs/%s/progress.json' "$STATE_ROOT" "$1"; }

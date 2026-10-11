@@ -366,18 +366,28 @@ setup() {
 # The CR bytes are counted with tr, never matched by grep: Git Bash grep
 # drops a CR from a pattern.
 @test "every write leaves the state file, the lock and the metrics file with no CR" {
-  local sf=.delivery-kit/runs/001-demo/progress.json f
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  # Checked after EACH write: a later write rewrites the whole file, so a
+  # check made only at the end would see the last writer alone.
+  nocr() {
+    [ -s "$1" ] || { echo "$1 was not written ($2)"; return 1; }
+    [ "$(LC_ALL=C tr -cd '\r' < "$1" | wc -c | tr -d ' ')" = 0 ] || { echo "$1 holds a CR after $2"; return 1; }
+  }
   bash "$PROG" init 001-demo b main web
+  nocr "$sf" init
+  nocr .delivery-kit/runs/001-demo/pipeline-run.json init
   bash "$PROG" phase-start 001-demo B
+  nocr "$sf" phase-start
   bash "$PROG" phase-done 001-demo B
+  nocr "$sf" phase-done
   bash "$PROG" commit-add 001-demo tests 0123456789abcdef0123456789abcdef01234567 "" ""
+  nocr "$sf" commit-add
   bash "$PROG" state-set 001-demo gates C '"x"'
+  nocr "$sf" state-set
   bash "$PROG" lock-take 001-demo session-one
+  nocr .delivery-kit/lock lock-take
   bash "$PROG" metrics 001-demo > /dev/null
-  for f in "$sf" .delivery-kit/lock .delivery-kit/runs/001-demo/pipeline-run.json; do
-    [ -s "$f" ] || { echo "$f was not written"; false; }
-    [ "$(LC_ALL=C tr -cd '\r' < "$f" | wc -c | tr -d ' ')" = 0 ] || { echo "$f holds a CR"; false; }
-  done
+  nocr .delivery-kit/runs/001-demo/pipeline-run.json metrics
 }
 
 # ---------------------------------------------------------------------------
@@ -1270,7 +1280,9 @@ $(fixture_heading 'Phase 9b: ')|T007"
   bash "$PROG" get 001-demo '.config.codeRoots[]' > out.txt
   [ "$(LC_ALL=C tr -cd '\r' < out.txt | wc -c | tr -d ' ')" = 0 ] || { echo "get printed a CR"; false; }
   [ "$(cat out.txt)" = "$(printf 'src\nlib')" ]
-  [ "$(bash "$PROG" get 001-demo config | jq -c .)" = '{"codeRoots":["src","lib"]}' ]
+  bash "$PROG" get 001-demo config > out.txt
+  [ "$(LC_ALL=C tr -cd '\r' < out.txt | wc -c | tr -d ' ')" = 0 ] || { echo "get printed a CR for a key"; false; }
+  [ "$(jq -c . out.txt)" = '{"codeRoots":["src","lib"]}' ]
   cmp before.json "$sf"
   run bash "$PROG" get 001-demo
   [ "$status" -ne 0 ]
@@ -1292,9 +1304,11 @@ $(fixture_heading 'Phase 9b: ')|T007"
   [ "$output" = ".delivery-kit/runs/001-demo/progress.json" ]
   [ -f "$M" ] || { echo "init made no metrics file"; false; }
   jq -e '.feature == "001-demo" and .current_phase == "preflight" and .commits.total == 0' "$M" > /dev/null
-  # A resume keeps what the orchestrator added: init does not rewrite it.
+  # A resume leaves an existing file alone, the keys the orchestrator added
+  # with it: init does not rewrite it, even after the state moved on.
   jq '.agents_dispatched = {F: 3}' "$M" > t.json; mv t.json "$M"
   cp "$M" kept.json
+  bash "$PROG" phase-start 001-demo C
   run --separate-stderr bash "$PROG" init 001-demo b main web
   [ "$status" -eq 0 ]
   [ "$output" = ".delivery-kit/runs/001-demo/progress.json" ]
