@@ -1882,3 +1882,23 @@ EOF
   [[ "$output" == *"writer=0"* ]]
   [[ "$output" == *"jq is not installed or cannot run"* ]]
 }
+
+@test "the hook's divergence-count command prints the length of the list it introduces" {
+  # Audit H13. A comment in handoff/hooks/context-guard.sh tells the reader to
+  # take the number of recorded divergences from a grep over the differential,
+  # and then lists them. The grep it named printed 4 for a list of 3, because a
+  # later divergence (5ff33c6) is anchored the same way. Run the command the
+  # comment actually gives and compare it with the numbered entries below it,
+  # and require scripts/context-guard/README.md to give the same command.
+  line="$(grep -nF -- "grep -cE '^run_shape " "$HOOK" || true)"
+  [ "$(printf '%s\n' "$line" | grep -c .)" -eq 1 ] || { echo "expected one divergence-count grep in the hook, got: $line"; false; }
+  pat="${line#*grep -cE \'}"
+  pat="${pat%%\'*}"
+  [ -n "$pat" ] || { echo "could not read the pattern from: $line"; false; }
+  counted="$(grep -cE -- "$pat" "$ROOT/scripts/context-guard/differential.sh" || true)"
+  listed="$(grep -cE -- '^#   [0-9]+\. ' "$HOOK")"
+  [ "$counted" -eq "$listed" ] || { echo "the comment's grep prints $counted for a list of $listed (pattern: $pat)"; false; }
+  readme_copy="$(tr -d '\r' < "$ROOT/scripts/context-guard/README.md")"
+  [[ "$readme_copy" == *"grep -cE '$pat' scripts/context-guard/differential.sh"* ]] \
+    || { echo "scripts/context-guard/README.md does not give the hook's command: grep -cE '$pat'"; false; }
+}
