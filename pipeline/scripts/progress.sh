@@ -9,8 +9,8 @@
 # lines, a heading and its task ids; the commit commands print the commit
 # id they recorded; --list prints paths, one per line; guide prints the
 # review guide and commit-list prints K's list; suite-key prints a key,
-# suite-record a verdict, and suite-lookup a record's path and a summary;
-# get prints the value it was asked for.
+# suite-record a verdict, suite-lookup a record's path and a summary,
+# tap-check one summary line, and get the value it was asked for.
 #
 # Everything this file writes lives under .delivery-kit/, and the commit
 # commands write git commits, never a path under it. The state directory is
@@ -61,7 +61,11 @@ on_exit() {
 trap on_exit EXIT
 usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check|abandon|get> <feature> [args]"; }
 
-command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
+# tap-check alone needs no jq: it reads a TAP file with awk, and the
+# repository's scripts/check-suite.sh calls it, which needs only bash and awk.
+if [ "${1:-}" != tap-check ]; then
+  command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
+fi
 
 # JQB is -b when this jq takes it, and empty when it does not. -b (binary
 # output) keeps a native Windows jq from ending every line with CR, and
@@ -2117,52 +2121,77 @@ cmd_pending_check() {
 # suite-key, suite-record and suite-lookup keep a full run of testCommand
 # per exact set of files, so J, N and a later run's F.5 can cite a GREEN
 # result on files that command already passed on instead of spending the run
-# again. A result is reused only when all three of these are what they were:
-#   files     every path git shows: each tracked path, with its index mode
-#             and whether it is still on disk, and each untracked path git
-#             does not ignore, except an untracked path under .delivery-kit/;
-#             every such file's bytes as they are on disk, unfiltered; and a
-#             tracked file's mode on disk, where git sees modes. A change
-#             committed, staged or only in the working tree counts the same:
-#             the key is the files, not the commit, so N can cite J's run on
-#             the files J then committed. An index entry marked
-#             assume-unchanged or skip-worktree hides its changes from git,
-#             a submodule's files and a nested repository's are not git's to
-#             list, and an unmerged path has no one entry, so any of these
-#             means no key.
-#   command   config.testCommand, exactly as the state file records it
-#   platform  uname -s and uname -m: the same files can pass on one system
-#             and fail on another
-# The key is git's hash of the three as one JSON object; the record repeats
-# them, and suite-lookup compares them too, never the file name alone.
-# Records live repository-wide, in .delivery-kit/suite-results/, so a later
-# run finds them. The verdict comes from the TAP, never from the exit code
-# alone; see TAP_AWK. What the key cannot see, a reuse assumes unchanged:
-# files git ignores, the environment and the tools' versions, an untracked
-# file's mode, a tracked file's mode where git ignores it (core.fileMode
-# false), and git's own records around the files — the commit, its history
-# and refs, and what is staged rather than only on disk. The TAP file and
-# the exit code are the caller's: suite-record judges what it is handed.
+# again. config.suiteReuse says what else the key covers:
+#   commit    (the default) the files, AND git's state around them: HEAD's
+#             commit id, and each tracked path's index mode and object id,
+#             so a staged change, a commit, an amended message or a moved
+#             branch is a change. A suite that reads git — a trailer in
+#             `git log -1`, staged bytes through `git show :path`, a range
+#             such as main...HEAD — is never told a result that does not
+#             hold. The price: N cannot cite J's run once K commits.
+#   files     the files alone: a change committed, staged or only in the
+#             working tree counts the same, so N can cite J's run on the
+#             files J then committed. For a suite that reads no git state.
+#   off       nothing is kept and nothing is reused.
+# The files, in either mode: every tracked path still on disk and every
+# untracked path git does not ignore, except an untracked path under
+# .delivery-kit/; every such file's bytes as they are on disk, unfiltered;
+# and its mode — a tracked file's mode on disk where git sees modes, else
+# its index mode, and 100644 for an untracked file. Under commit, a tracked
+# path missing from disk is named too. An index entry marked
+# assume-unchanged or skip-worktree hides its changes from git, a
+# submodule's files and a nested repository's are not git's to list, and an
+# unmerged path has no one entry, so any of these means no key. The key also
+# covers the mode, config.testCommand exactly as recorded, and the platform
+# (uname -s and uname -m): the same files can pass on one system and fail on
+# another. It is git's hash of these as one JSON object; the record repeats
+# them, and suite-lookup compares them too, never the file name alone, so a
+# record made under one mode is never reused under another. Records live
+# repository-wide, in .delivery-kit/suite-results/, so a later run finds
+# them. The verdict comes from the TAP, never from the exit code alone; see
+# TAP_AWK. What the key cannot see, a reuse assumes unchanged: files git
+# ignores, an empty directory, the environment and the tools' versions, an
+# untracked file's own mode, a tracked file's mode where git ignores it
+# (core.fileMode false), and a rename that changes only letter case where
+# the file system ignores case; under files, all of git's own records too.
+# The TAP file and the exit code are the caller's: suite-record judges what
+# it is handed.
 SUITE_DIR="$STATE_ROOT/suite-results"
 
-# suite_key <feature> [base] — sets SK_TREE, SK_BYTES, SK_CMD, SK_PLAT and
-# SK_KEY; returns 1 with the reason in SK_WHY when there is no key. With
-# base, the untracked files under the run's spec directory are left out:
-# the key of the files as they were before this feature, which F.5's
-# baseline may look up and nothing ever records.
+# suite_key <feature> [base] — sets SK_MODE, SK_TREE, SK_HEAD, SK_BYTES,
+# SK_CMD, SK_PLAT and SK_KEY; returns 1 with the reason in SK_WHY when there
+# is no key. With base, the untracked files under the run's spec directory
+# are left out: the key of the files as they were before this feature,
+# which F.5's baseline may look up and nothing ever records.
 suite_key() {
-  local sf spec
-  SK_WHY='' SK_KEY='' SK_LEAVE=''
+  local sf spec d top here
+  SK_WHY='' SK_KEY='' SK_LEAVE='' SK_HEAD=''
   sf="$(cmd_validate "$1")" || exit 1
   SK_CMD="$(jqs '.config.testCommand? | strings' "$sf")" || SK_CMD=''
   if [ -z "$SK_CMD" ]; then SK_WHY="config.testCommand is not recorded as a string in $sf"; return 1; fi
+  SK_MODE="$(jqs '.config.suiteReuse? | if . == null then "commit" elif type == "string" then . else "?" end' "$sf")" || SK_MODE='?'
+  case "$SK_MODE" in
+    commit|files) ;;
+    off) SK_WHY="config.suiteReuse is off: no suite result is kept or reused"; return 1 ;;
+    *) SK_WHY="config.suiteReuse in $sf is none of commit, files or off"; return 1 ;;
+  esac
   if [ "${2:-}" = base ]; then
     spec="$(jqs '.artifacts.spec? // "" | strings' "$sf")" || spec=''
-    if [ -z "$spec" ] || [ ! -f "$spec" ]; then SK_WHY="$sf records no spec file that exists (artifacts.spec: '$spec')"; return 1; fi
-    case "$spec" in */*) SK_LEAVE="$(dir_rel "${spec%/*}")" || die "could not place the spec directory" ;; esac
+    # No message names the spec's path: artifacts may record it absolute,
+    # and a full path can carry a user name into a public log.
+    if [ -z "$spec" ] || [ ! -f "$spec" ]; then SK_WHY="artifacts.spec in $sf names no spec file that exists"; return 1; fi
     # The top level as the spec directory would leave out every untracked
     # file, the feature's code with the rest.
+    case "$spec" in */*) d="${spec%/*}" ;; *) d=. ;; esac
+    [ -n "$d" ] || d=/
+    top="$(git rev-parse --show-toplevel)" || die "git rev-parse failed"
+    here="$(cd -- "$d" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || here=''
+    if [ "$here" != "$top" ]; then SK_WHY="artifacts.spec in $sf names a spec file outside this repository"; return 1; fi
+    SK_LEAVE="$(cd -- "$d" && git rev-parse --show-prefix)" || die "could not place the spec directory"
     if [ -z "$SK_LEAVE" ]; then SK_WHY="the spec file sits at the repository's top level, so there is no spec directory to leave out"; return 1; fi
+    case "$SK_LEAVE" in "$STATE_ROOT"/*)
+      SK_WHY="the spec file sits under $STATE_ROOT/, which is left out already, so there is no spec directory to leave out"; return 1 ;;
+    esac
   fi
   # This call's own scratch file: two calls at once must never truncate or
   # remove each other's, which would read as a clean answer.
@@ -2171,47 +2200,64 @@ suite_key() {
   rm -f "$SK_SCRATCH"
   SK_PLAT="$(uname -s) $(uname -m)"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  SK_KEY="$(jqs -n -c --arg b "$SK_BYTES" --arg c "$SK_CMD" --arg p "$SK_PLAT" \
-    '{files: $b, command: $c, platform: $p}' | git hash-object --stdin)" || die "could not hash the suite key"
+  SK_KEY="$(jqs -n -c --arg m "$SK_MODE" --arg h "$SK_HEAD" --arg b "$SK_BYTES" --arg c "$SK_CMD" --arg p "$SK_PLAT" \
+    '{mode: $m, head: $h, files: $b, command: $c, platform: $p}' | git hash-object --stdin)" || die "could not hash the suite key"
 }
 
-# SUITE_KEY_AWK reads four lists, the first three each ended by a line
-# holding only the byte 001, which no list can hold — git quotes a control
-# character in a path: the tracked paths missing from disk (ls-files -d),
-# the index (ls-files -s: mode, object, stage, a tab, the path), the
-# untracked paths, and diff-files' raw lines (old mode, new mode, objects,
-# status, a tab, the path). want=list prints one line a path — c, the index
-# mode, here or gone, the path; or o and the path — then m, the mode on disk
-# and the path for each tracked file whose mode on disk is not its index
-# mode: a file diff-files lists only because its time changed holds the same
-# pair, and must not move the key. want=paths prints the paths on disk, in
-# the order list names them, for hash-object. Either ends at the first entry
-# that means no key, its last line `!` and the reason. Every path stays as
-# git quoted it.
+# SUITE_KEY_AWK reads five lists, each but the last ended by a line holding
+# only the byte 001, which no list can hold — git quotes a control character
+# in a path: the tracked paths missing from disk (ls-files -d), the index
+# (ls-files -s: mode, object, stage, a tab, the path), the untracked paths,
+# diff-files' raw lines (old mode, new mode, objects, status, a tab, the
+# path), and the hashes of the files on disk. want=paths prints the paths
+# on disk, for hash-object, which answers in the same order; it stops at the
+# first entry that means no key, printing the byte 001 and the reason.
+# want=list pairs each path with its hash and prints one line a file, the
+# path, its mode and its hash, tab-separated — a tab in a path is quoted —
+# and m=commit adds the index mode and object id (or u for an untracked
+# file) and a line for each tracked path missing from disk. The mode is the
+# one on disk where diff-files reports one other than the index's — a file
+# listed only because its time changed holds the same pair — else the index
+# mode, and 100644 for an untracked file, so a file reads the same tracked
+# or untracked. The caller sorts the lines, so where a path sits in git's
+# lists does not move the key. Every path stays as git quoted it.
 # shellcheck disable=SC2016 # an awk program: its $ names are awk's
 SUITE_KEY_AWK='
   $0 == "\001" { part++; next }
   part == 0 { gone[$0] = 1; next }
   part == 1 {
-    mode = $1; stage = $3; p = $0; sub(/^[^\t]*\t/, "", p)
-    if (mode == "160000") { print "!the tree holds a submodule (" p ")"; exit }
-    if (stage != "0") { print "!the index holds an unmerged path (" p ")"; exit }
-    if (want == "list") print "c " mode " " ((p in gone) ? "gone" : "here") " " p
-    else if (!(p in gone)) print p
+    mode = $1; obj = $2; stage = $3; p = $0; sub(/^[^\t]*\t/, "", p)
+    if (mode == "160000") { print "\001the tree holds a submodule (" p ")"; bad = 1; exit }
+    if (stage != "0") { print "\001the index holds an unmerged path (" p ")"; bad = 1; exit }
+    if (p in gone) { if (m == "commit") G[++ng] = p "\tgone\ti " mode " " obj; next }
+    if (want == "paths") print p
+    else { P[++np] = p; M[np] = mode; I[np] = "i " mode " " obj }
     next
   }
   part == 2 {
-    if ($0 ~ /\/"?$/) { print "!an untracked directory holds a repository of its own (" $0 ")"; exit }
-    if (want == "list") print "o " $0; else print
+    if ($0 ~ /\/"?$/) { print "\001an untracked directory holds a repository of its own (" $0 ")"; bad = 1; exit }
+    if (want == "paths") print
+    else { P[++np] = $0; M[np] = "100644"; I[np] = "u" }
     next
   }
-  want == "list" { t = index($0, "\t"); split(substr($0, 1, t - 1), f, " "); if (f[1] != ":" f[2]) print "m " f[2] " " substr($0, t + 1) }'
+  part == 3 { t = index($0, "\t"); split(substr($0, 1, t - 1), f, " "); if (f[1] != ":" f[2]) dm[substr($0, t + 1)] = f[2]; next }
+  { H[++nh] = $0 }
+  END {
+    if (bad || want != "list") exit
+    if (nh != np) { print "\001the files and their hashes do not pair up"; exit }
+    for (i = 1; i <= np; i++) {
+      line = P[i] "\t" ((P[i] in dm) ? dm[P[i]] : M[i]) "\t" H[i]
+      if (m == "commit") line = line "\t" I[i]
+      print line
+    }
+    for (i = 1; i <= ng; i++) print G[i]
+  }'
 
-# suite_key_check <scratch file> — sets SK_TREE and SK_BYTES; returns 1 with
-# the reason in SK_WHY when the files have no key. Dies, never answers, when
-# a check cannot be made.
+# suite_key_check <scratch file> — sets SK_TREE, SK_HEAD and SK_BYTES;
+# returns 1 with the reason in SK_WHY when the files have no key. Dies,
+# never answers, when a check cannot be made.
 suite_key_check() {
-  local scratch="$1" rc entries hashes
+  local scratch="$1" rc paths hashes entries
   local leave=()
   # The tag letters, spelled out rather than as a range a locale can widen:
   # lower case is assume-unchanged, S is skip-worktree. Read from a file, never
@@ -2228,36 +2274,43 @@ suite_key_check() {
   esac
   # The untracked list leaves out the state directory, and with base the
   # spec directory, by pathspec: literal, so no character in either is read
-  # as a pattern, and before quoting, so an odd name cannot slip past.
+  # as a pattern, and before quoting, so an odd name cannot slip past. The
+  # trailing slash keeps a sibling such as .delivery-kitX/ in.
   if [ -n "$SK_LEAVE" ]; then leave=(":(exclude,literal)$SK_LEAVE"); fi
   { git --no-optional-locks -c core.quotePath=true ls-files -d \
     && printf '\001\n' \
     && git --no-optional-locks -c core.quotePath=true ls-files -s \
     && printf '\001\n' \
     && git --no-optional-locks -c core.quotePath=true ls-files -o --exclude-standard -- . \
-         ":(exclude,literal)$STATE_ROOT" ${leave[@]+"${leave[@]}"} \
+         ":(exclude,literal)$STATE_ROOT/" ${leave[@]+"${leave[@]}"} \
     && printf '\001\n' \
-    && git --no-optional-locks -c core.quotePath=true diff-files --raw; } > "$scratch" || die "git ls-files failed"
-  entries="$(awk -v BINMODE=3 -v want=list "$SUITE_KEY_AWK" < "$scratch")" || die "could not read the index entries"
-  case "$entries" in '!'*|*$'\n!'*) entries="${entries##*$'\n'}"; SK_WHY="${entries#!}"; return 1 ;; esac
+    && git --no-optional-locks -c core.quotePath=true diff-files --raw \
+    && printf '\001\n'; } > "$scratch" || die "git ls-files failed"
+  paths="$(awk -v BINMODE=3 -v want=paths "$SUITE_KEY_AWK" < "$scratch")" || die "could not read the index entries"
+  case "$paths" in *$'\001'*) SK_WHY="${paths##*$'\001'}"; return 1 ;; esac
   SK_TREE="$(git rev-parse --verify --quiet 'HEAD^{tree}')" || { SK_WHY="HEAD names no commit yet"; return 1; }
+  if [ "$SK_MODE" = commit ]; then SK_HEAD="$(git rev-parse --verify --quiet HEAD)" || die "git rev-parse failed"; fi
   # The bytes each file holds on disk, read with no filter and no line-ending
   # conversion. git status compares what a file CLEANS to, and trusts a
   # file's size and time, so a file can hold other bytes than its blob and
   # still look unchanged; the tests read the bytes. ls-files quotes an odd
-  # path and hash-object unquotes it, so every name survives the trip. The
-  # hashes come back in the order list names the paths on disk, so the two
-  # lists together say which bytes each path holds.
-  hashes="$(awk -v BINMODE=3 -v want=paths "$SUITE_KEY_AWK" < "$scratch" | git hash-object --no-filters --stdin-paths)" \
-    || die "could not read the files' bytes"
-  SK_BYTES="$(printf '%s\n--\n%s\n' "$entries" "$hashes" | git hash-object --stdin)" \
-    || die "could not hash the files' bytes"
+  # path and hash-object unquotes it, so every name survives the trip.
+  hashes=''
+  if [ -n "$paths" ]; then
+    hashes="$(printf '%s\n' "$paths" | git hash-object --no-filters --stdin-paths)" || die "could not read the files' bytes"
+  fi
+  [ -z "$hashes" ] || printf '%s\n' "$hashes" >> "$scratch" || die "could not write the scratch file"
+  entries="$(awk -v BINMODE=3 -v want=list -v m="$SK_MODE" "$SUITE_KEY_AWK" < "$scratch" | LC_ALL=C sort)" \
+    || die "could not read the index entries"
+  case "$entries" in *$'\001'*) die "${entries##*$'\001'}" ;; esac
+  SK_BYTES="$(printf '%s\n' "$entries" | git hash-object --stdin)" || die "could not hash the files' bytes"
 }
 
-# TAP_AWK judges a TAP file, and is the only copy of these rules: tap-check
-# prints its verdict, suite-record keeps it, and the delivery-kit
-# repository's scripts/check-suite.sh, which does not ship with this plugin,
-# calls tap-check. It prints one line: seven counts — non-blank lines, plan
+# TAP_AWK judges a TAP file, one copy of these rules for this plugin and the
+# delivery-kit repository's quickstarts: tap-check prints its verdict,
+# suite-record keeps it, and the repository's scripts/check-suite.sh, which
+# does not ship with this plugin, calls tap-check. (The repository's CI reads
+# its own shards' TAP with checks of its own.) It prints one line: seven counts — non-blank lines, plan
 # lines, the plan's count when the FIRST non-blank line is a plan (else 0),
 # ok lines, skips among them, not ok lines, and non-TAP lines — then OK, or
 # the first rule the file breaks. A non-TAP line is one that is neither TAP
@@ -2353,13 +2406,13 @@ cmd_suite_key() {
 # result on a set of files is the one that stands, and lookup never reuses
 # a red one.
 cmd_suite_record() {
-  local key="${2:-}" tap="${3:-}" rc="${4:-}" verdict out tmp
+  local key="${2:-}" tap="${3:-}" rc="${4:-}" verdict out tmp jqb=-b
   [ $# -eq 4 ] || die "usage: suite-record <feature> <key> <tap-file> <rc>"
   case "$rc" in [0-9]|[0-9][0-9]|[0-9][0-9][0-9]) ;; *) die "the exit code '$rc' is not a number from 0 to 999" ;; esac
   if [ ! -f "$tap" ] || [ ! -r "$tap" ]; then die "the TAP file does not exist or cannot be read"; fi
   need_git_top
   if ! suite_key "$1"; then die "nothing recorded — no suite key now: $SK_WHY"; fi
-  [ "$key" = "$SK_KEY" ] || die "nothing recorded — the tree, the command or the platform is not what it was when the key was taken"
+  [ "$key" = "$SK_KEY" ] || die "nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken"
   tap_judge "$tap"
   verdict=red
   if [ "$rc" -eq 0 ] && [ -z "$TJ_MSG" ]; then verdict=green; fi
@@ -2369,14 +2422,17 @@ cmd_suite_record() {
   # one file.
   tmp="$(mktemp "$SUITE_DIR/.record.XXXXXX")" || die "could not make a temporary record"
   # -b: a native Windows jq writes no CR, so a record is the same bytes on
-  # every system. tree is HEAD's tree when the result was recorded, kept to
-  # be read, never compared.
+  # every system. jq 1.6 has no -b: where the dispatch probed jq and set JQB
+  # ("-b", or empty when jq lacks it), that is used; unset, -b as before.
+  # tree is HEAD's tree when the result was recorded, kept to be read, never
+  # compared.
+  if [ "${JQB+set}" = set ]; then jqb="$JQB"; fi
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  if ! jq ${JQB:+"$JQB"} -n --arg key "$SK_KEY" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
+  if ! jq ${jqb:+"$jqb"} -n --arg key "$SK_KEY" --arg mode "$SK_MODE" --arg head "$SK_HEAD" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
        --arg verdict "$verdict" --arg feature "$1" --arg tap "$tap" --arg at "$(now)" \
        --argjson plan "$TJ_PLAN" --argjson ok "$TJ_OK" --argjson skipped "$TJ_SKIP" --argjson notOk "$TJ_NOT" \
        --argjson nonTap "$TJ_STRAY" --argjson rc "$((10#$rc))" \
-       '{key: $key, tree: $tree, bytes: $bytes, command: $command, platform: $platform, verdict: $verdict,
+       '{key: $key, mode: $mode, head: $head, tree: $tree, bytes: $bytes, command: $command, platform: $platform, verdict: $verdict,
          plan: $plan, ok: $ok, skipped: $skipped, notOk: $notOk, nonTap: $nonTap, rc: $rc,
          recordedAt: $at, feature: $feature, tap: $tap}' > "$tmp"; then
     rm -f "$tmp"; die "the suite record could not be written"
@@ -2399,7 +2455,7 @@ cmd_suite_record() {
 SUITE_LOOKUP_JQ='
   if length != 1 or (.[0] | type) != "object" then "unreadable"
   else .[0]
-  | if .key != $k or .bytes != $b or .command != $c or .platform != $p then "another"
+  | if .key != $k or .mode != $mo or .head != $h or .bytes != $b or .command != $c or .platform != $p then "another"
     elif .verdict == "green"
          and ([.plan, .ok, .skipped, .notOk, .nonTap, .rc] | all(type == "number" and . == floor and . >= 0))
          and .rc == 0 and .notOk == 0 and .nonTap == 0 and .skipped == 0 and .plan >= 1 and .ok == .plan
@@ -2412,14 +2468,14 @@ SUITE_LOOKUP_JQ='
 suite_lookup_one() {
   local rec v
   rec="$SUITE_DIR/$SK_KEY.json"
-  if [ ! -f "$rec" ]; then LK_WHY="none is recorded for this tree, command and platform"; return 1; fi
-  v="$(jqs -s --arg k "$SK_KEY" --arg b "$SK_BYTES" --arg c "$SK_CMD" --arg p "$SK_PLAT" "$SUITE_LOOKUP_JQ" "$rec" 2>/dev/null)" || v=unreadable
+  if [ ! -f "$rec" ]; then LK_WHY="none is recorded for these files, command and platform under suiteReuse $SK_MODE"; return 1; fi
+  v="$(jqs -s --arg k "$SK_KEY" --arg mo "$SK_MODE" --arg h "$SK_HEAD" --arg b "$SK_BYTES" --arg c "$SK_CMD" --arg p "$SK_PLAT" "$SUITE_LOOKUP_JQ" "$rec" 2>/dev/null)" || v=unreadable
   case "${v%%$'\x1f'*}" in
     green)   printf '%s\n%s' "$rec" "${v#*$'\x1f'}"
              if [ -n "$SK_LEAVE" ]; then printf ' — for these files without the untracked %s' "$SK_LEAVE"; fi
              printf '\n'; return 0 ;;
-    red)     LK_WHY="the result recorded for this tree is red, and a red result is never reused: run the suite" ;;
-    another) LK_WHY="$rec records another tree, command or platform" ;;
+    red)     LK_WHY="the result recorded for these files is red, and a red result is never reused: run the suite" ;;
+    another) LK_WHY="$rec records other files, another command, platform or mode" ;;
     *)       LK_WHY="$rec is not one readable record" ;;
   esac
   return 1
@@ -2439,8 +2495,9 @@ cmd_suite_lookup() {
 }
 
 # tap-check takes a TAP file, not a feature, so it is dispatched before the
-# feature name is checked.
-if [ "${1:-}" = tap-check ]; then shift; cmd_tap_check "$@"; exit 0; fi
+# feature name is checked. It makes no file, so the exit trap, whose rm is
+# one more tool than bash and awk, is dropped first.
+if [ "${1:-}" = tap-check ]; then trap - EXIT; shift; cmd_tap_check "$@"; exit 0; fi
 cmd="${1:-}"; [ $# -ge 2 ] || usage
 feature_arg="$2"
 need_feature "$feature_arg"

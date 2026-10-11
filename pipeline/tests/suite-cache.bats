@@ -112,6 +112,13 @@ verdict_is() {
 
 records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l | tr -d ' '; }
 
+# reuse <commit|files|off> [<feature>] — config.suiteReuse for the run.
+reuse() {
+  local sf=".delivery-kit/runs/${2:-$F}/progress.json"
+  jq --arg m "$1" '.config.suiteReuse = $m' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+}
+
 @test "suite-key prints one key on a clean tree, the same key each time" {
   repo
   key
@@ -120,8 +127,9 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   [ "$K" = "$first" ]
 }
 
-@test "a changed tracked file changes the key, staged or not, and committing it does not" {
+@test "under files, a changed tracked file changes the key, staged or not, and committing it does not" {
   repo
+  reuse files
   key
   local clean="$K"
   printf 'changed\n' >> README.md
@@ -139,10 +147,30 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   git revert --no-edit HEAD > /dev/null
   key
   [ "$K" = "$clean" ]
+}
+
+@test "under commit, the default, staging a change and committing it each change the key" {
+  repo
+  key
+  local clean="$K"
+  printf 'changed\n' >> README.md
+  key
+  local dirty="$K"
+  [ "$dirty" != "$clean" ]
+  git add README.md
+  key
+  local staged="$K"
+  [ "$staged" != "$dirty" ] || { echo "under commit, staging a change left the key as it was"; false; }
+  git commit -q -m changed
+  key
+  [ "$K" != "$staged" ] || { echo "under commit, a commit left the key as it was"; false; }
   # Staged only: the file is still on disk, but now untracked.
+  git revert --no-edit HEAD > /dev/null
+  key
+  local back="$K"
   git rm -q --cached src/keep.sh
   key
-  [ "$K" != "$clean" ] || { echo "a file that left the index left the key as it was"; false; }
+  [ "$K" != "$back" ] || { echo "under commit, a file that left the index left the key as it was"; false; }
 }
 
 @test "an untracked file changes the key, by its name and its bytes, but an ignored one is not seen" {
@@ -230,16 +258,34 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   git update-index --chmod=-x src/keep.sh
   key
   [ "$K" = "$clean" ]
-  # The mode on disk, where the file system keeps one: Windows does not, so
-  # there git sees no change, and the key must not move either.
-  git config core.fileMode true
-  chmod +x src/keep.sh
+}
+
+@test "the mode on disk moves the key where git sees it, on every system" {
+  repo
+  reuse files
+  # 100755 in the index, a plain file on disk: with core.fileMode false git
+  # reads no mode on disk, with true it reports the pair 100755 100644.
+  git update-index --chmod=+x src/keep.sh
+  git commit -q -m 'keep.sh executable in the index'
+  chmod -x src/keep.sh
+  git config core.fileMode false
   key
-  if git diff-files --raw -- src/keep.sh | grep -q -- ' 100755 '; then
-    [ "$K" != "$clean" ] || { echo "a mode change on disk left the key as it was"; false; }
-  else
-    [ "$K" = "$clean" ] || { echo "a mode change git cannot see moved the key"; false; }
-  fi
+  local off="$K"
+  git config core.fileMode true
+  git diff-files --raw -- src/keep.sh > "$BATS_TEST_TMPDIR/df.txt"
+  grep -q -- '^:100755 100644 ' "$BATS_TEST_TMPDIR/df.txt" || { echo "git sees no mode pair: $(cat "$BATS_TEST_TMPDIR/df.txt")"; false; }
+  key
+  [ "$K" != "$off" ] || { echo "a mode git sees on disk left the key as it was"; false; }
+}
+
+@test "a sibling of the state directory with the same prefix is in the key" {
+  repo
+  key
+  local clean="$K"
+  mkdir -p .delivery-kitX
+  printf 'x\n' > .delivery-kitX/f.txt
+  key
+  [ "$K" != "$clean" ] || { echo ".delivery-kitX/ was left out with .delivery-kit/"; false; }
 }
 
 @test "suite-key leaves .delivery-kit/ out of the tree it judges" {
@@ -283,12 +329,22 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   key
   [ "$K" != "$base" ]
   local changed="$K"
-  # The same tree reached by another commit has the same key: the key is the
-  # tree, not the commit.
+  # The same files reached by another commit: under commit, another key;
+  # under files, the same key.
   git revert --no-edit HEAD > /dev/null
   key
-  [ "$K" = "$base" ]
+  [ "$K" != "$base" ] || { echo "under commit, another commit kept the key"; false; }
   [ "$changed" != "$base" ]
+  reuse files
+  key
+  local fbase="$K"
+  git revert --no-edit HEAD > /dev/null
+  git revert --no-edit HEAD > /dev/null
+  key
+  [ "$K" = "$fbase" ] || { echo "under files, the same files under another commit moved the key"; false; }
+  reuse commit
+  key
+  base="$K"
   # Another command: another key.
   jq '.config.testCommand = "run-the-suite --fast"' "$SF" > t.json && mv t.json "$SF"
   key
@@ -415,18 +471,19 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
 
 @test "suite-lookup finds nothing before a record, or after a change, committed or not" {
   repo
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
   verdict_is green 0 '1..1' 'ok 1 one'
   printf 'dirty\n' >> README.md
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
   git commit -q -am 'a change'
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
   git update-index --assume-unchanged README.md
   refuses "no reusable result — no suite key" suite-lookup "$F"
 }
 
-@test "a green result on uncommitted work is reused after the work is committed" {
+@test "under files, a green result on uncommitted work is reused after the work is committed" {
   repo
+  reuse files
   printf 'fixed\n' >> src/keep.sh
   verdict_is green 0 '1..1' 'ok 1 one'
   local rec=".delivery-kit/suite-results/$K.json"
@@ -438,7 +495,93 @@ records() { find .delivery-kit/suite-results -name '*.json' 2>/dev/null | wc -l 
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
   # One byte more, and it is another set of files.
   printf 'x' >> src/keep.sh
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
+}
+
+@test "under files, a new untracked file and an unstaged deletion read the same once committed" {
+  repo
+  reuse files
+  printf 'new test\n' > src/new.sh
+  rm README.md
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json"
+  git add src/new.sh README.md
+  git commit -q -m 'J adds a test file and deletes another'
+  runs suite-lookup "$F"
+  [ "$(sed -n 1p "$OUT")" = "$rec" ] || { echo "J's run on the same files was not reused after the commit"; false; }
+}
+
+@test "under commit, a green result on uncommitted work is not reused after the work is committed" {
+  repo
+  printf 'fixed\n' >> src/keep.sh
+  verdict_is green 0 '1..1' 'ok 1 one'
+  runs suite-lookup "$F"
+  git commit -q -am 'J late commit'
+  refuses "none is recorded for these files, command and platform under suiteReuse commit" suite-lookup "$F"
+}
+
+# The git state a suite can read, changed with the files left alone: a
+# commit message (a trailer the suite checks in `git log -1`), staged bytes
+# (a suite comparing `git show :path` with the file), and HEAD moved past
+# the base (a branch-range check over main...HEAD).
+@test "under commit a changed commit message, staged bytes or a moved HEAD each misses" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  git commit -q --amend -m 'base, with a trailer the suite refuses'
+  refuses "none is recorded" suite-lookup "$F"
+  verdict_is green 0 '1..1' 'ok 1 one'
+  git update-index --cacheinfo "100644,$(printf 'staged\n' | git hash-object -w --stdin),README.md"
+  [ "$(cat README.md)" = base ]
+  refuses "none is recorded" suite-lookup "$F"
+  git reset -q
+  runs suite-lookup "$F"
+  git commit -q --allow-empty -m 'HEAD past main'
+  refuses "none is recorded" suite-lookup "$F"
+}
+
+@test "under files the same three git changes reuse the result" {
+  repo
+  reuse files
+  verdict_is green 0 '1..1' 'ok 1 one'
+  git commit -q --amend -m 'base, with a trailer the suite refuses'
+  runs suite-lookup "$F"
+  git update-index --cacheinfo "100644,$(printf 'staged\n' | git hash-object -w --stdin),README.md"
+  runs suite-lookup "$F"
+  git reset -q
+  git commit -q --allow-empty -m 'HEAD past main'
+  runs suite-lookup "$F"
+}
+
+@test "with suiteReuse off nothing is kept or reused, and a bad value has no key" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local k="$K"
+  reuse off
+  refuses "config.suiteReuse is off" suite-lookup "$F"
+  refuses "config.suiteReuse is off" suite-key "$F"
+  refuses "nothing recorded — no suite key now: config.suiteReuse is off" suite-record "$F" "$k" "$TAP" 0
+  reuse sometimes
+  refuses "is none of commit, files or off" suite-key "$F"
+  jq '.config.suiteReuse = true' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  refuses "is none of commit, files or off" suite-key "$F"
+  jq '.config.suiteReuse = null' "$SF" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  runs suite-lookup "$F"
+}
+
+@test "a record made under one mode is never reused under another" {
+  repo
+  reuse files
+  verdict_is green 0 '1..1' 'ok 1 one'
+  local rec=".delivery-kit/suite-results/$K.json"
+  reuse commit
+  refuses "none is recorded" suite-lookup "$F"
+  key
+  # Copied under the other mode's key, its mode and head still say files.
+  cp "$rec" ".delivery-kit/suite-results/$K.json"
+  jq --arg k "$K" '.key = $k' "$rec" > ".delivery-kit/suite-results/$K.json"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
+  jq --arg k "$K" --arg h "$(git rev-parse HEAD)" '.key = $k | .head = $h' "$rec" > ".delivery-kit/suite-results/$K.json"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
 }
 
 @test "a fresh run reuses a green result an earlier run recorded on the same uncommitted files" {
@@ -470,7 +613,7 @@ spec() {
   state 002-next
   spec 002-next specs/002-next
   # The spec files are bytes the suite could read: these files have no record.
-  refuses "none is recorded for this tree, command and platform" suite-lookup 002-next
+  refuses "none is recorded for these files, command and platform" suite-lookup 002-next
   runs suite-lookup 002-next --base
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
   [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F — for these files without the untracked specs/002-next/" ]] \
@@ -484,11 +627,38 @@ spec() {
   spec 002-next specs/002-next
   # Any other change misses: an untracked file elsewhere, a tracked change.
   printf 'other\n' > notes.txt
-  refuses "and without the untracked specs/002-next/, none is recorded for this tree, command and platform" suite-lookup 002-next --base
+  refuses "and without the untracked specs/002-next/, none is recorded for these files, command and platform" suite-lookup 002-next --base
   rm notes.txt
   printf 'x\n' >> README.md
   refuses "none is recorded" suite-lookup 002-next --base
   git checkout -q -- README.md
+}
+
+@test "--base does not leave out a sibling spec directory with the same prefix" {
+  repo
+  verdict_is green 0 '1..1' 'ok 1 one'
+  state 002-next
+  spec 002-next specs/002-next
+  mkdir -p specs/002-nextX
+  printf 'x\n' > specs/002-nextX/x.txt
+  refuses "and without the untracked specs/002-next/, none is recorded" suite-lookup 002-next --base
+}
+
+@test "--base refuses a spec under .delivery-kit/ or outside the repository, naming no path" {
+  repo
+  state 002-next
+  spec 002-next .delivery-kit/specs
+  refuses "sits under .delivery-kit/, which is left out already" suite-lookup 002-next --base
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere"
+  printf '# spec\n' > "$BATS_TEST_TMPDIR/elsewhere/spec.md"
+  jq --arg s "$BATS_TEST_TMPDIR/elsewhere/spec.md" '.artifacts.spec = $s' .delivery-kit/runs/002-next/progress.json > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" .delivery-kit/runs/002-next/progress.json
+  refuses "names a spec file outside this repository" suite-lookup 002-next --base
+  [[ "$(cat "$ERR")" != *"$BATS_TEST_TMPDIR"* ]] || { echo "the refusal printed a path: $(cat "$ERR")"; false; }
+  jq '.artifacts.spec = "/no/such/spec.md"' .delivery-kit/runs/002-next/progress.json > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" .delivery-kit/runs/002-next/progress.json
+  refuses "names no spec file that exists" suite-lookup 002-next --base
+  [[ "$(cat "$ERR")" != *"/no/such"* ]] || { echo "the refusal printed a path: $(cat "$ERR")"; false; }
 }
 
 @test "--base does not leave out a spec directory already tracked" {
@@ -532,11 +702,11 @@ spec() {
   repo
   verdict_is green 0 '1..1' 'ok 1 one'
   state 002-other "run-the-suite --other"
-  refuses "none is recorded for this tree, command and platform" suite-lookup 002-other
+  refuses "none is recorded for these files, command and platform" suite-lookup 002-other
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   printf '#!/bin/sh\necho OtherOS\n' > "$BATS_TEST_TMPDIR/bin/uname"
   chmod +x "$BATS_TEST_TMPDIR/bin/uname"
-  PATH="$BATS_TEST_TMPDIR/bin:$PATH" refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  PATH="$BATS_TEST_TMPDIR/bin:$PATH" refuses "none is recorded for these files, command and platform" suite-lookup "$F"
   runs suite-lookup "$F"
 }
 
@@ -550,7 +720,7 @@ spec() {
   jq '.ok = 3 | .rc = "0"' "$rec" > t.json && mv t.json "$rec"
   refuses "is red" suite-lookup "$F"
   jq '.rc = 0 | .command = "something else"' "$rec" > t.json && mv t.json "$rec"
-  refuses "records another tree, command or platform" suite-lookup "$F"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
   printf 'not json' > "$rec"
   refuses "is not one readable record" suite-lookup "$F"
 }
@@ -597,7 +767,7 @@ spec() {
   printf 'base\r\n' > README.md
   git add README.md
   [ -z "$(git status --porcelain -- README.md)" ]
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
 }
 
 @test "the key sees a file's bytes when a clean filter hides them from git status" {
@@ -612,7 +782,7 @@ spec() {
   printf 'v=999\n' > README.md
   git add README.md
   [ -z "$(git status --porcelain -- README.md)" ]
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
 }
 
 @test "the key sees a file's bytes when its size and time are what the index holds" {
@@ -627,7 +797,7 @@ spec() {
   touch -d '2020-01-02 03:04:05' README.md
   [ -z "$(git status --porcelain -- README.md)" ]
   [ "$(cat README.md)" = case ]
-  refuses "none is recorded for this tree, command and platform" suite-lookup "$F"
+  refuses "none is recorded for these files, command and platform" suite-lookup "$F"
 }
 
 @test "a test number repeated, missing or out of range is red; the order is not judged" {
@@ -653,10 +823,15 @@ spec() {
   jq '.ok = "1"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
   refuses "is red" suite-lookup "$F"
   jq '.bytes = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
-  refuses "records another tree, command or platform" suite-lookup "$F"
-  # The commit's tree is kept to be read, never compared: the key is the files.
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
+  # The commit's tree is kept to be read, never compared; the mode and,
+  # under commit, HEAD's commit id are.
   jq '.tree = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
   runs suite-lookup "$F"
+  jq '.mode = "files"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
+  jq '.head = "0000"' "$BATS_TEST_TMPDIR/green.json" > "$rec"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
   # A green that counts a skip is not a green run's.
   jq '.skipped = 1' "$BATS_TEST_TMPDIR/green.json" > "$rec"
   refuses "is red" suite-lookup "$F"
@@ -734,9 +909,9 @@ fake_uname() {
   local rec=".delivery-kit/suite-results/$K.json" o="$BATS_TEST_TMPDIR/orig.json"
   cp "$rec" "$o"
   jq '.platform = "OtherOS x"' "$o" > "$rec"
-  refuses "records another tree, command or platform" suite-lookup "$F"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
   jq '.key = "0000000000000000000000000000000000000000"' "$o" > "$rec"
-  refuses "records another tree, command or platform" suite-lookup "$F"
+  refuses "records other files, another command, platform or mode" suite-lookup "$F"
 }
 
 @test "suite-lookup refuses a hand-edited green whose counts are not a green run's" {
@@ -824,6 +999,7 @@ tap_no() {
   printf '1..1\nok 1 a\nok 2 b\n' > "$t";               tap_no "ok count 2, expected 1" "$t"
   printf '1..2\nok 1 a\nok 1 a\n' > "$t";               tap_no "1 test number(s) missing, repeated or outside the plan" "$t"
   printf '1..2\nok 1 a\nok 2 b\n1..2\n' > "$t";         tap_no "a second plan line" "$t"
+  printf '1..2\nok 1 a\nnot ok 2 b # TODO later\n' > "$t"; tap_no "1 not ok" "$t"
   printf '\n\n' > "$t";                                 tap_no "the TAP file is empty" "$t"
 }
 
@@ -835,6 +1011,26 @@ tap_no() {
   printf '1..2\nok 1 a\nok 2 b\n' > "$t"
   tap_no "the first non-blank line is not the plan line 1..3" "$t" 3
   tap_no "the first non-blank line is not the plan line 1..1" "$t" 1
+  # The plan is compared as text: 1..02 is not the plan line 1..2.
+  printf '1..02\nok 1 a\nok 2 b\n' > "$t"
+  tap_no "the first non-blank line is not the plan line 1..2" "$t" 2
+}
+
+@test "tap-check, and check-suite.sh through it, need only bash and awk" {
+  t="$BATS_TEST_TMPDIR/run.tap"
+  printf '1..1\nok 1 a\n' > "$t"
+  local bin="$BATS_TEST_TMPDIR/onlyawk"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v awk)" > "$bin/awk"
+  chmod +x "$bin/awk"
+  run env PATH="$bin" "$BASH" "$PROG" tap-check "$t"
+  [ "$status" -eq 0 ] || { echo "tap-check needed more than bash and awk: $output"; false; }
+  [ "$output" = 'suite ok: 1..1, 1 ok, 0 skipped, 0 not ok, 0 non-TAP' ] || { echo "printed: $output"; false; }
+  local cs="$ROOT/scripts/check-suite.sh"
+  if [ -f "$cs" ] && [ -z "${PROGRESS_SH_UNDER_TEST:-}" ]; then
+    run env PATH="$bin" "$BASH" "$cs" 1 "$t"
+    [ "$status" -eq 0 ] || { echo "check-suite.sh needed more than bash and awk: $output"; false; }
+  fi
 }
 
 @test "tap-check refuses bad arguments and a file it cannot read, never naming the file" {
@@ -872,9 +1068,11 @@ tap_no() {
   # nothing itself: a second copy of the rules is how the two drifted.
   local cs="$ROOT/scripts/check-suite.sh"
   if [ -f "$cs" ]; then
-    grep -q -- 'tap-check' "$cs" || { echo "check-suite.sh no longer calls tap-check"; false; }
-    if grep -n -E -- '(^|[^[:alnum:]_])awk([^[:alnum:]_]|$)' "$cs" | grep -v -E -- '^[0-9]+:[[:space:]]*#' > "$BATS_TEST_TMPDIR/awk.txt"; then
-      echo "check-suite.sh runs awk itself: $(cat "$BATS_TEST_TMPDIR/awk.txt")"; false
+    # Code only: a comment can name tap-check, or awk, without running it.
+    grep -v -E -- '^[[:space:]]*#' "$cs" | sed -e 's/[[:space:]]#.*$//' > "$BATS_TEST_TMPDIR/code.txt"
+    grep -q -- 'tap-check' "$BATS_TEST_TMPDIR/code.txt" || { echo "check-suite.sh no longer calls tap-check"; false; }
+    if grep -n -E -- '(^|[^[:alnum:]_])(g|m|n)?awk([^[:alnum:]_]|$)' "$BATS_TEST_TMPDIR/code.txt" > "$BATS_TEST_TMPDIR/awk.txt"; then
+      echo "check-suite.sh runs an awk itself: $(cat "$BATS_TEST_TMPDIR/awk.txt")"; false
     fi
   fi
 }
