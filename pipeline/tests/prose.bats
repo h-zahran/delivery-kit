@@ -111,7 +111,7 @@ PARTS
   pkg="$(tr -d '\r' < "$PKG" | tr '\n' ' ' | tr -s ' ')"
   grep -qF 'Redaction binds every part: where a source holds a credential, an endpoint or a token, the package carries the fact and its location, never the value.' <<<"$pkg" \
     || { echo "the package redaction rule altered"; false; }
-  grep -qF 'adds a fourth imperative of its own: no `git stash`.' <<<"$pkg" \
+  grep -qF 'no `git checkout --` on tracked files, no `git stash`. Stash hides work as surely as the others discard it' <<<"$pkg" \
     || { echo "the package stash ban altered"; false; }
   flat="$(tr '\n' ' ' <<<"$g" | tr -s ' ')"
   grep -qF 'The package carries seven parts. Read `${CLAUDE_PLUGIN_ROOT}/docs/handoff-package.md` before writing it, and write it exactly as that page says: every part present by name, its redaction rule and its destructive-git rule included.' <<<"$flat" \
