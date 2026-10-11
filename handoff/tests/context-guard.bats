@@ -1883,6 +1883,76 @@ EOF
   [[ "$output" == *"jq is not installed or cannot run"* ]]
 }
 
+# install_confirm_section -> prints the "Confirm it is working" section of
+# handoff/docs/install.md, from its heading to the next level-two heading, with
+# CRs removed. Empty when the heading is gone, which each caller refuses.
+install_confirm_section() {
+  tr -d '\r' < "$HANDOFF/docs/install.md" \
+    | awk '/^## / { inside = ($0 == "## Confirm it is working") ; next } inside { print }'
+}
+
+@test "install.md's check never asks for a .delivery-kit.json to be saved and deleted" {
+  # Audit H4. The check used to say: save this as `.delivery-kit.json` in the
+  # repository root, run a tool call, then delete the file. A repository that
+  # already had one (handoff:setup writes the pipeline's keys there) lost it:
+  # overwritten, then deleted. The check is now an environment override, which
+  # touches no file. Pin the absence of both halves of the old instruction.
+  section="$(install_confirm_section)"
+  [ -n "$section" ] || { echo "no '## Confirm it is working' section in handoff/docs/install.md"; false; }
+  if [[ "$section" == *"Save that as"* ]] || [[ "$section" == *"delete the file"* ]]; then
+    echo "the check tells the user to save a config file and delete it again:"
+    echo "$section"
+    false
+  fi
+  [[ "$section" == *'```json'* ]] && { echo "the check carries a JSON config block again"; false; }
+  true
+}
+
+@test "install.md's environment override makes the guard fire over a repository config" {
+  # Audit H4, the behaviour half. The assignment is READ FROM THE DOC, both
+  # the Git Bash and the PowerShell form, so renaming the variable or changing
+  # the value in the doc is judged by the hook itself rather than by a copy
+  # typed into this test. The repository config sets thresholdPct 90, which
+  # the override must beat, and the file must come out byte-identical.
+  section="$(install_confirm_section)"
+  [ -n "$section" ] || { echo "no '## Confirm it is working' section in handoff/docs/install.md"; false; }
+
+  bash_line="$(printf '%s\n' "$section" | awk '/^```bash$/ { f = 1; next } /^```$/ { f = 0 } f' | grep -E -- '^DELIVERY_KIT_[A-Z_]+=[0-9]+ claude$' || true)"
+  [ "$(printf '%s\n' "$bash_line" | grep -c -- 'claude$')" -eq 1 ] \
+    || { echo "expected exactly one 'DELIVERY_KIT_...=N claude' line in the bash block, got: '$bash_line'"; false; }
+  assign="${bash_line% claude}"
+  name="${assign%%=*}"
+  value="${assign#*=}"
+
+  # The PowerShell block must set the same variable to the same value, and the
+  # undo must remove that same variable.
+  ps_line="$(printf '%s\n' "$section" | awk '/^```powershell$/ { f = 1; next } /^```$/ { f = 0 } f' | grep -F -- "\$env:$name = " || true)"
+  [ "$ps_line" = "\$env:$name = '$value'" ] \
+    || { echo "the PowerShell block sets '$ps_line', not \$env:$name = '$value'"; false; }
+  [[ "$section" == *"Remove-Item Env:\\$name"* ]] \
+    || { echo "the undo does not remove $name"; false; }
+
+  repo="$TEST_DIR/repo"
+  mkdir -p "$repo"
+  printf '{"contextGuard":{"thresholdPct":90},"pipeline":{"planFile":"main-plan.md"}}\n' > "$repo/.delivery-kit.json"
+  cp "$repo/.delivery-kit.json" "$TEST_DIR/config-before"
+  t="$(transcript_with 20000 20000 20000 20000 20000)"   # 10% of 200000
+
+  # Without the override the repository's 90% keeps the guard silent: that is
+  # what makes the firing below the override's doing.
+  run_hook --cwd "$repo" "$t" before
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "the guard fired without the override: $output"; false; }
+
+  payload="$(hook_input --cwd "$repo" "$t" with-override)"
+  run env "$name=$value" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("CONTEXT GUARD")'
+  echo "$output" | jq -e --arg p "threshold ${value}%" '.reason | contains($p)'
+  cmp "$repo/.delivery-kit.json" "$TEST_DIR/config-before"
+}
+
 @test "the hook's divergence-count command prints the length of the list it introduces" {
   # Audit H13. A comment in handoff/hooks/context-guard.sh tells the reader to
   # take the number of recorded divergences from a grep over the differential,
