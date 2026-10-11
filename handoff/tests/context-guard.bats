@@ -1994,15 +1994,28 @@ fenced_block() {
   # take the number of recorded divergences from a grep over the differential,
   # and then lists them. The grep it named printed 4 for a list of 3, because a
   # later divergence (5ff33c6) is anchored the same way. Run the command the
-  # comment actually gives and compare it with the numbered entries below it,
-  # and require scripts/context-guard/README.md to give the same command.
+  # comment actually gives and compare it with the numbered entries in THAT
+  # comment block (the run of `#` lines holding the grep), numbered 1..n in
+  # order; require scripts/context-guard/README.md to give the same command.
   line="$(grep -nF -- "grep -cE '^run_shape " "$HOOK" || true)"
   [ "$(printf '%s\n' "$line" | grep -c .)" -eq 1 ] || { echo "expected one divergence-count grep in the hook, got: $line"; false; }
+  lineno="${line%%:*}"
   pat="${line#*grep -cE \'}"
   pat="${pat%%\'*}"
   [ -n "$pat" ] || { echo "could not read the pattern from: $line"; false; }
   counted="$(grep -cE -- "$pat" "$ROOT/scripts/context-guard/differential.sh" || true)"
-  listed="$(grep -cE -- '^#   [0-9]+\. ' "$HOOK")"
+
+  # The comment block around the grep line, then its numbered entries. A
+  # number out of sequence prints BAD, which fails the count below.
+  listed="$(awk -v at="$lineno" '
+    /^#/ { if (!inblock) { start = NR; n = 0; bad = 0 } inblock = 1
+           if ($0 ~ /^#   [0-9]+\. /) { n++; split($0, w, " "); if (w[2] != n ".") bad = 1 }
+           next }
+    { if (inblock && start <= at && NR > at) { print (bad ? "BAD" : n); found = 1; exit } inblock = 0 }
+    END { if (!found) print "NONE" }' "$HOOK")"
+  [[ "$listed" =~ ^[0-9]+$ ]] || { echo "the comment block's numbered list is unreadable or out of order: $listed"; false; }
+  # Deliberate: a block with no entries must not let a grep printing 0 pass.
+  [ "$listed" -gt 0 ] || { echo "no numbered entries in the comment block that holds the grep"; false; }
   [ "$counted" -eq "$listed" ] || { echo "the comment's grep prints $counted for a list of $listed (pattern: $pat)"; false; }
   readme_copy="$(tr -d '\r' < "$ROOT/scripts/context-guard/README.md")"
   [[ "$readme_copy" == *"grep -cE '$pat' scripts/context-guard/differential.sh"* ]] \
