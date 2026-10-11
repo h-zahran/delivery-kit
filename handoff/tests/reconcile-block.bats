@@ -380,10 +380,16 @@ has_line() {
   git config core.quotePath false
   printf 'x\n' > "$(printf 'caf\303\251.txt')"
   git mv a.txt moved.txt
+  git config status.renames true
   record
   git config core.quotePath true
   git config status.renames false
   git config status.showUntrackedFiles no
+  check_from
+  [ "$status" -eq 0 ]
+  has_line 'RECONCILE: MATCH'
+  # And the other way: the block itself must not follow status.renames.
+  git config status.renames true
   check_from
   [ "$status" -eq 0 ]
   has_line 'RECONCILE: MATCH'
@@ -392,8 +398,9 @@ has_line() {
 # `git symbolic-ref --short` prints heads/main once a tag called main exists.
 @test "reconcile: a tag named like the branch does not change the branch" {
   mkrepo
-  record
   git tag main
+  record
+  grep -qx '|main' "$DOC"
   check_from
   [ "$status" -eq 0 ]
   has_line 'MATCH    branch: main'
