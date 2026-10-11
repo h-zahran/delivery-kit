@@ -27,8 +27,11 @@ and never advances a phase — it reports.
    answers may not be yours; the run will ask you to confirm them on
    resume. Exit 1 means untracked; any other exit means the check failed —
    say so, never read it as untracked.
-   First, a failure entry under `gates` for the current phase is the stop: a
-   commit a hook rejected, with the hook's output — in H the entry names the
+   A state file that records `abandoned` belongs to a run the owner ended
+   with `progress.sh abandon`: it waits on nothing. Say so, with the phase
+   and time `abandoned` records, and look no further.
+   Otherwise, first, a failure entry under `gates` for the current phase is
+   the stop: a commit a hook rejected, with the hook's output — in H the entry names the
    piece, in a later phase the rejected paths. Report it, with what it names,
    and look no further. The record of failures waved through at J, which
    `gates.J` also holds, is not such an entry. Otherwise match
@@ -65,4 +68,4 @@ and never advances a phase — it reports.
    at its next stop, and cannot push while one is open.
 5. End with the exact next action, copy-pastable: the resume invocation
    (`/pipeline --resume`) for a live run; nothing for a state file whose
-   phase is DONE.
+   phase is DONE, or that records `abandoned`.
