@@ -290,7 +290,8 @@ resume command alongside everything else.
 | What you see | Why | What to do |
 |---|---|---|
 | It stops immediately at pre-flight | No spec tool, no `git`, a dirty tree, a live lock, an illegal `implementer` value, or — on a re-entry — a state file tracked in git, waiting for you to confirm its answers | It names which. There is no degraded mode for a missing spec tool. |
-| "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
+| "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, is already DONE, or was abandoned, is taken over automatically. |
+| "…is locked by another write (.delivery-kit/lock.lock)" | Another `lock-take` or `lock-release` was claiming the lock at that moment | Wait about a minute and rerun: a claim takes a second, and a guard left by a process that died is broken after a minute. |
 | A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`, and no release command (or `--auto-release`). A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`: the commit and push gates then ask wherever they have no answer yet, and a commit gate that `--auto` collapsed asks again. Check the `Implementer` line in the pre-flight block: it names the layer the implementer answer came from. |
 | A phase was skipped | A capability is missing | Pre-flight named it, and the reason, before work started. Scroll back to the `Will skip` lines. |
 

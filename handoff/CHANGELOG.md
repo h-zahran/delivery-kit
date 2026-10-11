@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The README's resume block is the one the skill prints.** Its Read line
   was wrapped onto two lines; it is now one, word for word the skill's. The
   commands the README tells you to type carry their slash: `/handoff:setup`.
+- **An abandoned pipeline run is not a live one.** The handoff records the
+  Pipeline state section only for a run whose phase is not `DONE` and that
+  records no `abandoned`, so a handoff never tells the next session to
+  resume a run its owner ended with `progress.sh abandon`.
 
 ### Fixed
 
