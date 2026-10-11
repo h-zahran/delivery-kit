@@ -164,6 +164,9 @@ VALIDATE_JQ='
 # across them is not the same in every jq version. Sets cp.
 validate_each() {
   local key
+  # A file with no byte but whitespace is not JSON, whatever jq says: jq 1.6
+  # -e exits 0 on an empty file, which read as "current_phase ''".
+  [ -n "$(LC_ALL=C tr -d ' \t\r\n' < "$1" | head -c 1)" ] || die "$1 is not valid JSON"
   jq -e . "$1" >/dev/null 2>&1 || die "$1 is not valid JSON"
   for key in $REQUIRED_KEYS; do
     if ! jq -e --arg k "$key" 'has($k)' "$1" >/dev/null 2>&1; then
@@ -212,7 +215,6 @@ cmd_init() {
     # Idempotent: an existing, valid state file is the run's memory and is
     # never clobbered — re-running init is how a resumed session finds it.
     cmd_validate "$feature" >/dev/null
-    not_abandoned "$feature" "$sf"
     init_metrics "$feature" "$sf"
     printf '%s\n' "$sf"
     return 0
@@ -251,7 +253,6 @@ cmd_phase_start() {
   # to re-enter. Re-entering a completed phase is safe by design; this
   # write is an in-place update either way.
   state_lock "$sf"
-  not_abandoned "$feature" "$sf"
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
   if ! jq ${JQB:+"$JQB"} --arg p "$phase" --arg t "$(now)" \
      '.current_phase = $p
@@ -284,7 +285,6 @@ cmd_from_validate() {
   [ -n "$phase" ] || die "from-validate needs a phase"
   phase_known "$phase" || die "unknown phase '$phase'"
   sf="$(cmd_validate "$feature")"
-  not_abandoned "$feature" "$sf"
   need=""
   case "$phase" in
     D)         need="spec" ;;
@@ -499,17 +499,23 @@ cmd_piece_next() {
 # cannot source this file.
 RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end'
 
-# not_abandoned <feature> <state file> — abandon is terminal: a run it ended
-# is never worked on again. Without this, a resumed abandoned run took the
-# lock and started phases while pre-flight reported no live run and another
-# run's lock-take read its lock as stale, so two runs held the repository at
-# once. init on a resume, from-validate, lock-take and phase-start refuse it,
-# by name; validate, read, get, metrics and abandon itself still read it.
+# not_abandoned <feature> — abandon is terminal: a run it ended is never
+# worked on again. Without this, a resumed abandoned run took the lock and
+# started phases while pre-flight reported no live run and another run's
+# lock-take read its lock as stale, so two runs held the repository at once;
+# and a session still running wrote on after its run was abandoned. The
+# dispatch runs it before every command but the ones in ABANDONED_OK, so a
+# command added later is refused on an abandoned run unless it is listed
+# there. A state file it cannot read is left to the command's own validate,
+# which names the fault.
+ABANDONED_OK=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
 not_abandoned() {
-  local st
-  st="$(jqs "$RUN_END_JQ" "$2")" || die "$2 could not be read"
-  [ "$st" != abandoned ] \
-    || die "run '$1' was abandoned: an abandoned run is ended and is never resumed or worked on again — start a new run under another name"
+  local sf c
+  for c in $ABANDONED_OK; do [ "$c" = "$cmd" ] && return 0; done
+  sf="$(state_file "$1")"
+  [ -f "$sf" ] || return 0
+  [ "$(jqs "$RUN_END_JQ" "$sf" 2>/dev/null || true)" != abandoned ] \
+    || die "run '$1' was abandoned: an abandoned run is ended, and $cmd is refused on it — start a new run under another name"
 }
 
 # The repository lock is a file naming its holder, and every look at it and
@@ -526,7 +532,6 @@ cmd_lock_take() {
   [ -n "$session" ] || die "lock-take needs a session id"
   lf="$(lock_file)"; mkdir -p "$STATE_ROOT"
   state_lock "$lf"
-  if [ -f "$(state_file "$feature")" ]; then not_abandoned "$feature" "$(state_file "$feature")"; fi
   if [ -f "$lf" ]; then
     holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
     hs="$(state_file "${holder:-missing}")"
@@ -2271,7 +2276,7 @@ EOF
   # -b: a native Windows jq writes no CR, so a record is the same bytes on
   # every system.
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  if ! jq -b -n --arg key "$SK_KEY" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
+  if ! jq ${JQB:+"$JQB"} -n --arg key "$SK_KEY" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
        --arg verdict "$verdict" --arg feature "$1" --arg tap "$tap" --arg at "$(now)" \
        --argjson plan "$plan" --argjson ok "$oks" --argjson skipped "$skips" --argjson notOk "$nots" \
        --argjson nonTap "$stray" --argjson rc "$((10#$rc))" \
@@ -2322,6 +2327,7 @@ cmd="${1:-}"; [ $# -ge 2 ] || usage
 feature_arg="$2"
 need_feature "$feature_arg"
 case "$cmd" in validate|read) ;; *) jq_b_probe ;; esac
+not_abandoned "$feature_arg"
 case "$cmd" in
   init)          shift 2; cmd_init "$feature_arg" "$@" ;;
   read)          cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;

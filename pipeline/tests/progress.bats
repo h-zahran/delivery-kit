@@ -1337,23 +1337,45 @@ $(fixture_heading 'Phase 9b: ')|T007"
 # second run's lock-take took the repository mid-phase. Each command that
 # would resume it refuses it by name; the read-only commands, metrics and
 # abandon itself still work.
-@test "an abandoned run is refused by name by init, from-validate, lock-take and phase-start" {
-  local sf=.delivery-kit/runs/001-demo/progress.json c
+@test "an abandoned run is refused by name by every command but the read-only ones" {
+  local sf=.delivery-kit/runs/001-demo/progress.json c list ok n=0
   bash "$PROG" init 001-demo b main web
   bash "$PROG" phase-start 001-demo F
   bash "$PROG" lock-take 001-demo session-one
   bash "$PROG" abandon 001-demo 2> /dev/null
   [ ! -e .delivery-kit/lock ]
   cp "$sf" before.json
-  for c in "init 001-demo b main web" "from-validate 001-demo F" "lock-take 001-demo session-two" "phase-start 001-demo G"; do
-    # shellcheck disable=SC2086 # the command line is split into words on purpose
-    run bash "$PROG" $c
-    [ "$status" -ne 0 ] || { echo "accepted an abandoned run: $c"; false; }
-    [[ "$output" == *"run '001-demo' was abandoned: an abandoned run is ended and is never resumed"* ]] \
+  # The commands that still work on an abandoned run, written here as the
+  # contract: they read it, refresh its metrics, mark it again, or release
+  # a lock. Every other command the usage line lists is refused — a command
+  # added later included, since the list is read from the script's usage.
+  ok=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
+  run bash "$PROG"
+  list="${output#*<}"; list="${list%%>*}"
+  [[ "|$list|" == *"|init|"* && "|$list|" == *"|state-set|"* && "|$list|" == *"|get|"* ]] \
+    || { echo "the usage list did not parse: $list"; false; }
+  for c in ${list//|/ }; do
+    case "$ok" in *" $c "*) continue ;; esac
+    run bash "$PROG" "$c" 001-demo x y z
+    [ "$status" -ne 0 ] || { echo "$c ran on an abandoned run"; false; }
+    [[ "$output" == *"run '001-demo' was abandoned: an abandoned run is ended, and $c is refused on it"* ]] \
       || { echo "$c: $output"; false; }
+    n=$((n + 1))
+  done
+  [ "$n" -ge 10 ] || { echo "only $n commands were refused"; false; }
+  # The real shapes that resumed one before: each refused, nothing written.
+  for c in "init 001-demo b main web" "from-validate 001-demo F" "lock-take 001-demo session-two" "phase-start 001-demo G" "phase-done 001-demo F" "state-set 001-demo gates C \"x\""; do
+    # shellcheck disable=SC2086 # the command line is split into words on purpose
+    eval "run bash \"\$PROG\" $c"
+    [ "$status" -ne 0 ] || { echo "accepted an abandoned run: $c"; false; }
+    [[ "$output" == *"run '001-demo' was abandoned"* ]] || { echo "$c: $output"; false; }
   done
   [ ! -e .delivery-kit/lock ] || { echo "lock-take took the lock for an abandoned run"; false; }
   cmp before.json "$sf"
+  for c in $ok; do
+    run bash "$PROG" "$c" 001-demo
+    [[ "$output" != *"was abandoned: an abandoned run is ended"* ]] || { echo "$c was refused: $output"; false; }
+  done
   bash "$PROG" validate 001-demo
   bash "$PROG" read 001-demo > /dev/null
   [ "$(bash "$PROG" get 001-demo current_phase)" = F ]
@@ -1361,6 +1383,36 @@ $(fixture_heading 'Phase 9b: ')|T007"
   run bash "$PROG" abandon 001-demo
   [ "$status" -eq 0 ]
   [[ "$output" == *"already abandoned"* ]] || false
+}
+
+# The guard on jq -b is a probe, and a test of the probe alone cannot see a
+# literal -b put back at a site the commands above never reach. So the text
+# is held: no jq in pipeline/scripts is passed -b except by the probe.
+@test "no script passes jq a literal -b outside the probe" {
+  local f hits n=0
+  for f in "$ROOT"/pipeline/scripts/*.sh; do
+    n=$((n + 1))
+    hits="$(awk '/^[[:space:]]*#/ { next } /jq_b_probe\(\)/ { next }
+      /(^|[^A-Za-z_])jq[[:space:]]/ && / -b([[:space:]]|$)/ { print FILENAME ":" FNR ": " $0 }' "$f")"
+    [ -z "$hits" ] || { echo "$hits"; false; }
+  done
+  [ "$n" -ge 2 ] || { echo "no scripts were read"; false; }
+  # Positive control: the same rule finds a literal -b in a line shaped like one.
+  printf '  v="$(jq -b -r "$@")"\n' > probe.sh
+  [ -n "$(awk '/(^|[^A-Za-z_])jq[[:space:]]/ && / -b([[:space:]]|$)/' probe.sh)" ]
+}
+
+# An empty or blank state file is not JSON, on every jq: jq 1.6's -e exits
+# 0 on an empty file, which read as "current_phase ''".
+@test "an empty or blank state file is named not valid JSON" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  mkdir -p .delivery-kit/runs/001-demo
+  for body in '' ' ' "$(printf '\n\t\r\n')"; do
+    printf '%s' "$body" > "$sf"
+    run bash "$PROG" validate 001-demo
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"progress.json is not valid JSON"* ]] || { echo "$output"; false; }
+  done
 }
 
 # abandon's own release of the lock happens under the guard, as
