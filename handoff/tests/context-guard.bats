@@ -1891,61 +1891,93 @@ install_confirm_section() {
     | awk '/^## / { inside = ($0 == "## Confirm it is working") ; next } inside { print }'
 }
 
+# fenced_block <lang> -> prints the body of every ```<lang> block in the
+# section on stdin, one line per body line.
+fenced_block() {
+  awk -v open="\`\`\`$1" '$0 == open { f = 1; next } /^```$/ { f = 0 } f'
+}
+
 @test "install.md's check never asks for a .delivery-kit.json to be saved and deleted" {
   # Audit H4. The check used to say: save this as `.delivery-kit.json` in the
   # repository root, run a tool call, then delete the file. A repository that
   # already had one (handoff:setup writes the pipeline's keys there) lost it:
   # overwritten, then deleted. The check is now an environment override, which
-  # touches no file. Pin the absence of both halves of the old instruction.
+  # touches no configuration file.
+  #
+  # The old wording is refused, and so is anything a reworded version would
+  # need: a configuration file cannot be written for this check without naming
+  # the contextGuard section or the thresholdPct key, or without a JSON block.
   section="$(install_confirm_section)"
   [ -n "$section" ] || { echo "no '## Confirm it is working' section in handoff/docs/install.md"; false; }
-  if [[ "$section" == *"Save that as"* ]] || [[ "$section" == *"delete the file"* ]]; then
-    echo "the check tells the user to save a config file and delete it again:"
-    echo "$section"
-    false
-  fi
-  [[ "$section" == *'```json'* ]] && { echo "the check carries a JSON config block again"; false; }
-  true
+  for banned in 'Save that as' 'delete the file' 'contextGuard' 'thresholdPct' '```json'; do
+    if [[ "$section" == *"$banned"* ]]; then
+      echo "the check carries '$banned', the shape of a config file written for it:"
+      echo "$section"
+      false
+    fi
+  done
+}
+
+@test "install.md's check gives a first prompt that tells Claude not to run a skill" {
+  # The guard's block tells Claude to finish its step and run the handoff
+  # skill, and Claude does it in the SAME turn, before the user can intervene.
+  # A review run of the check with an ordinary prompt wrote a handoff document
+  # into the repository. The prompt the doc gives is the guard against that,
+  # so it must exist, be one line, and carry the instruction.
+  section="$(install_confirm_section)"
+  [ -n "$section" ] || { echo "no '## Confirm it is working' section in handoff/docs/install.md"; false; }
+  prompt="$(printf '%s\n' "$section" | fenced_block text)"
+  n="$(printf '%s\n' "$prompt" | grep -c .)"
+  [ "$n" -eq 1 ] || { echo "expected one prompt line in one text block, got $n: '$prompt'"; false; }
+  [[ "$prompt" == *"do not run any skill"* ]] \
+    || { echo "the check's prompt does not tell Claude not to run a skill: '$prompt'"; false; }
 }
 
 @test "install.md's environment override makes the guard fire over a repository config" {
   # Audit H4, the behaviour half. The assignment is READ FROM THE DOC, both
   # the Git Bash and the PowerShell form, so renaming the variable or changing
   # the value in the doc is judged by the hook itself rather than by a copy
-  # typed into this test. The repository config sets thresholdPct 90, which
-  # the override must beat, and the file must come out byte-identical.
+  # typed into this test.
   section="$(install_confirm_section)"
   [ -n "$section" ] || { echo "no '## Confirm it is working' section in handoff/docs/install.md"; false; }
 
-  bash_line="$(printf '%s\n' "$section" | awk '/^```bash$/ { f = 1; next } /^```$/ { f = 0 } f' | grep -E -- '^DELIVERY_KIT_[A-Z_]+=[0-9]+ claude$' || true)"
-  [ "$(printf '%s\n' "$bash_line" | grep -c -- 'claude$')" -eq 1 ] \
-    || { echo "expected exactly one 'DELIVERY_KIT_...=N claude' line in the bash block, got: '$bash_line'"; false; }
+  # The bash block is the whole instruction, so it must be exactly one line:
+  # the one-command prefix form. An added `export` line would contradict the
+  # doc's "nothing to undo".
+  bash_block="$(printf '%s\n' "$section" | fenced_block bash)"
+  [ "$(printf '%s\n' "$bash_block" | grep -c .)" -eq 1 ] \
+    || { echo "the bash block must be one command line, got: '$bash_block'"; false; }
+  bash_line="$(printf '%s\n' "$bash_block" | grep -E -- '^DELIVERY_KIT_[A-Z_]+=[0-9]+ claude$' || true)"
+  [ -n "$bash_line" ] || { echo "the bash block is not 'DELIVERY_KIT_...=N claude': '$bash_block'"; false; }
   assign="${bash_line% claude}"
   name="${assign%%=*}"
   value="${assign#*=}"
 
-  # The PowerShell block must set the same variable to the same value, and the
-  # undo must remove that same variable.
-  ps_line="$(printf '%s\n' "$section" | awk '/^```powershell$/ { f = 1; next } /^```$/ { f = 0 } f' | grep -F -- "\$env:$name = " || true)"
-  [ "$ps_line" = "\$env:$name = '$value'" ] \
-    || { echo "the PowerShell block sets '$ps_line', not \$env:$name = '$value'"; false; }
+  # The PowerShell block sets the same variable to the same value and then
+  # starts Claude Code, in that order and nothing else; the undo removes that
+  # same variable.
+  ps_block="$(printf '%s\n' "$section" | fenced_block powershell)"
+  ps_want="$(printf '%s\n%s' "\$env:$name = '$value'" 'claude')"
+  [ "$ps_block" = "$ps_want" ] \
+    || { echo "the PowerShell block is '$ps_block', want '$ps_want'"; false; }
   [[ "$section" == *"Remove-Item Env:\\$name"* ]] \
     || { echo "the undo does not remove $name"; false; }
 
+  # Both configuration files set a threshold the transcript crosses, so the
+  # guard fires either way and the REASON shows whose threshold won: the
+  # repository's 5% without the override, the doc's value with it.
   repo="$TEST_DIR/repo"
   mkdir -p "$repo"
-  printf '{"contextGuard":{"thresholdPct":90},"pipeline":{"planFile":"main-plan.md"}}\n' > "$repo/.delivery-kit.json"
+  printf '{"contextGuard":{"thresholdPct":5},"pipeline":{"planFile":"main-plan.md"}}\n' > "$repo/.delivery-kit.json"
   cp "$repo/.delivery-kit.json" "$TEST_DIR/config-before"
-  # The doc says the variable beats BOTH files, so the user-level one is set too.
   printf '{"contextGuard":{"thresholdPct":95}}\n' > "$HOME/.delivery-kit.json"
   cp "$HOME/.delivery-kit.json" "$TEST_DIR/home-config-before"
   t="$(transcript_with 20000 20000 20000 20000 20000)"   # 10% of 200000
+  [ "$value" != 5 ] || { echo "the doc's value equals the fixture's repository threshold; pick another fixture value"; false; }
 
-  # Without the override the configured 90% keeps the guard silent: that is
-  # what makes the firing below the override's doing.
   run_hook --cwd "$repo" "$t" before
   [ "$status" -eq 0 ]
-  [ -z "$output" ] || { echo "the guard fired without the override: $output"; false; }
+  echo "$output" | jq -e '.reason | contains("threshold 5%")'
 
   payload="$(hook_input --cwd "$repo" "$t" with-override)"
   run env "$name=$value" bash "$HOOK" <<< "$payload"

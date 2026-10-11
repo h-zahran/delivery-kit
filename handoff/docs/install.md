@@ -94,7 +94,7 @@ threshold for one session to see it fire. Do it with an environment variable,
 not a configuration file: `DELIVERY_KIT_THRESHOLD_PCT` beats both
 `.delivery-kit.json` files, so the check works whatever they hold, and it
 changes neither of them. A repository may already have a `.delivery-kit.json`
-(`handoff:setup` offers to write one for the pipeline's settings), and a test
+(`/handoff:setup` offers to write one for the pipeline's settings), and a test
 file saved over it would replace it.
 
 The variable has to be in the environment of the shell that starts Claude
@@ -115,18 +115,26 @@ $env:DELIVERY_KIT_THRESHOLD_PCT = '1'
 claude
 ```
 
-In that session, ask Claude to do anything that runs a tool, such as listing
-the files in the current directory. Expect a `CONTEXT GUARD` message naming
-your context percentage after that first tool call, once: it warns again only
-when context crosses into the next 5% band. The message tells Claude to finish its step
-and run `handoff:handoff`; for this check, tell Claude not to, and end the
-session.
+Type this as the first prompt of that session, word for word:
+
+```text
+List the files in this folder. If a hook message appears, do not run any skill; just tell me what it said.
+```
+
+The second sentence is what keeps the check harmless. When the guard fires it
+stops the turn and tells Claude to finish its step and run `handoff:handoff`,
+and Claude does that in the same turn, before you can type anything: without
+that sentence it writes a handoff document into your repository. With it,
+Claude lists the files and tells you about a `CONTEXT GUARD` message naming
+your context percentage. It appears once; the guard warns again only when
+context reaches the next 5% bucket. End the session there.
 
 To undo it: in Git Bash there is nothing to undo, because the variable ended
 with that `claude` process. In PowerShell, run
-`Remove-Item Env:\DELIVERY_KIT_THRESHOLD_PCT`, or close the window. If you are
-unsure whether it is still set, `handoff:setup` reports any `DELIVERY_KIT_*`
-variable it finds, with its value.
+`Remove-Item Env:\DELIVERY_KIT_THRESHOLD_PCT`, or close the window. To check
+that it is gone, print it: `echo "$DELIVERY_KIT_THRESHOLD_PCT"` in Git Bash,
+`$env:DELIVERY_KIT_THRESHOLD_PCT` in PowerShell. An empty line means it is not
+set.
 
 ## Uninstall
 
