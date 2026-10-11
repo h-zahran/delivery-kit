@@ -1978,3 +1978,19 @@ It refuses a trailer holding a quote (`'`), a dollar sign or a backtick, because
 **`progress.sh` never removes a file it did not make.**
 PINS
 }
+
+@test "every flag in the skill's Flags table has a row in pipeline/README.md" {
+  # PR #68 added four flags to both READMEs and nothing pinned the rows, so a
+  # rewrite could drop one unseen. The list is derived from the skill's own
+  # table, never written out here, so a new flag needs a README row too.
+  local flags readme f n=0
+  flags="$(tr -d '\r' < "$ORCH" | awk '/^## Flags$/ {f=1; next} f && /^## / {exit} f && /^\| `--/ {sub(/^\| `/, ""); sub(/[ `].*$/, ""); print}')"
+  [[ $'\n'"$flags"$'\n' == *$'\n--config\n'* ]] || { echo "no --config row read from the skill's Flags table; the extraction is broken"; false; }
+  readme="$(tr -d '\r' < "$ROOT/pipeline/README.md")"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    n=$((n + 1))
+    [[ $'\n'"$readme" == *$'\n| `'"$f"[\ \`]* ]] || { echo "pipeline/README.md has no row for $f"; false; }
+  done <<< "$flags"
+  [ "$n" -ge 12 ] || { echo "only $n flags read from the skill's Flags table"; false; }
+}
