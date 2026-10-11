@@ -243,11 +243,13 @@ pre-answers the implementer gate
 ABSENT
   # Both READMEs carried the same false floor and gate wording (feature 021,
   # PR review): nothing in the suite read them, so it could come back unseen.
+  # Since item 15 the floor and the gates are described in pipeline/README.md
+  # only; the root page is still read, so the old wording cannot return there.
   local readme
   for readme in "$ROOT/README.md" "$ROOT/pipeline/README.md"; do
     # Blockquote markers stripped first: a phrase wrapped across two '> ' lines
     # flattens to 'a > b' and would slip past the check.
-    absent_in "$(sed 's/^> //' "$readme" | tr '\n' ' ' | tr -s ' ')" <<'ABSENT' || { echo "in $readme"; return 1; }
+    absent_in "$(tr -d '\r' < "$readme" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')" <<'ABSENT' || { echo "in $readme"; return 1; }
 without a single gate stopping it
 Pre-answers the implementer gate
 pre-answers the implementer gate
@@ -260,6 +262,13 @@ take the stop back
 plus an `implementer` value from a config file
 ABSENT
   done
+  # And the true floor must be PRESENT where the gates are now described: the
+  # check above bans only the false wordings, so deleting the warning stayed
+  # green.
+  local pflat
+  pflat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
+  [[ $pflat == *'No fresh run reaches the end without stopping: a run that builds here stops at G to ask how you want to review, and a handoff run parks at H. A run re-entered past G is different'* ]] \
+    || { echo "pipeline/README.md no longer states the floor before you automate"; false; }
 
   # The FIRST json block only. Reading every fence let a later illustrative
   # block mask a canonical one that had lost the key entirely.
@@ -1979,18 +1988,36 @@ It refuses a trailer holding a quote (`'`), a dollar sign or a backtick, because
 PINS
 }
 
-@test "every flag in the skill's Flags table has a row in pipeline/README.md" {
-  # PR #68 added four flags to both READMEs and nothing pinned the rows, so a
-  # rewrite could drop one unseen. The list is derived from the skill's own
-  # table, never written out here, so a new flag needs a README row too.
-  local flags readme f n=0
-  flags="$(tr -d '\r' < "$ORCH" | awk '/^## Flags$/ {f=1; next} f && /^## / {exit} f && /^\| `--/ {sub(/^\| `/, ""); sub(/[ `].*$/, ""); print}')"
-  [[ $'\n'"$flags"$'\n' == *$'\n--config\n'* ]] || { echo "no --config row read from the skill's Flags table; the extraction is broken"; false; }
-  readme="$(tr -d '\r' < "$ROOT/pipeline/README.md")"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    n=$((n + 1))
-    [[ $'\n'"$readme" == *$'\n| `'"$f"[\ \`]* ]] || { echo "pipeline/README.md has no row for $f"; false; }
-  done <<< "$flags"
-  [ "$n" -ge 12 ] || { echo "only $n flags read from the skill's Flags table"; false; }
+@test "the README Flags table and the skill Flags table list the same flags" {
+  # PR #68 added four flags to the READMEs and nothing pinned the rows, so a
+  # rewrite could drop one unseen. Both lists are read from their own
+  # "## Flags" section, fenced lines skipped, so a row elsewhere in the README
+  # or inside a code block cannot stand in. Equality, not inclusion: a stale
+  # README row for a flag the skill dropped is red too. No count floor (one
+  # went stale at the 13th flag in review): every body row of the skill's
+  # table must yield a flag instead, so a row the extraction cannot read is
+  # red however many flags there are.
+  local sk rd body n
+  flags_section() {
+    tr -d '\r' < "$1" | awk '
+      /^## Flags$/ { f = 1; next }
+      f && /^## / { exit }
+      f && /^ *(```|~~~)/ { c = !c; next }
+      f && !c'
+  }
+  flag_cells() { awk '/^\| *`--/ { sub(/^\| *`/, ""); sub(/[ `].*$/, ""); print }' | LC_ALL=C sort; }
+  sk="$(flags_section "$ORCH" | flag_cells)"
+  rd="$(flags_section "$ROOT/pipeline/README.md" | flag_cells)"
+  [[ $'\n'"$sk"$'\n' == *$'\n--config\n'* ]] || { echo "no --config row read from the skill's Flags table; the extraction is broken"; false; }
+  # Body rows: table lines that are neither the header nor the separator.
+  body="$(flags_section "$ORCH" | awk '/^ *\|/ && !/^ *\| *Flag *\|/ && !/^ *\|[-:| ]+\| *$/ { n++ } END { print n + 0 }')"
+  n="$(printf '%s\n' "$sk" | awk 'NF { n++ } END { print n + 0 }')"
+  [ "$body" = "$n" ] || { echo "the skill's Flags table has $body body rows but $n read as flags; a row is not shaped | \`--name"; false; }
+  if [ "$sk" != "$rd" ]; then
+    printf '%s\n' "$sk" > "$BATS_TEST_TMPDIR/skill-flags"
+    printf '%s\n' "$rd" > "$BATS_TEST_TMPDIR/readme-flags"
+    echo "Flags tables differ (< skill, > pipeline/README.md):"
+    diff "$BATS_TEST_TMPDIR/skill-flags" "$BATS_TEST_TMPDIR/readme-flags" || true
+    false
+  fi
 }
