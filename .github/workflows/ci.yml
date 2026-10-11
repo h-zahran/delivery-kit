@@ -72,31 +72,78 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# jq 1.8.2, PINNED on every runner that runs repository code, for the reason
+# shellcheck is pinned below: a version nobody chose is a version nobody can
+# match. Measured 2026-10-06, before this pin, the images carried three (ubuntu
+# 1.7, macOS 1.8.2, windows 1.8.1), and the release gate ran on 1.7, which no
+# contributor used. The scripts depend on `jq -b` on Windows (native jq writes
+# CRLF without it); the 1.8.2 Windows build was checked to honour it.
+#
+# Declared ONCE, here, because two jobs read it: the test legs and the version
+# job. The install and verify steps are written once too, in the test job, and
+# reused in the version job by YAML alias, so there is no second copy of the
+# install logic to drift.
+#
+# Each checksum is of the named asset of the jqlang/jq GitHub release
+# jq-1.8.2, derived 2026-10-11 by downloading the asset and hashing it, and
+# cross-checked against BOTH the release's sha256sum.txt and the sha256 digest
+# GitHub records for the asset in the release API; all three agreed. Re-derive
+# all three ways when bumping; never copy a checksum from anywhere that did not
+# hash the file.
+env:
+  JQ_VERSION: '1.8.2'
+  JQ_SHA256_LINUX_AMD64: b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f
+  JQ_SHA256_MACOS_ARM64: 2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e
+  JQ_SHA256_WINDOWS_AMD64: a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627
+
 # EVERY JOB CARRIES A timeout-minutes. The default is 360, so a hung step —
 # a test waiting on stdin, a network fetch that never returns — would hold a
 # runner for six hours before anything went red. Limits are about three times
 # the slowest duration measured over the last ten runs (2026-10-06), so an
 # ordinary slow runner never trips them and a hang is reported in minutes.
+#
+# RUNNER IMAGES ARE PINNED BY LABEL, never `-latest`. A `-latest` label moves
+# to a new OS release on GitHub's schedule, which changes bash, coreutils and
+# the preinstalled tools under an unchanged tree, so a red would arrive with no
+# commit to blame. The labels below are the ones `-latest` mapped to on
+# 2026-10-11, read from the actions/runner-images README: ubuntu-latest ->
+# ubuntu-24.04, macos-latest -> macos-26 (arm64), windows-latest ->
+# windows-2025. Moving to a newer image is now a commit, made on purpose.
 jobs:
   test:
-    name: tests (${{ matrix.os }})
+    name: tests (${{ matrix.os }}, ${{ matrix.suite }})
     runs-on: ${{ matrix.os }}
-    # Per OS, because the legs differ tenfold. Measured, ten runs: windows
-    # 275-511 s, macOS 83-159 s, ubuntu 30-45 s. Windows gets 30 (about 3.5x
-    # its slowest); macOS and ubuntu get 10, which also absorbs a bats cache
-    # miss and a package install on the jq fallback path.
+    # SHARDED ACROSS RUNNER VMs, one job per OS per suite root, rather than
+    # `bats --jobs` on one VM. Parallel tests on one machine add exactly the
+    # load that already pushes Windows tests toward their 60 s timeout; a shard
+    # runs its tests serially on a VM of its own, so each test sees the load it
+    # saw before and the wall time is the slowest shard, not the sum.
+    #
+    # The matrix is a full cross product: there is no `exclude:`, and the
+    # `include:` entries below only ADD a key to the combinations whose os
+    # matches, so every suite root runs on every OS. tests/portability.bats
+    # pins both halves: that the suite list covers every tracked .bats file,
+    # and that nothing excludes a combination.
+    #
+    # Per OS, because the legs differ tenfold. Measured on the WHOLE suite, ten
+    # runs before sharding: windows 275-511 s, macOS 83-159 s, ubuntu 30-45 s.
+    # A shard runs a subset of that suite, so the whole-suite figure bounds
+    # every shard from above without a per-shard measurement. Windows gets 20
+    # (2.3x the slowest whole suite); macOS and ubuntu get 10, which also
+    # absorbs a bats cache miss and the jq download.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-26, windows-2025]
+        suite: [tests, handoff/tests, pipeline/tests]
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             timeout: 10
-          - os: macos-latest
+          - os: macos-26
             timeout: 10
-          - os: windows-latest
-            timeout: 30
+          - os: windows-2025
+            timeout: 20
     env:
       # bats-core v1.11.0.
       #
@@ -129,20 +176,79 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Ensure jq
+      # The pinned jq (JQ_VERSION, workflow env), same shape as the shellcheck
+      # install: the asset is fetched from the official release, FAILS CLOSED
+      # on its checksum, and is never made executable unless it matches.
+      #
+      # The asset is chosen by the runner's OS AND architecture, and anything
+      # else is refused by name rather than handed the wrong binary. macos-26
+      # is arm64; a move to an Intel image would land in the refusal, not in an
+      # unverified download.
+      #
+      # sha256sum where it exists, `shasum -a 256` otherwise (macOS ships the
+      # second, not always the first); both read stdin, for the backslash
+      # reason given at the shellcheck install. On Windows the directory goes
+      # to GITHUB_PATH in Windows form, which the runner prepends for later
+      # steps, and the file ops here use the POSIX form Git Bash prefers.
+      #
+      # Anchored, and reused in the version job by alias: one copy of the
+      # install logic for both jobs.
+      - &install-jq
+        name: Install the pinned jq
         run: |
-          if jq --version; then exit 0; fi
-          case "${{ matrix.os }}" in
-            ubuntu-latest)  sudo apt-get update && sudo apt-get install -y jq ;;
-            macos-latest)   brew install jq ;;
-            windows-latest) choco install jq -y ;;
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64)   asset=jq-linux-amd64;       want="$JQ_SHA256_LINUX_AMD64";   exe=jq ;;
+            macOS-ARM64) asset=jq-macos-arm64;       want="$JQ_SHA256_MACOS_ARM64";   exe=jq ;;
+            Windows-X64) asset=jq-windows-amd64.exe; want="$JQ_SHA256_WINDOWS_AMD64"; exe=jq.exe ;;
+            *) echo "no pinned jq asset for $RUNNER_OS-$RUNNER_ARCH; refusing to guess one" >&2; exit 1 ;;
           esac
-          jq --version
+          dir="$RUNNER_TEMP/jq-$JQ_VERSION"
+          if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$dir")"; fi
+          mkdir -p "$dir"
+          url="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/${asset}"
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$dir/$exe" "$url"
+          if command -v sha256sum >/dev/null 2>&1; then
+            got="$(sha256sum < "$dir/$exe" | cut -d' ' -f1)"
+          else
+            got="$(shasum -a 256 < "$dir/$exe" | cut -d' ' -f1)"
+          fi
+          [ "$got" = "$want" ] || {
+            rm -f "$dir/$exe"
+            echo "jq $JQ_VERSION asset $asset hashes to $got, expected $want; refusing to install it" >&2
+            exit 1
+          }
+          echo "jq $JQ_VERSION asset $asset matches $want"
+          chmod +x "$dir/$exe"
+          have="$("$dir/$exe" --version | tr -d '\r')"
+          [ "$have" = "jq-$JQ_VERSION" ] || {
+            echo "the verified jq asset reports '$have', expected jq-$JQ_VERSION" >&2
+            exit 1
+          }
+          if command -v cygpath >/dev/null 2>&1; then
+            cygpath -w "$dir" >> "$GITHUB_PATH"
+          else
+            echo "$dir" >> "$GITHUB_PATH"
+          fi
+
+      # A step of its own because GITHUB_PATH takes effect in LATER steps only.
+      # This is the assertion that the jq every later step resolves is the
+      # pinned one and not the image's copy, which is still installed further
+      # down PATH.
+      - &check-jq
+        name: Verify the pinned jq is the one on PATH
+        run: |
+          have="$(jq --version | tr -d '\r')"
+          [ "$have" = "jq-$JQ_VERSION" ] || {
+            echo "jq on PATH is '$have' at $(command -v jq), expected the pinned jq-$JQ_VERSION" >&2
+            exit 1
+          }
+          echo "jq is $have from $(command -v jq)"
 
       # Keyed on the pin, so changing BATS_PIN misses the cache with nobody
       # having to remember to invalidate it, and on the runner OS, because this
-      # matrix runs three and one shared entry would restore one platform's
-      # tree onto another.
+      # matrix runs three operating systems and one shared entry would restore
+      # one platform's tree onto another. The suite shards of one OS share the
+      # entry, which is right: they run the same bats.
       #
       # CORRECTED after review, because the first version of this comment was
       # wrong in the direction that misdirects a maintainer. It said a lost
@@ -237,24 +343,88 @@ jobs:
           }
           echo "bats tracked files match $BATS_PIN"
 
-      - name: Run the test suites
-        run: bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+      # ONE suite root per shard, named by the matrix and passed through the
+      # environment rather than spliced into the script text.
+      #
+      # bats exiting 0 is NOT taken as proof the shard ran its tests, because
+      # two measured shapes report green while running less than they count:
+      # bats 1.11.0 puts a test whose name has a non-ASCII character in the
+      # plan line and then skips it with no failure line, and a skip is an ok
+      # line. So the TAP is kept and read back, and the shard FAILS unless
+      #   - a plan line exists and plans at least one test (a shard that ran
+      #     nothing must never be green),
+      #   - the ok plus not-ok lines equal the plan, and
+      #   - no test was skipped.
+      #
+      # --timing adds " in Nms" to every result line (measured with the pinned
+      # bats writing to a pipe; its tap formatter spells it " # in N ms", and
+      # the reader accepts both). A test over 30 s (the
+      # per-test budget the suites name in their comments; bats kills a test at
+      # 60) gets a GitHub warning annotation and DOES NOT fail the job: slow is
+      # a thing to see before it becomes a timeout, not a failure in itself.
+      #
+      # tee, so the log streams live and a job killed by its timeout still shows
+      # how far it got. The pipeline's status is read from PIPESTATUS with
+      # errexit off around it, because a pipe otherwise reports the status of
+      # its LAST command, and tee always succeeds. The TAP goes to a mktemp
+      # file, a POSIX path on every runner.
+      - name: Run the ${{ matrix.suite }} suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          tap="$(mktemp)"
+          set +e
+          bash "$HOME/bats/bin/bats" -r --print-output-on-failure --timing "$SUITE" 2>&1 | tee "$tap"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          awk -v suite="$SUITE" -v limit=30000 '
+            /^(not )?ok [0-9]+ / && match($0, / (# )?in [0-9]+ ?ms$/) {
+              name = substr($0, 1, RSTART - 1)
+              ms = substr($0, RSTART, RLENGTH)
+              gsub(/[^0-9]/, "", ms)
+              ms += 0
+              if (ms > limit) {
+                sub(/^(not )?ok /, "test ", name)
+                gsub(/%/, "%25", name)
+                printf "::warning title=slow test in %s::%s took %d ms, over the %d ms budget\n", suite, name, ms, limit
+              }
+            }
+          ' "$tap"
+          plan="$(grep -m1 -E '^1[.][.][0-9]+$' "$tap" || true)"
+          planned="${plan#1..}"
+          passed="$(grep -cE '^ok [0-9]+ ' "$tap" || true)"
+          failed="$(grep -cE '^not ok [0-9]+ ' "$tap" || true)"
+          skipped="$(grep -cE '^ok [0-9]+ .* # skip( |$)' "$tap" || true)"
+          echo "$SUITE: plan ${plan:-<none>}, $passed ok (of which $skipped skipped), $failed not ok, bats exit $rc"
+          if [ -z "$plan" ] || [ "$planned" -eq 0 ]; then
+            echo "::error title=empty shard::$SUITE planned no test; a shard that ran nothing is not a pass"
+            exit 1
+          fi
+          if [ "$skipped" -ne 0 ]; then
+            echo "::error title=skipped tests::$SUITE skipped $skipped test(s); a skip is a failure here"
+            exit 1
+          fi
+          if [ "$((passed + failed))" -ne "$planned" ]; then
+            echo "::error title=plan mismatch::$SUITE planned $planned tests but reported $((passed + failed)); some were counted and never run"
+            exit 1
+          fi
+          exit "$rc"
 
   version:
     name: version agreement
-    runs-on: ubuntu-latest
-    # Measured 4-7 s over ten runs; 5 minutes is generous and still bounded.
+    runs-on: ubuntu-24.04
+    # Measured 4-7 s over ten runs; 5 minutes is generous and still bounded,
+    # and absorbs the jq download.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
-      # The jq this job reads manifests with comes from the runner image and
-      # is not pinned, so its version is printed for the log. The three test
-      # legs print theirs in "Ensure jq"; measured 2026-10-06 they differ
-      # (ubuntu 1.7, macOS 1.8.2, windows 1.8.1), and a red that appears on
-      # one platform only is diagnosable in one look when the log names it.
-      - name: Print the jq version
-        run: jq --version
+      # The release gate reads manifests with jq, so it runs on the SAME pinned
+      # jq as the test legs: the two steps defined in the test job, reused by
+      # alias. Before the pin this job took the image's jq (1.7, measured
+      # 2026-10-06), a version no contributor ran.
+      - *install-jq
+      - *check-jq
 
       # ONE implementation, TWO callers. This step and the suite gate in
       # tests/portability.bats used to hold two copies of the walk this line
@@ -344,21 +514,28 @@ jobs:
           # option (-rf, say, which `git check-ref-format` accepts) otherwise
           # reaches jq as an OPTION rather than as a path. The -f test currently
           # blocks that, so this is defence in depth — but this block is, by
-          # ci.yml's own description, the only release gate the repository has
-          # and the one shell block no shellcheck job reads.
+          # ci.yml's own description, the only release gate the repository has,
+          # and its shell reaches shellcheck only by way of actionlint in the
+          # shell-analysis job, not through that job's file discovery.
           [ -f "./$plugin/.claude-plugin/plugin.json" ] || { echo "tag $ref names no plugin directory"; exit 1; }
           ver=$(jq -r '.version' -- "./$plugin/.claude-plugin/plugin.json")
           [ "$tag" = "$ver" ] || { echo "tag $ref does not match $plugin $ver"; exit 1; }
 
   shell-analysis:
     name: shell analysis
-    runs-on: ubuntu-latest
-    # Measured 4-7 s over ten runs, before the analyser was downloaded here.
-    # 10 minutes leaves room for the download's retries on a bad network day.
+    runs-on: ubuntu-24.04
+    # Measured 4-7 s over ten runs, before the analysers were downloaded here.
+    # 10 minutes leaves room for the downloads' retries on a bad network day.
     timeout-minutes: 10
-    # Declared once, at job level, because two steps read them: the install
-    # step fetches and verifies this release, and the analysis step refuses to
-    # run under any other version. Same reasoning as BATS_PIN above.
+    # Declared once, at job level, because two steps read each: the install
+    # step fetches and verifies the release, and the step that uses it refuses
+    # to run under any other version. Same reasoning as BATS_PIN above.
+    #
+    # actionlint 1.7.12: the checksum is of the release asset
+    # actionlint_1.7.12_linux_amd64.tar.gz from the rhysd/actionlint GitHub
+    # release v1.7.12, derived 2026-10-11 by downloading and hashing it, and
+    # cross-checked against the release's actionlint_1.7.12_checksums.txt and
+    # the sha256 digest GitHub records for the asset; all three agreed.
     #
     # The checksum is of the release asset shellcheck-v0.11.0.linux.x86_64.tar.xz
     # from the koalaman/shellcheck GitHub release. Derived 2026-10-06 by
@@ -369,6 +546,8 @@ jobs:
     env:
       SHELLCHECK_VERSION: v0.11.0
       SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+      ACTIONLINT_VERSION: '1.7.12'
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
       - uses: actions/checkout@v7
 
@@ -440,16 +619,15 @@ jobs:
       # rather than a mistake. Bringing them in is separate work with its own
       # suppression budget and its own review.
       #
-      # OUT, and this exclusion was missing from the list until review pointed
-      # at it: the inline `run:` shell in THIS FILE. The discovery matches
-      # tracked files by extension, and a workflow is YAML, so no shell inside
-      # it is analysed — including the release-tag step below, which parses a
-      # tag reference and is the only release gate the repository has. That is
-      # the largest and most security-relevant block of inline shell in the
-      # tree, and a reader who saw only the two exclusions above would fairly
-      # conclude the rest was covered. Closing it needs a different tool, one
-      # that extracts `run:` blocks from workflow YAML; that is separate work,
-      # and naming the gap is the minimum owed until then.
+      # NOT HERE, BUT NOT UNREAD: the inline `run:` shell in THIS FILE. The
+      # discovery matches tracked files by extension, and a workflow is YAML,
+      # so this step reads no shell inside it — including the release-tag step
+      # in the version job, which parses a tag reference and is the only
+      # release gate the repository has. Until 2026-10-11 nothing read that
+      # block at all, and this comment said so. The last step of this job now
+      # runs actionlint, which extracts every `run:` block from the workflows
+      # and hands each to this same pinned shellcheck. See that step for what
+      # it proves and what it does not.
       #
       # There is NO job-level suppression list. The one finding this repository
       # had is suppressed at its own line in tests/helper.bash, with the reader
@@ -497,3 +675,89 @@ jobs:
           printf 'analysing %s file(s):\n' "${#files[@]}"
           printf '  %s\n' "${files[@]}"
           shellcheck --norc -f gcc -- "${files[@]}"
+
+      # actionlint (ACTIONLINT_VERSION above), pinned and checksum-verified on
+      # the same terms as shellcheck: a tarball that hashes to anything else is
+      # never unpacked. Only the binary is extracted.
+      - name: Install the pinned actionlint
+        run: |
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tarball="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          got="$(sha256sum < "$tarball" | cut -d' ' -f1)"
+          [ "$got" = "$ACTIONLINT_SHA256" ] || {
+            echo "actionlint ${ACTIONLINT_VERSION} tarball hashes to $got, expected $ACTIONLINT_SHA256; refusing to install it" >&2
+            exit 1
+          }
+          echo "actionlint ${ACTIONLINT_VERSION} tarball matches $ACTIONLINT_SHA256"
+          dir="$RUNNER_TEMP/actionlint-${ACTIONLINT_VERSION}"
+          mkdir -p "$dir"
+          tar -xzf "$tarball" -C "$dir" actionlint
+          "$dir/actionlint" --version
+          echo "$dir" >> "$GITHUB_PATH"
+
+      # WHAT THIS READS: every tracked workflow file, discovered rather than
+      # listed, so a workflow added later is linted the day it lands; and an
+      # empty discovery is a failure, for the reason given above. actionlint
+      # checks the workflow syntax and expressions, and extracts each `run:`
+      # block and hands it to shellcheck, which is how the inline shell of this
+      # file, the release-tag step included, is finally read by an analyser.
+      #
+      # WHICH shellcheck: the pinned one, by absolute path, after asserting its
+      # version. actionlint silently SKIPS the shell check when it finds no
+      # shellcheck, so leaving it to search PATH would let a missing analyser
+      # read as a clean workflow.
+      #
+      # A POSITIVE CONTROL runs first, because a green lint proves nothing
+      # until the same command has been seen to go red. A throwaway workflow
+      # whose one `run:` line holds an unquoted expansion must FAIL, and fail
+      # with SC2086, the shellcheck code; failing for any other reason does not
+      # show the shell check is live. Measured locally with 1.7.12 and
+      # shellcheck 0.11.0: it fails with exactly that code, and a .shellcheckrc
+      # saying disable=all beside the file does not quiet it.
+      #
+      # What this does NOT prove: actionlint substitutes a placeholder for every
+      # `${{ }}` expression before shellcheck sees the script, so shell built by
+      # an expression is checked only in that placeholder form.
+      - name: Lint the workflows, inline shell included
+        run: |
+          want="${SHELLCHECK_VERSION#v}"
+          sc="$(command -v shellcheck)"
+          have="$("$sc" --version | sed -n 's/^version: //p')"
+          [ "$have" = "$want" ] || {
+            echo "shellcheck on PATH is '$have' at $sc, expected the pinned $want" >&2
+            exit 1
+          }
+          have="$(actionlint --version | sed -n 1p)"
+          [ "$have" = "$ACTIONLINT_VERSION" ] || {
+            echo "actionlint on PATH is '$have' at $(command -v actionlint), expected the pinned $ACTIONLINT_VERSION" >&2
+            exit 1
+          }
+          echo "linting with actionlint $have and shellcheck $want from $sc"
+          canary="$RUNNER_TEMP/canary.yml"
+          cat > "$canary" <<'CANARY'
+          on: push
+          jobs:
+            canary:
+              runs-on: ubuntu-24.04
+              steps:
+                - run: echo $UNQUOTED_CANARY
+          CANARY
+          if actionlint -shellcheck "$sc" -- "$canary" > "$RUNNER_TEMP/canary.out" 2>&1; then
+            echo "actionlint passed a run: line with an unquoted expansion; its shell check is not running" >&2
+            exit 1
+          fi
+          grep -q -- 'SC2086' "$RUNNER_TEMP/canary.out" || {
+            echo "actionlint failed the control, but not with SC2086; its shell check is not shown live:" >&2
+            cat "$RUNNER_TEMP/canary.out" >&2
+            exit 1
+          }
+          echo "control: actionlint reported SC2086 on the planted line"
+          mapfile -d '' workflows < <(git ls-files -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
+          if [ "${#workflows[@]}" -eq 0 ]; then
+            echo "the discovery matched no workflow file; this step examined NOTHING" >&2
+            exit 1
+          fi
+          printf 'linting %s workflow(s):\n' "${#workflows[@]}"
+          printf '  %s\n' "${workflows[@]}"
+          actionlint -shellcheck "$sc" -- "${workflows[@]}"
