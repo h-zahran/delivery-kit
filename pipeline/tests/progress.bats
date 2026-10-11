@@ -1291,6 +1291,10 @@ $(fixture_heading 'Phase 9b: ')|T007"
   run bash "$PROG" get 001-demo --rawfile
   [ "$status" -ne 0 ]
   [[ "$output" == *"starts with a dash"* ]] || false
+  # A single dash too: a guard on "--" alone would let -r reach jq.
+  run bash "$PROG" get 001-demo -r
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"'-r' starts with a dash"* ]] || false
 }
 
 # The metrics file used to exist only if the orchestrator remembered to run
@@ -1324,4 +1328,161 @@ $(fixture_heading 'Phase 9b: ')|T007"
   run --separate-stderr bash "$PROG" init 001-demo b main web
   [ "$status" -eq 0 ]
   [ "$(cat "$M")" = '[1]' ]
+}
+
+# --- review of the hardening lane ----------------------------------------------
+
+# abandon is terminal. Before this, init, lock-take and phase-start accepted
+# an abandoned run, and while it worked again its lock read as stale, so a
+# second run's lock-take took the repository mid-phase. Each command that
+# would resume it refuses it by name; the read-only commands, metrics and
+# abandon itself still work.
+@test "an abandoned run is refused by name by init, from-validate, lock-take and phase-start" {
+  local sf=.delivery-kit/runs/001-demo/progress.json c
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" phase-start 001-demo F
+  bash "$PROG" lock-take 001-demo session-one
+  bash "$PROG" abandon 001-demo 2> /dev/null
+  [ ! -e .delivery-kit/lock ]
+  cp "$sf" before.json
+  for c in "init 001-demo b main web" "from-validate 001-demo F" "lock-take 001-demo session-two" "phase-start 001-demo G"; do
+    # shellcheck disable=SC2086 # the command line is split into words on purpose
+    run bash "$PROG" $c
+    [ "$status" -ne 0 ] || { echo "accepted an abandoned run: $c"; false; }
+    [[ "$output" == *"run '001-demo' was abandoned: an abandoned run is ended and is never resumed"* ]] \
+      || { echo "$c: $output"; false; }
+  done
+  [ ! -e .delivery-kit/lock ] || { echo "lock-take took the lock for an abandoned run"; false; }
+  cmp before.json "$sf"
+  bash "$PROG" validate 001-demo
+  bash "$PROG" read 001-demo > /dev/null
+  [ "$(bash "$PROG" get 001-demo current_phase)" = F ]
+  bash "$PROG" metrics 001-demo > /dev/null
+  run bash "$PROG" abandon 001-demo
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already abandoned"* ]] || false
+}
+
+# abandon's own release of the lock happens under the guard, as
+# lock-release's does: under a held guard it waits, refuses and leaves the
+# lock as it was. The marker, written first, stands, and a second abandon
+# finishes the release.
+@test "abandon waits for the lock guard before it releases the lock, then refuses and changes nothing" {
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" lock-take 001-demo session-one
+  cp .delivery-kit/lock mine.json
+  mkdir .delivery-kit/lock.lock
+  PROGRESS_LOCK_TRIES=2 run bash "$PROG" abandon 001-demo
+  [ "$status" -ne 0 ] || { echo "abandon released the lock past a held guard"; false; }
+  [[ "$output" == *"is locked by another write"* ]] || { echo "$output"; false; }
+  cmp mine.json .delivery-kit/lock
+  rmdir .delivery-kit/lock.lock
+  bash "$PROG" abandon 001-demo 2> /dev/null
+  [ ! -e .delivery-kit/lock ]
+}
+
+# The race, forced. A jq shim sleeps after it answers lock-take's read of the
+# holder, longer for each taker, so without the guard all three read the one
+# stale lock, then each removes the last one's new lock and claims its own:
+# three winners, every time. With the guard each read waits its turn.
+@test "takers delayed between reading a stale lock and claiming it: still exactly one wins" {
+  local f pids=() wins=0 winner='' i real
+  real="$(command -v jq)"
+  mkdir -p shim
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "\"$real\" \"\$@\"; rc=\$?" \
+    "case \"\$*\" in *'.feature // empty'*) sleep \"\${TAKER_DELAY:-0}\" ;; esac" \
+    'exit "$rc"' > shim/jq
+  chmod +x shim/jq
+  for f in 001-a 002-b 003-c; do bash "$PROG" init "$f" b main web > /dev/null; done
+  jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
+  i=1
+  for f in 001-a 002-b 003-c; do
+    PATH="$PWD/shim:$PATH" TAKER_DELAY="$i" PROGRESS_LOCK_TRIES=600 \
+      bash "$PROG" lock-take "$f" "s-$f" > /dev/null 2> "err-$f.txt" &
+    pids+=("$!")
+    i=$((i + 1))
+  done
+  i=0
+  for f in 001-a 002-b 003-c; do
+    if wait "${pids[$i]}"; then wins=$((wins + 1)); winner="$f"; fi
+    i=$((i + 1))
+  done
+  [ "$wins" -eq 1 ] || { echo "$wins takers won"; cat err-*.txt; false; }
+  [ "$(jq -r .feature .delivery-kit/lock | tr -d '\r')" = "$winner" ]
+  [ ! -e .delivery-kit/lock.lock ]
+}
+
+# The rule for "is this run ended" lives in progress.sh and, copied, in
+# preflight.sh. The two lines are held equal here, and the rule's edges are
+# driven: abandoned false or null is a live run; any other value ends it.
+@test "the run-end rule is one line in both scripts, and abandoned false or null is live" {
+  local a b v sf=.delivery-kit/runs/001-demo/progress.json
+  a="$(grep -- "^RUN_END_JQ=" "$PROG")"
+  b="$(grep -- "^RUN_END_JQ=" "$ROOT/pipeline/scripts/preflight.sh")"
+  [ -n "$a" ] && [ "$a" = "$b" ] || { printf 'the two copies differ:\n%s\n%s\n' "$a" "$b"; false; }
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" init 002-other b main web
+  for v in false null; do
+    jq --argjson v "$v" '.abandoned = $v' "$sf" > t.json; mv t.json "$sf"
+    bash "$PROG" phase-start 001-demo B || { echo "abandoned: $v was refused"; false; }
+    rm -f .delivery-kit/lock
+    bash "$PROG" lock-take 001-demo session-one
+    run bash "$PROG" lock-take 002-other session-two
+    [ "$status" -ne 0 ] || { echo "abandoned: $v made the lock stale"; false; }
+    [[ "$output" == *"locked by a live run"* ]] || { echo "$output"; false; }
+  done
+  jq '.abandoned = true' "$sf" > t.json; mv t.json "$sf"
+  run bash "$PROG" lock-take 002-other session-two
+  [ "$status" -eq 0 ] || { echo "abandoned: true left the lock live: $output"; false; }
+}
+
+# jq 1.6, the apt default on Ubuntu 22.04 and Debian 12, refuses -b off
+# Windows. A shim first on PATH refuses -b as it does and passes everything
+# else through: every command still works, because -b is probed, never
+# assumed. The shim's log proves the probe met the refusal.
+@test "a jq that refuses -b still runs init, every state write, get, lock-take and metrics" {
+  local real sf=.delivery-kit/runs/001-demo/progress.json
+  real="$(command -v jq)"
+  mkdir -p shim
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'for a in "$@"; do case "$a" in -b|--binary) printf x >> "'"$PWD"'/refused.log"; echo "jq: Unknown option: $a" >&2; exit 2 ;; esac; done' \
+    "exec \"$real\" \"\$@\"" > shim/jq
+  chmod +x shim/jq
+  : > refused.log
+  PATH="$PWD/shim:$PATH" bash "$PROG" init 001-demo b main web > /dev/null
+  PATH="$PWD/shim:$PATH" bash "$PROG" phase-start 001-demo B
+  PATH="$PWD/shim:$PATH" bash "$PROG" phase-done 001-demo B
+  PATH="$PWD/shim:$PATH" bash "$PROG" commit-add 001-demo tests 0123456789abcdef0123456789abcdef01234567 "" ""
+  PATH="$PWD/shim:$PATH" bash "$PROG" state-set 001-demo gates C '"x"'
+  [ "$(PATH="$PWD/shim:$PATH" bash "$PROG" get 001-demo '.gates.C')" = x ]
+  PATH="$PWD/shim:$PATH" bash "$PROG" lock-take 001-demo session-one
+  PATH="$PWD/shim:$PATH" bash "$PROG" metrics 001-demo > /dev/null
+  bash "$PROG" validate 001-demo
+  jq -e '.current_phase == "B" and .completed_phases == ["B"] and (.commits | length) == 1 and .gates.C == "x"' "$sf" > /dev/null
+  [ -s refused.log ] || { echo "the shim never saw -b: it proved nothing"; false; }
+}
+
+# Glob characters are names, never patterns: a compare that globbed would
+# accept each of these.
+@test "a phase name holding a glob character is refused" {
+  local p
+  bash "$PROG" init 001-demo b main web
+  for p in '*' '?' '[A]' 'C*'; do
+    run bash "$PROG" phase-start 001-demo "$p"
+    [ "$status" -ne 0 ] || { echo "phase-start accepted '$p'"; false; }
+    [[ "$output" == *"unknown phase '$p'"* ]] || { echo "phase-start '$p': $output"; false; }
+  done
+}
+
+@test "an empty feature name and one ending in a dot are refused, each by its own message" {
+  run bash "$PROG" init '' b main web
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"feature name '' — letters, digits, dot, dash, underscore only"* ]] || { echo "$output"; false; }
+  run bash "$PROG" init a. b main web
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"feature name 'a.' ends with a dot"* ]] || { echo "$output"; false; }
+  [ ! -e .delivery-kit ]
+  run bash "$PROG" init .hidden b main web
+  [ "$status" -eq 0 ]
 }
