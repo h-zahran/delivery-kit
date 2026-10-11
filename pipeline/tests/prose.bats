@@ -2057,7 +2057,7 @@ PINS
   flat="$(prose_slice '^7[.] [*][*]Lock:[*][*]' '^9[.] [*][*]Constitution not set' flat 'pre-flight items 7 and 8')" || return 1
   pins_in "$flat" 'pre-flight' <<'PINS'
 A refusal names the holding run and the removal command — surface both and stop; `locked by another write` means a claim is in progress: wait about a minute and rerun. The script takes over stale locks (no state file, or state DONE or abandoned) by itself; everything else is reported, never assumed.
-8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the resume prompt for each run `tree.liveRuns` names — the recorded phase, `--from <phase>` (validated by `from-validate`), or abandon. Abandon ends this walk: no later item fires. Name each run in `tree.unreadableRuns` to the user; never resume one.
+8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the resume prompt for each run `tree.liveRuns` names — the recorded phase, `--from <phase>` (validated by `from-validate`), or abandon, once its session is gone. Abandon ends this walk: no later item fires. Name each run in `tree.unreadableRuns` to the user; never resume one.
 PINS
 }
 

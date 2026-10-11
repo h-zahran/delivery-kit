@@ -1574,20 +1574,21 @@ hidden_refused() {
 
 # The run-end rule's edges, as pre-flight reads them: abandoned false or
 # null is a live run, abandoned true is not. A run whose name starts with a
-# dot is read too. And a jq that refuses -b, as jq 1.6 does off Windows,
-# changes nothing: pre-flight reads each run without -b.
+# dot is read too, by each of the two dot globs (.hidden and ..b). And a jq
+# that refuses -b, as jq 1.6 does off Windows, changes nothing: pre-flight
+# reads each run without -b.
 @test "pre-flight: abandoned false or null is live, a dot-named run is read, and a jq without -b reads them all" {
   local P="$PIPELINE/scripts/progress.sh" real d
   T="$BATS_TEST_TMPDIR/edges"
   mkdir -p "$T"; cd "$T"; git init -q .
-  for r in 001-false 002-null 003-true .hidden; do bash "$P" init "$r" b main web > /dev/null; done
+  for r in 001-false 002-null 003-true .hidden ..b; do bash "$P" init "$r" b main web > /dev/null; done
   for r in false:001-false null:002-null true:003-true; do
     jq --argjson v "${r%%:*}" '.abandoned = $v' ".delivery-kit/runs/${r#*:}/progress.json" > t.json
     mv t.json ".delivery-kit/runs/${r#*:}/progress.json"
   done
   probe --dir "$T" --base-branch main
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
-  jq -e '.tree.liveRuns == ["001-false", "002-null", ".hidden"] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
+  jq -e '.tree.liveRuns == ["001-false", "002-null", ".hidden", "..b"] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
     || { echo "misjudged: $(jq -c .tree <<<"$output")"; false; }
   real="$(command -v jq)"; d="$BATS_TEST_TMPDIR/nob"
   mkdir -p "$d"
@@ -1597,6 +1598,6 @@ hidden_refused() {
   chmod +x "$d/jq"
   PATH="$d:$PATH" probe --dir "$T" --base-branch main
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
-  jq -e '.tree.liveRuns == ["001-false", "002-null", ".hidden"] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
+  jq -e '.tree.liveRuns == ["001-false", "002-null", ".hidden", "..b"] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
     || { echo "a jq without -b misjudged: $(jq -c .tree <<<"$output")"; false; }
 }

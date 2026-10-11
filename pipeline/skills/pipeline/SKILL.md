@@ -243,8 +243,8 @@ through 10 keep the numbers they have always had.
    itself; everything else is reported, never assumed.
 8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the
    resume prompt for each run `tree.liveRuns` names — the recorded
-   phase, `--from <phase>` (validated by `from-validate`), or abandon.
-   Abandon ends this walk: no later item fires. Name each run in
+   phase, `--from <phase>` (validated by `from-validate`), or abandon,
+   once its session is gone. Abandon ends this walk: no later item fires. Name each run in
    `tree.unreadableRuns` to the user; never resume one.
 9. **Constitution not set** (`speckit.constitutionSet` false): OFFER
    running `/speckit-constitution` once — the principles are the

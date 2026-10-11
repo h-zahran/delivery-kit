@@ -14,10 +14,11 @@ All notable changes to the `pipeline` plugin.
   runs it, and `pipeline:status` reports an abandoned run as waiting on
   nothing. Before it, an abandoned run's state file read as a live run for
   good. A state file without the key is unchanged and still valid.
-  Abandon is final: `init` on a resume, `from-validate`, `lock-take` and
-  `phase-start` refuse an abandoned run, naming it, so it can never take
-  the lock or start a phase again; `validate`, `read`, `get`, `metrics` and
-  `abandon` still read it.
+  Abandon is final: every command refuses an abandoned run, naming it, so
+  it can never take the lock, start a phase or record anything again —
+  all but the read-only ones, `metrics`, `abandon` and `lock-release`, and
+  a command added later is refused unless it joins that list. An empty or
+  blank state file is named not valid JSON on jq 1.6 too.
 - **`get <feature> <key|filter>`** prints one value from the state file,
   read-only, through `jq -b`, so no line it prints ends with a CR.
 - **Pre-flight names the runs it judges.** `tree.liveRuns` lists every
