@@ -255,13 +255,17 @@ trains a reader to skim past the one line that matters. An asserted difference
 goes red if the divergence is ever quietly repaired — the direction nobody
 watches.
 
-Three anchored shapes use it today, and the count is best taken from the file:
-`grep -cE '^run_shape .* diff@f495823$' scripts/context-guard/differential.sh` — scoped to `f495823`, the commit that brought these three in, because the threshold divergence (`diff@5ff33c6`) is anchored the same way and belongs to a different rule: the wider `diff@[0-9a-f]+$` counts four. This
+The string-reading shapes described below use it, and their count is best
+taken from the file:
+`grep -cE '^run_shape .* diff@f495823$' scripts/context-guard/differential.sh`.
+It is scoped to `f495823`, the commit that brought them in, because the
+threshold divergence (`diff@5ff33c6`) is anchored the same way and belongs to a
+different rule, and the wider `diff@[0-9a-f]+$` counts it as well. This
 paragraph said "one shape" while the 2026-09-02 table already said two, and it
 still said two after a third arrived. Name the table, never a line distance —
 the distance changed the moment a second table was added above.
 
-All three come from the same root: jq's `+` concatenates strings instead of
+They all come from the same root: jq's `+` concatenates strings instead of
 erroring, so a usage record whose three token fields are all strings yields a
 string reading. `all three fields strings` covers the case where that string does
 not parse as a number — the old hook's separate median call failed on the whole
@@ -270,7 +274,7 @@ number` covers the case where it does — the old hook re-parsed it into a genui
 reading and inflated the median, 556 against 0. `junk alone under the byte cap`
 starves the capped read to that junk, so the old hook cleared the fifteen-reading
 floor on it and skipped the re-read entirely, 556 against 0 — the only one of
-the three that moves the FALLBACK DECISION rather than the median.
+them that moves the FALLBACK DECISION rather than the median.
 
 The summary line says **AS EXPECTED**, not IDENTICAL, and counts the asserted
 differences out separately. It said IDENTICAL for one commit, which reported a
