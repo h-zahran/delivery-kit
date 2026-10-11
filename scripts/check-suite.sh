@@ -30,7 +30,8 @@
 # checks its own arguments (K2, K3) and hands the file to tap-check, passing
 # the expected count. The other rows of
 # specs/023-gate-reads-whole-changelog/contracts/check-suite.md (K4-K11) are
-# tagged on their lines in progress.sh's TAP_AWK.
+# tagged on their lines in progress.sh's TAP_AWK. CI's shard step, in
+# .github/workflows/ci.yml, reads its own shards' TAP with checks of its own.
 #
 # Written for bash 3.2 as well as 5: macOS may run the system bash. No message
 # prints the file's path, which can carry a user name and reach a public log;
@@ -42,7 +43,9 @@ die() { printf 'check-suite.sh: %s\n' "$*" >&2; exit 1; }
 if [ $# -ne 2 ] || ! [[ $1 =~ ^[1-9][0-9]*$ ]]; then die "usage: check-suite.sh <expected> <tap-file>, where <expected> is a positive integer"; fi  # K2
 if [ ! -f "$2" ] || [ ! -r "$2" ]; then die "the TAP file does not exist or cannot be read"; fi  # K3
 
-# progress.sh sits at a fixed place beside this file in the repository.
+# progress.sh sits at a fixed place beside this file in the repository. It is
+# run by the bash running this file, and tap-check needs no jq, so this file
+# still needs only bash and awk.
 here="${BASH_SOURCE[0]}"
 case "$here" in */*) here="${here%/*}" ;; *) here=. ;; esac
 prog="$here/../pipeline/scripts/progress.sh"
@@ -52,7 +55,7 @@ prog="$here/../pipeline/scripts/progress.sh"
 # a refusal, progress.sh failing to start, awk failing to read and tap-check
 # saying so — is a refusal, never a silent exit 0. A refusal's own words are
 # kept, without progress.sh's prefix.
-out="$(bash "$prog" tap-check "$2" "$1" 2>&1)" && case "$out" in
+out="$("${BASH:-bash}" "$prog" tap-check "$2" "$1" 2>&1)" && case "$out" in
   "suite ok: "*) printf '%s\n' "$out"; exit 0 ;;
 esac
 case "$out" in
