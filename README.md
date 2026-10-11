@@ -8,16 +8,6 @@ work were sorted by what the human was actually asking for. The two biggest
 piles were *"continue"* and *"now commit, push, open a PR, check it ran"*. Each
 pile became a plugin.
 
-## Contents
-
-- [Which one do I want?](#which-one-do-i-want)
-- [What each plugin does](#what-each-plugin-does) — [handoff](#handoff--stop-before-the-wall-not-at-it) · [pipeline](#pipeline--one-feature-twenty-phases-five-gates)
-- **Guide** — [Before you start](#before-you-start) · [Your first ten minutes](#your-first-ten-minutes) · [Using handoff](#using-handoff-start-to-finish) · [Using pipeline](#using-pipeline-gate-by-gate)
-- [Command reference](#command-reference)
-- [Configure](#configure)
-- [Troubleshooting](#troubleshooting)
-- [What is in this repository](#what-is-in-this-repository) · [Contributing](#contributing) · [Licence](#licence)
-
 ## Which one do I want?
 
 | Plugin | Install as | Use it when |
@@ -28,147 +18,28 @@ pile became a plugin.
 Install both if you want both. They share one settings file and otherwise stay
 out of each other's way.
 
-## What each plugin does
+## Quick start
 
-### handoff — stop before the wall, not at it
-
-A session that runs out of context does not stop at a clean boundary. It stops
-wherever it happened to be: uncommitted edits, a test run nobody wrote down, and
-a decision whose reason now exists only in a transcript nobody will re-read.
-
-So `handoff` watches. After every tool call it works out how full the context
-window is, and once you cross a line it interrupts with this:
-
-```
-CONTEXT GUARD: session context is at 45% of the 200000-token window (threshold 45%).
-Finish ONLY the current atomic step — do NOT start the next batch or task.
-Then invoke the handoff skill (handoff:handoff) ...
-```
-
-Run `handoff:handoff` and you get a written document — branch, SHA, what is
-done, what is next, what is uncommitted, what will bite you — plus the exact
-prompt to paste into a fresh session. The next session gets back up to speed
-from **one file read**.
-
-It never touches git. No commit, no push, no stash. It records the uncommitted
-work and prints the commands, and the choice stays yours.
-
-### pipeline — one feature, twenty phases, five gates
-
-Give it a seed — a heading from your plan file, a GitHub issue number, or just a
-sentence — and it drives the whole job:
-
-```
-/pipeline add a CSV export to the report page
-```
-
-Twenty phases run from specification to release:
-
-```
-preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* → DONE
-            └─── specify & plan ────┘ └── build ──┘ └──┘  └───── ship ─────┘
-                                                   review
-
-* = stops and asks you first
-```
-
-The five stars are the gates: **clarify** (only you know the answer), **who
-implements, and how you review**, **commit**, **push and open the PR**, and
-**release**. Each one shows you the exact content before anything happens. A
-run that builds here commits in pieces — the spec, then one commit per phase of
-the task list — so the pull request can be read one commit at a time; see
-[reviewing a run commit by commit](pipeline/README.md#reviewing-a-run-commit-by-commit).
-
-Everything that leaves your machine sits behind one of those gates. And some
-things never happen at all: no force-push, no history rewrites, no
-`git add -A`, no skipped hooks, no branch deletion — and it never merges the
-pull request it opens.
-
----
-
-# Guide
-
-## Before you start
-
-### Claude Code
-
-Both plugins are Claude Code plugins. Nothing else is supported.
-
-### `jq` — required by both
-
-`jq` is a small program that reads JSON and pulls one piece out of it. Both
-plugins read JSON constantly: `handoff` reads your session transcript to count
-tokens, and `pipeline` reads its own state files and your project's manifests.
-
-Check whether you already have it:
+**1. Check the tools.** On Windows, run these in Git Bash, not PowerShell
+([why](#windows)).
 
 ```bash
-jq --version
+jq --version     # both plugins
+git --version    # pipeline needs it; handoff uses it if present
 ```
 
-If that prints a version, you are done. If it prints nothing, install it — the
-per-platform commands are in
-[handoff/docs/install.md](handoff/docs/install.md). **On Windows, run that check
-inside Git Bash**, not PowerShell: Git Bash is the shell the hook actually runs
-in, and a `jq` that PowerShell can see is not necessarily one the hook can.
-
-Without `jq` the context guard cannot run. It says so once and then stays quiet,
-rather than pretending to work.
-
-### `git` — required by `pipeline` only
-
-`pipeline` branches, commits and opens pull requests, and its pre-flight reads
-the base branch and the working tree with `git` before anything else runs.
-Without `git` it stops at pre-flight, names the tool, and points at
-<https://git-scm.com/downloads>. Nothing is installed for you, and the run does
-not carry on in a degraded mode — there is no useful subset of it left.
-
-Check it the same way, **inside Git Bash**:
-
-```
-git --version
-```
-
-`handoff` uses `git` too, but optionally and for one narrow purpose — see
-[its install notes](handoff/docs/install.md). Without `git` the guard falls back
-to defaults rather than failing. `pipeline` is the one that stops.
-
-### A spec tool — required by `pipeline` only
-
-`pipeline` drives [spec-kit](https://github.com/github/spec-kit); it does not
-replace it. The target repository needs spec-kit initialised, or the run stops
-at pre-flight and prints the two setup commands. Run them yourself first, the
-second one from the target repository's root:
+If `jq` prints nothing, the install commands are in
+[handoff/docs/install.md](handoff/docs/install.md). For `pipeline`, the target
+repository also needs [spec-kit](https://github.com/github/spec-kit). Run these
+yourself, the second one from the target repository's root (the first needs
+[uv](https://docs.astral.sh/uv/)):
 
 ```
 uv tool install specify-cli
 specify init --here --integration claude
 ```
 
-The first needs [uv](https://docs.astral.sh/uv/). When scripting the setup, pin
-the version — `uv tool install "specify-cli==<version>"` — and note that
-`--non-interactive` exists only from 0.16.x: a 0.15.x scripted init needs an
-explicit `--script sh|ps` or the interactive picker fires.
-Tested against 0.15.x through 0.16.x; other versions warn and continue.
-
-`handoff` has no such dependency. Someone who wants only a context guard never
-acquires a spec-tool dependency.
-
-### Optional, and each one's absence is announced
-
-| Tool | Without it |
-|---|---|
-| `gh` | The pull-request phases degrade: the run pushes and prints a comparison link instead. |
-| A browser, or an attached device | The runtime check falls back or is skipped, and says which. |
-| The code-review and simplify plugins | Their phases skip, and say so. |
-| `git` | Only used to find your settings file from a subdirectory. Without it, defaults apply. |
-
-Nothing here fails silently. Every missing capability is named at pre-flight,
-before any work starts.
-
-## Your first ten minutes
-
-**1. Add the marketplace and install what you want.**
+**2. Add the marketplace and install what you want.**
 
 ```
 /plugin marketplace add h-zahran/delivery-kit
@@ -179,252 +50,56 @@ before any work starts.
 If an install command cannot see its plugin, run `/reload-plugins` after the
 marketplace add and try again.
 
-**2. Tell the guard your real context window. Do this first.**
+**3. With handoff: tell the guard your real context window.** Do this first.
 
 ```
 handoff:setup
 ```
 
-This is the single most important step, and skipping it is the one mistake that
-costs you a session. The guard assumes a 200,000-token window by default, and
-the two ways of being wrong are not the same:
+The guard assumes a 200,000-token window. Set too small, it fires early, and
+you see it at once. Set too large, it **never fires at all**, and you find out
+when a session dies mid-task. `handoff:setup` measures your session and writes
+the answer to `~/.delivery-kit.json`, once per machine.
 
-- **Window set too small** — the guard fires early. Annoying, and instantly
-  visible: the warning names the window it used.
-- **Window set too large** — the guard **never fires at all**. Silent, total,
-  and discovered when a session dies mid-task. Nothing can detect it.
-
-`handoff:setup` measures the context your session has actually accumulated,
-proposes a window when the measurement supports one, asks where you want the
-guard to stop, and writes the answer to `~/.delivery-kit.json` — once per
-machine, not once per repository.
-
-If you are ever unsure between two window sizes, **take the smaller one**.
-Guessing high is the answer that fails quietly.
-
-**3. Check it fires.** The guard is deliberately silent until it has something to
-say, so lower the threshold on purpose for one check. Full steps are in
-[handoff/docs/install.md](handoff/docs/install.md).
-
-**4. If you installed `pipeline`, point it at a plan file.** Optional — by
-default it looks for `main-plan.md`. See [Configure](#configure).
-
-## Using handoff, start to finish
-
-**1. Work normally.** Nothing appears until you cross the threshold.
-
-**2. The guard interrupts.** You get the `CONTEXT GUARD` message shown above.
-If you keep working past it, you are nudged again every 5% — not on every tool
-call.
-
-**3. Finish only the step you are on.** Not the batch. Not the next task. The
-message is deliberate about this: the point is to stop at a boundary you chose.
-
-**4. Run the skill.**
+**4. With pipeline: give it a seed.**
 
 ```
-handoff:handoff
+/pipeline add a CSV export to the report page
 ```
 
-It writes one document to `docs/handoffs/` (configurable) with a fixed set of
-sections, so the next session always knows where to look:
+A seed can also be a heading from your plan file (`Phase 9: Claim Pack`) or a
+GitHub issue (`#123`). The [pipeline page](pipeline/README.md) covers the
+twenty phases, the five gates, and the flags.
 
-| Section | What it holds |
-|---|---|
-| Branch & SHA | Branch, last commit, PR number, CI status |
-| Goal & done-condition | What the run is for, and how you know it is finished |
-| State | Done, in progress (the exact next action), remaining |
-| Uncommitted work | Every changed path, marked as this run's work or pre-existing |
-| Verification state | Last test count, analysis baseline, CI, runtime checks |
-| Blocked | Each blocked item with its specific blocker |
-| Gotchas | What is not recoverable from the code or git history |
-| Deployments pending | Migrations and uploads not yet applied |
-| Pipeline state | Only when a pipeline run is live: the phase, and how to resume it |
-| Resume protocol | Numbered steps, starting with "check these claims against real git state" |
-| Reconcile | Written last: the check Resume step 1 runs, MATCH or MISMATCH for the branch, the commit and the `git status` lines |
+## What each plugin does
 
-**5. Paste what it prints.** The last thing it does is hand you this, with the
-real path filled in:
+**[handoff](handoff/README.md)** watches how full the context window is after
+every tool call. Past a threshold it interrupts, and `handoff:handoff` writes
+one document: branch, commit, what is done, what is next, what is uncommitted,
+what will bite you. It prints the exact prompt for a fresh session, which then
+resumes from **one file read** and first checks that the branch, the commit and
+the changed files still match. It never touches git: no commit, no push, no
+stash.
 
-```
-Resume with:
-Read docs/handoffs/2026-08-25-csv-export-SESSION-HANDOFF.md and continue from it.
-Follow the Resume protocol.
-```
+**[pipeline](pipeline/README.md)** drives one feature through twenty phases,
+from specification to release, and stops at five gates: **clarify**, **who
+implements and how you review**, **commit**, **push and open the PR**, and
+**release**. Each gate shows you the exact content before anything happens.
+Some things never happen at all: no force-push, no history rewrites, no
+`git add -A`, no skipped hooks, no branch deletion, and it never merges the
+pull request it opens.
 
-Open a fresh session, paste that, and the work carries on. A fresh session in
-the same repository also has a session-start hook name the handoff, while the
-branch, commit and changed files still match it.
-
-**Your work is not committed, and that is deliberate.** The hook fired on its
-own, so nothing here was asked for by you — a commit message would be the
-machine's, not yours. The document records every changed path instead, and
-prints the `git add` / `commit` / `push` commands so you can run them if you
-want to. Note the corollary: `git clean`, `git checkout` and `git stash` will
-discard that work, because it is still only in your working tree.
-
-You can also invoke the skill yourself at any time. Say "hand off", or
-"stop after this batch and hand off".
-
-## Using pipeline, gate by gate
-
-### Start a run
-
-```
-/pipeline Phase 9: Claim Pack                    # a heading in your plan file
-/pipeline #123                                   # a GitHub issue
-/pipeline add a CSV export to the report page    # just describe it
-```
-
-The seed is read three ways, in that order. Text shaped like
-`Phase <N>: <title>` is pulled out of your plan file. `#` plus digits fetches
-that GitHub issue — and if you have no GitHub remote or no `gh`, it **stops**
-rather than quietly specifying a feature called "#123". Anything else is the
-feature description, verbatim.
-
-It never starts on its own. The command is the only way in.
-
-### What you see first
-
-Pre-flight prints what it detected before doing anything:
-
-```
-Project type : mobile-android  (override)
-spec tool    : 0.16.5 at .specify/ — hyphen-skills — sh scripts — in range
-Constitution : set
-git          : present
-Base branch  : main  (from origin/HEAD)
-Implementer  : claude  (from ~/.delivery-kit.json)
-Remote       : github  (gh present)
-Available    : jq, git, gh, handoff, code-review, simplify, browser tools
-Missing      : adb
-Will skip    : N.5 — no adb on PATH — the device strategy cannot run
-```
-
-Read the `Will skip` lines. Every degradation is named here, before work starts,
-rather than discovered later.
-
-### The five gates
-
-These are the five gates. The stops listed under the table also wait for you,
-and so does each pause if you chose pause mode; everything else runs
-unattended.
-
-| Gate | Phase | You are shown | You answer |
-|---|---|---|---|
-| **Clarify** | C | Every question the spec tool raises, one at a time | Each one, yourself. Never skipped, never answered for you — this is the gate that needs knowledge only you have. |
-| **Implementer** | G | Who builds: Claude here, or a package for a cheaper model. Then, for a build here, how you review it: commits or pauses | Each question. The `implementer` setting can answer the first; nothing answers the second. Choosing the package parks the run and hands you a brief to give the other model. |
-| **Commit** | K | Every commit the run made on the branch (a merged-in branch shows only as its merge), with its message and files; then what is left, every path by name, and the exact commit message | Yes, or no. It commits only what it showed you. |
-| **Push & PR** | L | The branch name, the PR title, and the full body | Yes, or no. Nothing leaves your machine before this. |
-| **Release** | O | The exact command, and where it publishes | Yes, or no. |
-
-Other things stop a run too, and **no flag collapses them**: a loop hitting its
-cap, a required tool missing, any hard failure, a failed runtime check, the
-constitution offer at pre-flight, a state file tracked in git, and a few stops
-made by the commit and push phases. [The configuration
-page](pipeline/docs/configuration.md#the-implementer-key) has the whole range.
-In pause mode the run also stops before each piece's commit; that is a stop you
-chose, not a gate.
-
-### Running with fewer stops
-
-```
-/pipeline <seed> --auto              # collapses the commit and push gates only
-/pipeline <seed> --auto-release      # collapses release too — typed on purpose
-```
-
-`--auto` never collapses release. Publishing is the least reversible thing this
-tool does, and one flag must not mean both "commit for me" and "publish for me".
-
-> **Know the floor before you automate.** No fresh run reaches the end without
-> stopping: a run that builds here stops at G for the review question, and a
-> handoff run parks at H. A run re-entered past G asks nothing there, so with
-> `--auto` and no release command it can reach the end **without a gate asking
-> anything** (a pause, in pause mode, still stops it). Pre-flight prints an
-> `Implementer` line naming which file or flag the value came from — a setting
-> that answers a question for you can arrive in a repository you just cloned.
-> Set `implementer` to `ask` to take the implementer question back on a fresh
-> run. `baseBranchOverride` and `commitTrailers` can arrive the same way:
-> pre-flight names the file each came from, on its `Base branch` and
-> `Trailers` lines. The whole range is on [the configuration
-> page](pipeline/docs/configuration.md#the-implementer-key).
-
-### Stopping and resuming
-
-```
-/pipeline <seed> --until G     # run to that phase, then stop cleanly
-/pipeline --resume             # pick up where it left off
-pipeline:status                # where am I, what is it waiting on, what do I type
-```
-
-`--until` leaves the state file intact and releases the lock, so the run is
-resumable. `pipeline:status` is read-only: it never edits anything, never takes
-the lock, and never advances a phase.
-
-If the context guard fires while a run is parked at a gate, the handoff document
-records the phase and the resume command alongside everything else.
-
-### When a phase fails
-
-It prints the phase, the reason, and the working tree as it stands — then
-**rolls nothing back**. The working tree is the evidence you need to decide what
-to do, and a tool that tidies up first has destroyed it. The lock is released so
-a failed run does not hold your repository, and the next invocation offers to
-resume.
-
-## Command reference
-
-### Skills you invoke by name
-
-| Command | Does |
-|---|---|
-| `handoff:setup` | Measures your session, asks for your real window and stopping point, and writes the guard's keys to `~/.delivery-kit.json` — those are facts about your machine, so once is enough. In a repository that has `.specify/`, it then *offers* to write the pipeline block into that repository's own `.delivery-kit.json`. It asks first, and declining is fine. |
-| `handoff:handoff` | Writes the handoff document, prints the resume prompt, stops. |
-| `pipeline:status` | Read-only. Where the run is, what it waits on, what to type next. |
-| `pipeline:spec-review` | Audits an implementation against its specification — contract compliance, security, tests, as three independent lenses. Runs inside a run; useful alone when a feature claims to be done. |
-| `pipeline:device-verify` | Builds, installs and drives a mobile release build on one attached device, then reads its own screenshots back. Runs inside a run; useful alone when nobody has watched the change work. |
-
-### `/pipeline`
-
-| Form | Meaning |
-|---|---|
-| `/pipeline Phase <N>: <title>` | Read that section out of your plan file. |
-| `/pipeline #123` | Fetch that GitHub issue. Needs a GitHub remote and `gh`. |
-| `/pipeline <any text>` | Use the text as the feature description, verbatim. |
-
-| Flag | Effect |
-|---|---|
-| `--auto` | Collapse the commit and push gates. Not clarify, not implementer, not release. |
-| `--auto-release` | Collapse release as well. Never implied by `--auto`. |
-| `--implementer <claude\|handoff\|ask>` | Pre-answer the implementer question, or restore it with `ask`. |
-| `--base-branch <name>` | Cut the feature branch from this branch. Beats the remote's default. |
-| `--branch <name>` | Name the feature branch. Default: the run's name. |
-| `--spec-dir <path>` | Name the spec folder. Its last segment is the run's name. |
-| `--trailer <token: value>` | Add a trailer to every commit. Adds to the `commitTrailers` key. Repeat for more. |
-| `--until <phase>` | Stop cleanly after that phase. State intact, lock released, resumable. |
-| `--from <phase>` | Re-enter earlier. Refused unless the artefact that phase consumes exists. |
-| `--resume` | Re-enter a live run at the phase it recorded. |
-| `--dry-run` | Run the spec phases for real, print what the rest would do, stop. |
-| `--config <path>` | Merge a JSON file over the resolved settings. |
-
-## Configure
+## Settings
 
 Nothing is required. Every setting has a default, and anything the tools work
 out for themselves is printed, so a wrong guess is visible rather than silent.
 
-When you do want to set something, it goes in one file called
-`.delivery-kit.json` — in your repository root for project facts, or at
-`~/.delivery-kit.json` for facts about your machine. **The repository file
-wins**, and for the guard's keys an environment variable beats both:
-`DELIVERY_KIT_WINDOW_TOKENS`, `DELIVERY_KIT_THRESHOLD_PCT`,
-`DELIVERY_KIT_THRESHOLD_TOKENS`, `DELIVERY_KIT_MAX_BYTES` and
-`DELIVERY_KIT_HANDOFF_DIR`. Which key each one overrides is in
-[the guard's configuration page](handoff/docs/configuration.md).
-
-**The pipeline's keys have no environment overrides at all.** Not "none yet" —
-none by design, so that a value which answers a gate's question in advance
-cannot arrive from a shell you did not read. Those keys come from the two files
-and from flags, and pre-flight prints which layer won.
+Both plugins read one file, `.delivery-kit.json`: in your repository root for
+project facts, or at `~/.delivery-kit.json` for facts about your machine. **The
+repository file wins**, and for the guard's keys an environment variable beats
+both. The pipeline's keys have no environment overrides at all, by design: a
+value that answers a gate's question in advance must not arrive from a shell you
+did not read.
 
 ```json
 {
@@ -434,49 +109,28 @@ and from flags, and pre-flight prints which layer won.
 }
 ```
 
-The keys worth knowing on day one:
+A repository you clone can carry this file, and some pipeline keys answer a
+question for you. Pre-flight prints an `Implementer` line naming which file or
+flag the `implementer` value came from. `baseBranchOverride` and
+`commitTrailers` can arrive the same way: pre-flight names the file each came
+from, on its `Base branch` and `Trailers` lines.
 
-| Key | Default | Why you would set it |
-|---|---|---|
-| `contextGuard.windowTokens` | `200000` | Your model's real window. **Set this.** |
-| `contextGuard.thresholdPct` | `45` | Where the first warning fires. Below ~30 interrupts with room to spare; above ~70 may not leave enough context to write a good handoff. |
-| `contextGuard.thresholdTokens` | unset | An absolute stopping point. Setting it is what protects you from a wrong `windowTokens`. |
-| `handoff.docsDir` | `docs/handoffs` | Where handoff documents go. |
-| `pipeline.planFile` | `main-plan.md` | Where `Phase <N>: <title>` seeds are read from. |
-| `pipeline.testCommand` | detected | Your full test suite. |
-| `pipeline.implementer` | unset | Pre-answers the implementer question. Read the warning above before setting it. |
-
-A value that is not a positive integer is ignored and the layer beneath it
-stands. **No invalid value can disable the guard.**
-
-Full key reference: [handoff](handoff/docs/configuration.md) ·
+Every key: [handoff](handoff/docs/configuration.md) ·
 [pipeline](pipeline/docs/configuration.md).
 
-Everything `pipeline` writes lives under `.delivery-kit/`. On the first run it
-offers to add that one line to your `.gitignore`, showing exactly what it will
-write. Declining is fine.
+## Windows
 
-## Troubleshooting
+Claude Code runs both plugins' hooks and scripts in **Git Bash**, so Git for
+Windows is required, and Git Bash is where a tool must be visible.
 
 | What you see | Why | What to do |
 |---|---|---|
-| A percentage over 100, plus `WINDOW MISCONFIGURED` | `windowTokens` is smaller than your real window | Run `handoff:setup`. The note already names the minimum true window. |
-| The guard never fires at all | `windowTokens` set too large — nothing can detect this | Set `contextGuard.thresholdTokens` as well. It is decided from the transcript alone, so it still fires when the window is wrong. |
-| The guard is silent, and you saw a one-off note about `jq` | `jq` is missing or cannot run | Install it and restart the session. On Windows, check from Git Bash. |
-| You ran `handoff:setup` and nothing changed | A repository `.delivery-kit.json`, or an environment variable, is overriding it | The skill names the winner. Change it there. It never edits a shared repository file for a guard key, and never edits one unasked — the only thing it writes there is the pipeline block, offered where `.specify/` exists and only if you accept. |
-| Two `CONTEXT GUARD` warnings, or advice naming a plugin you removed | An old `delivery-kit@delivery-kit` install is still present | See [Coming from 1.x](#coming-from-1x). Do not judge by warning count — run `/plugin` and read the list. |
-| `pipeline` stops immediately at pre-flight | No spec tool, no `git`, a dirty tree, a live lock, an illegal `implementer` value, or — on a re-entry — a state file tracked in git, waiting for you to confirm its answers | It names which. There is no degraded mode for a missing spec tool. |
-| "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
-| A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`, and no release command (or `--auto-release`). A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`: the commit and push gates then ask wherever they have no answer yet, and a commit gate that `--auto` collapsed asks again. Check the `Implementer` line in the pre-flight block: it names the layer the implementer answer came from. |
-| A phase was skipped | A capability is missing | Pre-flight named it, and the reason, before work started. Scroll back to the `Will skip` lines. |
+| `jq --version` works in PowerShell, but the guard says `jq` is missing | PowerShell and Git Bash can see different programs | Check from Git Bash. Install with `winget install jqlang.jq`, then open a new Git Bash and the session again. |
+| `gh` works in PowerShell, but Git Bash says `gh: command not found` | Some package managers, Scoop among them, install `gh` as `gh.cmd` only | Nothing, for `pipeline`: pre-flight looks for `gh`, `gh.exe` and `gh.cmd`, and uses the one it finds. In your own Git Bash, type `gh.cmd`. |
+| You cannot find `~/.delivery-kit.json` | `~` is Git Bash's home folder | It is in your Windows user folder: `%USERPROFILE%\.delivery-kit.json`. |
 
-### Coming from 1.x
-
-This was one plugin called `delivery-kit` until 2.0.0. Run
-`/plugin uninstall delivery-kit@delivery-kit` **first** — two installed copies
-register the same hook and race for one flag, so the winner decides which advice
-you get. Why, and what to check instead of the warning count, is in
-[handoff/README.md](handoff/README.md#upgrading-from-delivery-kitdelivery-kit).
+Each plugin's own troubleshooting table: [handoff](handoff/README.md#troubleshooting)
+· [pipeline](pipeline/README.md#troubleshooting).
 
 ## What is in this repository
 
@@ -492,6 +146,9 @@ This repository builds itself with its own pipeline. The directories under
 `specs/` are the output of real runs — open one to see what a finished phase
 actually leaves behind, including the clarifying questions a human answered.
 
+Upgrading from the 1.x plugin called `delivery-kit`? Uninstall it **first**:
+see [handoff/README.md](handoff/README.md#upgrading-from-delivery-kitdelivery-kit).
+
 ## Contributing
 
 Tests are [bats](https://github.com/bats-core/bats-core) and need `jq`. Name
@@ -503,18 +160,10 @@ git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git 
 bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
 ```
 
-CI fetches an immutable commit rather than this tag, so an upstream retag
-cannot change the third-party code an automated gate executes. A local
-clone keeps the readable reference; the pin lives in one place, beside
-the release name, in `.github/workflows/ci.yml`.
-
-Expect green on Linux, macOS and Windows under Git Bash. CI runs all three; a
-change that passes on only one is not finished.
-
+Expect green on Linux, macOS and Windows under Git Bash. CI runs all three.
 More in [CONTRIBUTING.md](CONTRIBUTING.md). Please also read the
-[Code of Conduct](CODE_OF_CONDUCT.md).
-
-Each plugin keeps its own changelog — see [CHANGELOG.md](CHANGELOG.md).
+[Code of Conduct](CODE_OF_CONDUCT.md). Each plugin keeps its own changelog —
+see [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

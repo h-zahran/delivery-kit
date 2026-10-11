@@ -17,7 +17,29 @@ to the same command:
 
 The seed is read three ways, in that order: text shaped like
 `Phase <N>: <title>` is pulled out of your plan file; `#` plus digits fetches
-that GitHub issue; anything else is the feature description, verbatim.
+that GitHub issue; anything else is the feature description, verbatim. With no
+GitHub remote or no `gh`, a `#123` seed **stops** rather than quietly
+specifying a feature called "#123".
+
+## What you see first
+
+Pre-flight prints what it detected before doing anything:
+
+```
+Project type : mobile-android  (override)
+spec tool    : 0.16.5 at .specify/ — hyphen-skills — sh scripts — in range
+Constitution : set
+git          : present
+Base branch  : main  (from origin/HEAD)
+Implementer  : claude  (from ~/.delivery-kit.json)
+Remote       : github  (gh present)
+Available    : jq, git, gh, handoff, code-review, simplify, browser tools
+Missing      : adb
+Will skip    : N.5 — no adb on PATH — the device strategy cannot run
+```
+
+Read the `Will skip` lines. Every degradation is named here, before work starts,
+rather than discovered later.
 
 ## What happens next
 
@@ -133,8 +155,22 @@ No force-push. No history rewrites. No skipped hooks. No `git add -A` or
 wildcard staging — every commit names every path. No branch deletion. And it
 never merges the pull request it opens: it opens one and stops.
 
-A failed phase rolls nothing back. The working tree is the evidence, and
-cleanup is your call.
+A failed phase rolls nothing back. It prints the phase, the reason, and the
+working tree as it stands. The working tree is the evidence, and cleanup is your
+call. The lock is released, so a failed run does not hold your repository, and
+the next invocation offers to resume.
+
+## Stopping and resuming
+
+```
+/pipeline <seed> --until G     # run to that phase, then stop cleanly
+/pipeline --resume             # pick up where it left off
+pipeline:status                # where am I, what is it waiting on, what do I type
+```
+
+`--until` leaves the state file intact and releases the lock, so the run is
+resumable. `pipeline:status` is read-only: it never edits anything, never takes
+the lock, and never advances a phase.
 
 ## Flags
 
@@ -171,7 +207,8 @@ cleanup is your call.
   `--non-interactive` exists only from 0.16.x: a 0.15.x scripted init needs an
   explicit `--script sh|ps` or the interactive picker fires. Tested against
   0.15.x through 0.16.x; other versions warn and continue.
-- `jq`, on every platform.
+- `jq`, on every platform. On Windows, check it from Git Bash: see
+  [the Windows notes](../README.md#windows).
 - `git`, on every platform. Unlike the optional tools below, an absent `git`
   does not degrade a phase — it stops the run at pre-flight, because branching,
   committing and opening a pull request are all git operations and pre-flight's
@@ -216,6 +253,17 @@ run, plus a lock file. On the first run it offers to add that one line to your
 Pairs well with [handoff](../handoff/README.md): if the context guard fires
 while a run is parked at a gate, the handoff document records the phase and the
 resume command alongside everything else.
+
+## Troubleshooting
+
+| What you see | Why | What to do |
+|---|---|---|
+| It stops immediately at pre-flight | No spec tool, no `git`, a dirty tree, a live lock, an illegal `implementer` value, or — on a re-entry — a state file tracked in git, waiting for you to confirm its answers | It names which. There is no degraded mode for a missing spec tool. |
+| "The repository is locked by a live run" | Another run holds the lock and still has a state file | It prints the holder, the session and the exact `rm` — run that yourself. Only a lock whose run has no state file, or is already DONE, is taken over automatically. |
+| A run reached the end without asking you anything | A re-entry past G — `--resume` into a run already past G, or `--from` a later phase — with `--auto`, and no release command (or `--auto-release`). A fresh run always stops: at G, or parked at H for a handoff. | Re-enter without `--auto`: the commit and push gates then ask wherever they have no answer yet, and a commit gate that `--auto` collapsed asks again. Check the `Implementer` line in the pre-flight block: it names the layer the implementer answer came from. |
+| A phase was skipped | A capability is missing | Pre-flight named it, and the reason, before work started. Scroll back to the `Will skip` lines. |
+
+On Windows, also read [the Windows notes](../README.md#windows).
 
 ## Known limits
 

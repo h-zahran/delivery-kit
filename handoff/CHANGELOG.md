@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The README carries the guard's troubleshooting.** The marketplace's root
+  README is now a short start page; this README gained the troubleshooting
+  table, the `git clean`/`checkout`/`stash` warning, "take the smaller
+  window", and how to check the guard fires. The root page has a Windows
+  section for both plugins.
 - **The context guard costs less on every tool call.** It no longer runs
   `jq --version` first on every call; it asks only after its first jq call
   fails, so a missing or broken jq is still reported once. It reads the last
