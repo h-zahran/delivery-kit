@@ -1381,6 +1381,19 @@ load ../../tests/helper
   [ -z "$output" ]
 }
 
+@test "a working directory that does not exist reads no repository configuration" {
+  # git -C <missing folder> fails, so the old lookup found nothing. A walk
+  # of the string alone would climb to the repository above it.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  [ ! -e "$TEST_DIR/repo/gone/deeper" ] || { echo "fixture: the folder exists"; false; }
+  run_hook --cwd "$TEST_DIR/repo/gone/deeper" "$t" missing-cwd
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "a missing working directory read the repository's configuration: $output"; false; }
+}
+
 @test "inside .git or a bare repository there is no top, as git answered" {
   # git -C <a git directory> --show-toplevel answers nothing: there is no work
   # tree. Without the stop the walk would climb out of .git and read the
