@@ -1345,10 +1345,10 @@ $(fixture_heading 'Phase 9b: ')|T007"
 }
 
 # The status skill reports who holds the repository lock, and board judges
-# a lock stale by lock-take's own rule (lock_holder_run): each verdict here
-# is checked against what lock-take then does with that same lock.
-@test "board reports the lock's holder, session and time, stale exactly when lock-take takes it over" {
-  local h want
+# a lock stale by lock-take's own rule (lock_holder_run): in the two tests
+# after this one, each verdict is checked against what lock-take then does
+# with that same lock.
+@test "board reports the lock's holder, session and time, with real booleans" {
   bash "$PROG" init 001-demo b main web
   bash "$PROG" lock-take 001-demo session-one
   cp .delivery-kit/lock lock.before
@@ -1361,15 +1361,13 @@ $(fixture_heading 'Phase 9b: ')|T007"
   done
   cmp lock.before .delivery-kit/lock
   [ ! -e .delivery-kit/lock.lock ]
-  bash "$PROG" lock-release 001-demo
-  bash "$PROG" init 002-live b main web
-  bash "$PROG" init 002-done b main web
-  bash "$PROG" phase-start 002-done DONE
-  bash "$PROG" init 002-ab b main web
-  bash "$PROG" abandon 002-ab 2> /dev/null
-  mkdir -p .delivery-kit/runs/002-bad
-  printf 'not json' > .delivery-kit/runs/002-bad/progress.json
-  for h in 002-gone:missing:true 002-done:done:true 002-ab:abandoned:true 002-live:live:false 002-bad:unreadable:false; do
+}
+
+# board_vs_lock_take <holder:holder_run:stale>... — for each shape, a lock
+# naming that holder: board's verdict, then what lock-take does with it.
+board_vs_lock_take() {
+  local h want
+  for h in "$@"; do
     want="${h#*:}"
     printf '{"feature":"%s","session":"s-%s","taken_at":"t"}\n' "${h%%:*}" "${h%%:*}" > .delivery-kit/lock
     bash "$PROG" board 001-demo > out.json
@@ -1387,23 +1385,74 @@ $(fixture_heading 'Phase 9b: ')|T007"
   done
 }
 
-# board never takes a lock, so a lock it cannot parse is reported, not a
-# reason to stop: the status skill says so rather than guess its holder.
+# Split in two only for time: on a loaded Windows machine one test of all
+# five shapes ran past the 60 s limit (measured twice).
+@test "board calls a lock stale when lock-take takes it over: no state file, DONE, abandoned" {
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" init 002-done b main web
+  bash "$PROG" phase-start 002-done DONE
+  bash "$PROG" init 002-ab b main web
+  bash "$PROG" abandon 002-ab 2> /dev/null
+  board_vs_lock_take 002-gone:missing:true 002-done:done:true 002-ab:abandoned:true
+}
+
+@test "board calls a lock not stale when lock-take refuses it: a live run, an unreadable state file" {
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" init 002-live b main web
+  mkdir -p .delivery-kit/runs/002-bad
+  printf 'not json' > .delivery-kit/runs/002-bad/progress.json
+  board_vs_lock_take 002-live:live:false 002-bad:unreadable:false
+}
+
+# A lock board cannot parse is reported, not a reason to stop: the status
+# skill says so rather than guess its holder. Its stale verdict is still
+# lock-take's, checked here against what lock-take then does: a file it
+# cannot parse names no holder and is taken over; a directory at the path
+# is never judged by lock-take, whose claim then fails, so it is not stale.
 @test "board reports a lock it cannot read as unreadable, and stale as lock-take would" {
   bash "$PROG" init 001-demo b main web
   printf 'not json' > .delivery-kit/lock
   bash "$PROG" board 001-demo > out.json
   jq -e '.lock == {feature: null, session: null, taken_at: null, readable: false, holder_run: "missing", stale: true, this_run: false}' out.json > /dev/null \
     || { echo "lock: $(jq -c .lock out.json)"; false; }
+  run bash "$PROG" lock-take 001-demo session-two
+  [ "$status" -eq 0 ] || { echo "board said stale, lock-take refused: $output"; false; }
   printf '{"feature":"001-demo"}{"feature":"001-demo"}' > .delivery-kit/lock
   bash "$PROG" board 001-demo > out.json
-  jq -e '.lock.readable == false and .lock.feature == null' out.json > /dev/null || { echo "two documents read as one lock"; false; }
+  jq -e '.lock.readable == false and .lock.feature == null and .lock.stale == true' out.json > /dev/null \
+    || { echo "two documents: $(jq -c .lock out.json)"; false; }
+  run bash "$PROG" lock-take 001-demo session-two
+  [ "$status" -eq 0 ] || { echo "board said stale, lock-take refused two documents: $output"; false; }
   rm .delivery-kit/lock
   mkdir .delivery-kit/lock
   bash "$PROG" board 001-demo > out.json
-  jq -e '.lock.readable == false and .lock.stale == true and (.lock.stale | type == "boolean")' out.json > /dev/null \
-    || { echo "lock: $(jq -c .lock out.json)"; false; }
+  jq -e '.lock.readable == false and .lock.stale == false and (.lock.stale | type == "boolean")' out.json > /dev/null \
+    || { echo "a directory: $(jq -c .lock out.json)"; false; }
+  run bash "$PROG" lock-take 001-demo session-two
+  [ "$status" -ne 0 ] || { echo "board said not stale, lock-take claimed past a directory"; false; }
+  [[ "$output" == *"lost the lock race"* ]] || { echo "$output"; false; }
   [ -d .delivery-kit/lock ] && [ ! -e .delivery-kit/lock.lock ]
+}
+
+# board never takes a lock: neither the repository lock's guard nor the
+# state file's. Each guard is held here, fresh, by this test, and one try is
+# all a lock attempt gets, so a board that tried to take either would fail
+# at once. Checking only that no guard is left after board proves nothing:
+# the exit trap removes a guard board took itself.
+@test "board takes no lock: it runs while both guards are held, and leaves them" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" lock-take 001-demo session-one
+  mkdir .delivery-kit/lock.lock "$sf.lock"
+  run env PROGRESS_LOCK_TRIES=0 bash "$PROG" board 001-demo
+  [ "$status" -eq 0 ] || { echo "board waited on a guard: $output"; false; }
+  [[ "$output" != *"locked by another write"* ]] || false
+  [ -d .delivery-kit/lock.lock ] && [ -d "$sf.lock" ] || { echo "board removed a guard it does not hold"; false; }
+  # The control: the same guard, one try, stops a command that does lock.
+  run env PROGRESS_LOCK_TRIES=0 bash "$PROG" lock-release 001-demo
+  [ "$status" -ne 0 ] && [[ "$output" == *"locked by another write"* ]] \
+    || { echo "the control did not stop on the held guard: $output"; false; }
+  rmdir .delivery-kit/lock.lock "$sf.lock"
 }
 
 # The metrics file used to exist only if the orchestrator remembered to run

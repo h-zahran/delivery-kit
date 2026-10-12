@@ -656,7 +656,8 @@ cmd_get() {
 # `feature`, `session` and `taken_at` as the lock file records them,
 # `readable` (false when the lock is not one JSON object, and then those
 # three are null), `holder_run` and `stale` as lock-take judges them (see
-# lock_holder_run), and `this_run`. It never takes a lock, so a lock read
+# lock_holder_run; stale is true exactly when the next lock-take takes the
+# lock over), and `this_run`. It never takes a lock, so a lock read
 # while it is written may read as unreadable: a second look settles it.
 cmd_board() {
   local lf lk=null holder run stale
@@ -667,8 +668,11 @@ cmd_board() {
   if [ -e "$lf" ]; then
     holder="$(lock_holder "$lf")"
     run="$(lock_holder_run "$holder")"
-    # One verdict, lock-take's, for both forms below.
+    # One verdict, lock-take's, for both forms below. lock-take judges only a
+    # regular file: anything else at the path (a directory) makes its claim
+    # fail, "lost the lock race", so it is never taken over — not stale.
     case "$run" in missing|done|abandoned) stale=true ;; *) stale=false ;; esac
+    [ -f "$lf" ] || stale=false
     # shellcheck disable=SC2016 # a jq program: $h, $r, $s and $me are jq's
     lk="$(jqs -c -R -s --arg h "$holder" --arg r "$run" --argjson s "$stale" --arg me "$feature" '
       (try fromjson catch null) as $l
