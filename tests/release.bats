@@ -12,11 +12,10 @@ load helper
 # Every test runs the script on a COPY of the five release files in a fresh
 # git repository under $TEST_DIR, never on this tree. The gate it runs,
 # scripts/check-versions.sh, is the real one, found beside the real script.
-# A refusal must change nothing: each one compares the three files' bytes
+# A refusal must change nothing: each one compares every copied file's bytes
 # before and after, and checks no path of the fixture is printed.
 
 REL_FILES=".gitattributes .claude-plugin/marketplace.json handoff/.claude-plugin/plugin.json handoff/CHANGELOG.md pipeline/.claude-plugin/plugin.json pipeline/CHANGELOG.md"
-EDITED=".claude-plugin/marketplace.json pipeline/.claude-plugin/plugin.json pipeline/CHANGELOG.md"
 
 # The copy, not yet committed, so a test can change it first.
 copy_tree() {
@@ -67,7 +66,7 @@ set_version() {
 
 snap() {
   local f
-  for f in $EDITED; do cksum < "$R/$f"; done
+  for f in $REL_FILES; do cksum < "$R/$f"; done
 }
 
 release() {
@@ -75,7 +74,7 @@ release() {
 }
 
 # refuse <fragment> <args...>: the script refuses, says <fragment>, prints no
-# fixture path, and leaves all three files and the history as they were.
+# fixture path, and leaves every copied file and the history as they were.
 refuse() {
   local frag="$1" before head0
   shift
@@ -323,6 +322,25 @@ accept() {
   edit .claude-plugin/marketplace.json '/"name": "pipeline"/ { f = 1 } f && /"version": / { sub(/1\.5\.0/, "1.4.0"); f = 0 } { print }'
   commit_tree
   refuse 'expected to change 1 version line' pipeline 1.6.0
+}
+
+@test "release.sh refuses a marketplace entry that carries its version line twice" {
+  copy_tree
+  open_unreleased pipeline
+  edit .claude-plugin/marketplace.json '{ print } /"name": "pipeline"/ { f = 1 } f && /"version": / { print; f = 0 }'
+  commit_tree
+  refuse 'expected to change 1 version line for '"'"'pipeline'"'"' at 1.5.0, changed 2' pipeline 1.6.0
+}
+
+@test "release.sh refuses a marketplace entry without a version line, never taking the next entry's" {
+  copy_tree
+  open_unreleased handoff
+  # handoff's entry, first in the file, loses its version line, and the
+  # pipeline entry after it carries handoff's version.
+  edit .claude-plugin/marketplace.json '/"name": "handoff"/ { f = 1 } f && /"version": / { f = 0; next } { print }'
+  edit .claude-plugin/marketplace.json '/"name": "pipeline"/ { f = 1 } f && /"version": / { sub(/1\.5\.0/, "2.3.1"); f = 0 } { print }'
+  commit_tree
+  refuse 'expected to change 1 version line for '"'"'handoff'"'"' at 2.3.1, changed 0' handoff 2.4.0
 }
 
 @test "release.sh restores the three files when the gate refuses the release" {

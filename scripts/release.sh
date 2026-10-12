@@ -110,7 +110,10 @@ trap cleanup EXIT
 # if it had one, so the edit changes the version and nothing else.
 
 # The marketplace: the "version" line inside the entry whose "name" is this
-# plugin, and only while that entry is open (up to its closing brace).
+# plugin, and only while that entry is open (up to its closing brace). The
+# whole entry is read, so a version line written twice in it counts 2 and is
+# refused; an entry with none ends at its brace, so the next entry's line is
+# never taken for it.
 n="$(awk -v BINMODE=3 -v p="$plugin" -v cur="$current" -v new="$version" -v out="$tmpdir/market" '
   {
     raw = $0; cr = ""
@@ -121,7 +124,7 @@ n="$(awk -v BINMODE=3 -v p="$plugin" -v cur="$current" -v new="$version" -v out=
     else if (inside && (line == "\"version\": \"" cur "\"," || line == "\"version\": \"" cur "\"")) {
       i = index(raw, cur)
       raw = substr(raw, 1, i - 1) new substr(raw, i + length(cur))
-      n++; inside = 0
+      n++
     }
     print raw cr > out
   }
