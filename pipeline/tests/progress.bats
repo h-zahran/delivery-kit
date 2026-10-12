@@ -478,9 +478,10 @@ setup() {
   # remainder-commit, to twenty-four with suite-key, suite-record and
   # suite-lookup, to twenty-five with show-message, to twenty-nine with
   # ask-later, pending, answer and pending-check, and to thirty-one with
-  # abandon and get, edited here rather than pinned by a second, weaker test
+  # abandon and get, and to thirty-two with board, edited here rather than
+  # pinned by a second, weaker test
   # beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get|board>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
@@ -1297,6 +1298,114 @@ $(fixture_heading 'Phase 9b: ')|T007"
   [[ "$output" == *"'-r' starts with a dash"* ]] || false
 }
 
+# board is pipeline:status's phase board. The skill used to keep its own
+# copy of the phase list, which nothing tied to PHASES; the rows come from
+# the script now, so the expected list here is read from the script too.
+@test "board lists every phase of PHASES but DONE, in order, each done, current or pending" {
+  local sf=.delivery-kit/runs/001-demo/progress.json want got
+  want="$(awk -F'"' '/^PHASES="/ { print $2; exit }' "$PROG")"
+  [[ $want == " preflight "*" C.5 "*" H.7 "*" O DONE " ]] || { echo "PHASES did not parse: '$want'"; false; }
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" phase-done 001-demo preflight
+  bash "$PROG" phase-start 001-demo A
+  bash "$PROG" phase-done 001-demo A
+  bash "$PROG" phase-start 001-demo B
+  cp "$sf" before.json
+  bash "$PROG" board 001-demo > out.json
+  [ "$(LC_ALL=C tr -cd '\r' < out.json | wc -c | tr -d ' ')" = 0 ] || { echo "board printed a CR"; false; }
+  got="$(jq -r '[.board[].phase] | join(" ")' out.json)"
+  [ " $got DONE " = "$want" ] || { echo "board rows: $got"; false; }
+  [ "$(jq -r '[.board[].state] | .[0:4] | join(" ")' out.json)" = "done done current pending" ]
+  [ "$(jq -r '[.board[] | select(.state != "pending")] | length' out.json)" = 3 ]
+  jq -e '.feature == "001-demo" and .current_phase == "B" and .lock == null' out.json > /dev/null
+  cmp before.json "$sf"
+  [ ! -e .delivery-kit/lock ] && [ ! -e .delivery-kit/lock.lock ]
+  run bash "$PROG" board 001-demo extra
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"usage: board <feature>"* ]] || false
+}
+
+# A resume re-enters current_phase, so the phase it names is current even
+# when it is also completed: a run re-entered with --from, or stopped between
+# phase-done and the next phase-start.
+@test "board marks the current phase current even when it is also completed" {
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" phase-start 001-demo F
+  bash "$PROG" phase-done 001-demo F
+  bash "$PROG" phase-done 001-demo G
+  bash "$PROG" board 001-demo > out.json
+  [ "$(jq -r '.board[] | select(.phase == "F") | .state' out.json)" = current ]
+  [ "$(jq -r '.board[] | select(.phase == "G") | .state' out.json)" = done ]
+  [ "$(jq -r '[.board[] | select(.state == "current")] | length' out.json)" = 1 ]
+  # A finished run: DONE is no row, so no row is current.
+  bash "$PROG" phase-start 001-demo DONE
+  bash "$PROG" board 001-demo > out.json
+  [ "$(jq -r '[.board[] | select(.state == "current")] | length' out.json)" = 0 ]
+  [ "$(jq -r '.board[] | select(.phase == "F") | .state' out.json)" = done ]
+}
+
+# The status skill reports who holds the repository lock, and board judges
+# a lock stale by lock-take's own rule (lock_holder_run): each verdict here
+# is checked against what lock-take then does with that same lock.
+@test "board reports the lock's holder, session and time, stale exactly when lock-take takes it over" {
+  local h want
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" lock-take 001-demo session-one
+  cp .delivery-kit/lock lock.before
+  bash "$PROG" board 001-demo > out.json
+  jq -e '.lock.feature == "001-demo" and .lock.session == "session-one" and (.lock.taken_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))' out.json > /dev/null \
+    || { echo "lock: $(jq -c .lock out.json)"; false; }
+  jq -e '.lock.readable == true and .lock.holder_run == "live" and .lock.stale == false and .lock.this_run == true' out.json > /dev/null
+  for k in readable stale this_run; do
+    jq -e --arg k "$k" '.lock[$k] | type == "boolean"' out.json > /dev/null || { echo "lock.$k is not a boolean"; false; }
+  done
+  cmp lock.before .delivery-kit/lock
+  [ ! -e .delivery-kit/lock.lock ]
+  bash "$PROG" lock-release 001-demo
+  bash "$PROG" init 002-live b main web
+  bash "$PROG" init 002-done b main web
+  bash "$PROG" phase-start 002-done DONE
+  bash "$PROG" init 002-ab b main web
+  bash "$PROG" abandon 002-ab 2> /dev/null
+  mkdir -p .delivery-kit/runs/002-bad
+  printf 'not json' > .delivery-kit/runs/002-bad/progress.json
+  for h in 002-gone:missing:true 002-done:done:true 002-ab:abandoned:true 002-live:live:false 002-bad:unreadable:false; do
+    want="${h#*:}"
+    printf '{"feature":"%s","session":"s-%s","taken_at":"t"}\n' "${h%%:*}" "${h%%:*}" > .delivery-kit/lock
+    bash "$PROG" board 001-demo > out.json
+    jq -e --arg f "${h%%:*}" --arg r "${want%%:*}" --argjson s "${want#*:}" \
+      '.lock.feature == $f and .lock.session == ("s-" + $f) and .lock.holder_run == $r and .lock.stale == $s and .lock.this_run == false' out.json > /dev/null \
+      || { echo "$h: $(jq -c .lock out.json)"; false; }
+    run bash "$PROG" lock-take 001-demo session-two
+    if [ "${want#*:}" = true ]; then
+      [ "$status" -eq 0 ] || { echo "board said stale, lock-take refused: $h: $output"; false; }
+      [[ "$output" == *"taking over a stale lock"* ]] || false
+    else
+      [ "$status" -ne 0 ] || { echo "board said not stale, lock-take took it: $h"; false; }
+      [[ "$output" == *"locked by a live run"* ]] || false
+    fi
+  done
+}
+
+# board never takes a lock, so a lock it cannot parse is reported, not a
+# reason to stop: the status skill says so rather than guess its holder.
+@test "board reports a lock it cannot read as unreadable, and stale as lock-take would" {
+  bash "$PROG" init 001-demo b main web
+  printf 'not json' > .delivery-kit/lock
+  bash "$PROG" board 001-demo > out.json
+  jq -e '.lock == {feature: null, session: null, taken_at: null, readable: false, holder_run: "missing", stale: true, this_run: false}' out.json > /dev/null \
+    || { echo "lock: $(jq -c .lock out.json)"; false; }
+  printf '{"feature":"001-demo"}{"feature":"001-demo"}' > .delivery-kit/lock
+  bash "$PROG" board 001-demo > out.json
+  jq -e '.lock.readable == false and .lock.feature == null' out.json > /dev/null || { echo "two documents read as one lock"; false; }
+  rm .delivery-kit/lock
+  mkdir .delivery-kit/lock
+  bash "$PROG" board 001-demo > out.json
+  jq -e '.lock.readable == false and .lock.stale == true and (.lock.stale | type == "boolean")' out.json > /dev/null \
+    || { echo "lock: $(jq -c .lock out.json)"; false; }
+  [ -d .delivery-kit/lock ] && [ ! -e .delivery-kit/lock.lock ]
+}
+
 # The metrics file used to exist only if the orchestrator remembered to run
 # metrics; runs were measured without one. init makes it, on a fresh run
 # and on a resume where it is missing, and leaves one that exists alone: the
@@ -1350,7 +1459,7 @@ $(fixture_heading 'Phase 9b: ')|T007"
   # a lock; tap-check reads a TAP file, never a run. Every other command the
   # usage line lists is refused — a command added later included, since the
   # list is read from the script's usage.
-  ok=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup tap-check "
+  ok=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup tap-check "
   run bash "$PROG"
   list="${output#*<}"; list="${list%%>*}"
   [[ "|$list|" == *"|init|"* && "|$list|" == *"|state-set|"* && "|$list|" == *"|get|"* ]] \
@@ -1511,6 +1620,8 @@ $(fixture_heading 'Phase 9b: ')|T007"
   [ "$(PATH="$PWD/shim:$PATH" bash "$PROG" get 001-demo '.gates.C')" = x ]
   PATH="$PWD/shim:$PATH" bash "$PROG" lock-take 001-demo session-one
   PATH="$PWD/shim:$PATH" bash "$PROG" metrics 001-demo > /dev/null
+  PATH="$PWD/shim:$PATH" bash "$PROG" board 001-demo > board.json
+  jq -e '.current_phase == "B" and .lock.feature == "001-demo"' board.json > /dev/null
   bash "$PROG" validate 001-demo
   jq -e '.current_phase == "B" and .completed_phases == ["B"] and (.commits | length) == 1 and .gates.C == "x"' "$sf" > /dev/null
   [ -s refused.log ] || { echo "the shim never saw -b: it proved nothing"; false; }

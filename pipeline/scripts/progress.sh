@@ -10,7 +10,8 @@
 # id they recorded; --list prints paths, one per line; guide prints the
 # review guide and commit-list prints K's list; suite-key prints a key,
 # suite-record a verdict, suite-lookup a record's path and a summary,
-# tap-check one summary line, and get the value it was asked for.
+# tap-check one summary line, and get the value it was asked for. board is
+# JSON, as the contract says: the phase board and the repository lock.
 #
 # Everything this file writes lives under .delivery-kit/, and the commit
 # commands write git commits, never a path under it. The state directory is
@@ -59,7 +60,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
 
 # tap-check alone needs no jq: it reads a TAP file with awk, and the
 # repository's scripts/check-suite.sh calls it, which needs only bash and awk.
@@ -512,7 +513,7 @@ RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_pha
 # command added later is refused on an abandoned run unless it is listed
 # there. A state file it cannot read is left to the command's own validate,
 # which names the fault.
-ABANDONED_OK=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
+ABANDONED_OK=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
 not_abandoned() {
   local sf c
   for c in $ABANDONED_OK; do [ "$c" = "$cmd" ] && return 0; done
@@ -531,19 +532,31 @@ not_abandoned() {
 # one's new lock, and both believed they held it. A guard left by a taker
 # that died is broken after a minute, as state_lock breaks any; a stale
 # repository lock is still taken over below, by the same rules as before.
+#
+# lock_holder <lock file> prints the holder the lock names, or nothing when
+# it names none or cannot be read. lock_holder_run <holder> prints how the
+# holder's run stands: "missing" when no holder is named or it has no state
+# file, else RUN_END_JQ's answer — live, done or abandoned — or "unreadable"
+# when its state file cannot be read. A lock is stale when that answer is
+# missing, done or abandoned. lock-take and board read both, so the board
+# calls a lock stale exactly when the next lock-take would take it over.
+lock_holder() { jq -r '.feature // empty' "$1" 2>/dev/null || true; }
+lock_holder_run() {
+  local hs
+  [ -n "$1" ] || { printf 'missing'; return 0; }
+  hs="$(state_file "$1")"
+  [ -f "$hs" ] || { printf 'missing'; return 0; }
+  jqs "$RUN_END_JQ" "$hs" 2>/dev/null || printf 'unreadable'
+}
 cmd_lock_take() {
   feature="$1"; session="${2:-}"
   [ -n "$session" ] || die "lock-take needs a session id"
   lf="$(lock_file)"; mkdir -p "$STATE_ROOT"
   state_lock "$lf"
   if [ -f "$lf" ]; then
-    holder="$(jq -r '.feature // empty' "$lf" 2>/dev/null || true)"
-    hs="$(state_file "${holder:-missing}")"
+    holder="$(lock_holder "$lf")"
     stale=false
-    if [ -z "$holder" ] || [ ! -f "$hs" ]; then stale=true
-    else
-      case "$(jqs "$RUN_END_JQ" "$hs" 2>/dev/null || true)" in done|abandoned) stale=true ;; esac
-    fi
+    case "$(lock_holder_run "$holder")" in missing|done|abandoned) stale=true ;; esac
     if [ "$stale" = true ]; then
       # A crashed session must never lock the repository permanently — that
       # failure mode turns a safety feature into an outage.
@@ -631,6 +644,51 @@ cmd_get() {
     [A-Za-z_]*) case "$q" in *[!A-Za-z0-9_]*) ;; *) jq ${JQB:+"$JQB"} -r --arg k "$q" '.[$k]' "$sf"; return ;; esac ;;
   esac
   jq ${JQB:+"$JQB"} -r "$q" "$sf"
+}
+
+# board <feature> — read-only, for pipeline:status, which used to keep its
+# own copy of the phase list: nothing tied that copy to PHASES, and it never
+# looked at the repository lock. It prints one JSON object: `board`, every
+# phase of PHASES in order but DONE (the terminal marker, not a phase a run
+# works in), each `done`, `current` or `pending` — `current` is the phase
+# current_phase names, the one a resume re-enters, even when it is also
+# completed; and `lock`, null when no lock exists, else the holder's
+# `feature`, `session` and `taken_at` as the lock file records them,
+# `readable` (false when the lock is not one JSON object, and then those
+# three are null), `holder_run` and `stale` as lock-take judges them (see
+# lock_holder_run), and `this_run`. It never takes a lock, so a lock read
+# while it is written may read as unreadable: a second look settles it.
+cmd_board() {
+  local lf lk=null holder run
+  feature="$1"
+  [ $# -eq 1 ] || die "usage: board <feature>"
+  sf="$(cmd_validate "$feature")"
+  lf="$(lock_file)"
+  if [ -e "$lf" ]; then
+    holder="$(lock_holder "$lf")"
+    run="$(lock_holder_run "$holder")"
+    # shellcheck disable=SC2016 # a jq program: $h, $r and $me are jq's
+    lk="$(jqs -c -R -s --arg h "$holder" --arg r "$run" --arg me "$feature" '
+      (try fromjson catch null) as $l
+      | (if ($l | type) == "object"
+         then {feature: ($l.feature // null), session: ($l.session // null),
+               taken_at: ($l.taken_at // null), readable: true}
+         else {feature: null, session: null, taken_at: null, readable: false} end)
+      + {holder_run: $r, stale: ($r == "missing" or $r == "done" or $r == "abandoned"),
+         this_run: ($h != "" and $h == $me)}' "$lf" 2>/dev/null)" \
+      || lk="$(printf '{"feature":null,"session":null,"taken_at":null,"readable":false,"holder_run":"%s","stale":%s,"this_run":false}' \
+                "$run" "$(case "$run" in missing|done|abandoned) printf true ;; *) printf false ;; esac)")"
+  fi
+  # shellcheck disable=SC2016 # a jq program: $phases, $lock, $cur and $p are jq's
+  jq ${JQB:+"$JQB"} --arg phases "$PHASES" --argjson lock "$lk" '
+    .current_phase as $cur | .completed_phases as $done
+    | {feature, current_phase: $cur,
+       board: [$phases | split(" ") | .[] | select(. != "" and . != "DONE") as $p
+               | {phase: $p,
+                  state: (if $p == $cur then "current"
+                          elif any($done[]; . == $p) then "done"
+                          else "pending" end)}],
+       lock: $lock}' "$sf"
 }
 
 # =============================================================================
@@ -2537,5 +2595,6 @@ case "$cmd" in
   pending-check) shift 2; cmd_pending_check "$feature_arg" "$@" ;;
   abandon)       shift 2; cmd_abandon "$feature_arg" "$@" ;;
   get)           shift 2; cmd_get "$feature_arg" "$@" ;;
+  board)         shift 2; cmd_board "$feature_arg" "$@" ;;
   *) usage ;;
 esac

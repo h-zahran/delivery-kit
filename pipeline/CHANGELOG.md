@@ -2,6 +2,26 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- **`board <feature>`** prints the phase board and the repository lock as
+  one JSON object, read-only. `board` lists every phase in order but DONE,
+  each `done`, `current` or `pending`; the phase a resume re-enters is
+  `current`. `lock` is null, or the holder's feature, session and time,
+  whether it is this run, and whether it is stale by the rule `lock-take`
+  uses to take a lock over. It runs on an abandoned run, as `get` does. It
+  is a new subcommand, so a minor-version feature.
+
+### Changed
+
+- **`pipeline:status` renders its board from `board`.** It kept its own
+  copy of the phase list, which nothing tied to the script's, and never
+  looked at the repository lock. It now names the lock's holder, session
+  and time, says whether it is this run, and says when the next run's
+  `lock-take` would take the lock over as stale.
+
 ## [1.5.0] - 2026-10-12
 
 ### Added
