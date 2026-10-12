@@ -21,6 +21,14 @@ All notable changes to the `pipeline` plugin.
   looked at the repository lock. It now names the lock's holder, session
   and time, says whether it is this run, and says when the next run's
   `lock-take` would take the lock over as stale.
+- **`pipeline:spec-review` findings have one form a caller can parse.**
+  Each is one line, `SEVERITY | lens | file:line | finding`, using the
+  severities the pipeline counts by: CRITICAL, HIGH, MEDIUM and LOW. A
+  count line for each severity and the verdict follow. It used Critical,
+  Important and Minor, which the rest of the pipeline does not use. The
+  skill also says what its three independent lenses are: three agents
+  dispatched together in one message, none shown another's findings, as
+  phase I asks.
 
 ## [1.5.0] - 2026-10-12
 
