@@ -59,7 +59,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check|abandon|get> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get> <feature> [args]"; }
 
 # tap-check alone needs no jq: it reads a TAP file with awk, and the
 # repository's scripts/check-suite.sh calls it, which needs only bash and awk.
@@ -2425,13 +2425,12 @@ cmd_suite_record() {
   # A temporary name of this call's own: two records on one key never write
   # one file.
   tmp="$(mktemp "$SUITE_DIR/.record.XXXXXX")" || die "could not make a temporary record"
-  # -b: a native Windows jq writes no CR, so a record is the same bytes on
-  # every system. Literal -b until the dispatch probes jq and sets JQB
-  # (jq 1.6 has no -b); then this becomes jq ${JQB:+"$JQB"}. An inherited
-  # JQB is never trusted here. tree is HEAD's tree when the result was
-  # recorded, kept to be read, never compared.
+  # The probed -b: a native Windows jq writes no CR, so a record is the same
+  # bytes on every system, and jq 1.6, which has no -b, still writes one.
+  # tree is HEAD's tree when the result was recorded, kept to be read, never
+  # compared.
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  if ! jq -b -n --arg key "$SK_KEY" --arg mode "$SK_MODE" --arg head "$SK_HEAD" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
+  if ! jq ${JQB:+"$JQB"} -n --arg key "$SK_KEY" --arg mode "$SK_MODE" --arg head "$SK_HEAD" --arg tree "$SK_TREE" --arg bytes "$SK_BYTES" --arg command "$SK_CMD" --arg platform "$SK_PLAT" \
        --arg verdict "$verdict" --arg feature "$1" --arg tap "$tap" --arg at "$(now)" \
        --argjson plan "$TJ_PLAN" --argjson ok "$TJ_OK" --argjson skipped "$TJ_SKIP" --argjson notOk "$TJ_NOT" \
        --argjson nonTap "$TJ_STRAY" --argjson rc "$((10#$rc))" \

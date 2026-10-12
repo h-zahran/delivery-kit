@@ -480,7 +480,7 @@ setup() {
   # ask-later, pending, answer and pending-check, and to thirty-one with
   # abandon and get, edited here rather than pinned by a second, weaker test
   # beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|ask-later|pending|answer|pending-check|abandon|get>"* ]]
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
@@ -1347,9 +1347,10 @@ $(fixture_heading 'Phase 9b: ')|T007"
   cp "$sf" before.json
   # The commands that still work on an abandoned run, written here as the
   # contract: they read it, refresh its metrics, mark it again, or release
-  # a lock. Every other command the usage line lists is refused — a command
-  # added later included, since the list is read from the script's usage.
-  ok=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
+  # a lock; tap-check reads a TAP file, never a run. Every other command the
+  # usage line lists is refused — a command added later included, since the
+  # list is read from the script's usage.
+  ok=" read validate get metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup tap-check "
   run bash "$PROG"
   list="${output#*<}"; list="${list%%>*}"
   [[ "|$list|" == *"|init|"* && "|$list|" == *"|state-set|"* && "|$list|" == *"|get|"* ]] \
