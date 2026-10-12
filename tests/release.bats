@@ -24,7 +24,18 @@ load helper
 
 PV=4.2.0 # pipeline, in the fixture
 HV=7.1.0 # handoff, in the fixture
-REL_FILES=".gitattributes .claude-plugin/marketplace.json handoff/.claude-plugin/plugin.json handoff/CHANGELOG.md pipeline/.claude-plugin/plugin.json pipeline/CHANGELOG.md"
+# Every plugin directory, found the way the gate finds them, never listed:
+# the gate refuses a marketplace entry whose directory the copy does not
+# hold, so a list naming two plugins went red the day a third was added.
+REL_PLUGINS=""
+REL_FILES=".gitattributes .claude-plugin/marketplace.json"
+for rel_dir in "$ROOT"/*/; do
+  rel_dir="${rel_dir%/}"; rel_dir="${rel_dir##*/}"
+  [ -f "$ROOT/$rel_dir/.claude-plugin/plugin.json" ] || continue
+  REL_PLUGINS="$REL_PLUGINS $rel_dir"
+  REL_FILES="$REL_FILES $rel_dir/.claude-plugin/plugin.json $rel_dir/CHANGELOG.md"
+done
+unset rel_dir
 
 # rewrite <file> <awk program> [awk options]: a fixture file through awk.
 rewrite() {
@@ -74,16 +85,20 @@ copy_tree() {
     cp "$ROOT/$f" "$R/$f"
     [ -f "$R/$f" ] || { echo "fixture: $f was not copied as a file"; return 1; }
   done
-  for p in pipeline handoff; do
+  # shellcheck disable=SC2086 # the list is space-separated on purpose
+  for p in $REL_PLUGINS; do
     rewrite "$p/CHANGELOG.md" 'substr($0, 1, 15) == "## [Unreleased]" { skip = 1; next } skip && /^## / { skip = 0 } !skip { print }'
   done
   put_version pipeline "$PV" rewrite
   put_version handoff "$HV" rewrite
   has_version pipeline "$PV"
   has_version handoff "$HV"
-  if grep -n -- '## \[Unreleased\]' "$R/pipeline/CHANGELOG.md" "$R/handoff/CHANGELOG.md"; then
-    echo "fixture: an Unreleased heading survived"; return 1
-  fi
+  # shellcheck disable=SC2086 # the list is space-separated on purpose
+  for p in $REL_PLUGINS; do
+    if grep -n -- '## \[Unreleased\]' "$R/$p/CHANGELOG.md"; then
+      echo "fixture: an Unreleased heading survived in $p"; return 1
+    fi
+  done
 }
 
 commit_tree() {
