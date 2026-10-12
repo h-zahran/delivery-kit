@@ -241,4 +241,13 @@ resume_block() {
     n=$((n + 1))
   done
   [ "$n" -eq 4 ] || { echo "expected 4 precedence layers, read $n"; false; }
+  # The order alone is not the rule: review kept it while turning "take that
+  # instead" into "ignore it instead" and "beats both files" into "loses to
+  # both files", and the walk above stayed green. So the clause that says what
+  # each layer does is pinned too, whole, with the values read from the page.
+  has "$where" "start from the default $def; if \`~/.delivery-kit.json\` exists and sets it, take that; if \`.delivery-kit.json\` at the repository root sets it, take that instead; and the environment variable $env beats both files."
+  has "$where" 'A missing or malformed file just leaves the previous value standing.'
+  # And the page states the same two wins in words.
+  has "$cflat" 'The environment wins'
+  has "$cflat" 'The repository file beats the user-level one'
 }
