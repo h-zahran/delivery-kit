@@ -344,3 +344,23 @@ flat() {
   [ -n "$mid" ] && [[ $mid != *' '* ]] || { echo "README path '$mid' is empty or holds a space"; false; }
   [ "$next" = '```' ] || { echo "the README block continues past the Read line: '$next'"; false; }
 }
+
+# Audit item D14 (2026-10-12): Install sat twelfth of fifteen sections, near
+# the end of a page the marketplace shows first. It is the first section now,
+# right after the paragraph saying what the plugin is, so a reader who wants
+# only the two commands finds them without the walkthrough.
+@test "the pipeline README puts Install first, before the walkthrough" {
+  cd "$ROOT"
+  local first install walk
+  first="$(tr -d '\r' < pipeline/README.md | awk '/^## / { print; exit }')"
+  [ "$first" = '## Install' ] || { echo "the first section of pipeline/README.md is '$first', not '## Install'"; false; }
+  install="$(tr -d '\r' < pipeline/README.md | awk '$0 == "## Install" { print NR; exit }')"
+  walk="$(tr -d '\r' < pipeline/README.md | awk '$0 == "## How you start it" { print NR; exit }')"
+  [ -n "$install" ] && [ -n "$walk" ] && [ "$install" -lt "$walk" ] \
+    || { echo "order is install=$install how-you-start-it=$walk"; false; }
+  # The section still holds the install line the other READMEs give.
+  local sec
+  sec="$(section pipeline/README.md '## Install')"
+  [[ $'\n'$sec$'\n' == *$'\n/plugin install pipeline@delivery-kit\n'* ]] \
+    || { echo "the Install section no longer holds /plugin install pipeline@delivery-kit"; false; }
+}

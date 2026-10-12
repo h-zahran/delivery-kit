@@ -4,6 +4,17 @@ Drives one unit of work from an idea to a verified build: specification, plan,
 tasks, implementation, review and release — stopping to ask you at every step
 that leaves your machine or cannot be undone by editing a file.
 
+## Install
+
+```
+/plugin marketplace add h-zahran/delivery-kit
+/plugin install pipeline@delivery-kit
+```
+
+Pairs well with [handoff](../handoff/README.md): if the context guard fires
+while a run is parked at a gate, the handoff document records the phase and the
+resume command alongside everything else.
+
 ## How you start it
 
 Type the command. It never starts on its own. Typed bare, `/pipeline` runs the
@@ -273,17 +284,6 @@ The full key reference is [docs/configuration.md](docs/configuration.md).
 Everything the pipeline writes lives under `.delivery-kit/` — one directory per
 run, plus a lock file. On the first run it offers to add that one line to your
 `.gitignore`, showing exactly what it will write. Declining is fine.
-
-## Install
-
-```
-/plugin marketplace add h-zahran/delivery-kit
-/plugin install pipeline@delivery-kit
-```
-
-Pairs well with [handoff](../handoff/README.md): if the context guard fires
-while a run is parked at a gate, the handoff document records the phase and the
-resume command alongside everything else.
 
 ## Troubleshooting
 
