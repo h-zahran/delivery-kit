@@ -4,6 +4,16 @@ All notable changes to the `pipeline` plugin.
 
 ## [Unreleased]
 
+### Changed
+
+- **`pipeline:device-verify` covers the gaps a real device run hits.** It
+  looks for `adb`, then `adb.exe`, and says which name it found: bash on
+  Windows can miss the bare name. It honours `ANDROID_SERIAL`, and passes
+  `-s` when more than one device is attached. It asks before signing an
+  unsigned release build with the debug key, installs an `.aab` through
+  `bundletool`, and names the screenshot folder:
+  `.delivery-kit/runs/<feature>/screenshots/` in a pipeline run.
+
 ### Fixed
 
 - **Pre-flight judges the constitution in the shell.** It fed the file to
