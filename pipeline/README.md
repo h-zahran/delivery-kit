@@ -84,7 +84,7 @@ of them you can also invoke directly when you want that one job without a run.
 | Piece | Kind | Does |
 |---|---|---|
 | `/pipeline`, or `/pipeline:pipeline` | the skill, or the command that calls it | Starts a run. The only entry — the orchestrator never invokes itself. |
-| `pipeline:status` | a skill | Read-only. Where a run got to, which gate or pause it waits on, what to type next. |
+| `pipeline:status` | a skill | Read-only. Where a run got to, who holds the lock, which gate or pause it waits on, what to type next. |
 | `pipeline:spec-review` | a skill | Audits an implementation against its specification with three independent lenses: contract compliance, security, and tests. Runs at the deep-review phase, and stands alone when a feature claims to be done and you want to know whether the spec agrees. |
 | `pipeline:device-verify` | a skill | Builds, installs and drives a mobile release build on one attached device, screenshots what changed, and reads the screenshots back. Runs at the runtime check on an Android project, and stands alone when a change claims to work on a device and nobody has watched it do so. |
 
