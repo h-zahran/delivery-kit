@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The guard finds the repository's configuration without git.** When no
+  `.delivery-kit.json` sat beside the working directory, every tool call
+  ran `git rev-parse --show-toplevel`. The guard now walks up the folders
+  to the nearest `.git` file or folder instead, and reads the same file git
+  pointed it to. That saved about 115 ms a call on Windows, measured. It
+  also means the guard no longer needs git at all.
+
 ## [2.3.1] - 2026-10-12
 
 ### Changed

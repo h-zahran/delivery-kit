@@ -1175,14 +1175,13 @@ load ../../tests/helper
 
 @test "finds configuration at the repository root when the working directory is below it" {
   # FR-002. Claude Code's working directory is often a subdirectory of the
-  # repository, so the guard asks git for the root when nothing sits beside the
-  # working directory. Like the fallback above, this is a line every real user
-  # exercises and no test in this file has ever run.
+  # repository, so the guard walks up to the work tree's top (the nearest
+  # folder holding `.git`) when nothing sits beside the working directory.
+  # Like the fallback above, this is a line every real user exercises.
   #
-  # TWO levels below the root, not one. One level is explainable by a plain
-  # walk up to the parent, so a one-level test would stay green against an
-  # implementation that never asked git at all. Two levels is the cheapest
-  # depth that only a root query can answer.
+  # TWO levels below the root, not one. A one-level test would stay green
+  # against a lookup that only ever read the parent. Two levels is the
+  # cheapest depth that only a walk to the top can answer.
   #
   # FR-003, and why there is no separate assertion for it: as in the test
   # above, a payload that died at the transcript gate exits silently. A warning
@@ -1207,22 +1206,125 @@ load ../../tests/helper
 
   # THE CONTROL. The same shape two levels deep, with no repository anywhere
   # above it — the harness's own directory is a plain temporary tree, not a
-  # checkout, so git has nothing to answer with. This is what shows the root
-  # query did the work rather than some broader search: remove the repository
-  # and the warning goes away.
+  # checkout, so the walk finds no `.git`. This is what shows the top of the
+  # repository did the work rather than some broader search: remove the
+  # repository and the warning goes away.
   mkdir -p "$TEST_DIR/plain/sub/deeper"
   write_config "$TEST_DIR/plain/.delivery-kit.json" '{"windowTokens":50000}'
   # THE PRECONDITION IS ASSERTED, not assumed. This control means nothing if
   # the harness directory happens to sit inside a checkout, and it can: the
   # directory comes from mktemp against the ambient temp path, which a
   # developer may legitimately point at a repo-local scratch directory. Then
-  # git DOES answer, the root query DOES run, and the silence below would come
-  # from that root's configuration carrying no guard key rather than from the
-  # query finding nothing — the control passing while proving the opposite.
+  # the walk DOES find a top, and the silence below would come from that
+  # top's configuration carrying no guard key rather than from the walk
+  # finding nothing — the control passing while proving the opposite.
   ! git -C "$TEST_DIR/plain" rev-parse --show-toplevel >/dev/null 2>&1
   run_hook --cwd "$TEST_DIR/plain/sub/deeper" "$t" norepo
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+# The tests below pin the shell walk that replaced `git rev-parse
+# --show-toplevel`. Each asserts the configuration git's answer chose. Same
+# rig as above: 30000 reads 60% of a configured 50000-token window, and a
+# silent 15% on the 200000-token default.
+
+@test "finds its configuration without running git" {
+  # The walk exists to spare a git process on every tool call. A git first on
+  # PATH that leaves a mark proves none ran, and the warning proves the
+  # configuration at the top was still found.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/sub/deeper" "$TEST_DIR/shim"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  printf '#!/bin/sh\n: > "%s"\nexec "%s" "$@"\n' "$TEST_DIR/git-ran" "$(command -v git)" > "$TEST_DIR/shim/git"
+  chmod +x "$TEST_DIR/shim/git"
+  # The shim is live: through it, git leaves the mark.
+  PATH="$TEST_DIR/shim:$PATH" git --version > /dev/null
+  [ -f "$TEST_DIR/git-ran" ] || { echo "fixture: the git shim left no mark"; false; }
+  rm -f "$TEST_DIR/git-ran"
+
+  local payload
+  payload="$(hook_input --cwd "$TEST_DIR/repo/sub/deeper" "$t" nogit)"
+  run env PATH="$TEST_DIR/shim:$PATH" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+  [ ! -e "$TEST_DIR/git-ran" ] || { echo "the guard ran git to find its configuration"; false; }
+}
+
+@test "finds configuration at a linked worktree's top, where .git is a file" {
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/main"
+  git -C "$TEST_DIR/main" init -q
+  git -C "$TEST_DIR/main" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+    commit -q --allow-empty -m seed
+  git -C "$TEST_DIR/main" worktree add -q ../wt
+  [ -f "$TEST_DIR/wt/.git" ] || { echo "fixture: the linked worktree has no .git file"; false; }
+  mkdir -p "$TEST_DIR/wt/sub/deeper"
+  write_config "$TEST_DIR/wt/.delivery-kit.json" '{"windowTokens":50000}'
+  run_hook --cwd "$TEST_DIR/wt/sub/deeper" "$t" linked
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+}
+
+@test "a backslash working directory finds what git -C found on that platform" {
+  # On Windows, Claude Code can send D:\repo\sub, and git -C took it: the walk
+  # must too. Elsewhere a backslash is part of a folder's name, which git -C
+  # kept: the walk must not split on it.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  local repo cwd
+  if command -v cygpath > /dev/null 2>&1; then
+    repo="$TEST_DIR/repo"
+    mkdir -p "$repo/sub/deeper"
+    cwd="$(cygpath -w "$repo/sub/deeper")"
+    case $cwd in [A-Za-z]:*\\*) ;; *) echo "fixture: not a backslash drive path: $cwd"; false ;; esac
+  else
+    repo="$TEST_DIR/a\\b/repo"
+    mkdir -p "$repo/sub/deeper"
+    cwd="$repo/sub/deeper"
+  fi
+  git -C "$repo" init -q
+  [ -n "$(git -C "$cwd" rev-parse --show-toplevel)" ] || { echo "fixture: git finds no top from $cwd"; false; }
+  write_config "$repo/.delivery-kit.json" '{"windowTokens":50000}'
+  run_hook --cwd "$cwd" "$t" backslash
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+}
+
+@test "a configuration between the working directory and the top is not read" {
+  # git's answer was the top, so a file in a folder between was never read.
+  # The walk keeps that: it does not stop at the first configuration it sees.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/sub/deeper"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/sub/.delivery-kit.json" '{"windowTokens":50000}'
+  run_hook --cwd "$TEST_DIR/repo/sub/deeper" "$t" between
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "inside .git or a bare repository there is no top, as git answered" {
+  # git -C <a git directory> --show-toplevel answers nothing: there is no work
+  # tree. Without the stop the walk would climb out of .git and read the
+  # configuration of the repository holding it.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/sub"
+  git -C "$TEST_DIR/repo" init -q
+  git init -q --bare "$TEST_DIR/repo/bare.git"
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  # The control: the configuration is valid, and read from a folder below.
+  run_hook --cwd "$TEST_DIR/repo/sub" "$t" gitdir-control
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")'
+  local d i=0
+  for d in .git .git/refs bare.git bare.git/refs; do
+    i=$((i + 1))
+    [ -z "$(git -C "$TEST_DIR/repo/$d" rev-parse --show-toplevel 2>/dev/null)" ] \
+      || { echo "fixture: git finds a top from $d"; false; }
+    run_hook --cwd "$TEST_DIR/repo/$d" "$t" "gitdir-$i"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "from $d the guard read the repository's configuration: $output"; false; }
+  done
 }
 
 @test "sweeps flag files older than seven days and keeps the fresh ones" {
