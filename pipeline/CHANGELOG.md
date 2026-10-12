@@ -34,6 +34,15 @@ All notable changes to the `pipeline` plugin.
 - **Install comes first in the README.** It was the twelfth of fifteen
   sections, near the end of the page the marketplace shows. It now follows
   the opening paragraph, before the walkthrough. The text is unchanged.
+- **The pipeline skill's rare paths moved to a page of their own,
+  `docs/rare-paths.md`.** The skill sends the run to one section of it,
+  by name, when that path happens: git absent at pre-flight, an illegal
+  `implementer` value, a state file from an older pipeline, the handoff
+  path, pause mode, a commit a hook rejected, a built piece found on
+  resume, a pull-request body over GitHub's limit, no runtime strategy,
+  and the tracked-state check. The text moved word for word, so a run
+  behaves as before. The gates, the rules that never bend and the red
+  flags stay in the skill, which is now under 60,000 bytes.
 
 ## [1.5.0] - 2026-10-12
 

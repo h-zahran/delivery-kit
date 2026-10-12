@@ -649,7 +649,7 @@ SPAN
 
 span_l() {
   cat <<'SPAN'
-**L — push and open a pull request. STOPS AND ASKS.** Show the branch name, the PR title and the full body before anything leaves the machine. The body carries the review guide, shown in full with the rest of the body. Degradations: no remote — stop after K and say so. Non-GitHub remote, or no `gh` — push, print the comparison URL, and skip M (there is no pull request to review). Ask any waiting questions before building the body; before the push, `progress.sh pending-check <feature>` must exit 0 (see Gates). Before anything else, a run whose `commits` holds an old-style string entry started on an older pipeline: it builds no guide, says so, and carries on as that pipeline did. `progress.sh guide <feature>` prints the review guide, or nothing for such a run. The review guide is a table with one row per commit in `git rev-list --reverse --first-parent <base>..HEAD`, in that order, each joined by its sha to its entry in the state file's `commits`, with the columns commit, kind, piece, task IDs and files, every row printed, never truncated. An entry in `commits` whose sha is not in `<base>..HEAD` is named and stops the run, even under `--auto`: the guide never shows a row for a commit that is not on the branch; on the owner's answer the run removes those entries with `progress.sh drop-stale <feature>` — the one write to `commits` outside `commit-add` — and records the removal under `gates.L`. Before building it, run `progress.sh record-branch <feature>`: it records, oldest first and each before the next, every commit in `<base>..HEAD` that `commits` does not record, with its files read as K reads them, so no commit is missing from the guide: its kind is read from its `Late:` line, its `Piece:` line for the heading `piece-next` then names, or the subject `docs(spec): <feature>`, and is `other` for any other. A `Piece:` line on a commit without `Late: H.5` whose heading is not the one `piece-next` then names, or a commit with no file and no `Late: J` line, is never recorded, and it stops L as it stops K; a path outside the feature is no reason to leave a commit unrecorded. The table is headed with one line: `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.` It shows each piece name and path as a code span and a `|` as `\|`, and `guide` refuses a cell holding a carriage return or a line feed: that stops L and names the commit, so no piece name or path can break the table or add markup to the body. Whenever M or N pushes to the pull request, the guide table in its body is rebuilt as at L and swapped in, the rest of the body kept as it stands, with `gh pr edit --body-file`, so the body never lists fewer commits than the branch holds. When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped. **M — PR review, capped loop.**
+**L — push and open a pull request. STOPS AND ASKS.** Show the branch name, the PR title and the full body before anything leaves the machine. The body carries the review guide, shown in full with the rest of the body. Degradations: no remote — stop after K and say so. Non-GitHub remote, or no `gh` — push, print the comparison URL, and skip M (there is no pull request to review). Ask any waiting questions before building the body; before the push, `progress.sh pending-check <feature>` must exit 0 (see Gates). Before anything else, a run whose `commits` holds an old-style string entry started on an older pipeline: it builds no guide, says so, and carries on as that pipeline did. `progress.sh guide <feature>` prints the review guide, or nothing for such a run. The review guide is a table with one row per commit in `git rev-list --reverse --first-parent <base>..HEAD`, in that order, each joined by its sha to its entry in the state file's `commits`, with the columns commit, kind, piece, task IDs and files, every row printed, never truncated. An entry in `commits` whose sha is not in `<base>..HEAD` is named and stops the run, even under `--auto`: the guide never shows a row for a commit that is not on the branch; on the owner's answer the run removes those entries with `progress.sh drop-stale <feature>` — the one write to `commits` outside `commit-add` — and records the removal under `gates.L`. Before building it, run `progress.sh record-branch <feature>`: it records, oldest first and each before the next, every commit in `<base>..HEAD` that `commits` does not record, with its files read as K reads them, so no commit is missing from the guide: its kind is read from its `Late:` line, its `Piece:` line for the heading `piece-next` then names, or the subject `docs(spec): <feature>`, and is `other` for any other. A `Piece:` line on a commit without `Late: H.5` whose heading is not the one `piece-next` then names, or a commit with no file and no `Late: J` line, is never recorded, and it stops L as it stops K; a path outside the feature is no reason to leave a commit unrecorded. The table is headed with one line: `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.` It shows each piece name and path as a code span and a `|` as `\|`, and `guide` refuses a cell holding a carriage return or a line feed: that stops L and names the commit, so no piece name or path can break the table or add markup to the body. Whenever M or N pushes to the pull request, the guide table in its body is rebuilt as at L and swapped in, the rest of the body kept as it stands, with `gh pr edit --body-file`, so the body never lists fewer commits than the branch holds. When the body would pass GitHub's limit of 65,536 characters, read "A body over the GitHub limit" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. **M — PR review, capped loop.**
 SPAN
 }
 
@@ -994,7 +994,6 @@ ROWS
   local walk probe notread
   walk="$(awk '/^The script only reports; the decisions are yours/,/^\*\*Base branch:\*\*/' "$ORCH")"
   probe="$(awk '/^Project type : /,/^Will skip /' "$ORCH")"
-  notread="$(awk '/^Will skip /,/^The script only reports; the decisions are yours/' "$ORCH")"
 
   # The probe-block line. Pinned inside the BLOCK, so moving it to a footnote
   # does not satisfy the pin — this line is what an operator reads first.
@@ -1023,7 +1022,14 @@ ROWS
   # Stop, never degradation. A mutant that adds a willSkip entry for git turns
   # the capability into a named phase skip nobody can act on — the exact defect
   # the feature was written to close, restored under a new name.
-  grep -qF 'git is a CAPABILITY,' <<<"$walk" \
+  # Item 11's tail and the not-read rule moved, word for word, to the "The git
+  # stop" and "The probe block without git" sections of docs/rare-paths.md, to
+  # keep the skill small (audit item P15). The walk and the probe block keep a
+  # pointer to each, pinned in "each rare path's old site still sends the run
+  # to its section"; these pins slice the section the pointer names.
+  local stop
+  stop="$(rare_section 'The git stop')" || return 1
+  [[ $stop == *'git is a CAPABILITY, never a `willSkip` entry'* ]] \
     || { echo 'item 11 no longer says git is a capability rather than a skip'; false; }
 
   # The not-read rule, pinned WITH its carve-out. The carve-out is the half
@@ -1032,9 +1038,10 @@ ROWS
   # configuration, the gh probe sharing the Remote line, and a device-tool skip
   # — replacing one false statement with another. "and only those parts" is
   # what stops that draft coming back.
-  grep -qF 'and only those parts' <<<"$notread" \
+  notread="$(rare_section 'The probe block without git')" || return 1
+  [[ $notread == *'and only those parts'* ]] \
     || { echo 'the not-read rule lost its precision carve-out and may over-mark again'; false; }
-  grep -qF 'the name came from a configuration file and IS established' <<<"$notread" \
+  [[ $notread == *'the name came from a configuration file and IS established'* ]] \
     || { echo 'the configured-base-branch carve-out was removed from the not-read rule'; false; }
 }
 
@@ -1144,7 +1151,13 @@ The review question is asked on every fresh `claude` run: no configuration key o
 When the implementer answer is `handoff`, G does not ask the review question and says so in one line: review pieces are not available on the handoff path, and the run keeps the single-commit flow.
 A re-entry that finds `gates.G.reviewMode` recorded never asks it again, and no flag replaces it.
 If a `--implementer handoff` typed on a re-entry replaces a recorded `claude`, the recorded review answer stays in the state file unused, commits already made stand, and the rest of the run follows the single-commit flow, saying so in that one line.
-`gates.G` is an object: `answer` holds the implementer answer and `reviewMode` the review answer. A state file whose `gates.G` is a plain string holds the implementer answer alone and has no review answer; read it that way, never as an error.
+`gates.G` is an object: `answer` holds the implementer answer and `reviewMode` the review answer.
+PINS
+  # The plain-string half moved, word for word, to docs/rare-paths.md
+  # (audit item P15); G keeps a pointer to it.
+  flat="$(rare_section 'A state file from an older pipeline')" || return 1
+  pins_in "$flat" 'older pipeline' <<'PINS'
+A state file whose `gates.G` is a plain string holds the implementer answer alone and has no review answer; read it that way, never as an error.
 PINS
 }
 
@@ -1176,25 +1189,31 @@ PINS
 
 @test "a pause shows the piece, takes three answers, and --auto never collapses it" {
   # FR-012 to FR-014 and FR-016: pause mode, the owner's edits, and what a
-  # resumed run does with a built piece that is not yet committed.
+  # resumed run does with a built piece that is not yet committed. Pause
+  # mode and the built piece on resume moved, word for word, from H to
+  # docs/rare-paths.md (audit item P15); H keeps a pointer to each.
   local flat
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(rare_section 'Pause mode')" || return 1
   pins_in "$flat" 'pause' <<'PINS'
 In pause mode, after a piece is built and before it is committed, H stops and shows the piece name, its task IDs, the exact file list, `git diff --stat` for those files with each untracked file listed as new, and the piece's checkpoint result where the tasks file names one.
 Three answers: go on (commit it and continue); fix this (the developer says what, the run changes it and shows the piece again); stop here (the `--until` rule binds: state file intact, lock released, resumable).
 Files the developer edited during the pause go into that piece's commit, and its message lists them as edited by the owner: a path new to the list, or one whose content changed since the pause showed it — never a path in the saved list, which stays for K.
 When the list has changed since the pause showed it, the piece is shown again before it is committed.
 A pause is a safe handoff point, like every gate, and `--auto` never collapses a pause.
-A piece is built when every task ID `piece-next` names for it is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet committed is handled first and never rebuilt: a piece a hook rejected is shown first with its failure entry, in either mode, and then committed again (commits mode) or paused (pause mode), its failure entry cleared once the commit lands; any other built piece is shown again in pause mode and committed in commits mode.
 Each pause answer is recorded under `gates.H.pauses`, with the `git hash-object` of each listed path (or `deleted`) as the pause showed it; a recorded answer never stops a built, uncommitted piece from being shown again.
+PINS
+  flat="$(rare_section 'A built piece on resume')" || return 1
+  pins_in "$flat" 'built piece' <<'PINS'
+A piece is built when every task ID `piece-next` names for it is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet committed is handled first and never rebuilt: a piece a hook rejected is shown first with its failure entry, in either mode, and then committed again (commits mode) or paused (pause mode), its failure entry cleared once the commit lands; any other built piece is shown again in pause mode and committed in commits mode.
 PINS
 }
 
 @test "a hook that rejects a piece commit is a hard stop, never --no-verify" {
   # FR-015. The rule lives in H, not in "When a phase fails": that region
-  # carries a byte-exact span, and H points at it instead.
+  # carries a byte-exact span, and H points at it instead. It moved, word for
+  # word, to docs/rare-paths.md (audit item P15); H keeps a pointer to it.
   local flat
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(rare_section 'A commit a hook rejected')" || return 1
   pins_in "$flat" 'hook stop' <<'PINS'
 A commit hook that rejects a piece commit is a hard stop: the piece stays uncommitted, `gates.H` records a failure entry naming the piece and the hook's output, redacted as J's carry is — the fact and its location, never the value — and the run stops per "When a phase fails".
 `--no-verify` is never used, for a piece commit or any other.
@@ -1306,12 +1325,17 @@ When a late phase starts it runs `progress.sh snapshot <feature> late <phase let
 The phase ends with `progress.sh late-commit <feature> <phase letter> <message file>`: the late commit's paths are the ones `git status` lists that are absent from the saved list or whose content changed since it was saved, less any untracked path outside `codeRoots` (as recorded in `config`), the feature's spec directory and `tasks.md`; such a path stays uncommitted for K, which shows it, and a path under `.delivery-kit/` is never one of them.
 A late commit names every path as H's commits do, and its message follows `commitStyle`, names the phase, and carries, on a line of its own, `Late: <phase letter>`, which `late-commit` adds.
 A late phase that changed no file makes no commit and says so; the one exception is J's record of a waved-through red (see J).
-A commit hook that rejects a late commit is a hard stop, as for a piece: the paths stay uncommitted, `gates` records a failure entry under the phase's letter, `gates.<letter>.failure` with the `paths` and the hook's `output`, redacted as J's carry is, and the run stops per "When a phase fails".
 A re-entered late phase's `snapshot` first records, from that commit, any commit in `<base>..HEAD` that `commits` does not record and that carries its `Late:` line, and prints its id: that phase's commit is made, and is never made again.
 H.5's entry carries, as its piece, the heading of the phase converge appended to `tasks.md`, as `piece-next` prints a heading, and that phase's task IDs, so `piece-next` never offers that phase as a piece; H.5's message also carries `Tasks:` and `Piece: <heading>` lines for it, so H's crash scan finds it too, and H records a commit carrying `Late: H.5` as kind `converge`.
 Every `Piece:` and `Late:` line is matched as a whole line, and a heading read from one travels as data, as H's heading does.
 A late phase whose commit list, so built, is empty has changed no file, for this rule and for J's.
 A `--from` into a late phase adds `--fresh`: the list is saved afresh, less the paths its failure entry names, so a commit a hook rejected is still made; only a resume keeps the saved one.
+PINS
+  # The late commit's hook stop moved, word for word, to docs/rare-paths.md
+  # (audit item P15); H.5 keeps a pointer to it.
+  flat="$(rare_section 'A commit a hook rejected')" || return 1
+  pins_in "$flat" 'late hook stop' <<'PINS'
+A commit hook that rejects a late commit is a hard stop, as for a piece: the paths stay uncommitted, `gates` records a failure entry under the phase's letter, `gates.<letter>.failure` with the `paths` and the hook's `output`, redacted as J's carry is, and the run stops per "When a phase fails".
 PINS
   flat="$(prose_slice '^\*\*H\.7 — simplify\.\*\*' '^\*\*I — deep review\.\*\*' flat 'phase H.7')" || return 1
   pins_in "$flat" 'phase H.7' <<'PINS'
@@ -1405,9 +1429,14 @@ The table is headed with one line: `Read this branch commit by commit, top to bo
 It shows each piece name and path as a code span and a `|` as `\|`, and `guide` refuses a cell holding a carriage return or a line feed: that stops L and names the commit, so no piece name or path can break the table or add markup to the body.
 Before anything else, a run whose `commits` holds an old-style string entry started on an older pipeline: it builds no guide, says so, and carries on as that pipeline did.
 Whenever M or N pushes to the pull request, the guide table in its body is rebuilt as at L and swapped in, the rest of the body kept as it stands, with `gh pr edit --body-file`, so the body never lists fewer commits than the branch holds.
-When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped.
 PINS
   assert_span span_l "$flat" 'the phase L region gained, lost or reworded text around the guide. An appended exception ("past fifty rows the guide is cut") breaks a rule while leaving its pin intact.' || false
+  # The split of a body over GitHub's limit moved, word for word, to
+  # docs/rare-paths.md (audit item P15); L keeps a pointer to it.
+  flat="$(rare_section 'A body over the GitHub limit')" || return 1
+  pins_in "$flat" 'body over the limit' <<'PINS'
+When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped.
+PINS
   flat="$(prose_slice '^\*\*DONE\.\*\*' '^## Gates$' flat 'DONE')" || return 1
   pins_in "$flat" 'DONE' <<'PINS'
 The summary carries the review guide, rebuilt as at L, so M's and N's commits are in it.
@@ -1422,10 +1451,12 @@ PINS
 }
 
 @test "a tracked state file stops a re-entry, and a plain-string gates.G takes the review answer" {
-  # Feature 020, FR-014 and FR-015.
+  # Feature 020, FR-014 and FR-015. The tracked-state check and the
+  # plain-string gates.G moved, word for word, to docs/rare-paths.md (audit
+  # item P15); Resume and G keep a pointer to each.
   local flat
-  flat="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
-  pins_in "$flat" 'resume' <<'PINS'
+  flat="$(rare_section 'The tracked-state check')" || return 1
+  pins_in "$flat" 'tracked state' <<'PINS'
 Before any recorded answer is used, the run asks git whether the state file is tracked, with `git ls-files --error-unmatch -- ':(literal,icase)<state file>'` — `literal` so no character in the path is read as a pattern, `icase` so a copy tracked under other letter case is found on a file system that ignores case: at pre-flight, before decision item 5 accepts a state file's claim on the dirt, on every re-entry (`--resume`, `--from`, or a resume chosen at the resume prompt); and in B, straight after an `init` that finds a state file already there.
 Exit 0 means tracked: the run stops, names the tracked state file, shows every answer recorded under `gates`, and waits for the developer to confirm them, once, for all of them; `--auto` never collapses this stop.
 Exit 1 means untracked, and the run goes on; any other exit status is a hard failure, never read as untracked.
@@ -1434,8 +1465,8 @@ Without the confirmation the run goes no further: the lock is released if this s
 Within one invocation, the confirmation given at the first check stands for the later ones on the same state file; only a new invocation, or another state file, asks again.
 PINS
   assert_span span_r "$flat" 'the tracked-state paragraph gained, lost or reworded text. An appended exception ("a --resume skips this stop") hands a re-entry a consent nobody gave.' || false
-  flat="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
-  pins_in "$flat" 'phase G' <<'PINS'
+  flat="$(rare_section 'A state file from an older pipeline')" || return 1
+  pins_in "$flat" 'older pipeline' <<'PINS'
 On a resume into an unfinished G whose `gates.G` is a plain string, G records the review answer by turning `gates.G` into an object: `answer` takes the string it held, and `reviewMode` the review answer.
 PINS
   local walk
@@ -1783,7 +1814,7 @@ ROWS
   size="$(wc -c < "$ORCH")"
   size="${size//[[:space:]]/}"
   [ "$size" -lt 65536 ] \
-    || { echo "SKILL.md is $size bytes; keep it under 65,536 — move long rules to pipeline/docs/configuration.md"; false; }
+    || { echo "SKILL.md is $size bytes; keep it under 65,536 — move rare paths to pipeline/docs/rare-paths.md, long rules to pipeline/docs/configuration.md"; false; }
 }
 
 @test "the feature-branch and spec-folder flags are pinned where the operator reads them" {
@@ -1913,7 +1944,6 @@ ROWS
   local docs changelog skill s want
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
   changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
-  skill="$(tr '\n' ' ' < "$ROOT/pipeline/skills/pipeline/SKILL.md" | tr -s ' ')"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
@@ -1926,8 +1956,10 @@ Commits an external implementer makes on the handoff path are its own, and are n
 PINS
   want='`late-commit` and `remainder-commit` add it from the state file'"'"'s `config.commitTrailers`, never adding one twice.'
   [[ $changelog == *"$want"* ]] || { echo "CHANGELOG altered: never adding one twice"; false; }
+  # Moved with the not-read rule to docs/rare-paths.md (audit item P15).
+  skill="$(rare_section 'The probe block without git')" || return 1
   want='and add that it was not checked against the repository. The same for `override`, with its layer named.'
-  [[ $skill == *"$want"* ]] || { echo "SKILL.md altered: the unchecked override line"; false; }
+  [[ $skill == *"$want"* ]] || { echo "rare-paths.md altered: the unchecked override line"; false; }
 }
 
 @test "review 3's rules are pinned where the operator and the run read them" {
@@ -2147,4 +2179,169 @@ PINS
   pins_in "$flat" 'README requirements' <<'PINS'
 - `jq` 1.6 or later, on every platform.
 PINS
+}
+
+# --- audit item P15: the rare paths moved to docs/rare-paths.md -------------
+# The skill sends the run to one section of the page when that section's path
+# happens. Each moved rule is pinned on the page above, in the test that pinned
+# it in the skill; the tests below pin the pointers, and pin every section
+# whole, so a sentence added to or dropped from a section goes red.
+
+# rare_section <heading>: the flattened text of docs/rare-paths.md under
+# "## <heading>", up to the next "## " heading or the end of the page.
+# Diagnostics go to stderr: every caller reads it through $( ).
+rare_section() {
+  local page="$ROOT/pipeline/docs/rare-paths.md" n s
+  { [ -f "$page" ] && [ -r "$page" ]; } || { echo "cannot read $page" >&2; return 1; }
+  n="$(tr -d '\r' < "$page" | grep -cxF -- "## $1" || true)"
+  [ "$n" = 1 ] || { echo "rare-paths.md has $n headings '## $1', not one" >&2; return 1; }
+  s="$(tr -d '\r' < "$page" | RS_HEAD="## $1" awk '$0 == ENVIRON["RS_HEAD"] { on = 1; next } on && /^## / { exit } on' | tr '\n' ' ' | tr -s ' ')"
+  s="${s# }"
+  s="${s% }"
+  [[ $s == *[![:space:]]* ]] || { echo "rare-paths.md section '$1' is empty" >&2; return 1; }
+  printf '%s\n' "$s"
+}
+
+@test "rare_section refuses a missing, doubled or empty section" {
+  declare -F rare_section > /dev/null || { echo "rare_section is missing"; false; }
+  run rare_section 'No such section'
+  [ "$status" -eq 1 ] || { echo "rare_section accepted a missing section"; false; }
+  run rare_section 'Pause mode'
+  [ "$status" -eq 0 ] || { echo "rare_section refused a real section"; false; }
+  [[ $output == 'In pause mode, after a piece is built'* ]] || { echo "rare_section did not start at the section body: $output"; false; }
+  local ROOT="$BATS_TEST_TMPDIR/root"
+  mkdir -p "$ROOT/pipeline/docs"
+  printf '## A\n\ntext\n\n## A\n\nmore\n' > "$ROOT/pipeline/docs/rare-paths.md"
+  run rare_section 'A'
+  [ "$status" -eq 1 ] || { echo "rare_section accepted a doubled heading"; false; }
+  printf '## A\n\n## B\n\ntext\n' > "$ROOT/pipeline/docs/rare-paths.md"
+  run rare_section 'A'
+  [ "$status" -eq 1 ] || { echo "rare_section accepted an empty section"; false; }
+  run rare_section 'B'
+  [ "$status" -eq 0 ] && [ "$output" = 'text' ] || { echo "rare_section misread the last section: $output"; false; }
+}
+
+@test "every rare-paths section has a pointer in the skill, and every pointer names a section" {
+  # Derived both ways, never listed: a section no pointer names is a rule the
+  # run never reads, and a pointer to a section that is not there sends the
+  # run nowhere.
+  local page="$ROOT/pipeline/docs/rare-paths.md" flat heads names all shaped h
+  flat="$(tr -d '\r' < "$ORCH" | tr '\n' ' ' | tr -s ' ')"
+  heads="$(tr -d '\r' < "$page" | awk '/^## / { sub(/^## /, ""); print }')"
+  [ -n "$heads" ] || { echo "rare-paths.md has no sections"; false; }
+  names="$(printf '%s\n' "$flat" | grep -oE '"[^"]+" in `[$][{]CLAUDE_PLUGIN_ROOT[}]/docs/rare-paths[.]md`' | sed -E 's/^"([^"]+)" in .*$/\1/' | sort -u || true)"
+  [ -n "$names" ] || { echo "the skill sends the run to no rare-paths section"; false; }
+  # Every mention of the page is a pointer of that shape.
+  all="$(printf '%s\n' "$flat" | grep -o 'docs/rare-paths[.]md' | wc -l | tr -d ' ')"
+  shaped="$(printf '%s\n' "$flat" | grep -oE '"[^"]+" in `[$][{]CLAUDE_PLUGIN_ROOT[}]/docs/rare-paths[.]md`' | wc -l | tr -d ' ')"
+  [ "$all" = "$shaped" ] || { echo "the skill names rare-paths.md $all times, but only $shaped as read \"<section>\" in \`\${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md\`"; false; }
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    [[ $'\n'"$names"$'\n' == *$'\n'"$h"$'\n'* ]] || { echo "no pointer in the skill names the rare-paths section: $h"; false; }
+  done <<<"$heads"
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    [[ $'\n'"$heads"$'\n' == *$'\n'"$h"$'\n'* ]] || { echo "a pointer names a rare-paths section that is not there: $h"; false; }
+  done <<<"$names"
+}
+
+@test "each rare path's old site still sends the run to its section" {
+  # One pin per pointer, in the slice of the section the passage moved out of:
+  # a pointer moved away from its site does not fire when that path happens.
+  local s walk
+  s="$(awk '/^Will skip /,/^The script only reports; the decisions are yours/' "$ORCH" | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$s" 'probe block' <<'PINS'
+When `capabilities.git` is false, read "The probe block without git" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before rendering this block.
+PINS
+  walk="$(awk '/^The script only reports; the decisions are yours/,/^\*\*Base branch:\*\*/' "$ORCH")"
+  [[ ${walk##*$'\n'} == '**Base branch:**'* ]] \
+    || { echo "the pre-flight walk slice did not close on **Base branch:** - it ran to end of file"; false; }
+  s="$(tr -d '\r' <<<"$walk" | tr '\n' ' ' | tr -s ' ')"
+  pins_in "$s" 'pre-flight walk' <<'PINS'
+never coerced, never treated as unset. Before naming it, read "An illegal implementer value" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. 11. **git absent**
+install nothing — the missing-tool ground rule at the top of this document, applied. Before reporting the stop, read "The git stop" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. **Base branch:**
+PINS
+  s="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' flat 'phase G')" || return 1
+  pins_in "$s" 'phase G' <<'PINS'
+`gates.G` is an object: `answer` holds the implementer answer and `reviewMode` the review answer. A `gates.G` that is a plain string comes from an older pipeline: read "A state file from an older pipeline" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
+A "handoff" answer parks the run at H: read "The handoff path" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and follow it, and read it again when H is re-entered on this path. A re-entered gate whose answer is already recorded in `gates` never re-asks
+PINS
+  s="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  pins_in "$s" 'phase H' <<'PINS'
+In pause mode, read "Pause mode" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` after a piece is built and before it is committed.
+When a commit hook rejects a piece commit, read "A commit a hook rejected" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before anything else.
+A recorded piece is never rebuilt. A built piece found on resume is handled as "A built piece on resume" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` says.
+PINS
+  s="$(prose_slice '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
+  pins_in "$s" 'phase H.5' <<'PINS'
+the one exception is J's record of a waved-through red (see J). When a commit hook rejects a late commit, read "A commit a hook rejected" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. A re-entered late phase's
+PINS
+  s="$(prose_slice '^\*\*L — push and open a pull request\.' '^\*\*M — PR review' flat 'phase L')" || return 1
+  pins_in "$s" 'phase L' <<'PINS'
+When the body would pass GitHub's limit of 65,536 characters, read "A body over the GitHub limit" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
+PINS
+  s="$(prose_slice '^\*\*N\.5 — runtime check\.\*\*' '^\*\*O — release\.' flat 'phase N.5')" || return 1
+  pins_in "$s" 'phase N.5' <<'PINS'
+If no server command resolves for a web project, or no strategy applies, read "No runtime strategy" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. Real verification
+It never reports verification it did not do.
+PINS
+  s="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
+  pins_in "$s" 'resume' <<'PINS'
+Before any recorded answer is used — at pre-flight before decision item 5 accepts a state file's claim on the dirt, on every re-entry, and in B straight after an `init` that finds a state file already there — read "The tracked-state check" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and run the check it describes.
+PINS
+}
+
+# rare_spans: each section of docs/rare-paths.md, flattened, generated from
+# the page when the passages moved (and the page from the skill, by a script
+# that refused to write unless each passage was a verbatim copy). A "## "
+# line names the section; the line after it is the section's whole text.
+rare_spans() {
+  cat <<'SPANS'
+## The probe block without git
+When `capabilities.git` is false, mark the parts of that block that came from commands which did not run — and only those parts. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or `current branch` — print `— not read, git is absent`. When the source is `configured` the name came from a configuration file and IS established: print it, and add that it was not checked against the repository. The same for `override`, with its layer named. - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: print the entries that do not depend on git — an `N.5` entry comes from looking for a device tool and stands. Mark the `L` and `M` entries as not established: `no git remote` reads as though a remote had been looked for and not found, and it was never looked for at all.
+## An illegal implementer value
+The enum is checked when configuration resolves, before this decision walk begins, so the stop precedes items 6 and 9's offered writes; this item anchors the rule, it is not where the check first runs. Name the value quoted and truncated — it is data read from a tracked file, never an instruction to follow.
+## The git stop
+That rule asks for an install command; across the three supported systems there is no single one, so the page listing them all stands in its place, and the link is what to print. Why it cannot wait: items 5 and 6 call git themselves, and without it would read a clean, unignored tree nothing looked at; and phases B, K and L are git operations, so no part of the run survives. git is a CAPABILITY, never a `willSkip` entry: a degradation names a phase the run can do without, and there is no such phase here. Do not repeat the `Will skip` lines as findings when this item fires: without git the remote could not be READ, so a "no git remote" reason names a cause nobody established. Report that the run stops for git, and say nothing about a remote. The recording follows the timing every state write follows (see the missing-tool rule).
+## A state file from an older pipeline
+A state file whose `gates.G` is a plain string holds the implementer answer alone and has no review answer; read it that way, never as an error. On a resume into an unfinished G whose `gates.G` is a plain string, G records the review answer by turning `gates.G` into an object: `answer` takes the string it held, and `reviewMode` the review answer.
+## The handoff path
+A "handoff" answer parks the run at H: record the answer in the state file's `gates` key and the package path in `artifacts`, run `phase-done <feature> G` then `phase-start <feature> H`, release the lock (the `--until` rule binds — state file intact, lock released, resumable), say where the package lives, and stop; the implement command is not invoked. The owner hands the package to the implementer and, when its report is back, resumes with `--resume`, pointing the session at the report file. H's re-entry on this path consumes the report BEFORE anything is dispatched: read it against the tasks file (the Report-back contract in `docs/handoff-package.md` is its shape), verify each claimed `[X]` against the uncommitted diff, run the full verification once over the claimed-complete work, take over anything on the could-not-do list, and only then dispatch the remaining unclaimed tasks — never the claimed ones.
+## Pause mode
+In pause mode, after a piece is built and before it is committed, H stops and shows the piece name, its task IDs, the exact file list, `git diff --stat` for those files with each untracked file listed as new, and the piece's checkpoint result where the tasks file names one. Three answers: go on (commit it and continue); fix this (the developer says what, the run changes it and shows the piece again); stop here (the `--until` rule binds: state file intact, lock released, resumable). Files the developer edited during the pause go into that piece's commit, and its message lists them as edited by the owner: a path new to the list, or one whose content changed since the pause showed it — never a path in the saved list, which stays for K. When the list has changed since the pause showed it, the piece is shown again before it is committed. A pause is a safe handoff point, like every gate, and `--auto` never collapses a pause. Each pause answer is recorded under `gates.H.pauses`, with the `git hash-object` of each listed path (or `deleted`) as the pause showed it; a recorded answer never stops a built, uncommitted piece from being shown again.
+## A commit a hook rejected
+A commit hook that rejects a piece commit is a hard stop: the piece stays uncommitted, `gates.H` records a failure entry naming the piece and the hook's output, redacted as J's carry is — the fact and its location, never the value — and the run stops per "When a phase fails". `--no-verify` is never used, for a piece commit or any other. A commit hook that rejects a late commit is a hard stop, as for a piece: the paths stay uncommitted, `gates` records a failure entry under the phase's letter, `gates.<letter>.failure` with the `paths` and the hook's `output`, redacted as J's carry is, and the run stops per "When a phase fails".
+## A built piece on resume
+A piece is built when every task ID `piece-next` names for it is marked `[X]` in `tasks.md`. On resume, a built piece that is not yet committed is handled first and never rebuilt: a piece a hook rejected is shown first with its failure entry, in either mode, and then committed again (commits mode) or paused (pause mode), its failure entry cleared once the commit lands; any other built piece is shown again in pause mode and committed in commits mode.
+## A body over the GitHub limit
+When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped.
+## No runtime strategy
+If no server command resolves for a web project, say so and fall through to the `verifyCommand` strategy rather than guessing — an invented command that appears to hang is worse than an honest skip. If no strategy applies and `verifyCommand` is unset, print what could not be verified and why, then continue.
+## The tracked-state check
+Before any recorded answer is used, the run asks git whether the state file is tracked, with `git ls-files --error-unmatch -- ':(literal,icase)<state file>'` — `literal` so no character in the path is read as a pattern, `icase` so a copy tracked under other letter case is found on a file system that ignores case: at pre-flight, before decision item 5 accepts a state file's claim on the dirt, on every re-entry (`--resume`, `--from`, or a resume chosen at the resume prompt); and in B, straight after an `init` that finds a state file already there. Exit 0 means tracked: the run stops, names the tracked state file, shows every answer recorded under `gates`, and waits for the developer to confirm them, once, for all of them; `--auto` never collapses this stop. Exit 1 means untracked, and the run goes on; any other exit status is a hard failure, never read as untracked. The confirmation is recorded under `gates.trackedState`, and a recorded confirmation never suppresses the next re-entry's stop — the file travels with the repository, and a yes written into it is a yes nobody at the next keyboard gave. Without the confirmation the run goes no further: the lock is released if this session took it, and the state file is left intact. Within one invocation, the confirmation given at the first check stands for the later ones on the same state file; only a new invocation, or another state file, asks again.
+SPANS
+}
+
+@test "each rare-paths section is exactly the skill's text, moved word for word" {
+  # Equality, not inclusion: a sentence appended to a section, or dropped from
+  # it, goes red, and so does a section added or removed. The list of
+  # sections is read from the page and from the spans, and must agree.
+  local spans heads want name got n=0 line
+  spans="$(rare_spans)"
+  heads="$(tr -d '\r' < "$ROOT/pipeline/docs/rare-paths.md" | awk '/^## / { sub(/^## /, ""); print }')"
+  want="$(printf '%s\n' "$spans" | awk '/^## / { sub(/^## /, ""); print }')"
+  [ -n "$heads" ] || { echo "rare-paths.md has no sections"; false; }
+  [ "$heads" = "$want" ] || { echo "the page's sections differ from the pinned ones:"; echo "page: $heads"; echo "pinned: $want"; false; }
+  name=''
+  while IFS= read -r line; do
+    if [[ $line == '## '* ]]; then name="${line#\#\# }"; continue; fi
+    [ -n "$line" ] || continue
+    [ -n "$name" ] || { echo "a span line before any section name"; false; }
+    got="$(rare_section "$name")" || return 1
+    [ "$got" = "$line" ] || { echo "rare-paths.md section \"$name\" changed:"; echo "$got"; false; }
+    n=$((n + 1))
+    name=''
+  done <<<"$spans"
+  [ "$n" -eq "$(printf '%s\n' "$want" | awk 'NF { n++ } END { print n + 0 }')" ] \
+    || { echo "checked $n sections, not every pinned one"; false; }
 }
