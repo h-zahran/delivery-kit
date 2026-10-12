@@ -171,8 +171,11 @@ main-plan.md the plan file this repository reads its own seeds from
 ```
 
 This repository builds itself with its own pipeline. The directories under
-`specs/` are the output of real runs — open one to see what a finished phase
-actually leaves behind, including the clarifying questions a human answered.
+`specs/` are the output of real runs. Start with
+[`specs/018-progress-commits-pieces`](specs/018-progress-commits-pieces/spec.md):
+one small feature with everything a finished run leaves behind — the spec,
+with the two clarifying questions a human answered, then the research, plan,
+data model, contract, quickstart and task list beside it.
 
 ## Contributing
 
