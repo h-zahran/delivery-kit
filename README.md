@@ -1,9 +1,9 @@
 # delivery-kit
 
-A Claude Code plugin marketplace. Two plugins live here. Each installs on its
-own, and neither needs the other.
+A Claude Code plugin marketplace. Three plugins live here. Each installs on its
+own, and none needs the others.
 
-Both came out of the same exercise: 1,410 prompts across 67 sessions of real
+The first two came out of the same exercise: 1,410 prompts across 67 sessions of real
 work were sorted by what the human was actually asking for. The two biggest
 piles were *"continue"* and *"now commit, push, open a PR, check it ran"*. Each
 pile became a plugin.
@@ -14,9 +14,10 @@ pile became a plugin.
 |---|---|---|
 | **[handoff](handoff/README.md)** | `handoff@delivery-kit` | Long sessions run out of room, and you keep typing *continue*. |
 | **[pipeline](pipeline/README.md)** | `pipeline@delivery-kit` | You want one feature taken from an idea to a reviewed pull request, stopping to ask you at every step that leaves your machine. |
+| **[mission-control](mission-control/README.md)** | `mission-control@delivery-kit` | You want to watch the main loop and every subagent at work: tools, context, cost, rate limits and files touched. |
 
-Install both if you want both. They share one settings file and otherwise stay
-out of each other's way.
+Install any of them. handoff and pipeline share one settings file and otherwise
+stay out of each other's way. mission-control needs no settings.
 
 ## Quick start
 
@@ -48,6 +49,7 @@ To pin a version in a script, see
 /plugin marketplace add h-zahran/delivery-kit
 /plugin install handoff@delivery-kit
 /plugin install pipeline@delivery-kit
+/plugin install mission-control@delivery-kit
 ```
 
 If an install command cannot see its plugin, run `/reload-plugins` after the
@@ -100,6 +102,14 @@ implements and how you review**, **commit**, **push and open the PR**, and
 Some things never happen at all: no force-push, no history rewrites, no
 `git add -A`, no skipped hooks, no branch deletion, and it never merges the
 pull request it opens.
+
+**[mission-control](mission-control/README.md)** adds a side pane with robots:
+one for the main loop and one for every subagent, each with its tools, context,
+cost, rate limits and the files it touched. It also adds a band above the
+prompt, a REQUESTS card, toasts and sounds. `/mission` shows or hides the pane.
+`/mission-band` shows the band again. Sound: Windows uses PowerShell, macOS uses
+the built-in player, and Linux needs `paplay`, `pw-play` or `aplay`. With no
+player, it stays quiet.
 
 ## Settings
 
@@ -154,6 +164,7 @@ Each plugin's own troubleshooting table: [handoff](handoff/README.md#troubleshoo
 ```
 handoff/     the handoff plugin — hooks, skills, scripts, docs, tests
 pipeline/    the pipeline plugin — command, skills, scripts, docs, tests
+mission-control/ the mission-control mod — hook modules, sounds, types, its test
 tests/       repo-wide tests: layout, and what may appear in shipped files
 specs/       the specifications real pipeline runs produced, kept as examples
 main-plan.md the plan file this repository reads its own seeds from
