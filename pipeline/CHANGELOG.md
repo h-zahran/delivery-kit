@@ -2,6 +2,16 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Fixed
+
+- **Pre-flight judges the constitution in the shell.** It fed the file to
+  grep through `< <(printf ...)`, and on Git Bash that grep said "found"
+  for a pattern that is not there in about 2% of calls under load. Then a
+  written constitution could read as unset, or a blank one as set. It now
+  matches with `[[ ]]`, which also never hangs on a file of about 64 KB.
+
 ## [1.6.0] - 2026-10-12
 
 ### Added

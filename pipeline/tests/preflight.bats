@@ -1236,32 +1236,88 @@ hidden_refused() {
 
 # --- a constitution at the size a herestring hangs on -------------------------
 
-@test "a constitution of 65,600 bytes is judged, not hung on" {
-  # Git Bash 5.3.9 hangs a herestring of 65,536 to about 65,700 bytes, and the
-  # constitution body used to reach grep through one. Measured against that
-  # script: this test timed out (status 124) here, and 65,600 sits inside the
-  # band. The size IS the property, so it is asserted before the probe runs —
-  # a fixture that drifted out of the band would pass for the wrong reason.
-  T="$BATS_TEST_TMPDIR/big-constitution"
-  mkdir -p "$T/.specify/memory"
-  ( cd "$T" && git init -q . )
-  # 820 lines of 79 characters plus a newline: 65,600 bytes, no template token.
-  awk 'BEGIN { l = sprintf("%79s", ""); gsub(/ /, "x", l); for (i = 0; i < 820; i++) print l }' \
-    > "$T/.specify/memory/constitution.md"
-  [ "$(wc -c < "$T/.specify/memory/constitution.md" | tr -d ' ')" -eq 65600 ]
+# Git Bash 5.3.9 hangs a herestring of 65,536 to about 65,700 bytes, and the
+# constitution body once reached grep through one: measured against that
+# script, a 65,600-byte body timed out (status 124). The body is now matched
+# in the shell. The sizes straddle the band on both sides, and the size IS
+# the property, so it is asserted before the probe runs — a fixture that
+# drifted out of the band would pass for the wrong reason.
+BIG_CONST_SIZES="65530 65540 65600 65650 65700"
 
-  # timeout is GNU coreutils and macOS does not ship it. Where it is missing,
-  # bats' own per-test limit (helper.bash) still bounds a hang and names it.
-  # Probed with --version, not command -v: on Windows a System32 timeout.exe
-  # can come first on PATH, takes no command, and exits 1 on --version
-  # (measured), so it falls to the fallback instead of failing for no reason.
+# big_const <dir> <bytes> <plain|token|blank> — a scratch repository whose
+# constitution is exactly <bytes> bytes of 80-byte lines. `token` ends the
+# last full line with a template token, deep past the 64 KB mark; `blank`
+# is spaces and newlines only.
+big_const() {
+  local d="$1" n="$2" mode="$3"
+  mkdir -p "$d/.specify/memory"
+  ( cd "$d" && git init -q . )
+  awk -v n="$n" -v mode="$mode" 'BEGIN {
+    c = (mode == "blank") ? " " : "x"
+    l = sprintf("%79s", ""); gsub(/ /, c, l)
+    full = int(n / 80); rem = n % 80
+    for (i = 1; i <= full; i++) {
+      if (mode == "token" && i == full) print substr(l, 1, 65) "[PROJECT_NAME]"
+      else print l
+    }
+    if (rem > 0) print substr(l, 1, rem - 1)
+  }' > "$d/.specify/memory/constitution.md"
+  [ "$(wc -c < "$d/.specify/memory/constitution.md" | tr -d ' ')" -eq "$n" ] \
+    || { echo "fixture: the constitution is not $n bytes"; return 1; }
+}
+
+# judge_big <dir> — pre-flight on it, bounded. timeout is GNU coreutils and
+# macOS does not ship it; where it is missing, bats' own per-test limit
+# (helper.bash) still bounds a hang and names it. Probed with --version, not
+# command -v: on Windows a System32 timeout.exe can come first on PATH, takes
+# no command, and exits 1 on --version (measured).
+judge_big() {
   if timeout --version > /dev/null 2>&1; then
-    run --separate-stderr timeout 30 "$BASH_ABS" "$PROBE" --dir "$T" --base-branch main
+    run --separate-stderr timeout 30 "$BASH_ABS" "$PROBE" --dir "$1" --base-branch main
   else
-    probe --dir "$T" --base-branch main
+    probe --dir "$1" --base-branch main
   fi
-  [ "$status" -eq 0 ] || { echo "pre-flight did not finish: status $status"; false; }
-  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "true" ]
+}
+
+@test "a constitution of 65,530 to 65,700 bytes with real prose is judged set" {
+  local n
+  for n in $BIG_CONST_SIZES; do
+    big_const "$BATS_TEST_TMPDIR/plain-$n" "$n" plain
+    judge_big "$BATS_TEST_TMPDIR/plain-$n"
+    [ "$status" -eq 0 ] || { echo "$n bytes: pre-flight exited $status (124 is the timeout)"; false; }
+    [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "true" ] \
+      || { echo "$n bytes of prose: not judged set"; false; }
+    [[ $stderr != *constitution* ]] || { echo "$n bytes: a constitution warning: $stderr"; false; }
+  done
+}
+
+@test "a constitution of 65,530 to 65,700 bytes with a template token past 64 KB is judged unset" {
+  local n
+  for n in $BIG_CONST_SIZES; do
+    big_const "$BATS_TEST_TMPDIR/token-$n" "$n" token
+    judge_big "$BATS_TEST_TMPDIR/token-$n"
+    [ "$status" -eq 0 ] || { echo "$n bytes: pre-flight exited $status (124 is the timeout)"; false; }
+    [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ] \
+      || { echo "$n bytes ending in [PROJECT_NAME]: judged set"; false; }
+    [[ $stderr != *constitution* ]] || { echo "$n bytes: a constitution warning: $stderr"; false; }
+  done
+}
+
+# No size test can catch the other fault: on Git Bash, grep reading
+# `< <(printf ...)` reported a token that is not there in 43 of 1,800 calls
+# under load, and never in a quiet run. So the shape itself is refused.
+@test "pre-flight feeds no grep from a process substitution" {
+  local hits
+  hits="$(grep -n '^[^#]*grep[^#]*< <(printf' "$PROBE" || true)"
+  [ -z "$hits" ] || { echo "grep fed by < <(printf ...): $hits"; false; }
+}
+
+@test "a constitution of 65,600 bytes of whitespace is judged unset" {
+  big_const "$BATS_TEST_TMPDIR/blank" 65600 blank
+  judge_big "$BATS_TEST_TMPDIR/blank"
+  [ "$status" -eq 0 ] || { echo "pre-flight exited $status (124 is the timeout)"; false; }
+  [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ] \
+    || { echo "a whitespace-only constitution was judged set"; false; }
 }
 
 # --- review 3 of PR #68 -------------------------------------------------------

@@ -58,12 +58,13 @@ RULES
   # anything publishes unasked") — red for the wrong reason, green for the
   # dangerous one. The table row stays raw because a row is one line.
   local flat
-  # The whole file is too big for a herestring: Git Bash 5.3 hangs one of
-  # 65,536 to ~65,700 bytes, so grep reads it from a process substitution.
+  # The whole file is too big for a herestring (Git Bash 5.3 hangs one of
+  # 65,536 to ~65,700 bytes), and grep reading `< <(printf ...)` matched a
+  # pattern that is not there in about 2% of calls: matched in the shell.
   flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
-  grep -qF '`--auto` never collapses O. Publishing is the least reversible thing' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'`--auto` never collapses O. Publishing is the least reversible thing'* ]] \
     || { echo 'the auto-never-collapses-O sentence altered'; false; }
-  grep -qF '`--auto-release` is still required before anything publishes unasked.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'`--auto-release` is still required before anything publishes unasked.'* ]] \
     || { echo 'the auto-release assurance altered — check its SUBJECT, not just its tail'; false; }
   # Changed on purpose by feature 019 (FR-020). The old row ended "and G
   # stops unless `implementer` pre-answered it." — false once G asks the
@@ -136,8 +137,9 @@ PARTS
   local docs="$ROOT/pipeline/docs/configuration.md"
   local changelog="$ROOT/pipeline/CHANGELOG.md"
   local flat walk probe
-  # The whole file is too big for a herestring: Git Bash 5.3 hangs one of
-  # 65,536 to ~65,700 bytes, so grep reads it from a process substitution.
+  # The whole file is too big for a herestring (Git Bash 5.3 hangs one of
+  # 65,536 to ~65,700 bytes), and grep reading `< <(printf ...)` matched a
+  # pattern that is not there in about 2% of calls: matched in the shell.
   flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
   # The decision walk only — so a rule cannot satisfy the pin from a footnote.
   walk="$(awk '/^The script only reports; the decisions are yours/,/^\*\*Base branch:\*\*/' "$ORCH" | tr '\n' ' ' | tr -s ' ')"
@@ -1682,7 +1684,7 @@ PINS
     'and a run that stops for good — `--until`, the park at H, a run with no remote — shows them before it stops.' \
     'The answer is the owner'"'"'s own words, never the run'"'"'s, and on a re-entry the run reads the recorded answers before the phase they affect.'
   do
-    grep -qF -- "$want" < <(printf '%s\n' "$flat") || { echo "phases.md's questions section no longer says: $want"; false; }
+    [[ $flat == *"$want"* ]] || { echo "phases.md's questions section no longer says: $want"; false; }
   done
 }
 
@@ -1691,7 +1693,7 @@ PINS
 @test "the status skill names the open waiting questions" {
   local doc="$ROOT/pipeline/skills/status/SKILL.md" flat
   flat="$(tr -d '\r' < "$doc" | tr '\n' ' ' | tr -s ' ')"
-  grep -qF 'Whatever the bullet, name every open entry of `gates.pending` — one with no `answer` — by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'Whatever the bullet, name every open entry of `gates.pending` — one with no `answer` — by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open.'* ]] \
     || { echo "the status skill no longer names the open waiting questions"; false; }
 }
 
@@ -1711,14 +1713,14 @@ PARA
 @test "the status skill's open-question sentence is followed directly by step 5" {
   local flat
   flat="$(tr -d '\r' < "$ROOT/pipeline/skills/status/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
-  grep -qF 'by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open. 5. End with the exact next action' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open. 5. End with the exact next action'* ]] \
     || { echo "the status skill's open-question sentence was extended or altered"; false; }
 }
 
 @test "the changelog states pending-check holds under --auto" {
   local flat
   flat="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
-  grep -qF '`pending-check` stops the run before L pushes while one is open, under `--auto` too; after L nothing waits.' < <(printf '%s\n' "$flat") \
+  [[ $flat == *'`pending-check` stops the run before L pushes while one is open, under `--auto` too; after L nothing waits.'* ]] \
     || { echo "the changelog's pending-check claim altered"; false; }
 }
 

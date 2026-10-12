@@ -355,12 +355,14 @@ if [ -f "$const_file" ]; then
       const_body=""
       warn "constitution unreadable — read as not set"
     fi
-    # Fed through process substitution, never a herestring: Git Bash 5.3.9
-    # hangs a herestring of 65,536 to about 65,700 bytes, and this body is
-    # file-sized. printf's newline matches the one <<< appended. Its stderr
-    # is dropped because grep -q may close the pipe early.
-    if grep -q '[^[:space:]]' < <(printf '%s\n' "$const_body" 2>/dev/null) \
-       && ! grep -qE "$const_tokens" < <(printf '%s\n' "$const_body" 2>/dev/null); then
+    # Matched in the shell, never by grep: Git Bash 5.3.9 hangs a herestring
+    # of 65,536 to about 65,700 bytes, and grep reading `< <(printf ...)`
+    # reported a token that is not there in 43 of 1,800 calls under load.
+    # The token pattern has no anchor, no dot and no negated class, so no
+    # match can span a newline: matching the whole body equals matching it
+    # line by line. Unquoted on the right of =~, which bash 3.2 needs.
+    if [[ $const_body == *[![:space:]]* ]] \
+       && ! [[ $const_body =~ $const_tokens ]]; then
       sk_const=true
     fi
   fi
