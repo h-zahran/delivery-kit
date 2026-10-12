@@ -179,6 +179,30 @@ link test's list in the same commit; skills need no list edit — their
   [Running the tests](#running-the-tests) says.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.
+- **A release follows one order.** `scripts/release.sh` makes the edits; it
+  never commits, tags or pushes.
+  1. On a branch from `main`, with a clean tree, run
+     `bash scripts/release.sh <plugin> <version>` from the repository root.
+     It refuses unless the plugin is in the marketplace and the version is
+     `MAJOR.MINOR.PATCH` and higher than the current one. It sets the version
+     in `.claude-plugin/marketplace.json` and in
+     `<plugin>/.claude-plugin/plugin.json`, turns the plugin's one
+     `## [Unreleased]` heading into `## [<version>] - <today>`, and runs
+     `scripts/check-versions.sh --released <plugin>`. If that gate refuses,
+     the three files are put back as they were.
+  2. Read `git diff`, then commit the three files the script names. To
+     release both plugins, commit the first before running it for the
+     second: it refuses a tree that is not clean.
+  3. Push the branch, open a pull request, and merge it once CI is green.
+  4. Run `git fetch origin` and check that `origin/main` is the release
+     commit: a rebase merge gives it a new id. Tag that commit,
+     `git tag <plugin>-v<version> origin/main`, and push the tag.
+  5. In the tag's CI run, open the `version agreement` job and read the step
+     "tag matches the manifest version". It must say success. It is skipped
+     on every other run, so the job's green alone proves nothing.
+
+  CI never runs the script; `tests/release.bats` runs it on a copy of the
+  release files.
 
 ## Maintainers
 
