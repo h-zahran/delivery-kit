@@ -29,16 +29,36 @@ export function platformOf(osEnv: string | undefined, uname: string | undefined)
 // No `-WindowStyle Hidden`: the child inherits the session's console, so no
 // window opens; and Windows Terminal maps ShowWindow on its pseudo-console to
 // its own window, so hiding "our" window could hide or minimize the terminal.
-const PS = ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command'] as const
+// PowerShell by its full path: Windows looks for a bare `powershell.exe` in the
+// current folder before PATH, so a repository could carry one that runs here.
+const PS_ARGS = ['-NoProfile', '-NonInteractive', '-Command'] as const
+
+/** Windows' own folder: `SystemRoot` when it reads as a plain drive path, else C:\Windows. */
+export function windowsRoot(systemRoot: string | undefined): string {
+  const r = (systemRoot ?? '').trim().replace(/\\+$/, '')
+  return /^[A-Za-z]:\\[^"'<>|*?\r\n]+$/.test(r) ? r : 'C:\\Windows'
+}
+
+/** The full path of Windows PowerShell under `systemRoot`. */
+export const powershellPath = (systemRoot: string | undefined): string =>
+  `${windowsRoot(systemRoot)}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
 
 /**
  * The commands that can play the clip at `path`, to try in order. Windows:
  * PlaySync, since Play() is cut off when the process exits. Linux: PulseAudio
- * or PipeWire, then plain ALSA. Mac and none: no command.
+ * or PipeWire, then plain ALSA, by name: Linux searches only PATH, never the
+ * current folder, and a full path would miss players outside /usr/bin. Mac
+ * and none: no command.
  */
-export function playersFor(platform: Platform, path: string): string[][] {
+export function playersFor(platform: Platform, path: string, systemRoot?: string): string[][] {
   if (platform === 'windows')
-    return [[...PS, `(New-Object System.Media.SoundPlayer '${path.replace(/'/g, "''")}').PlaySync()`]]
+    return [
+      [
+        powershellPath(systemRoot),
+        ...PS_ARGS,
+        `(New-Object System.Media.SoundPlayer '${path.replace(/'/g, "''")}').PlaySync()`,
+      ],
+    ]
   if (platform === 'linux') return [['paplay', path], ['pw-play', path], ['aplay', '-q', path]]
   return []
 }
