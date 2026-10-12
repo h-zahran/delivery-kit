@@ -169,7 +169,8 @@ RELAXED_RE="($RELAXED_WORDS)"
 SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE .claude-plugin .gitignore .gitattributes .github scripts"
 SHIPPED_HANDOFF="handoff/hooks handoff/scripts handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/tests handoff/.claude-plugin"
 SHIPPED_PIPELINE="pipeline/README.md pipeline/CHANGELOG.md pipeline/.claude-plugin pipeline/commands pipeline/docs"
-SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
+SHIPPED_MISSION_CONTROL="mission-control/README.md mission-control/CHANGELOG.md mission-control/.claude-plugin mission-control/hooks mission-control/sounds mission-control/types mission-control/tsconfig.json"
+SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTROL"
 
 # Root tests/ cannot be registered, by construction: it holds the denylist
 # and the fixtures the scanners are fired at, so a scan covering it would
@@ -973,7 +974,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE"
   # nothing, which is exactly why the omission survived the split that made it
   # an index.
   checked=0
-  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md pipeline/commands/pipeline.md pipeline/docs/*.md handoff/docs/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
+  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md mission-control/README.md mission-control/CHANGELOG.md pipeline/commands/pipeline.md pipeline/docs/*.md handoff/docs/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
     # Per entry, not `continue`: one entry going stale — a glob emptying, a
     # file moving — used to be absorbed by the aggregate counter while the
     # other files kept it positive. An unexpanded glob arrives here as its
@@ -2118,7 +2119,12 @@ forms_base() {
   [ -n "$copied" ] || { echo "fixture: the marketplace names no plugin"; return 1; }
   if [ "$1" = "two" ]; then
     [ -n "$other" ] || { echo "fixture: two plugins are needed, one judged and one not"; return 1; }
-    cp .claude-plugin/marketplace.json "$base/.claude-plugin/marketplace.json"
+    # The first two entries only, by position for the reason below: the
+    # marketplace lists more plugins than the two copied here, and an entry
+    # whose directory is absent makes the gate refuse the whole fixture.
+    jq '.plugins |= .[:2]' .claude-plugin/marketplace.json \
+      > "$base/.claude-plugin/marketplace.json" \
+      || { echo "fixture: could not write a two-plugin marketplace"; return 1; }
   else
     # By position, not by name: the first entry is the one `copied` came
     # from, and a by-name selection here is the marker the "one

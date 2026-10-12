@@ -1,0 +1,7 @@
+{
+  "name": "mission-control",
+  "version": "0.9.2",
+  "description": "A side pane with robots: the main loop, every subagent and its tools, context, cost, rate limits and files touched",
+  "author": { "name": "Haytham Zahran" },
+  "types": "./types/index.d.ts"
+}
