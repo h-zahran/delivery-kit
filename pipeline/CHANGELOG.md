@@ -31,6 +31,9 @@ All notable changes to the `pipeline` plugin.
   pipeline does not use. The skill also says what its three independent
   lenses are: three agents dispatched together in one message, none shown
   another's findings, as phase I asks.
+- **Install comes first in the README.** It was the twelfth of fifteen
+  sections, near the end of the page the marketplace shows. It now follows
+  the opening paragraph, before the walkthrough. The text is unchanged.
 
 ## [1.5.0] - 2026-10-12
 
