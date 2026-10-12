@@ -659,7 +659,7 @@ cmd_get() {
 # lock_holder_run), and `this_run`. It never takes a lock, so a lock read
 # while it is written may read as unreadable: a second look settles it.
 cmd_board() {
-  local lf lk=null holder run
+  local lf lk=null holder run stale
   feature="$1"
   [ $# -eq 1 ] || die "usage: board <feature>"
   sf="$(cmd_validate "$feature")"
@@ -667,17 +667,17 @@ cmd_board() {
   if [ -e "$lf" ]; then
     holder="$(lock_holder "$lf")"
     run="$(lock_holder_run "$holder")"
-    # shellcheck disable=SC2016 # a jq program: $h, $r and $me are jq's
-    lk="$(jqs -c -R -s --arg h "$holder" --arg r "$run" --arg me "$feature" '
+    # One verdict, lock-take's, for both forms below.
+    case "$run" in missing|done|abandoned) stale=true ;; *) stale=false ;; esac
+    # shellcheck disable=SC2016 # a jq program: $h, $r, $s and $me are jq's
+    lk="$(jqs -c -R -s --arg h "$holder" --arg r "$run" --argjson s "$stale" --arg me "$feature" '
       (try fromjson catch null) as $l
       | (if ($l | type) == "object"
          then {feature: ($l.feature // null), session: ($l.session // null),
                taken_at: ($l.taken_at // null), readable: true}
          else {feature: null, session: null, taken_at: null, readable: false} end)
-      + {holder_run: $r, stale: ($r == "missing" or $r == "done" or $r == "abandoned"),
-         this_run: ($h == $me)}' "$lf" 2>/dev/null)" \
-      || lk="$(printf '{"feature":null,"session":null,"taken_at":null,"readable":false,"holder_run":"%s","stale":%s,"this_run":false}' \
-                "$run" "$(case "$run" in missing|done|abandoned) printf true ;; *) printf false ;; esac)")"
+      + {holder_run: $r, stale: $s, this_run: ($h == $me)}' "$lf" 2>/dev/null)" \
+      || lk="$(printf '{"feature":null,"session":null,"taken_at":null,"readable":false,"holder_run":"%s","stale":%s,"this_run":false}' "$run" "$stale")"
   fi
   # shellcheck disable=SC2016 # a jq program: $phases, $lock, $cur and $p are jq's
   jq ${JQB:+"$JQB"} --arg phases "$PHASES" --argjson lock "$lk" '
