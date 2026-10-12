@@ -43,6 +43,15 @@ All notable changes to the `pipeline` plugin.
   and the tracked-state check. The text moved word for word, so a run
   behaves as before. The gates, the rules that never bend and the red
   flags stay in the skill, which is now under 60,000 bytes.
+- **Phase M runs on `agentModel` and posts no AI attribution you did not
+  ask for.** The code-review skill names its own models and ends the
+  comment it posts with a "Generated with" footer. Its agents and every
+  fix agent now run on `agentModel`. Before a comment, a reply, a commit
+  message or a body edit leaves the machine, M strips a "Generated with"
+  footer, a `Co-authored-by` trailer naming an AI and a session link from
+  it, and posts nothing that still carries one, unless your own
+  instructions ask for attribution. No setting is added: `commitTrailers`
+  already refuses a `Co-authored-by` trailer from any layer.
 
 ## [1.5.0] - 2026-10-12
 
