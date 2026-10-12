@@ -771,7 +771,13 @@ of 65,536 characters, read "A body over the GitHub limit" in
 **M — PR review, capped loop.** Skip, and say so, when the code-review
 skill is absent. Otherwise run it against the PR, fan independent
 finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
-conditional stop.
+conditional stop. The skill's agents and every fix agent run on
+`agentModel`, never on the models the skill names. Nothing M posts or
+commits names an AI as an author unless the owner's own instructions ask
+for it: before a comment, a reply, a commit message or a body edit leaves
+the machine, strip from it a "Generated with" footer, a `Co-authored-by`
+trailer naming an AI, and a session link, and post nothing that still
+carries one.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
 `testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against

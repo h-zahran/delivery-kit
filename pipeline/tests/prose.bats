@@ -2345,3 +2345,30 @@ SPANS
   [ "$n" -eq "$(printf '%s\n' "$want" | awk 'NF { n++ } END { print n + 0 }')" ] \
     || { echo "checked $n sections, not every pinned one"; false; }
 }
+
+# --- audit item P12: phase M's model and attribution -------------------------
+# The code-review skill M runs names its own models (Haiku and Sonnet) and
+# ends the comment it posts with a "Generated with" footer. M runs it on
+# agentModel and strips that footer before anything leaves the machine. The
+# M region is pinned whole too: an appended exception ("unless the skill adds
+# it") would repeal the rule while every clause pin held.
+@test "phase M runs on agentModel and posts no AI attribution the owner did not ask for" {
+  local flat docs
+  flat="$(prose_slice '^\*\*M — PR review' '^\*\*N — re-verify' flat 'phase M')" || return 1
+  pins_in "$flat" 'phase M' <<'PINS'
+The skill's agents and every fix agent run on `agentModel`, never on the models the skill names.
+Nothing M posts or commits names an AI as an author unless the owner's own instructions ask for it: before a comment, a reply, a commit message or a body edit leaves the machine, strip from it a "Generated with" footer, a `Co-authored-by` trailer naming an AI, and a session link, and post nothing that still carries one.
+PINS
+  [ "${flat% }" = "$(span_m)" ] \
+    || { echo 'the phase M region gained, lost or reworded text around its rules:'; echo "$flat"; false; }
+  docs="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md")"
+  rows_in "$docs" 'configuration.md' <<'ROWS'
+| `agentModel` | The model dispatched agents run on, the review skill's own agents in phase M included, never the models that skill names. |
+ROWS
+}
+
+span_m() {
+  cat <<'SPAN'
+**M — PR review, capped loop.** Skip, and say so, when the code-review skill is absent. Otherwise run it against the PR, fan independent finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a conditional stop. The skill's agents and every fix agent run on `agentModel`, never on the models the skill names. Nothing M posts or commits names an AI as an author unless the owner's own instructions ask for it: before a comment, a reply, a commit message or a body edit leaves the machine, strip from it a "Generated with" footer, a `Co-authored-by` trailer naming an AI, and a session link, and post nothing that still carries one. **N — re-verify and update the PR.** Run `analyzeCommand` and
+SPAN
+}
