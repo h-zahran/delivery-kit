@@ -212,8 +212,32 @@ fi
 [ -n "$cwd" ] || cwd="$PWD"
 config="$cwd/.delivery-kit.json"
 if [ ! -f "$config" ]; then
-  # Claude Code's cwd can be a subdirectory of the repository.
-  toplevel=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
+  # Claude Code's cwd can be a subdirectory of the repository, so look at the
+  # top of the work tree: the nearest folder above cwd holding a `.git` file
+  # (a linked worktree or submodule) or `.git` folder. Only cwd and that top
+  # are read, never a folder between them, as when this asked git.
+  #
+  # Walked in the shell, not `git rev-parse --show-toplevel`: that spawned
+  # git on every tool call in the zero-config case. The string is walked with
+  # ${walk%/*}, never `cd ..`, which in Git Bash alternates between / and //
+  # forever. A Windows cwd (D:\repo, \\host\share) is made forward first, as
+  # git -C took both; elsewhere a backslash is part of a folder's name and is
+  # kept. A folder that is itself a git directory (HEAD, objects and refs:
+  # a bare repository, or inside .git) has no work tree, and git answered
+  # nothing there, so the walk stops with no top. A differential against
+  # git over 22 shapes found the same top in every one.
+  toplevel="" walk=$cwd bs=\\
+  case $walk in [A-Za-z]:*|"$bs$bs"*) walk=${walk//"$bs"//} ;; esac
+  case $walk in /*|[A-Za-z]:*) ;; *) walk=$PWD/$walk ;; esac
+  if [ -d "$walk" ]; then
+    while [ "$walk" != "${walk%/}" ]; do walk=${walk%/}; done
+    while :; do
+      if [ -f "$walk/.git" ] || [ -d "$walk/.git" ]; then toplevel=${walk:-/}; break; fi
+      if [ -f "$walk/HEAD" ] && [ -d "$walk/objects" ] && [ -d "$walk/refs" ]; then break; fi
+      [ -n "$walk" ] && [ "${walk%/*}" != "$walk" ] || break
+      walk=${walk%/*}
+    done
+  fi
   [ -n "$toplevel" ] && [ -f "$toplevel/.delivery-kit.json" ] && config="$toplevel/.delivery-kit.json"
 fi
 
