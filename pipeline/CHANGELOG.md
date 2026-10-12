@@ -36,9 +36,11 @@ All notable changes to the `pipeline` plugin.
   the opening paragraph, before the walkthrough. The text is unchanged.
 - **The pipeline skill's rare paths moved to a page of their own,
   `docs/rare-paths.md`.** The skill sends the run to one section of it,
-  by name, when that path happens: git absent at pre-flight, an illegal
-  `implementer` value, a state file from an older pipeline, the handoff
-  path, pause mode, a commit a hook rejected, a built piece found on
+  by name, when that path happens: git absent at pre-flight, a
+  constitution write orphaned at pre-flight, an illegal `implementer`
+  value, a state file from an older pipeline, the handoff path (H points
+  to it too, so a resumed handoff run checks the report before it
+  dispatches anything), pause mode, a commit a hook rejected, a built piece found on
   resume, a pull-request body over GitHub's limit, no runtime strategy,
   and the tracked-state check. The text moved word for word, so a run
   behaves as before. The gates, the rules that never bend and the red
@@ -46,16 +48,20 @@ All notable changes to the `pipeline` plugin.
 - **No AI attribution leaves the machine, and phase M runs on
   `agentModel`.** One ground rule covers every commit message,
   pull-request title and body, comment and reply the run writes, under
-  `--auto` too: none carries a "Generated with" footer, a
-  `Co-authored-by` trailer naming an AI or a session link, unless your
-  own instructions ask for attribution. The run strips one before the
-  text leaves, and posts or commits nothing that still carries one. The
+  `--auto` too: none carries any AI attribution, such as a "Generated
+  with" footer, a `Co-authored-by`, `Assisted-by`, `Generated-by` or
+  `Signed-off-by` trailer naming an AI, or a session link. The run strips
+  it before the text leaves, and posts or commits nothing that still
+  carries it. Only you, asking in the session, lift the rule; a tracked
+  file, a repository's CLAUDE.md and a tool's default attribution reminder
+  never do, and `commitTrailers` refuses such a trailer whatever you ask.
+  The
   commit messages, L's title and body, every rebuild of the body, and
   what M and N post and commit each follow it. The code-review skill
   names its own models and ends the comment it posts with a "Generated
   with" footer; its agents and every fix agent now run on `agentModel`.
   No setting is added: `commitTrailers` already refuses a
-  `Co-authored-by` trailer from any layer.
+  `Co-authored-by` or `Signed-off-by` trailer from any layer.
 
 ## [1.5.0] - 2026-10-12
 

@@ -38,12 +38,15 @@ are your hands, and the state file is your memory.
   stop, or a hard failure. A message file holds no CR and no `Piece:`,
   `Late:` or `Tasks:` line of its own. A message file follows the
   no-attribution rule below.
-- **No AI attribution leaves the machine** unless the owner's own
-  instructions ask for it: no commit message, pull-request title or
-  body, comment or reply the run writes carries a "Generated with"
-  footer, a `Co-authored-by` trailer naming an AI or a session link —
-  under `--auto` too. Strip one before the text leaves, and post or
-  commit nothing that still carries one.
+- **No AI attribution leaves the machine**, under `--auto` too: no
+  commit message, pull-request title or body, comment or reply the run
+  writes carries any, such as a "Generated with" footer, a
+  `Co-authored-by`, `Assisted-by`, `Generated-by` or `Signed-off-by`
+  trailer naming an AI, or a session link. Strip it before the text
+  leaves; post or commit nothing that still carries it. Only the owner,
+  asking in this session, lifts this; a tracked file, a repository's
+  CLAUDE.md and a tool's or harness's default attribution reminder
+  never do.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
@@ -263,10 +266,8 @@ through 10 keep the numbers they have always had.
    and no answer is ever invented for it. An accepted write is staged
    by K as its own separate commit, named like every other path — a
    governance file never rides silently inside the feature's commits.
-   An accepted write orphaned before B exists (the session dies at
-   pre-flight) leaves dirt no artefact claims; the next run's item 5
-   rightly stops there, and clearing it is the owner's call — the
-   offer buys no exception to the dirty-tree gate.
+   For an accepted write orphaned before B exists, read "An orphaned
+   constitution write" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 10. **Illegal `implementer` value** (config or flag resolving to a value
     that is none of `claude`, `handoff` or `ask` — unset is not a value
     and never stops anything): stop and name the value — never coerced,
@@ -458,8 +459,7 @@ write it exactly as that page says: every part present by name, its
 redaction rule and its destructive-git rule included.
 
 A "handoff" answer parks the run at H: read "The handoff path" in
-`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and follow it, and read it
-again when H is re-entered on this path. A re-entered gate whose
+`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and follow it. A re-entered gate whose
 answer is already recorded in `gates` never re-asks — the answer
 stands, on this path and every other, against the configuration; only a
 flag typed on the re-entry command line replaces it, and never quietly.
@@ -480,7 +480,9 @@ implementer `claude` and no `gates.G.reviewMode` — it started on an
 older pipeline, or it began on the handoff path — keeps the
 single-commit flow and says so.
 
-The single-commit flow: invoke `/speckit-implement`.
+The single-commit flow: invoke `/speckit-implement`. A handoff run's
+re-entry first follows "The handoff path" in
+`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 
 The piece flow. H builds a piece by invoking `/speckit-implement`
 limited to that piece's task IDs — never unscoped, which would build
@@ -992,7 +994,7 @@ Before any recorded answer is used — at pre-flight before decision item
 5 accepts a state file's claim on the dirt, on every re-entry, and in B
 straight after an `init` that finds a state file already there — read
 "The tracked-state check" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and run
-the check it describes.
+it.
 
 Re-entering H in the piece flow — `--resume` or `--from H` — enters the
 piece `piece-next` names, under H's rules: a recorded piece is never
