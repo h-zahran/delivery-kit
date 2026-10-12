@@ -9,10 +9,11 @@ All notable changes to the `pipeline` plugin.
 - **`board <feature>`** prints the phase board and the repository lock as
   one JSON object, read-only. `board` lists every phase in order but DONE,
   each `done`, `current` or `pending`; the phase a resume re-enters is
-  `current`. `lock` is null, or the holder's feature, session and time,
-  whether it is this run, and whether it is stale by the rule `lock-take`
-  uses to take a lock over. It runs on an abandoned run, as `get` does. It
-  is a new subcommand, so a minor-version feature.
+  `current`. `lock` is null when no lock exists. Otherwise it gives the
+  holder's `feature`, `session` and `taken_at`, `holder_run` (how that
+  run stands), `this_run`, and `stale`, by the rule `lock-take` uses to
+  take a lock over. A lock that is not one JSON object has `readable`
+  false and those three null. It runs on an abandoned run, as `get` does.
 
 ### Changed
 
@@ -20,17 +21,19 @@ All notable changes to the `pipeline` plugin.
   copy of the phase list, which nothing tied to the script's, and never
   looked at the repository lock. It now names the lock's holder, session
   and time, says whether it is this run, and says when the next run's
-  `lock-take` would take the lock over as stale. When a session of this
-  run still holds a live lock, it says the resume will be refused and
-  names `lock-release` to run first, once that session is gone.
+  `lock-take` would take the lock over as stale. A lock it cannot read,
+  or a holder whose state file it cannot read, is named as such and never
+  guessed at. When a session of this run still holds a live lock, it says
+  the resume will be refused and names `lock-release` to run first, once
+  that session is gone.
 - **`pipeline:spec-review` findings have one form a caller can parse.**
-  Each is one line, `SEVERITY | lens | file:line | finding`, using the
-  severities the pipeline counts by: CRITICAL, HIGH, MEDIUM and LOW. One
-  count line that names every severity, even at zero, and the verdict
-  follow. It used Critical, Important and Minor, which the rest of the
-  pipeline does not use. The skill also says what its three independent
-  lenses are: three agents dispatched together in one message, none shown
-  another's findings, as phase I asks.
+  Each is one line, `SEVERITY | lens | file:line | finding`. The
+  severities are CRITICAL and HIGH, the two phase F counts by, then
+  MEDIUM and LOW. One count line that names every severity, even at
+  zero, and the verdict follow. It used Critical, Important and Minor,
+  which the rest of the pipeline does not use. The skill also says what
+  its three independent lenses are: three agents dispatched together in
+  one message, none shown another's findings, as phase I asks.
 - **Install comes first in the README.** It was the twelfth of fifteen
   sections, near the end of the page the marketplace shows. It now follows
   the opening paragraph, before the walkthrough. The text is unchanged.
@@ -38,30 +41,33 @@ All notable changes to the `pipeline` plugin.
   `docs/rare-paths.md`.** The skill sends the run to one section of it,
   by name, when that path happens: git absent at pre-flight, a
   constitution write orphaned at pre-flight, an illegal `implementer`
-  value, a state file from an older pipeline, the handoff path (H points
-  to it too, so a resumed handoff run checks the report before it
-  dispatches anything), pause mode, a commit a hook rejected, a built piece found on
-  resume, a pull-request body over GitHub's limit, no runtime strategy,
-  and the tracked-state check. The text moved word for word, so a run
-  behaves as before. The gates, the rules that never bend and the red
-  flags stay in the skill, which is now under 60,000 bytes.
-- **No AI attribution leaves the machine, and phase M runs on
-  `agentModel`.** One ground rule covers every commit message,
-  pull-request title and body, comment and reply the run writes, under
-  `--auto` too: none carries any AI attribution, such as a "Generated
-  with" footer, a `Co-authored-by`, `Assisted-by`, `Generated-by` or
-  `Signed-off-by` trailer naming an AI, or a session link. The run strips
-  it before the text leaves, and posts or commits nothing that still
-  carries it. Only you, asking in the session, lift the rule; a tracked
-  file, a repository's CLAUDE.md and a tool's default attribution reminder
-  never do, and `commitTrailers` refuses such a trailer whatever you ask.
-  The
-  commit messages, L's title and body, every rebuild of the body, and
-  what M and N post and commit each follow it. The code-review skill
-  names its own models and ends the comment it posts with a "Generated
-  with" footer; its agents and every fix agent now run on `agentModel`.
-  No setting is added: `commitTrailers` already refuses a
-  `Co-authored-by` or `Signed-off-by` trailer from any layer.
+  value, a state file from an older pipeline, the handoff path, pause
+  mode, a commit a hook rejected, a built piece found on resume, a
+  pull-request body over GitHub's limit, no runtime strategy, and the
+  tracked-state check. The text moved word for word, so a run behaves as
+  before. G and H both point to the handoff path, so a resumed handoff
+  run still reads the report before it dispatches anything. The gates,
+  the rules that never bend and the red flags stay in the skill, which
+  is now under 60,000 bytes.
+- **No AI attribution in what the run writes.** One ground rule covers
+  every commit message, pull-request title and body, comment and reply
+  the run writes, under `--auto` too: none carries any AI attribution,
+  such as a "Generated with" footer, a `Co-authored-by`, `Assisted-by`,
+  `Generated-by` or `Signed-off-by` trailer naming an AI, or a session
+  link. The run strips it before the text leaves. The commit messages,
+  L's title and body, every rebuild of the body, and what M and N post
+  and commit each follow it. Only you, asking in the session, lift the
+  rule; a tracked file, a repository's CLAUDE.md and a tool's default
+  attribution reminder never do. No setting is added. `commitTrailers`
+  refuses each such trailer from every layer, whatever you ask.
+
+### Fixed
+
+- **Phase M runs the review skill's agents on `agentModel`.** The
+  code-review skill names its own models, so in 1.5.0 its agents ran on
+  those, not on the `agentModel` every dispatched agent runs on. It also
+  ends the comment it posts with a "Generated with" footer, which M now
+  strips before posting.
 
 ## [1.5.0] - 2026-10-12
 
