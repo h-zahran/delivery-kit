@@ -1353,7 +1353,7 @@ $(fixture_heading 'Phase 9b: ')|T007"
   bash "$PROG" lock-take 001-demo session-one
   cp .delivery-kit/lock lock.before
   bash "$PROG" board 001-demo > out.json
-  jq -e '.lock.feature == "001-demo" and .lock.session == "session-one" and (.lock.taken_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))' out.json > /dev/null \
+  jq -e '.lock.feature == "001-demo" and .lock.session == "session-one" and (.lock.taken_at | type == "string" and length == 20 and endswith("Z"))' out.json > /dev/null \
     || { echo "lock: $(jq -c .lock out.json)"; false; }
   jq -e '.lock.readable == true and .lock.holder_run == "live" and .lock.stale == false and .lock.this_run == true' out.json > /dev/null
   for k in readable stale this_run; do
