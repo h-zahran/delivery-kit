@@ -1357,6 +1357,20 @@ control_refused() {
   done
 }
 
+@test "trailers: a trailer that credits an AI, Assisted-by or Generated-by, is refused at commit time" {
+  # The owner never wants AI attribution on a commit. A recorded
+  # commitTrailers entry crediting one used to reach every commit, and the
+  # gate preview through show-message.
+  repo
+  local bad
+  for bad in 'Assisted-by: Claude' 'generated-by: Claude Code'; do
+    trailers "[\"$bad\"]"
+    refuses "'$bad' uses the token '${bad%%:*}', which acts on GitHub or names another author" spec-commit "$F"
+    msg 'chore: x'
+    refuses "'$bad' uses the token '${bad%%:*}'" show-message "$F" "$MSG"
+  done
+}
+
 @test "trailers: a trailer that closes an issue is refused" {
   repo
   local bad
