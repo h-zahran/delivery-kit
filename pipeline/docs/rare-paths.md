@@ -2,10 +2,15 @@
 
 The pipeline skill sends the run to one section of this page when that
 section's path happens, and only then. Each section is the skill's own
-text, moved here word for word to keep the skill small, so "this
-document", "above", "below" and a phase letter still mean the skill
-and its phases. The gates, the rules that never bend and the red flags
-stay in the skill.
+text, moved here word for word to keep the skill small, so it still
+speaks from where it stood: "that block" and "This block" are the
+pre-flight probe block; "this decision walk" is pre-flight's decision
+walk; "this item" is decision item 10 under "An illegal implementer
+value" and item 11 under "The git stop"; "item 5" and "B" are the
+skill's; "The enum" is the `implementer` values `claude`,
+`handoff` and `ask`; "That rule" is the skill's missing-tool ground
+rule; and a phase letter names the skill's phase. The gates, the rules
+that never bend and the red flags stay in the skill.
 
 ## The probe block without git
 
@@ -26,6 +31,13 @@ it has to not be printed here. But over-marking is its own lie, so be exact:
   comes from looking for a device tool and stands. Mark the `L` and `M`
   entries as not established: `no git remote` reads as though a remote had
   been looked for and not found, and it was never looked for at all.
+
+## An orphaned constitution write
+
+An accepted write orphaned before B exists (the session dies at
+pre-flight) leaves dirt no artefact claims; the next run's item 5
+rightly stops there, and clearing it is the owner's call — the
+offer buys no exception to the dirty-tree gate.
 
 ## An illegal implementer value
 
