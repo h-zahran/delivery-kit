@@ -45,7 +45,7 @@ are your hands, and the state file is your memory.
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
   entry is its own board item. The board is surfaced in replies.
-  `pipeline:status` renders the same board from the state file for a
+  `pipeline:status` renders the same board from `progress.sh board` for a
   session that has lost the thread.
 - **Metrics:** at each phase boundary run `progress.sh metrics
   <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json`
