@@ -2,28 +2,36 @@
 
 All notable changes to the `pipeline` plugin.
 
-## [Unreleased]
+## [1.5.0] - 2026-10-12
 
 ### Added
 
 - **`abandon <feature>`** ends a run for good without finishing it. It
   records `abandoned` in the state file, with the phase the run stopped at
   and the time, keeps the state file and every other key, and releases the
-  repository lock if that run holds it. A DONE run is refused, and a run
-  already abandoned keeps its first record. The resume prompt's abandon
+  repository lock if that run holds it; a lock it still holds is stale to
+  `lock-take`. A DONE run is refused, and a run already abandoned keeps its
+  first record. The resume prompt's abandon
   runs it, and `pipeline:status` reports an abandoned run as waiting on
   nothing. Before it, an abandoned run's state file read as a live run for
   good. A state file without the key is unchanged and still valid.
-  Abandon is final: every command refuses an abandoned run, naming it, so
-  it can never take the lock, start a phase or record anything again —
-  all but the read-only ones, `metrics`, `abandon` and `lock-release`, and
-  a command added later is refused unless it joins that list. An empty or
-  blank state file is named not valid JSON on jq 1.6 too.
+  Abandon is final: every command that would work on the run refuses an
+  abandoned run, naming it, so it can never take the lock, start a phase,
+  commit or change its state again. Only these still run on it: `read`,
+  `validate`, `get`, `piece-next`, `show-message`, `guide`, `commit-list`,
+  `pending`, `pending-check`, `suite-key` and `suite-lookup`; `suite-record`,
+  which keeps a suite result for the repository, not the run; and `metrics`,
+  `abandon` and `lock-release`. A command added later is refused unless it
+  joins that list. `tap-check` names no run, so it is never refused.
 - **`get <feature> <key|filter>`** prints one value from the state file,
-  read-only, through `jq -b`, so no line it prints ends with a CR.
+  read-only: a bare key name prints that key, anything else is a jq filter.
+  It prints through `-b` where `jq` takes it, so no line it prints ends with
+  a CR.
 - **Pre-flight names the runs it judges.** `tree.liveRuns` lists every
   live run by name, and `tree.unreadableRuns` every state file that is not
-  one JSON object with a `current_phase`.
+  one JSON object with a string `current_phase`. The resume prompt is
+  offered for each live run it names, and each unreadable one is named to
+  you and never resumed.
 - **`progress.sh tap-check <tap-file> [<expected-count>]`** judges any TAP
   file, keyed or not: the plan line first, one plan line, as many `ok` lines
   as the plan names, numbered 1 to N in any order, no skip, no `not ok` and
@@ -39,7 +47,8 @@ All notable changes to the `pipeline` plugin.
   before F.5, J or N cite it. `commit`, the default, covers the files and
   git's state around them: HEAD's commit id and the index. `files` covers
   the files alone. `off` keeps and reuses nothing, and so does any other
-  value. A record names its mode and is never reused under another.
+  value. A record names its mode and is never reused under another. A
+  record kept by 1.4.0 names no mode, so it is never reused.
 - **`suite-lookup <feature> --base`**, for F.5: when these files have no
   green result, it also looks up the same files without the run's untracked
   spec directory — the tree before this feature. Only that directory is left
@@ -93,19 +102,23 @@ All notable changes to the `pipeline` plugin.
 
 ### Fixed
 
-- **A DONE or abandoned run is not live, and an unreadable state file is
-  not either.** Pre-flight's `runsLive` read any state file that was not
-  DONE as a live run, garbage included, with no warning. An unreadable one
-  is now warned about, named, and not counted.
+- **An unreadable state file is not a live run.** Pre-flight's `runsLive`
+  read any state file that was not DONE as a live run, garbage and an empty
+  file included, with no warning. One that is not one JSON object with a
+  string `current_phase` is now warned about, named in
+  `tree.unreadableRuns`, and not counted.
+- **An empty or blank state file is not valid JSON on jq 1.6 either.** jq
+  1.6 accepts an empty file, so `validate` read its `current_phase` as empty
+  and named that instead. Every command now names the file not valid JSON,
+  on jq 1.6 as on later versions.
 - **Two `lock-take` calls can no longer both win.** A stale lock was
   removed and the new one created in two steps, so a second taker could
   remove the first one's new lock. `lock-take` and `lock-release` now do
   all their work under one guard; a guard left by a process that died is
-  broken after a minute, and a stale lock is still taken over, as is one
-  held by an abandoned run.
+  broken after a minute, and a stale lock is still taken over.
 - **A run of phase names is no longer a phase.** `phase-start`,
   `phase-done`, `from-validate` and `validate` accepted `C C.5` and `A B`;
-  each name is now matched whole, and a glob character is never a pattern.
+  each name is now matched whole.
 - **`.` and `..` are not feature names.** `init ..` wrote
   `.delivery-kit/progress.json`, and `init .` wrote `runs/progress.json`.
   A name made only of dots is refused, by name, and so is a name ending in a
@@ -114,10 +127,14 @@ All notable changes to the `pipeline` plugin.
 - **The state file, the lock and the metrics file are written with LF on
   Windows.** A native Windows `jq` wrote them with CRLF line endings; every
   file `progress.sh` writes with `jq` now passes `-b` when that `jq` takes
-  it. `-b` is probed once per command, never assumed: jq 1.6, the default
-  package on Ubuntu 22.04 and Debian 12, refuses it off Windows, where `jq`
-  writes LF anyway, and pre-flight reads each run without it. The oldest
-  `jq` supported is 1.6.
+  it, and pre-flight reads each run without it.
+- **`-b` is no longer passed to a `jq` that refuses it.** `progress.sh`
+  passed `-b` to `jq` in every read the commit commands, the question queue,
+  `state-set` and the suite commands make, and jq 1.6, the default package
+  on Ubuntu 22.04 and Debian 12, refuses it off Windows, where `jq` writes
+  LF anyway: `pending` failed, and `state-set` called a valid object not
+  one. `-b` is now probed once per command, never assumed. The oldest `jq`
+  supported is 1.6.
 
 ## [1.4.0] - 2026-10-11
 
