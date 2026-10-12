@@ -12,7 +12,7 @@
       "source": "./handoff",
       "version": "2.3.1",
       "category": "workflow",
-      "tags": ["context", "handoff", "session-continuity"]
+      "tags": ["context", "handoff", "session-continuity", "hooks", "workflow", "context-window", "resume"]
     },
     {
       "name": "pipeline",
@@ -20,7 +20,7 @@
       "source": "./pipeline",
       "version": "1.6.0",
       "category": "workflow",
-      "tags": ["pipeline", "spec-driven", "orchestration"]
+      "tags": ["pipeline", "orchestration", "spec-driven", "workflow", "spec-kit", "pull-request", "github", "code-review"]
     },
     {
       "name": "mission-control",

@@ -13,6 +13,8 @@
     "handoff",
     "session-continuity",
     "hooks",
-    "workflow"
+    "workflow",
+    "context-window",
+    "resume"
   ]
 }

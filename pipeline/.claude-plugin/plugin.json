@@ -8,5 +8,5 @@
   "homepage": "https://github.com/h-zahran/delivery-kit",
   "repository": "https://github.com/h-zahran/delivery-kit",
   "license": "MIT",
-  "keywords": ["pipeline", "orchestration", "spec-driven", "workflow"]
+  "keywords": ["pipeline", "orchestration", "spec-driven", "workflow", "spec-kit", "pull-request", "github", "code-review"]
 }
