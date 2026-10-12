@@ -675,7 +675,7 @@ cmd_board() {
                taken_at: ($l.taken_at // null), readable: true}
          else {feature: null, session: null, taken_at: null, readable: false} end)
       + {holder_run: $r, stale: ($r == "missing" or $r == "done" or $r == "abandoned"),
-         this_run: ($h != "" and $h == $me)}' "$lf" 2>/dev/null)" \
+         this_run: ($h == $me)}' "$lf" 2>/dev/null)" \
       || lk="$(printf '{"feature":null,"session":null,"taken_at":null,"readable":false,"holder_run":"%s","stale":%s,"this_run":false}' \
                 "$run" "$(case "$run" in missing|done|abandoned) printf true ;; *) printf false ;; esac)")"
   fi
