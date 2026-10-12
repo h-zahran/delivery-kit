@@ -27,7 +27,7 @@
 # expressions. awk runs with BINMODE=3, which only gawk reads: Windows gawk
 # otherwise drops a CR from every line it reads and writes. Messages name
 # files relative to the root, never by an absolute path, which can carry a
-# user name into a public log.
+# user name into a public log; the one exception is a failed restore, below.
 set -u
 unset GREP_OPTIONS POSIXLY_CORRECT
 set +o posix
@@ -183,21 +183,28 @@ if ! { cp -- "$market" "$tmpdir/market.orig" \
     && cp -- "$changelog" "$tmpdir/changelog.orig"; }; then
   die "could not copy the three files aside; nothing was changed"
 fi
+# restore sets `restored` to the words every refusal below ends with, so a
+# refusal says the files are back only when they are. When a copy fails, the
+# directory holding the originals is kept, and named: this is the one message
+# that prints an absolute path, because without it the originals are lost.
+# Only a local run can reach it; CI never runs this script.
 restore() {
-  if ! { cp -- "$tmpdir/market.orig" "$market" \
+  if cp -- "$tmpdir/market.orig" "$market" \
       && cp -- "$tmpdir/manifest.orig" "$manifest" \
-      && cp -- "$tmpdir/changelog.orig" "$changelog"; }; then
-    trap - EXIT
-    printf 'release.sh: could not restore the files; their originals are kept in the directory mktemp made; or run: git checkout -- %s %s %s\n' \
-      "$market" "$manifest" "$changelog" >&2
+      && cp -- "$tmpdir/changelog.orig" "$changelog"; then
+    restored="the three files are restored"
+    return 0
   fi
+  trap - EXIT
+  restored="the three files could NOT all be restored: their originals are in $tmpdir (market.orig, manifest.orig, changelog.orig); or run: git checkout -- $market $manifest $changelog"
+  return 1
 }
 
 if ! { cp -- "$tmpdir/market" "$market" \
     && cp -- "$tmpdir/manifest" "$manifest" \
     && cp -- "$tmpdir/changelog" "$changelog"; }; then
   restore
-  die "could not write the edited files; restored"
+  die "could not write the edited files; $restored"
 fi
 
 # Only an explicit pass keeps the edits: the gate exits 0 AND prints this
@@ -207,14 +214,14 @@ want="$plugin: plugin=$version marketplace=$version changelog=$version state=rel
 if ! report="$("${BASH:-bash}" "$gate" --released "$plugin" 2>&1)"; then
   restore
   printf '%s\n' "$report" >&2
-  die "scripts/check-versions.sh refused the release; the three files are restored"
+  die "scripts/check-versions.sh refused the release; $restored"
 fi
 case $'\n'"$report"$'\n' in
   *$'\n'"$want"$'\n'*) ;;
   *)
     restore
     printf '%s\n' "$report" >&2
-    die "scripts/check-versions.sh did not print '$want'; the three files are restored"
+    die "scripts/check-versions.sh did not print '$want'; $restored"
     ;;
 esac
 
