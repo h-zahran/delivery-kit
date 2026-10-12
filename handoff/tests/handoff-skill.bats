@@ -132,3 +132,113 @@ has() {
   plain="$(region '**1, not ignored.**' '**0, ignored.**')"
   has "$plain" 'list it in the Uncommitted work section as this run'"'"'s work, so that section and the Reconcile record describe the same tree'
 }
+
+# Audit item H10 (2026-10-12): the skill and the plugin's README and
+# configuration page each describe the handoff document, and nothing held them
+# together. Each test below reads both sides from the files, never from a list
+# of its own: a list written into a test goes stale the day a section is added,
+# in the direction that keeps the test green.
+
+# The sections the skill requires, in order: the bold name opening each
+# top-level bullet under "Required sections:", then the section that step 4's
+# script appends to the document ("It appends the <Name> section").
+skill_sections() {
+  tr -d '\r' < "$SKILL" | awk '
+    $0 == "Required sections:" { f = 1; next }
+    /^Before you finish the document/ { f = 0 }
+    f && /^- \*\*/ { s = $0; sub(/^- \*\*/, "", s); sub(/\*\*.*/, "", s); print s }'
+  local rec re='It appends the ([A-Z][A-Za-z]*) section'
+  rec="$(region '### 4. Record the state for the next session' '### 5. Print the resume prompt and stop')" || return 1
+  [[ $rec =~ $re ]] || { echo "step 4 no longer says which section its script appends" >&2; return 1; }
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+
+# The first cell of every row of the README's section table.
+readme_sections() {
+  tr -d '\r' < "$HANDOFF/README.md" | awk '
+    $0 == "| Section | What it holds |" { f = 1; next }
+    f && /^\|---/ { next }
+    f && !/^\|/ { exit }
+    f { s = $0; sub(/^\| */, "", s); sub(/ *\|.*/, "", s); print s }'
+}
+
+@test "the sections the handoff skill requires are the README's section table, in order" {
+  skill="$(skill_sections)"
+  readme="$(readme_sections)"
+  # Two lists that are both empty compare equal: require each to hold work.
+  [ "$(printf '%s\n' "$skill" | grep -c .)" -ge 10 ] || { echo "skill list too short: $skill"; false; }
+  [ "$(printf '%s\n' "$readme" | grep -c .)" -ge 10 ] || { echo "README table too short: $readme"; false; }
+  # One measured difference, accepted by name and for this pair only: the
+  # README's table says "Gotchas" where the skill names the section "Gotchas
+  # discovered this session" (both as of 2.3.1). Any other spelling, on either
+  # side, still differs.
+  skill="$(printf '%s\n' "$skill" | awk '$0 == "Gotchas discovered this session" { $0 = "Gotchas" } { print }')"
+  [ "$skill" = "$readme" ] || {
+    echo "skill sections:"; printf '%s\n' "$skill"
+    echo "README table:"; printf '%s\n' "$readme"
+    false
+  }
+}
+
+# The fenced block holding the line "Resume with:", from its opening fence to
+# its closing one, CR removed.
+resume_block() {
+  tr -d '\r' < "$1" | awk '
+    f { print; if ($0 == "```") exit; next }
+    $0 == "Resume with:" && prev == "```" { print prev; print; f = 1; next }
+    { prev = $0 }'
+}
+
+@test "the README's resume block is the skill's block, word for word but the path" {
+  skill="$(resume_block "$SKILL")"
+  readme="$(resume_block "$HANDOFF/README.md")"
+  [ "$(printf '%s\n' "$skill" | grep -c .)" -ge 4 ] || { echo "no whole resume block in the skill: $skill"; false; }
+  # The README shows a real path where the skill has its placeholder; put the
+  # placeholder back, and every other byte must agree.
+  readme="$(printf '%s\n' "$readme" | awk '/^Read [^ ]+ / { sub(/^Read [^ ]+ /, "Read <path-to-handoff-document> ") } { print }')"
+  [ "$skill" = "$readme" ] || {
+    echo "skill block:"; printf '%s\n' "$skill"
+    echo "README block (path replaced):"; printf '%s\n' "$readme"
+    false
+  }
+  # And the skill still says the block never varies, which is why one copy
+  # in the README can stand for every handoff.
+  has "$FLAT" 'The wording never varies; only the path does'
+}
+
+@test "the skill resolves docsDir in the precedence order docs/configuration.md gives" {
+  conf="$HANDOFF/docs/configuration.md"
+  [ -f "$conf" ] || { echo "no $conf"; false; }
+  has "$FLAT" "documented in the plugin's \`docs/configuration.md\`"
+  cflat="$(tr '\r\n' '  ' < "$conf" | tr -s ' ')"
+  # The setting's own row: its default and its environment variable.
+  row="$(tr -d '\r' < "$conf" | awk -F'|' '$2 == " `handoff.docsDir` " { print $3 "|" $4; exit }')"
+  def="$(printf '%s' "${row%%|*}" | tr -d ' ')"
+  env="$(printf '%s' "${row#*|}" | tr -d ' ')"
+  [ -n "$def" ] && [ -n "$env" ] && [ "$def" != "$env" ] || { echo "no handoff.docsDir row: '$row'"; false; }
+  # The order, as the page states it: "Defaults -> a -> b -> environment
+  # variables." Each layer is turned into the words the skill uses for it,
+  # and an unknown layer fails rather than being skipped.
+  case "$cflat" in *'Defaults → '*) ;; *) echo "no precedence chain in $conf"; false ;; esac
+  chain="Defaults → ${cflat#*Defaults → }"
+  chain="${chain%%. *}"
+  where="$(region '## Where the document goes' '## Checklist')"
+  last=-1 n=0
+  while [ -n "$chain" ]; do
+    layer="${chain%% → *}"
+    case "$chain" in *' → '*) chain="${chain#* → }" ;; *) chain= ;; esac
+    case "$layer" in
+      Defaults) words="the default $def" ;;
+      'environment variables') words="$env" ;;
+      '`<repo>/'*) f="${layer#\`<repo>/}"; words="\`$f at the repository root" ;;
+      '`~/'*) words="$layer" ;;
+      *) echo "unknown precedence layer '$layer'"; false ;;
+    esac
+    has "$where" "$words"
+    before="${where%%"$words"*}"
+    [ "${#before}" -gt "$last" ] || { echo "the skill names '$words' before the layer that precedes it"; false; }
+    last=${#before}
+    n=$((n + 1))
+  done
+  [ "$n" -eq 4 ] || { echo "expected 4 precedence layers, read $n"; false; }
+}
