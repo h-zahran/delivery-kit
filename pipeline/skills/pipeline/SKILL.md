@@ -36,7 +36,14 @@ are your hands, and the state file is your memory.
   goes through one. Never re-create one as a script. Each prints
   its answer on stdout, its reasons on stderr; a refusal is the phase's
   stop, or a hard failure. A message file holds no CR and no `Piece:`,
-  `Late:` or `Tasks:` line of its own.
+  `Late:` or `Tasks:` line of its own. A message file follows the
+  no-attribution rule below.
+- **No AI attribution leaves the machine** unless the owner's own
+  instructions ask for it: no commit message, pull-request title or
+  body, comment or reply the run writes carries a "Generated with"
+  footer, a `Co-authored-by` trailer naming an AI or a session link —
+  under `--auto` too. Strip one before the text leaves, and post or
+  commit nothing that still carries one.
 - **Every phase is idempotent.** Re-entering a completed phase must be
   safe. Before any phase writes an artefact, it checks whether the
   artefact already exists and is current; an in-place update or a
@@ -723,7 +730,8 @@ and records it as kind `constitution`.
 **L — push and open a pull request. STOPS AND ASKS.** Show the branch
 name, the PR title and the full body before anything leaves the machine.
 The body carries the review guide, shown in full with the rest of the
-body.
+body. The title, the body and every rebuild of it follow the
+no-attribution ground rule, under `--auto` too.
 Degradations: no remote — stop after K and say so. Non-GitHub remote, or
 no `gh` — push, print the comparison URL, and skip M (there is no pull
 request to review). Ask any waiting questions before building the body;
@@ -772,17 +780,14 @@ of 65,536 characters, read "A body over the GitHub limit" in
 skill is absent. Otherwise run it against the PR, fan independent
 finding fixes out, at most `maxReviewRounds` rounds; a cap breach is a
 conditional stop. The skill's agents and every fix agent run on
-`agentModel`, never on the models the skill names. Nothing M posts or
-commits names an AI as an author unless the owner's own instructions ask
-for it: before a comment, a reply, a commit message or a body edit leaves
-the machine, strip from it a "Generated with" footer, a `Co-authored-by`
-trailer naming an AI, and a session link, and post nothing that still
-carries one.
+`agentModel`, never on the models the skill names, and what M posts or
+commits follows the no-attribution ground rule.
 
 **N — re-verify and update the PR.** Run `analyzeCommand` and
 `testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against
 baseline, commit fixes
-(`remainder-commit`), push to the PR branch. N is DEGRADED, NEVER
+(`remainder-commit`), push to the PR branch; its commits and the body it
+rebuilds follow the no-attribution ground rule. N is DEGRADED, NEVER
 SKIPPED: without a pull request it
 still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has
 nothing to push a review fix to. The last thing this pipeline does with
