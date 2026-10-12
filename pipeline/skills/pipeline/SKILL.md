@@ -22,7 +22,8 @@ are your hands, and the state file is your memory.
   command substitution. NEVER pipe it into a `while read` loop; `read`
   keeps the trailing CR and every string comparison silently fails.
   `progress.sh get <feature> <key|filter>` prints one value with LF
-  endings; a `jq` of your own whose output is read by line takes `-b`.
+  endings; a `jq` of your own whose output is read by line takes `-b`
+  where that `jq` accepts it.
 - **State writes**: the phase alphabet goes through `progress.sh`
   (`phase-start` at the START of every phase, `phase-done` on
   completion); other keys go through `progress.sh state-set <feature>

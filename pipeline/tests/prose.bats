@@ -2098,7 +2098,7 @@ PINS
   local flat
   flat="$(prose_slice '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
   pins_in "$flat" 'ground rules' <<'PINS'
-`progress.sh get <feature> <key|filter>` prints one value with LF endings; a `jq` of your own whose output is read by line takes `-b`.
+`progress.sh get <feature> <key|filter>` prints one value with LF endings; a `jq` of your own whose output is read by line takes `-b` where that `jq` accepts it.
 per severity, loop iterations, agents dispatched). `init` makes the first one. This plugin exists because prompts were measured; it measures itself.
 PINS
 }
