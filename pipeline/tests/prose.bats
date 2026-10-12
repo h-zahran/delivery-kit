@@ -1798,7 +1798,7 @@ ROWS
     lc="$(printf '%s\n' "$s" | tr 'A-Z' 'a-z')"
     [[ $s == *'/trailer-check.sh" '* ]] \
       || { echo "$f no longer runs trailer-check.sh"; false; }
-    for want in 'skip-checks' 'co-authored-by' '[skip ci]' 'reserved for the run' \
+    for want in 'skip-checks' 'co-authored-by' 'assisted-by' 'generated-by' '[skip ci]' 'reserved for the run' \
                 'close[sd]?' '*[!A-Za-z0-9]|?)' 'a trailer is one line' 'would close an issue'; do
       ! [[ $lc == *"$(printf '%s\n' "$want" | tr 'A-Z' 'a-z')"* ]] \
         || { echo "$f holds a copy of the trailer rule again: $want"; false; }
@@ -1918,7 +1918,7 @@ ROWS
     || { echo "the configuration page no longer shows trailers at the gate"; false; }
   ! [[ $docs == *'does not show the trailers'* ]] \
     || { echo "the configuration page says again that a gate does not show the trailers"; false; }
-  [[ $docs == *'It also stops, from any layer, on a trailer that would act on GitHub or name another author: the token `skip-checks`, `Co-authored-by`, `Signed-off-by` or `On-behalf-of`;'* ]] \
+  [[ $docs == *'It also stops, from any layer, on a trailer that would act on GitHub or name another author: the token `skip-checks`, `Co-authored-by`, `Signed-off-by`, `Assisted-by`, `Generated-by` or `On-behalf-of`;'* ]] \
     || { echo "the refused-trailer rule altered"; false; }
   [[ $docs == *'and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each of these is matched in any letter case.'* ]] \
     || { echo "the skip-ci rule altered"; false; }

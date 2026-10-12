@@ -234,8 +234,8 @@ dash, an empty value, a line break or other control
 character, or the token `Piece`, `Late` or `Tasks` in any letter case,
 which the run uses as its own markers. It also stops, from any layer, on
 a trailer that would act on GitHub or name another author: the token
-`skip-checks`, `Co-authored-by`, `Signed-off-by` or `On-behalf-of`; a
-closing keyword
+`skip-checks`, `Co-authored-by`, `Signed-off-by`, `Assisted-by`,
+`Generated-by` or `On-behalf-of`; a closing keyword
 (`Close`, `Closes`, `Closed`, `Fix`, `Fixes`, `Fixed`, `Resolve`,
 `Resolves`, `Resolved`) as the token, or before an issue number in the
 value; and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip

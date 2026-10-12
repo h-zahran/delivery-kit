@@ -673,6 +673,27 @@ link_fallback_refused() {
   done
 }
 
+@test "trailers: one that credits an AI, Assisted-by or Generated-by, is refused at pre-flight" {
+  # The owner never wants AI attribution on a commit: a commitTrailers entry
+  # crediting one is refused from every layer, as Co-authored-by is.
+  T="$BATS_TEST_TMPDIR/trailers-ai"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  local bad
+  for bad in 'Assisted-by: Claude' 'Generated-by: Claude Code'; do
+    probe --dir "$T" --trailer "$bad"
+    [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
+    [[ "$stderr" == *"'$bad' uses the token '${bad%%:*}', which acts on GitHub or names another author"* ]] \
+      || { echo "reason not named: $bad: $stderr"; false; }
+  done
+  # In any letter case, as every refused token is.
+  local tc="$ROOT/pipeline/scripts/trailer-check.sh" err rc
+  for bad in 'ASSISTED-BY: x' 'generated-BY: y'; do
+    rc=0; err="$(bash "$tc" "\"$bad\"" 2>&1 >/dev/null)" || rc=$?
+    [ "$rc" -eq 1 ] || { echo "accepted: $bad"; false; }
+    [[ "$err" == *"uses the token '${bad%%:*}', which acts on GitHub"* ]] || { echo "wrong reason: $bad: $err"; false; }
+  done
+}
+
 # Review 3, blocking 1: the trailer rule refuses every character in
 # HIDDEN_CHARS, the list progress.sh refuses in a question, and prints each
 # one as its \u escape, never raw. The lists below are each range's two

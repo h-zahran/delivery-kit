@@ -101,12 +101,13 @@ case "${t#*:}" in *[![:space:]]*) ;; *) no "has an empty value" ;; esac
 # those lines as records, and progress.sh writes them itself. The rest
 # would act on GitHub or claim another person's work: skip-checks and the
 # [skip ci] family hide the pull request's checks, Co-authored-by and
-# Signed-off-by name someone who did not write the commit, On-behalf-of
-# attributes it to an organisation, and a closing keyword closes an issue
-# on merge.
+# Signed-off-by name someone who did not write the commit, Assisted-by and
+# Generated-by credit a tool such as an AI with it, which the owner never
+# wants on a commit, On-behalf-of attributes it to an organisation, and a
+# closing keyword closes an issue on merge.
 case "${lc%%:*}" in
   piece|late|tasks) no "uses the token '$token', reserved for the run's own markers" ;;
-  skip-checks|co-authored-by|signed-off-by|on-behalf-of|close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)
+  skip-checks|co-authored-by|signed-off-by|assisted-by|generated-by|on-behalf-of|close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)
     no "uses the token '$token', which acts on GitHub or names another author" ;;
 esac
 case "$lc" in
