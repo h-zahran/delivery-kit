@@ -265,6 +265,84 @@ load ../../tests/helper
   [ -z "$output" ]
 }
 
+# A bucket is the smaller of 5% of the window and thresholdTokens (audit H12).
+# setup() gives every test its own TMPDIR, where the bucket flag lives, and its
+# own HOME, where the user configuration lives.
+
+@test "thresholdTokens under 5% of the window re-warns every thresholdTokens" {
+  # The case configuration.md measured: at a 100M window with thresholdTokens
+  # 400000 the guard warned at 400000, then stayed silent at 900000 and at
+  # 4000000, all under 5% of the window. Buckets are 400000 wide now.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000000,"thresholdTokens":400000}'
+  t="$(transcript_with 400000 400000 400000 400000 400000)"        # bucket 1
+  run_hook "$t" tokstep
+  echo "$output" | jq -e '.reason | test("400000 tokens, past the 400000-token limit")'
+  t="$(transcript_with 900000 900000 900000 900000 900000)"        # bucket 2
+  run_hook "$t" tokstep
+  echo "$output" | jq -e '.reason | test("900000 tokens, past the 400000-token limit")'
+  t="$(transcript_with 4000000 4000000 4000000 4000000 4000000)"   # bucket 10
+  run_hook "$t" tokstep
+  echo "$output" | jq -e '.reason | test("4000000 tokens, past the 400000-token limit")'
+  t="$(transcript_with 4300000 4300000 4300000 4300000 4300000)"   # bucket 10 again
+  run_hook "$t" tokstep
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "token buckets keep the jitter guard and follow a real drop" {
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000000,"thresholdTokens":400000}'
+  t="$(transcript_with 800000 800000 800000 800000 800000)"        # bucket 2
+  run_hook "$t" tokjitter
+  echo "$output" | jq -e '.decision == "block"'
+  t="$(transcript_with 790000 790000 790000 790000 790000)"        # bucket 1: one down
+  run_hook "$t" tokjitter
+  [ -z "$output" ]
+  t="$(transcript_with 800000 800000 800000 800000 800000)"        # bucket 2 again
+  run_hook "$t" tokjitter
+  [ -z "$output" ] || { echo "a reading crossing one bucket edge re-warned"; false; }
+  t="$(transcript_with 100000 100000 100000 100000 100000)"        # bucket 0: two down
+  run_hook "$t" tokjitter
+  [ -z "$output" ]
+  t="$(transcript_with 400000 400000 400000 400000 400000)"        # bucket 1, re-armed
+  run_hook "$t" tokjitter
+  echo "$output" | jq -e '.reason | test("past the 400000-token limit")'
+}
+
+@test "thresholdTokens of 5% or more leaves the buckets at 5% of the window" {
+  # A window that matches the model: 400000 is 40% of 1000000, so 5% (50000)
+  # is the smaller step. 450000 is a new 5% bucket but the same 400000-token
+  # one, so it warns only if the buckets stayed at 5%.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdTokens":400000}'
+  t="$(transcript_with 400000 400000 400000 400000 400000)"
+  run_hook "$t" pctstep
+  echo "$output" | jq -e '.decision == "block"'
+  t="$(transcript_with 450000 450000 450000 450000 450000)"
+  run_hook "$t" pctstep
+  echo "$output" | jq -e '.reason | test("450000 tokens, past the 400000-token limit")'
+}
+
+@test "the bucket switches to thresholdTokens just under 5% of the window, not at it" {
+  # 5% of 1000000 is 50000. After 100000, the reading 149997 is in a new
+  # 49999-token bucket (3) but the same 5% bucket (2) and the same
+  # 50001-token bucket (2): it warns at 49999 and stays silent at 50001.
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdTokens":49999}'
+  t="$(transcript_with 100000 100000 100000 100000 100000)"
+  run_hook "$t" under5
+  echo "$output" | jq -e '.decision == "block"'
+  t="$(transcript_with 149997 149997 149997 149997 149997)"
+  run_hook "$t" under5
+  echo "$output" | jq -e '.reason | test("149997 tokens, past the 49999-token limit")'
+
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":1000000,"thresholdTokens":50001}'
+  t="$(transcript_with 100000 100000 100000 100000 100000)"
+  run_hook "$t" over5
+  echo "$output" | jq -e '.decision == "block"'
+  t="$(transcript_with 149997 149997 149997 149997 149997)"
+  run_hook "$t" over5
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "50001 is over 5% of the window, yet the bucket was 50001 wide"; false; }
+}
+
 @test "reads thresholdPct from .delivery-kit.json" {
   write_config "$TEST_DIR/.delivery-kit.json" '{"thresholdPct":10}'
   t="$(transcript_with 30000 30000 30000 30000 30000)"   # 15% of 200000

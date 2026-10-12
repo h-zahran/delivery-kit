@@ -89,12 +89,12 @@ If your model has a 1M-token window:
 `thresholdPct` is where the first warning fires, as a percentage of the window.
 The default is 45. After the first warning the guard re-warns once per 5%
 bucket — 45, 50, 55 — so working past a warning is nudged again rather than
-nagged on every tool call. Those buckets are always measured against
-`windowTokens`, including when the absolute tripwire below fired the first
-warning; the `thresholdTokens` section covers what that implies.
+nagged on every tool call. When `thresholdTokens` is set below 5% of the
+window, a bucket is `thresholdTokens` wide instead; the `thresholdTokens`
+section covers why.
 
 The mark follows a real drop back down as well: a compaction that takes context
-down two or more buckets — ten points or more — re-arms the guard, so a session
+down two or more buckets — ten points or more at 5% — re-arms the guard, so a session
 that compacts is warned again on the way back up rather than staying silent
 until it reaches its old peak. Smaller fluctuations are ignored, so a reading
 oscillating across a bucket boundary cannot re-warn on every tool call.
@@ -133,13 +133,16 @@ the 200000-token window (threshold 45%)"* and does not mention
 `thresholdTokens` at all. Both name the window they measured against, so the
 cause is legible either way.
 
-**Re-warning is still measured against the window.** The 5% buckets described
-under Threshold come from the percentage, so a `windowTokens` set far too large
-can leave the first absolute warning as the only one you get. Measured against a
-100,000,000-token window with `thresholdTokens` at 400,000: the guard fires at
-400,000, then stays silent at 900,000 and again at 4,000,000, because all three
-are under 5% of that window — the next warning waits until 5,000,000. At a
-window that matches the model, the same setting re-warns normally.
+**Re-warning steps by the smaller of 5% of the window and `thresholdTokens`.**
+5% of a `windowTokens` set far too large can be millions of tokens, so when
+`thresholdTokens` is under 5% of the window, each bucket is `thresholdTokens`
+wide instead. Against a 100,000,000-token window with `thresholdTokens` at
+400,000, the guard fires at 400,000, warns again at 900,000 and again at
+4,000,000: each is in a new 400,000-token bucket. It used to stay silent at
+both, until 5,000,000. At a window that matches the model, 5% is the smaller
+step, and the guard re-warns at 45, 50 and 55% exactly as before. The rules
+under Threshold count in the same buckets: a drop of two re-arms the guard, and
+a reading crossing one bucket edge back and forth does not re-warn.
 
 `/handoff:setup` asks about both together for these reasons.
 
