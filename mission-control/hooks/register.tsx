@@ -413,7 +413,8 @@ function playChime($: EngineInterface, at: number, kind: SoundKind = 'done'): vo
       await $.audio.play({ asset })
       return
     }
-    const players = playersFor(chimePlatform, `${$.plugin.root}/${asset}`)
+    const systemRoot = chimePlatform === 'windows' ? await $.env.get('SystemRoot') : undefined
+    const players = playersFor(chimePlatform, `${$.plugin.root}/${asset}`, systemRoot)
     for (let k = 0; k < players.length; k++) {
       const i = (chimePlayer + k) % players.length
       try {
