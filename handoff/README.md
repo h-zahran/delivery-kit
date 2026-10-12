@@ -32,8 +32,9 @@ session-start hook names the handoff for you, as long as the branch, the commit
 and the changed files still match it exactly. It only names the file; what to
 do with it stays your choice.
 
-If you keep working past the warning, the guard nudges you again every 5% —
-not on every tool call.
+If you keep working past the warning, the guard nudges you again every 5% of
+the window, or every `thresholdTokens` if you set that lower — not on every
+tool call.
 
 ## What is in the document
 

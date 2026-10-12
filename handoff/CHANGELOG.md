@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the nearest `.git` file or folder instead, and reads the same file git
   pointed it to. That saved about 115 ms a call on Windows, measured. It
   also means the guard no longer needs git at all.
+- **Re-warnings step by `thresholdTokens` when it is under 5% of the
+  window.** The guard re-warned once per 5% of `windowTokens`, so with a
+  window far too large, the first warning could be the only one: at a
+  100,000,000-token window and `thresholdTokens` 400,000, it warned at
+  400,000 and stayed silent until 5,000,000. A bucket is now the smaller of
+  5% of the window and `thresholdTokens`, so that setting warns again at
+  800,000, 1,200,000 and on. At a window that matches the model, 5% is the
+  smaller, and the guard warns exactly where it did. No new setting.
 
 ## [2.3.1] - 2026-10-12
 

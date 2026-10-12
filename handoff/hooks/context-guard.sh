@@ -4,7 +4,7 @@
 # Computes current context usage from the session transcript and, once it
 # crosses the configured threshold, emits a blocking instruction telling Claude
 # to finish the current atomic step and invoke the handoff skill. Re-warns once
-# per 5% bucket thereafter.
+# per bucket thereafter: 5% of the window, or thresholdTokens when smaller.
 #
 # Configuration — defaults, then ~/.delivery-kit.json, then
 # <repo>/.delivery-kit.json, then the environment:
@@ -668,7 +668,20 @@ pct=$(( ctx * 100 / WINDOW ))
 
 # Warn once per 5% bucket (45, 50, 55, ...) so Claude is re-nudged if it
 # keeps working past the first warning, without one warning per tool call.
+#
+# THE BUCKET IS THE SMALLER OF 5% OF THE WINDOW AND thresholdTokens (audit
+# H12). With a window far larger than the model's, 5% of it can be millions
+# of tokens: at a 100M window and thresholdTokens 400000 the guard warned at
+# 400000 and then stayed silent until 5000000. When thresholdTokens is under
+# 5% of the window, the buckets are thresholdTokens wide instead: 400000,
+# 800000, 1200000. Compared as WINDOW / 20, never thresholdTokens * 20, which
+# could overflow. Otherwise the bucket is exactly pct / 5, as before, so a
+# window that matches the model warns where it always did. Every rule below
+# counts in buckets, so the drop rule and the jitter guard hold either way.
 bucket=$(( pct / 5 ))
+if [ -n "$THRESHOLD_TOKENS" ] && [ "$THRESHOLD_TOKENS" -lt $(( WINDOW / 20 )) ]; then
+  bucket=$(( ctx / THRESHOLD_TOKENS ))
+fi
 flagdir="${TMPDIR:-${TEMP:-/tmp}}"
 flag="$flagdir/ctx-warned-$session"
 last_bucket=$(cat "$flag" 2>/dev/null)
