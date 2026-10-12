@@ -165,6 +165,15 @@ accept() {
   accept pipeline 1.10.0
 }
 
+@test "release.sh compares the major field as a number too" {
+  copy_tree
+  set_version pipeline 9.0.0
+  open_unreleased pipeline
+  commit_tree
+  # As text, 10 sorts below 9.
+  accept pipeline 10.0.0
+}
+
 @test "release.sh accepts a higher major with lower minor and patch" {
   copy_tree
   open_unreleased pipeline
