@@ -2305,6 +2305,36 @@ fenced_block() {
   [ "$counted" -eq "$listed" ] || { echo "the section's grep prints $counted for a list of $listed (pattern: $pat)"; false; }
 }
 
+@test "every Why pointer in the hook names a notes section in the rigs README, and back" {
+  # Audit H15 moved the hook's measurement notes to
+  # scripts/context-guard/README.md, under "Notes moved from the hook", and
+  # left a one-line pointer at each old site. A pointer naming a section that
+  # does not exist sends the reader nowhere; a section nobody points at has
+  # lost the code it explains. Both directions, exact names, no duplicates.
+  tr -d '\r' < "$HOOK" > "$TEST_DIR/hook"
+  tr -d '\r' < "$ROOT/scripts/context-guard/README.md" > "$TEST_DIR/readme"
+
+  # A line that starts like a pointer but is not in the exact form would be
+  # skipped by the extraction below, so it fails here first.
+  bad="$(grep -E '^[[:space:]]*#[[:space:]]*Why:' "$TEST_DIR/hook" \
+    | grep -vE '^[[:space:]]*# Why: scripts/context-guard/README\.md, "[^"]+"\.$' || true)"
+  [ -z "$bad" ] || { echo "malformed pointer line(s) in the hook:"; echo "$bad"; false; }
+  sed -n 's/^[[:space:]]*# Why: scripts\/context-guard\/README\.md, "\([^"]*\)"\.$/\1/p' \
+    "$TEST_DIR/hook" | sort -u > "$TEST_DIR/pointed"
+  awk '/^## Notes moved from the hook$/ { on = 1; next }
+       on && /^## / { exit }
+       on && /^### / { sub(/^### /, ""); print }' "$TEST_DIR/readme" > "$TEST_DIR/headings"
+  sort -u "$TEST_DIR/headings" > "$TEST_DIR/sections"
+
+  [ -s "$TEST_DIR/pointed" ] || { echo "no pointer lines in the hook"; false; }
+  [ -s "$TEST_DIR/sections" ] || { echo "no sections under \"## Notes moved from the hook\""; false; }
+  n_all="$(grep -c . "$TEST_DIR/headings" || true)"
+  n_uniq="$(grep -c . "$TEST_DIR/sections" || true)"
+  [ "$n_all" -eq "$n_uniq" ] || { echo "a notes section heading is repeated:"; sort "$TEST_DIR/headings" | uniq -d; false; }
+  diff "$TEST_DIR/pointed" "$TEST_DIR/sections" \
+    || { echo "< a pointer with no section, > a section with no pointer"; false; }
+}
+
 @test "the systemMessage names skills as the user types them; the reason to Claude does not change" {
   # systemMessage is shown to the USER, who runs a skill by typing it with its
   # slash, so it says /handoff:handoff and /handoff:setup. The reason is
