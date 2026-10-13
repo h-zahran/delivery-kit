@@ -18,7 +18,7 @@
       "name": "pipeline",
       "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine. Requires spec-kit in the target repository.",
       "source": "./pipeline",
-      "version": "1.6.0",
+      "version": "1.6.1",
       "category": "workflow",
       "tags": ["pipeline", "orchestration", "spec-driven", "workflow", "spec-kit", "pull-request", "github", "code-review"]
     },
