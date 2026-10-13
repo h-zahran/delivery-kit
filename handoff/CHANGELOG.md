@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is a whole handoff for a fictional project: every section the skill
   requires, and a Reconcile section written by `reconcile-block.sh` itself.
   The README links it under "What is in the document".
+- **The guard's measurement notes moved to the rigs README.** The hook
+  carried 691 comment lines in 907. Measurement stories, fault histories
+  and numbers from past runs now sit word for word in
+  `scripts/context-guard/README.md`, under "Notes moved from the hook".
+  Each old site keeps its rule in a shorter form and a one-line pointer to
+  the section. A test holds every pointer to a section, and back. The code
+  did not change: with comment and blank lines removed, the hook is
+  byte-identical. It is now 750 lines, 534 of them comments.
 
 ## [2.4.0] - 2026-10-13
 
