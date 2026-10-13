@@ -72,7 +72,7 @@ to configure the guard.
 
 | Piece | Kind | Does |
 |---|---|---|
-| The context guard | a `PostToolUse` hook | Measures context after each tool call, warns past a threshold, re-warns once per 5%. |
+| The context guard | a `PostToolUse` hook | Measures context after each tool call, warns past a threshold, re-warns once per 5% of the window, or per `thresholdTokens` if that is lower. |
 | `handoff:handoff` | a skill | Writes the document above, prints the resume prompt, stops. |
 | The handoff finder | a `SessionStart` hook | When a session starts or is cleared, names a handoff whose recorded branch, commit and `git status` lines match the repository exactly. Silent otherwise. It never tells Claude to act on the file. |
 | `handoff:setup` | a skill | Measures your session, asks for your real window and stopping point, and writes those to `~/.delivery-kit.json` — machine facts, so once is enough. Where a repository has `.specify/`, it also offers to write the pipeline block into that repository's file. It asks first. |
