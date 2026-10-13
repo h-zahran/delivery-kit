@@ -362,7 +362,7 @@ run_shape() {
       since=${expect#diff@}
       # AN ANCHOR MUST BE A COMMIT ID, NOT A REF. Lowercase hex is not merely
       # the stricter choice — it is exactly what the documented count command in
-      # this file's header, and its twin in handoff/hooks/context-guard.sh,
+      # this file's header, and its twin in scripts/context-guard/README.md,
       # already match. Accepting more than the counter can see is how a shape
       # goes missing from a total without anyone being told.
       #
