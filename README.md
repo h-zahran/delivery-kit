@@ -1,7 +1,8 @@
 # delivery-kit
 
-A Claude Code plugin marketplace. Three plugins live here. Each installs on its
-own, and none needs the others.
+A Claude Code plugin marketplace. Four plugins live here. Each installs on
+its own. `handoff`, `pipeline` and `mission-control` need nothing else; `team`
+runs `pipeline`, so it needs `pipeline` too.
 
 The first two came out of the same exercise: 1,410 prompts across 67 sessions of real
 work were sorted by what the human was actually asking for. The two biggest
@@ -15,9 +16,10 @@ pile became a plugin.
 | **[handoff](handoff/README.md)** | `handoff@delivery-kit` | Long sessions run out of room, and you keep typing *continue*. |
 | **[pipeline](pipeline/README.md)** | `pipeline@delivery-kit` | You want one feature taken from an idea to a reviewed pull request, stopping to ask you at every step that leaves your machine. |
 | **[mission-control](mission-control/README.md)** | `mission-control@delivery-kit` | You want to watch the main loop and every subagent at work: tools, context, cost, rate limits and files touched. |
+| **[team](team/README.md)** | `team@delivery-kit` | A team works through a shared plan with `pipeline`, and you want the setup written once and each member's progress kept. |
 
-Install any of them. handoff and pipeline share one settings file and otherwise
-stay out of each other's way. mission-control needs no settings.
+Install any of them. handoff, pipeline and team share one settings file and
+otherwise stay out of each other's way. mission-control needs no settings.
 
 ## Quick start
 
@@ -50,6 +52,7 @@ To pin a version in a script, see
 /plugin install handoff@delivery-kit
 /plugin install pipeline@delivery-kit
 /plugin install mission-control@delivery-kit
+/plugin install team@delivery-kit
 ```
 
 If an install command cannot see its plugin, run `/reload-plugins` after the
@@ -165,6 +168,7 @@ Each plugin's own troubleshooting table: [handoff](handoff/README.md#troubleshoo
 handoff/     the handoff plugin — hooks, skills, scripts, docs, tests
 pipeline/    the pipeline plugin — command, skills, scripts, docs, tests
 mission-control/ the mission-control mod — hook modules, sounds, types, its test
+team/        the team plugin — skills, scripts, docs, tests
 tests/       repo-wide tests: layout, and what may appear in shipped files
 specs/       the specifications real pipeline runs produced, kept as examples
 main-plan.md the plan file this repository reads its own seeds from
@@ -184,12 +188,12 @@ and [a pull request's review guide](pipeline/docs/examples/review-guide.md).
 ## Contributing
 
 Tests are [bats](https://github.com/bats-core/bats-core) and need `jq`. Name
-every suite path: passing only `tests` silently skips both plugins' suites and
+every suite path: passing only `tests` silently skips every plugin's suite and
 still reports green.
 
 ```bash
 git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
-bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests
 ```
 
 Expect green on Linux, macOS and Windows under Git Bash. CI runs all three.

@@ -1,6 +1,6 @@
 {
   "name": "delivery-kit",
-  "description": "Three plugins for long Claude Code sessions: hand the work off before the context runs out, drive one feature from idea to reviewed pull request, and watch the main loop and every subagent in a side pane.",
+  "description": "Four plugins for long Claude Code sessions: hand the work off before the context runs out, drive one feature from idea to reviewed pull request, run a team's plan through that pipeline, and watch the main loop and every subagent in a side pane.",
   "owner": {
     "name": "Haytham Zahran",
     "url": "https://github.com/h-zahran"
@@ -29,6 +29,14 @@
       "version": "0.9.3",
       "category": "monitoring",
       "tags": ["subagents", "usage", "side-pane"]
+    },
+    {
+      "name": "team",
+      "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
+      "source": "./team",
+      "version": "0.1.0",
+      "category": "workflow",
+      "tags": ["team", "pipeline", "progress", "workflow"]
     }
   ]
 }
