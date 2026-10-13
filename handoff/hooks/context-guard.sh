@@ -93,8 +93,9 @@ US=$'\037'
 #
 # THE DRAIN AFTER A FAILED CALL IS NOT BELT AND BRACES. jq reads to end of
 # input only while the input keeps parsing: handed something malformed at its
-# FIRST token it aborts at once, and the caller, writing into a pipe nobody is
-# reading, dies of a broken pipe (exit 141). The branch runs only when jq
+# FIRST token it aborts at once, having read a buffer's worth and no more. The
+# caller is then writing into a pipe nobody is reading, and dies of a broken
+# pipe: exit 141, measured on a ~300KB payload. The branch runs only when jq
 # exits non-zero, so the ordinary run pays nothing for it.
 # Why: scripts/context-guard/README.md, "Payload extraction, measured".
 #
@@ -105,11 +106,13 @@ US=$'\037'
 # Say so once, then stay out of the way. Detection runs jq rather than
 # looking it up on PATH: a jq that cannot execute is no more use than none.
 #
-# THE PROBE RUNS ONLY AFTER THIS CALL FAILS: a jq that cannot run fails this
-# call too, so the ordinary run spends nothing on it. The test is
-# `jq --version` failing and NOT a table of exit codes: a jq that dies on a
-# missing library, or a shim that exits 1, is just as unable to run, and a
-# rule that missed one would leave the guard silent with no hint.
+# THE PROBE RUNS ONLY AFTER THIS CALL FAILS. A jq that cannot run fails this
+# call too, so asking `jq --version` only then reaches every jq the old probe
+# reported, and a malformed payload pays one extra process where the ordinary
+# run pays none. The test is `jq --version` failing and NOT a table of exit
+# codes: a jq that dies on a missing library, or a shim that exits 1, is just
+# as unable to run, and a rule that missed one would leave the guard silent
+# with no hint.
 # Why: scripts/context-guard/README.md, "Payload extraction, measured".
 #
 # stderr goes to /dev/null on this call now, and that is a change. With jq
@@ -120,11 +123,12 @@ US=$'\037'
 # Nothing reads this hook's stderr, and the differential never compares it.
 #
 # CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. A reader that exits
-# without reading leaves the caller writing into a closed pipe, killed at
-# exit 141. A jq that cannot start reads nothing, so the `cat` below drains
-# the payload BEFORE the hint and its `exit 0`, on the same branch that drains
-# it for a payload jq could not parse. Do not move the hint above it because
-# the guard is exiting anyway: what it protects is the caller, not this hook.
+# without reading leaves the caller writing into a closed pipe: measured on a
+# ~200KB payload, the writer dies at exit 141. A jq that cannot start reads
+# nothing, so the `cat` below drains the payload BEFORE the hint and its
+# `exit 0`, on the same branch that drains it for a payload jq could not
+# parse. Do not move the hint above it because the guard is exiting anyway:
+# what it protects is the caller, not this hook.
 # Why: scripts/context-guard/README.md, "Payload extraction, measured".
 if ! payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)' 2>/dev/null); then
   cat > /dev/null 2>&1
@@ -144,7 +148,7 @@ cwd=${rest#*"$US"}
 
 # Inside a subagent this hook is handed the PARENT's transcript_path and the
 # PARENT's session_id, indistinguishable from the main-chain calls around
-# them except for agent_id, which is read here.
+# them except for two fields, agent_id and agent_type; agent_id is read here.
 # Why: scripts/context-guard/README.md, "Subagent payloads, measured".
 #
 # So without this exit the guard reports the PARENT's percentage inside a
@@ -393,7 +397,10 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 #
 # jq calls a NaN a number and renders it "null", so `startswith` counts it
 # where the original grep did not. It is left standing: a NaN can only make
-# the count LARGER, which can only skip a re-read returning the same fifteen.
+# the count LARGER, which can only skip the uncapped re-read, and that re-read
+# returns the same last fifteen whenever the capped read holds fifteen at all.
+# Changing the answer would need a NaN AND a starved cap, and a token count is
+# a sum of integers with no route to a NaN.
 #
 # `select(. >= 0)` is NOT equivalent: -0.0 is >= 0, but its text form "-0"
 # was never counted by the old `grep -c '^[0-9]'`.
@@ -402,7 +409,9 @@ MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'
 # replaces counted lines BEGINNING WITH A DIGIT, so a negative reading is
 # excluded from the count and included in the median. The cap may never
 # change the answer, so this reproduces the rule rather than improving it.
-# Junk is not counted either, so a read starved down to junk falls back.
+# ONE PLACE WHERE THAT IS NOT QUITE TRUE: junk is not counted either, so where
+# the old count cleared the floor on junk alone, this falls back. A divergence
+# from the old rule, fail-safe, and the differential asserts it.
 # Why: scripts/context-guard/README.md, "The count rule, measured".
 #
 # -R is raw INPUT and says nothing about output. Without -r the join comes back
