@@ -1,0 +1,12 @@
+{
+  "name": "team",
+  "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Haytham Zahran"
+  },
+  "homepage": "https://github.com/h-zahran/delivery-kit",
+  "repository": "https://github.com/h-zahran/delivery-kit",
+  "license": "MIT",
+  "keywords": ["team", "pipeline", "progress", "workflow"]
+}

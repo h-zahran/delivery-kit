@@ -170,7 +170,8 @@ SHIPPED_ROOT="README.md CONTRIBUTING.md CHANGELOG.md CODE_OF_CONDUCT.md LICENSE 
 SHIPPED_HANDOFF="handoff/hooks handoff/scripts handoff/skills handoff/README.md handoff/CHANGELOG.md handoff/docs handoff/tests handoff/.claude-plugin"
 SHIPPED_PIPELINE="pipeline/README.md pipeline/CHANGELOG.md pipeline/.claude-plugin pipeline/commands pipeline/docs"
 SHIPPED_MISSION_CONTROL="mission-control/README.md mission-control/CHANGELOG.md mission-control/.claude-plugin mission-control/hooks mission-control/sounds mission-control/types mission-control/tsconfig.json"
-SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTROL"
+SHIPPED_TEAM="team/README.md team/CHANGELOG.md team/.claude-plugin team/docs team/skills team/scripts team/tests"
+SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTROL $SHIPPED_TEAM"
 
 # Root tests/ cannot be registered, by construction: it holds the denylist
 # and the fixtures the scanners are fired at, so a scan covering it would
@@ -748,7 +749,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   # nothing, which is exactly why the omission survived the split that made it
   # an index.
   checked=0
-  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md mission-control/README.md mission-control/CHANGELOG.md pipeline/commands/pipeline.md scripts/check-versions.md pipeline/docs/*.md handoff/docs/*.md pipeline/docs/examples/*.md handoff/docs/examples/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
+  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md mission-control/README.md mission-control/CHANGELOG.md team/README.md team/CHANGELOG.md pipeline/commands/pipeline.md scripts/check-versions.md pipeline/docs/*.md handoff/docs/*.md team/docs/*.md pipeline/docs/examples/*.md handoff/docs/examples/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md team/skills/*/SKILL.md; do
     # Per entry, not `continue`: one entry going stale — a glob emptying, a
     # file moving — used to be absorbed by the aggregate counter while the
     # other files kept it positive. An unexpanded glob arrives here as its

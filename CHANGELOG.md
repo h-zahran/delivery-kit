@@ -8,3 +8,4 @@ about release order.
 - [handoff](handoff/CHANGELOG.md)
 - [pipeline](pipeline/CHANGELOG.md)
 - [mission-control](mission-control/CHANGELOG.md)
+- [team](team/CHANGELOG.md)

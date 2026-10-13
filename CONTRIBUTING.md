@@ -30,7 +30,7 @@ The suites are [bats](https://github.com/bats-core/bats-core) and need `jq`.
 
 ```bash
 git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git "$HOME/bats"
-bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests
+bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests
 ```
 
 The tag above is the readable one, and it is deliberately NOT the commit
@@ -84,7 +84,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W 2>/dev/null || pwd):/repo" -w /r
   git config --global --add safe.directory "*" &&
   git -c advice.detachedHead=false clone -q --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git /opt/bats &&
   bash --version | head -n 1 &&
-  bash /opt/bats/bin/bats -r --print-output-on-failure "$@"' _ tests handoff/tests pipeline/tests
+  bash /opt/bats/bin/bats -r --print-output-on-failure "$@"' _ tests handoff/tests pipeline/tests team/tests
 ```
 
 Name fewer suites at the end to run part of it. The image keeps its bash in
@@ -136,6 +136,9 @@ first thing to get right when you add one:
   scanned too, under the relaxed vocabulary `tests/portability.bats`
   describes: a detector, and a suite that asserts a detector's output, must
   be allowed to write the strings they detect.
+- The `team` plugin's surface lives under `team/` — `team/README.md`,
+  `team/CHANGELOG.md`, `team/.claude-plugin/`, `team/docs/`, `team/skills/`,
+  `team/scripts/` and `team/tests/`. This is what a user installs.
 - The repository's own surface stays at the root — `README.md`, this file,
   `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `LICENSE`, `.claude-plugin/`,
   `.gitignore`, `.gitattributes` and `.github/`. This is what a user reads
@@ -143,7 +146,7 @@ first thing to get right when you add one:
   pointing at each plugin's changelog, not a release history of its own.
 
 One variable per plugin tree in that file holds the exact list —
-`SHIPPED_HANDOFF`, `SHIPPED_PIPELINE` — with `SHIPPED_ROOT` for the
+`SHIPPED_HANDOFF`, `SHIPPED_PIPELINE`, `SHIPPED_TEAM` — with `SHIPPED_ROOT` for the
 repository's own surface and `SHIPPED` as their union, which is what the
 strict scans walk. Register a new document in whichever list owns the tree it
 lives in — not in `SHIPPED`, which is only the union and gets rewritten
