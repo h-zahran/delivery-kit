@@ -11,8 +11,8 @@ claim; the screen showing the feature is.
 ## Preconditions — check, and stop loudly on failure
 
 1. `adb` on PATH: try `command -v adb`, then `command -v adb.exe`, and
-   say which name was found. Bash on Windows can miss a Windows install
-   under the bare name. Use the name found in every command below.
+   say which name was found. WSL's bash cannot run a Windows install under
+   the bare name; Git Bash can. Use the name found in every command below.
    Neither: report the missing tool and stop — the caller decides what a
    skipped verification means.
 2. One device: `adb devices` lists the devices in state `device`. With
@@ -35,10 +35,12 @@ claim; the screen showing the feature is.
    before signing it with the debug key.
 2. **Install** the artefact: `adb install -r <artefact>` for an `.apk`.
    An `.aab` does not install as it is: `bundletool build-apks
-   --bundle=<aab> --output=<apks> --connected-device`, then `bundletool
-   install-apks --apks=<apks>`, each with `--device-id=<serial>` when
-   more than one is attached. A failed install is a finding, not an
-   obstacle — report it verbatim.
+   --bundle=<aab> --output=<apks> --connected-device --ks=<keystore>
+   --ks-key-alias=<alias>` with the project's release key, then
+   `bundletool install-apks --apks=<apks>`, each with
+   `--device-id=<serial>` when more than one is attached. Without `--ks`,
+   bundletool signs with the debug key: ask first, as in step 1. A failed
+   install is a finding, not an obstacle — report it verbatim.
 3. **Navigate** to every screen the change touches. Map changed files
    to screens by the project's own structure where possible; where the
    mapping is unclear, say so and verify the entry screen plus whatever

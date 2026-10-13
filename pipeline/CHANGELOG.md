@@ -7,12 +7,14 @@ All notable changes to the `pipeline` plugin.
 ### Changed
 
 - **`pipeline:device-verify` covers the gaps a real device run hits.** It
-  looks for `adb`, then `adb.exe`, and says which name it found: bash on
-  Windows can miss the bare name. It honours `ANDROID_SERIAL`, and passes
-  `-s` when more than one device is attached. It asks before signing an
-  unsigned release build with the debug key, installs an `.aab` through
-  `bundletool`, and names the screenshot folder:
-  `.delivery-kit/runs/<feature>/screenshots/` in a pipeline run.
+  looks for `adb`, then `adb.exe`, and says which name it found: WSL's
+  bash cannot run a Windows install under the bare name. It honours
+  `ANDROID_SERIAL`, and passes `-s` when more than one device is attached.
+  It asks before signing an unsigned release build with the debug key. It
+  installs an `.aab` through `bundletool`, signed with the release key, and
+  asks before letting bundletool fall back to the debug key. It names the
+  screenshot folder: `.delivery-kit/runs/<feature>/screenshots/` in a
+  pipeline run.
 
 ### Fixed
 
@@ -20,7 +22,7 @@ All notable changes to the `pipeline` plugin.
   grep through `< <(printf ...)`, and on Git Bash that grep said "found"
   for a pattern that is not there in about 2% of calls under load. Then a
   written constitution could read as unset, or a blank one as set. It now
-  matches with `[[ ]]`, which also never hangs on a file of about 64 KB.
+  matches with `[[ ]]`.
 
 ## [1.6.0] - 2026-10-12
 
