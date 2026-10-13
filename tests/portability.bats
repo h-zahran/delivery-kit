@@ -748,7 +748,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   # nothing, which is exactly why the omission survived the split that made it
   # an index.
   checked=0
-  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md mission-control/README.md mission-control/CHANGELOG.md pipeline/commands/pipeline.md pipeline/docs/*.md handoff/docs/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
+  for f in README.md CONTRIBUTING.md CHANGELOG.md handoff/README.md handoff/CHANGELOG.md pipeline/README.md pipeline/CHANGELOG.md mission-control/README.md mission-control/CHANGELOG.md pipeline/commands/pipeline.md scripts/check-versions.md pipeline/docs/*.md handoff/docs/*.md handoff/skills/*/SKILL.md pipeline/skills/*/SKILL.md; do
     # Per entry, not `continue`: one entry going stale — a glob emptying, a
     # file moving — used to be absorbed by the aggregate counter while the
     # other files kept it positive. An unexpanded glob arrives here as its
