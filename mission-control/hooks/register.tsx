@@ -1,19 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { AgentRun, Ask, Compaction, FileTouch, MainLoop, RunStatus, Todo, ToolRow, Usage, View } from '../types'
+import type { AgentRun, Ask, Compaction, FileTouch, MainLoop, RunStatus, StepTrack, Todo, ToolRow, Usage, View } from '../types'
 
 import { burnPerHour, costSpark, fmtEta, pushSample, runOut } from './forecast'
 import { applyStep, parseStep, stepToolArgs, stepToolFullName, withHint } from './progress'
 import { batchesOf, receipt, timeline } from './summary'
-import { applyAskCall, askToolArgs, composeSection, fromPerson, markAnswered, newAsk, parseAskCall, shownAsk } from './asks'
-import { planParts, shortNames, wrapWords } from './fit'
+import { applyAskCall, ASK_TOOL_FULL, askToolArgs, composeContext, composeSection, fromPerson, markAnswered, newAsk, parseAskCall, shownAsk } from './asks'
+import { cellsOf, planParts, shortNames, wrapWords } from './fit'
 import { lookOf, roleById, roleOf, sayOf, shadeOf } from './roles'
 import type { PlanTone } from './fit'
 import { isLongTurn, isNeedsYou, platformOf, playersFor, SOUND_ASSETS } from './chime'
 import type { Platform, SoundKind } from './chime'
-import { batchEnded, etaOf, etaPart, rollCall, todoCount, trackSteps, workingRow } from './eta'
-import { treeLines } from './filetree'
+import { batchEnded, etaOf, etaPart, pruneTracks, restartSteps, rollCall, todoCount, trackSteps, workingRow } from './eta'
+import { normPath, pathKey, treeLines } from './filetree'
 import { arcs, cleanLine, COMMENT_REQUEST, COMMENT_SYSTEM, commentPrompt, isQuiet, msgOf, pushMsg, pushTalk, turnDigest } from './talk'
 import type { Digest } from './talk'
 import { activityRows, kindCounts, squares } from './timeline'
@@ -184,6 +184,10 @@ const modelName = (id: string): string => {
   return `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? '.' + minor : ''}`
 }
 
+/** The main loop's step track: its todo list's when it has one, else its step reports'. */
+const mainTrackOf = (m: { todos?: readonly unknown[] }, tr: Record<string, StepTrack>): StepTrack | undefined =>
+  (m.todos ?? []).length > 0 ? tr['main:todos'] : tr.main
+
 // --- rough per-subagent cost: $ per million tokens [input, output, cache read, cache write]
 
 const PRICES: [RegExp, [number, number, number, number]][] = [
@@ -272,10 +276,14 @@ async function refreshUsage($: EngineInterface): Promise<void> {
       fiveReset: rate('five_hour')?.resetsAt,
       sevenReset: rate('seven_day')?.resetsAt,
     }
+    // /clear starts the session over (d.ts SessionUsage.startedAt): the pane may open itself again.
+    if (usageStartedAt !== 0 && u.startedAt !== usageStartedAt) autoOpened = false
+    usageStartedAt = u.startedAt
     const at = await $.clock.now()
+    const sample = { at, costUsd: next.costUsd, fiveHour: next.fiveHour, sevenDay: next.sevenDay }
+    // The read only skips a no-op write; the write folds into what is there by then.
     const prev = await read($, hist)
-    const grown = pushSample(prev, { at, costUsd: next.costUsd, fiveHour: next.fiveHour, sevenDay: next.sevenDay })
-    if (grown !== prev) await update($, hist, () => grown)
+    if (pushSample(prev, sample) !== prev) await update($, hist, cur => pushSample(cur, sample))
     // Write only a change: each write redraws the pane and the band.
     if (sameUsage(await read($, usage), next) && (await read($, usage)).ctxTokens === next.ctxTokens) return
     await update($, usage, () => next)
@@ -370,6 +378,15 @@ function lineColor(tint: Tint, body: string, isMain: boolean): string {
 }
 
 let autoOpened = false
+// The band saw a fullscreen transcript: the clock opens the pane, never the drawing.
+let wantsOpen = false
+// The session's start as usage last read it: a new value means /clear.
+let usageStartedAt = 0
+// waitN as last written (-1: not yet): an idle clock skips the read.
+let lastWaitN = -1
+// The session user's home (drawn as ~ in FILES) and whether paths are Windows'.
+let homeDir: string | undefined
+let isWindows = false
 // When the last batch's toast was shown: the next toast counts only newer helpers.
 let lastBatchEndAt = 0
 
@@ -417,8 +434,9 @@ function playChime($: EngineInterface, at: number, kind: SoundKind = 'done'): vo
     const players = playersFor(chimePlatform, `${$.plugin.root}/${asset}`, systemRoot)
     for (let k = 0; k < players.length; k++) {
       const i = (chimePlayer + k) % players.length
+      const p = players[i]!
       try {
-        const r = await $.process.run(players[i]!, { timeoutMs: 10_000 })
+        const r = await $.process.run(p.argv, { timeoutMs: 10_000, ...(p.env ? { env: p.env } : {}) })
         if (r.exitCode === 0) {
           chimePlayer = i
           return
@@ -463,20 +481,31 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await $.command.register({
-      name: 'mission',
-      description: 'Show or hide Mission Control: the robots, their tools, context, cost and limits',
-    })
-    await $.command.register({
-      name: 'mission-band',
-      description: 'Show the Mission Control band above the prompt again',
-    })
+    // Each registration on its own: one refused loses only itself, never the tools or the clock.
+    await safe(() =>
+      $.command.register({
+        name: 'mission',
+        description: 'Show or hide Mission Control: the robots, their tools, context, cost and limits',
+      }),
+    )
+    await safe(() =>
+      $.command.register({
+        name: 'mission-band',
+        description: 'Show the Mission Control band above the prompt again',
+      }),
+    )
     await migrate($)
     await safe(() => $.tool.register(stepToolArgs))
     await safe(() => $.tool.register(askToolArgs))
-    await $.command.register({
-      name: 'mission-talk',
-      description: 'Commentator on/off: one short Haiku line after each turn (uses a little of your plan)',
+    await safe(() =>
+      $.command.register({
+        name: 'mission-talk',
+        description: 'Commentator on/off: one short Haiku line after each turn (uses a little of your plan)',
+      }),
+    )
+    await safe(async () => {
+      isWindows = (await $.env.get('OS')) === 'Windows_NT'
+      homeDir = (isWindows ? await $.env.get('USERPROFILE') : undefined) || (await $.env.get('HOME')) || undefined
     })
     await refreshUsage($)
 
@@ -487,19 +516,34 @@ export const register: Register = on => {
     $.clock.every(1000, () => {
       void (async () => {
         beat++
+        // The pane opens itself once per session, when the band saw a fullscreen transcript.
+        if (wantsOpen && !autoOpened) {
+          autoOpened = true
+          await safe(() => openPane($, false))
+        }
         const m = await read($, main)
         const list = await read($, agents)
-        const now = await $.clock.now()
         const isWorking = m.isBusy || list.some(a => a.status === 'running')
+        // Nothing runs, so nothing waits (stateOf): only a parked helper's end is worth a look.
+        if (!isWorking && lastWaitN === 0) {
+          if (beat % 5 === 0) await safe(() => reconcile($))
+          return
+        }
+        const now = await $.clock.now()
         const w = list.filter(a => stateOf(a, now) === 'wait').length + (stateOf({ status: m.isBusy ? 'running' : 'idle', waitSince: m.waitSince, tools: m.tools }, now) === 'wait' ? 1 : 0)
-        if (w !== (await read($, waitN))) await update($, waitN, () => w)
-        const isShown = (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
-        if (isWorking && isShown) await update($, tick, t => t + 1)
+        if (w !== lastWaitN) {
+          await update($, waitN, () => w)
+          lastWaitN = w
+        }
+        await safe(async () => {
+          const isShown = (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
+          if (isWorking && isShown) await update($, tick, t => t + 1)
+        })
         if (beat % 5 === 0) {
           await refreshUsage($)
           await safe(() => reconcile($))
         }
-      })()
+      })().catch(() => undefined)
     })
     return started
   })
@@ -521,18 +565,29 @@ export const register: Register = on => {
     return { text: isOn ? 'Commentator on: one Haiku line after each turn.' : 'Commentator off.' }
   })
 
-  // Each request the person types becomes an ask; recorded before the turn's first prompt is built.
+  // Each request the person types becomes an ask. The live list, this one
+  // included, goes beside the prompt for the model alone, and only when the
+  // model can call the ask tool; the ask is kept only once the prompt entered
+  // (a dropped one leaves none).
   on('prompt.submit', async ($, e, next) => {
+    if (!fromPerson(e.origin)) return next(e)
     const at = await $.clock.now()
-    if (fromPerson(e.origin)) await safe(() => update($, asks, list => newAsk(list, e.text, at)))
-    return next(e)
+    let block: string | undefined
+    await safe(async () => {
+      if (!(await $.tool.list()).some(t => t.name === ASK_TOOL_FULL)) return
+      block = composeContext(newAsk(await read($, asks), e.text, at, e.turnId))
+    })
+    const result = await next(block ? { ...e, context: [...(e.context ?? []), block] } : e)
+    if (result.drop === undefined) await safe(() => update($, asks, list => newAsk(list, e.text, at, e.turnId)))
+    return result
   })
 
-  // The open asks, in two short sentences at the end of the system prompt; none when nothing is open.
+  // How to tick asks, in fixed words at the end of the system prompt; the list
+  // itself rides beside each prompt. None where the request offers no ask tool.
   on('prompt.compose', async ($, e, next) => {
     const result = await next(e)
-    const text = composeSection(await read($, asks))
-    return text ? { sections: [...result.sections, { id: 'mission-control:asks', text, scope: 'session' as const }] } : result
+    if (!e.tools.includes(ASK_TOOL_FULL)) return result
+    return { sections: [...result.sections, { id: 'mission-control:asks', text: composeSection(), scope: 'session' as const }] }
   })
 
   on('command.run', { command: 'mission' }, async $ => {
@@ -546,8 +601,12 @@ export const register: Register = on => {
       ...m,
       isBusy: true,
       turnStartedAt: at,
+      turnId: e.turnId,
       progress: m.progress?.total && m.progress.done >= m.progress.total ? undefined : m.progress,
     }))
+    // The time between turns was the person's, not the current step's: it starts again here.
+    // The measured steps stay, so the ETA keeps its pace.
+    await safe(() => update($, tracks, t => restartSteps(t, at)))
     return next(e)
   })
 
@@ -580,7 +639,8 @@ export const register: Register = on => {
         await safe(() =>
           update($, tracks, t => ({
             ...t,
-            main: trackSteps(t.main ?? trackSteps(undefined, { done: 0, total }, m.turnStartedAt), { done: m.progress?.done ?? 0, total }, at),
+            // Before any turn (a reload) turnStartedAt is 0: seed at the call instead.
+            main: trackSteps(t.main ?? trackSteps(undefined, { done: 0, total }, m.turnStartedAt || at), { done: m.progress?.done ?? 0, total }, at),
           })),
         )
       }
@@ -589,11 +649,14 @@ export const register: Register = on => {
     await safe(() =>
       update($, agents, list => list.map(a => (a.id === owner ? { ...a, progress: applyStep(a.progress, step, at) } : a))),
     )
-    const a = (await read($, agents)).find(x => x.id === owner)
+    const list = await read($, agents)
+    const a = list.find(x => x.id === owner)
     const total = a?.progress?.total
     if (a && total) {
       await safe(() =>
-        update($, tracks, t => {
+        update($, tracks, all => {
+          // Agent tracks are added only here, so here they follow the list trimAgents keeps.
+          const t = pruneTracks(all, list.map(x => x.id))
           const prev = t[owner] ?? trackSteps(undefined, { done: 0, total }, a.startedAt)
           return { ...t, [owner]: trackSteps(prev, { done: a.progress?.done ?? 0, total }, at) }
         }),
@@ -603,19 +666,26 @@ export const register: Register = on => {
   }).catch(() => ({ result: 'ok' }))
 
   // The main loop ticks the person's asks: answered here, never a tool row.
+  // The reply carries the open list, so a tick mid-turn keeps the model current.
   on('tool.call', { tool: ASK_MATCH }, async ($, e) => {
     if (e.agentId) return { result: 'ignored: only the main loop ticks asks' }
     const call = parseAskCall(e)
     if (!call) return { result: 'ignored: give id + status + proof, or add' }
     const at = await $.clock.now()
-    let reply = 'ok'
+    let reply = ''
     await update($, asks, list => {
       const r = applyAskCall(list, call, at)
       reply = r.reply
       return r.list
     })
     return { result: reply }
-  }).catch(() => ({ result: 'ok' }))
+  }).catch(() => ({ deny: 'not recorded: Mission Control could not save the ask list' }))
+
+  // The tools that change a file; any other tool naming one only reads it.
+  const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/
+  // The main loop's todos keep their own track: the step tool keeps tracks.main,
+  // and the two count different lists. Readers pick the one they draw.
+  const TODO_TRACK = 'main:todos'
 
   // Every tool call, in the main loop or any subagent's.
   on('tool.call', async ($, e, next) => {
@@ -648,25 +718,7 @@ export const register: Register = on => {
           tools: pushTool(m.tools, row),
           ...(todos ? { todos } : {}),
         }))
-        if (todos) await update($, tracks, t => ({ ...t, main: trackSteps(t.main, todoCount(todos), at) }))
-      }
-
-      const path = field(e, 'file_path') || field(e, 'notebook_path')
-      if (path) {
-        const kind: FileTouch['kind'] = e.tool === 'Read' ? 'read' : 'edit'
-        const who = owner ?? 'main'
-        await update($, files, list => {
-          const old = list.find(f => f.path === path)
-          const editors = old?.editors ?? []
-          const touch: FileTouch = {
-            path,
-            kind: old?.kind === 'edit' ? 'edit' : kind,
-            at,
-            owner: who,
-            editors: kind === 'edit' && !editors.includes(who) ? [...editors, who] : editors,
-          }
-          return [touch, ...list.filter(f => f.path !== path)].slice(0, KEEP_FILES)
-        })
+        if (todos) await update($, tracks, t => ({ ...t, [TODO_TRACK]: trackSteps(t[TODO_TRACK], todoCount(todos), at) }))
       }
     })
 
@@ -689,21 +741,43 @@ export const register: Register = on => {
       return result
     } finally {
       const end = await $.clock.now()
+      // Only the call that asked clears the wait: a parallel call's end leaves the dialog shown.
+      // State from before waitTool clears on any end.
+      const clearsWait = (w: { waitTool?: string }) => w.waitTool === undefined || w.waitTool === e.tool
+      const unwait = <T extends { waitSince?: number; waitTool?: string }>(w: T): T =>
+        clearsWait(w) ? { ...w, waitSince: undefined, waitTool: undefined } : w
       await safe(() =>
         owner
           ? update($, agents, list =>
-              list.map(a =>
-                a.id === owner
-                  ? { ...a, tools: settleTool(a.tools, id, isError, end, error), waitSince: undefined }
-                  : a,
-              ),
+              list.map(a => (a.id === owner ? unwait({ ...a, tools: settleTool(a.tools, id, isError, end, error) }) : a)),
             )
-          : update($, main, m => ({
-              ...m,
-              tools: settleTool(m.tools, id, isError, end, error),
-              waitSince: undefined,
-            })),
+          : update($, main, m => unwait({ ...m, tools: settleTool(m.tools, id, isError, end, error) })),
       )
+
+      // A file counts once its call went through: a denied or failed edit touched nothing.
+      const raw = field(e, 'file_path') || field(e, 'notebook_path')
+      if (raw && !isError) {
+        await safe(() => {
+          const opts = { drives: isWindows }
+          const key = pathKey(raw, opts)
+          const kind: FileTouch['kind'] = EDIT_TOOLS.test(e.tool) ? 'edit' : 'read'
+          const who = owner ?? 'main'
+          return update($, files, list => {
+            // One file, however it was spelled: the first spelling stays.
+            const isSame = (f: FileTouch) => pathKey(f.path, opts) === key
+            const old = list.find(isSame)
+            const editors = old?.editors ?? []
+            const touch: FileTouch = {
+              path: old?.path ?? normPath(raw, opts),
+              kind: old?.kind === 'edit' ? 'edit' : kind,
+              at: end,
+              owner: who,
+              editors: kind === 'edit' && !editors.includes(who) ? [...editors, who] : editors,
+            }
+            return [touch, ...list.filter(f => !isSame(f))].slice(0, KEEP_FILES)
+          })
+        })
+      }
     }
   }).catch(($, e, next) => next(e))
 
@@ -715,17 +789,17 @@ export const register: Register = on => {
     const agentId = started.agentId
     await safe(async () => {
       const at = await $.clock.now()
-      const n = await read($, seq)
-      await update($, seq, v => v + 1)
-      const role = roleOf(e.description, e.subagentType)
-      const mates = role ? (await read($, agents)).filter(a => a.role === role.id).length : 0
+      // Spawns raised together each get their own number and count their mates
+      // in the write itself, so two of one role never share a shade.
+      const n = (await update($, seq, v => v + 1)) - 1
+      const role = roleOf(e.description, e.subagentType, e.prompt ?? '')
       const run: AgentRun = {
         id: agentId,
         parentId: e.parentAgentId,
         type: e.subagentType,
         description: e.description,
         model: started.model,
-        color: role ? shadeOf(role, mates) : (AGENT_COLORS[n % AGENT_COLORS.length] ?? C.run),
+        color: AGENT_COLORS[n % AGENT_COLORS.length] ?? C.run,
         ...(role ? { role: role.id } : {}),
         status: 'running',
         startedAt: at,
@@ -736,7 +810,11 @@ export const register: Register = on => {
         toolCount: 0,
         tools: [],
       }
-      await update($, agents, list => trimAgents([...list.filter(a => a.id !== run.id), run]))
+      await update($, agents, list => {
+        const rest = list.filter(a => a.id !== run.id)
+        const color = role ? shadeOf(role, rest.filter(a => a.role === role.id).length) : run.color
+        return trimAgents([...rest, { ...run, color }])
+      })
     })
     return started
   }).catch(($, e, next) => next(e))
@@ -795,12 +873,21 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const at = await $.clock.now()
-    const before = await read($, agents)
-    if (e.agentId) {
-      const owner = e.agentId
+    const owner = e.agentId
+    // A helper's end, decided inside the one write: whether it is one of ours
+    // (an id no spawn of ours gave, say an engine fork's, is no helper end and
+    // answers no ask) and whether its write took the last running helper, so
+    // two ending at once raise one toast. The updater may run again on a
+    // version miss; each run sets both afresh.
+    let isKnown = owner === undefined
+    let isBatchEnd = false
+    if (owner) {
       await safe(() =>
-        update($, agents, list =>
-          list.map(a => {
+        update($, agents, list => {
+          isKnown = list.some(a => a.id === owner)
+          isBatchEnd = false
+          if (!isKnown) return list
+          const ended = list.map(a => {
             if (a.id !== owner) return a
             const isFull = a.lastStop === 'model_context_window_exceeded' || a.lastStop === 'max_tokens'
             const endReason =
@@ -822,25 +909,36 @@ export const register: Register = on => {
               tools: settleAll(a.tools, at),
               waitSince: undefined,
             }
-          }),
-        ),
+          })
+          isBatchEnd = batchEnded(list, ended)
+          return ended
+        }),
       )
     } else {
       await safe(() =>
         update($, main, m => ({ ...m, isBusy: false, turnEndedAt: at, tools: settleAll(m.tools, at), waitSince: undefined })),
       )
     }
+    // Read now, before `next`: once it resolves a queued prompt's turn may start.
+    const after = await read($, agents)
+    const mEnd = await read($, main)
+
+    // The rest of the chain goes first; the slow part (usage, asks, toast) after it.
+    const result = await next(e)
+    if (!isKnown) return result
     await refreshUsage($)
 
-    // A batch of helpers ended: a toast that sums it up, and a chime. A long main turn: a chime.
-    const after = await read($, agents)
+    // The work is over: main answered and no helper still running. An idle one
+    // (a teammate waiting for mail, a helper waiting on its own background job)
+    // does not hold it back, since it may wait for good; the ask only turns
+    // "answered", never done, and the model can still tick it.
+    const isAllDone = !mEnd.isBusy && !after.some(a => a.status === 'running')
+    if (isAllDone && (owner || e.reason === 'answer'))
+      // A helper's end carries its own turn id; an ask typed over the last main turn still waits for its own.
+      await safe(() => update($, asks, list => markAnswered(list, mEnd.turnEndedAt ?? 0, owner ? mEnd.turnId : e.turnId)))
 
-    // The work is over (main answered, no helper left): open asks it never ticked turn "answered".
-    const mEnd = await read($, main)
-    const isAllDone = !mEnd.isBusy && !after.some(a => a.status === 'running' || a.status === 'idle')
-    if (isAllDone && (e.agentId || e.reason === 'answer'))
-      await safe(() => update($, asks, list => markAnswered(list, mEnd.turnEndedAt ?? 0)))
-    if (e.agentId && batchEnded(before, after)) {
+    // A batch of helpers ended: a toast that sums it up, and a chime. A long main turn: a chime.
+    if (owner && isBatchEnd) {
       // Only the batch that just ended: after a reload lastBatchEndAt starts at 0.
       const lastIds = batchesOf(after, at).at(-1)?.ids ?? []
       const text = rollCall(
@@ -852,18 +950,15 @@ export const register: Register = on => {
       lastBatchEndAt = at
       if (text) $.ui.toast(text, { timeoutMs: 8000 })
       playChime($, at)
-    } else if (!e.agentId && isLongTurn((await read($, main)).turnStartedAt, at)) {
+    } else if (!owner && isLongTurn(mEnd.turnStartedAt, at)) {
       playChime($, at)
     }
 
-    const result = await next(e)
     // The commentator: one Haiku line, in its own dispatch so the turn never waits on it.
-    if (!e.agentId && (await read($, talkOn))) {
-      const m = await read($, main)
+    if (!owner && (await read($, talkOn))) {
       const digest = turnDigest({
-        since: m.turnStartedAt,
-        tools: m.tools,
-        files: await read($, files),
+        since: mEnd.turnStartedAt,
+        tools: mEnd.tools,
         agents: after,
         durationMs: e.durationMs,
         answer: e.answer,
@@ -900,7 +995,7 @@ export const register: Register = on => {
     const message = workingRow({
       todos: m.todos ?? [],
       ...(m.progress ? { progress: m.progress } : {}),
-      mainTrack: tr.main,
+      mainTrack: mainTrackOf(m, tr),
       helpers: list.map(a => ({ status: a.status, track: tr[a.id] })),
       now: await $.clock.now(),
     })
@@ -947,7 +1042,9 @@ export const register: Register = on => {
     const whoColor = (owner: string) =>
       owner === 'main' ? C.brand : ((list.find(a => a.id === owner) ?? list.find(a => a.type === owner))?.color ?? C.fg2)
 
-    const toggle = (id: string) => update($, view, prev => ({ ...prev, expanded: prev.expanded === id ? '' : id }))
+    // A refused write is caught here, as on the band: a press never rejects.
+    const toggle = (id: string) =>
+      void update($, view, prev => ({ ...prev, expanded: prev.expanded === id ? '' : id })).catch(() => undefined)
 
     // --- cards: a rounded frame drawn as cells, its title and meta in the top border
 
@@ -963,8 +1060,7 @@ export const register: Register = on => {
       </Box>
     )
 
-    // The top border at its exact length: corner, title, dashes, meta, corner.
-    const cellsOf = (s: string) => [...s].length
+    // The top border at its exact length: corner, title, dashes, meta, corner (cellsOf from fit.ts).
     const cardTop = (key: string, frame: string, title: RenderChildren, titleLen: number, meta?: RenderChildren, metaLen = 0) => {
       const dashes = Math.max(1, cols - 3 - titleLen - 1 - (meta === undefined ? 0 : metaLen + 2) - 2)
       return (
@@ -1244,7 +1340,7 @@ export const register: Register = on => {
     const todosDone = todos.filter(x => x.status === 'completed').length
     const todoNow = todos.find(x => x.status === 'in_progress')
     const mainErr = errorText(m.tools)
-    const mainEta = etaPart(etaOf(tr.main, now))
+    const mainEta = etaPart(etaOf(mainTrackOf(m, tr), now))
     const mainMeta = m.model ? `${modelName(m.model).toLowerCase()}${m.effort ? ` · ${m.effort}` : ''}` : ''
     const mp = m.progress
     const mpTotal = mp?.total ?? 0
@@ -1692,7 +1788,7 @@ export const register: Register = on => {
               label={showAll ? '▾' : '▸'}
               plain
               hotkey="f"
-              onPress={() => update($, view, prev => ({ ...prev, isDoneAll: !showAll }))}
+              onPress={() => void update($, view, prev => ({ ...prev, isDoneAll: !showAll })).catch(() => undefined)}
             />
           </Box>,
           // The fold Button draws as "f: ▸".
@@ -1724,8 +1820,9 @@ export const register: Register = on => {
       undefined,
     )
     const earlierDone = closedAsks.length - (newestDone ? 1 : 0)
-    // Late: still open after a main turn ended, with no helper still on it.
-    const isLate = (x: Ask) => isOpenAsk(x) && !m.isBusy && running.length === 0 && (m.turnEndedAt ?? 0) > x.at
+    // Late: still open after a main turn ended, with no helper still running on it (an idle one may wait for good).
+    const isHelperRunning = running.some(a => a.status === 'running')
+    const isLate = (x: Ask) => isOpenAsk(x) && !m.isBusy && !isHelperRunning && (m.turnEndedAt ?? 0) > x.at
     const lateCount = openAsks.filter(isLate).length
     const shownOpen = openAsks.slice(-6)
     const ASK_W = Math.max(10, inner - 2 - 4 - 6)
@@ -1958,7 +2055,7 @@ export const register: Register = on => {
 
     // ================= FILES: the touched files as a tree =================
     // Shorter while helpers run; it sits last, under everything else.
-    const tree = treeLines(touched, inner, { maxLines: running.length ? 8 : 16, now })
+    const tree = treeLines(touched, inner, { maxLines: running.length ? 8 : 16, now, home: homeDir, drives: isWindows })
     const treeCard = (
       <Box key="tree" flexDirection="column">
         {cardTop(
@@ -2036,11 +2133,8 @@ export const register: Register = on => {
   // A band above the prompt: the crew at a glance. One line; the least
   // important parts drop first when the column is narrow.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // The pane opens itself once, and only beside a fullscreen transcript.
-    if (!autoOpened && e.viewport?.isFullscreen === true) {
-      autoOpened = true
-      void openPane($, false)
-    }
+    // The pane opens itself once, and only beside a fullscreen transcript: the clock opens it.
+    if (e.viewport?.isFullscreen === true) wantsOpen = true
 
     const list: AgentRun[] = await read($, agents)
     const v: View = await read($, view)
@@ -2162,14 +2256,14 @@ export const register: Register = on => {
         </Box>
         <Box flexShrink={0} flexDirection="row">
           <Text> </Text>
-          <Button key="mc-open" label="open" plain hotkey="o" onPress={() => void togglePane($)} />
+          <Button key="mc-open" label="open" plain hotkey="o" onPress={() => void togglePane($).catch(() => undefined)} />
           <Text> </Text>
           <Button
             key="mc-hide"
             label="✕"
             plain
             role="dismiss"
-            onPress={() => update($, view, prev => ({ ...prev, isBandHidden: true }))}
+            onPress={() => void update($, view, prev => ({ ...prev, isBandHidden: true })).catch(() => undefined)}
           />
         </Box>
       </Box>

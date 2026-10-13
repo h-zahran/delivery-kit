@@ -10,6 +10,10 @@ export type RunLike = {
   endedAt?: number
   costUsd: number
   toolCount: number
+  /** Its calls; an idle run's work ended with the last of them. */
+  tools?: readonly { startedAt: number; endedAt?: number }[]
+  /** Its last step report. */
+  progress?: { at: number }
 }
 
 export type Batch = {
@@ -33,13 +37,24 @@ const MAX_RECEIPT = 44
 
 /**
  * End of an agent's active span. Running agents end at `now`. Anything else
- * uses `endedAt`; an idle (or malformed) run with no `endedAt` is treated as
- * still open and also ends at `now`. Never earlier than `startedAt`.
+ * uses `endedAt`. An idle run (waiting on its own background job) with no
+ * `endedAt` ends at its last activity: no event says when it went idle, and
+ * ending it at `now` would hold its batch open for the session. A done or
+ * failed run with no `endedAt` (malformed) stays open at `now`. Never earlier
+ * than `startedAt`.
  */
 function endOf(a: RunLike, now: number): { end: number; open: boolean } {
+  if (a.status === 'idle' && a.endedAt === undefined) return { end: lastActivity(a), open: false }
   const open = a.status === 'running' || a.endedAt === undefined
   const raw = open ? now : (a.endedAt as number)
   return { end: Math.max(raw, a.startedAt), open }
+}
+
+/** The latest time a run was seen working: its calls' ends (or starts), its last step report. */
+function lastActivity(a: RunLike): number {
+  let at = Math.max(a.startedAt, a.progress?.at ?? 0)
+  for (const t of a.tools ?? []) at = Math.max(at, t.endedAt ?? t.startedAt)
+  return at
 }
 
 type Acc = {

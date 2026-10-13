@@ -14,8 +14,10 @@ export type Role = {
   /** Three shades of one color: the 1st, 2nd and 3rd helper of the role. */
   shades: readonly [string, string, string]
   says: { work: string; done: string }
-  /** Word starts that pick the role. */
+  /** The words that pick the role: a whole word ends at a word boundary, a stem takes any ending. */
   words: RegExp
+  /** How a brief's opening "You are …" names the role, tested per word. */
+  named: RegExp
 }
 
 // Listed in the order a tie goes: a fix beats a test, a test beats a build.
@@ -25,49 +27,56 @@ export const ROLES: readonly Role[] = [
     robot: 'fixer',
     shades: ['#ff8a7a', '#ffad9f', '#e86a5a'],
     says: { work: 'fixing…', done: 'fixed!' },
-    words: /\b(fix|debug|bug|error|repair|patch|resolv|crash)/i,
+    words: /\b(fix(es|ed|ing)?\b|debug|bugs?\b|bugfix|errors?\b|repair|patch|resolv|crash)/i,
+    named: /^(fix|debug)/i,
   },
   {
     id: 'inspector',
     robot: 'inspector',
     shades: ['#9ee86f', '#bdf29b', '#7cc94e'],
     says: { work: 'checking…', done: 'all good!' },
-    words: /\b(test|review|check|verif|audit|validat|lint|inspect)/i,
+    words: /\b(tests?\b|test(ed|ing)\b|review|checks?\b|check(ed|ing)\b|verif|audit|validat|lint|inspect)/i,
+    named: /^(review|audit|test)/i,
   },
   {
     id: 'planner',
     robot: 'Plan',
     shades: ['#8ab4ff', '#b0ccff', '#6493e6'],
     says: { work: 'thinking…', done: 'got a plan!' },
-    words: /\b(plan|design|architect|outline|propos|strateg)/i,
+    words: /\b(plan(s|ned|ning)?\b|design(s|ed|ing)?\b|architect|outline|propos|strateg)/i,
+    named: /^plan/i,
   },
   {
     id: 'researcher',
     robot: 'researcher',
     shades: ['#c3a6ff', '#dac8ff', '#a585ec'],
     says: { work: 'reading up…', done: 'learned it!' },
-    words: /\b(research|web|compar|investigat|learn|study|analy)/i,
+    words: /\b(research|web\b|compar|investigat|learn|stud(y|ies|ying)\b|analy)/i,
+    named: /^research/i,
   },
   {
     id: 'writer',
     robot: 'writer',
     shades: ['#f78fb3', '#fab3cc', '#e06d95'],
     says: { work: 'writing…', done: 'done writing!' },
-    words: /\b(writ|document|docs|draft|report|describ|explain)/i,
+    words: /\b(writ|document|docs?\b|draft|reports?\b|report(ed|ing)\b|describ|explain)/i,
+    named: /^writ/i,
   },
   {
     id: 'builder',
     robot: 'builder',
     shades: ['#ff9f43', '#ffbf7a', '#e07f22'],
     says: { work: 'building…', done: 'built!' },
-    words: /\b(build|creat|add|implement|make|set ?up|scaffold|generat|port|migrat|refactor)/i,
+    words: /\b(build|creat|add(s|ed|ing)?\b|implement|mak(e|es|ing)\b|set ?up\b|scaffold|generat|port(s|ed|ing)?\b|migrat|refactor)/i,
+    named: /^(implement|build)/i,
   },
   {
     id: 'scout',
     robot: 'Explore',
     shades: ['#4fd6e8', '#86e6f2', '#2cb4c8'],
     says: { work: 'looking around…', done: 'found it!' },
-    words: /\b(find|read|summar|scan|explor|search|look|list|map|locat|survey)/i,
+    words: /\b(find|read(s|ing)?\b|summar|scan|explor|search|look(s|ed|ing)?\b|list(s|ed|ing)?\b|map(s|ped|ping)?\b|locat|survey)/i,
+    named: /^(scout|explor)/i,
   },
 ]
 
@@ -78,21 +87,47 @@ export const roleById = (id: string | undefined): Role | undefined => (id ? byId
 const TYPE_ROLE: Record<string, RoleId> = { Explore: 'scout', Plan: 'planner' }
 
 /**
- * The role a mission reads as: the word that comes first in the task picks
- * it (ties go by the order of ROLES); with no such word, the agent type's own,
- * else none (the helper keeps the plain look).
+ * The role a brief gives its helper in its first line, "You are the release
+ * builder…", "You are implementing Task 3…": the first of its next four words
+ * that names a role.
  */
-export function roleOf(description: string, type: string): Role | undefined {
+export function namedRole(prompt: string): Role | undefined {
+  const first = prompt.split(/\r?\n/).find(l => l.trim()) ?? ''
+  const head = /^\s*You are (?:the |an? )?([\w -]*)/i.exec(first)?.[1] ?? ''
+  for (const w of head.split(/\s+/).filter(Boolean).slice(0, 4)) {
+    const r = ROLES.find(r => r.named.test(w))
+    if (r) return r
+  }
+  return undefined
+}
+
+/**
+ * The role a task's words pick: the word that comes first (ties go by the
+ * order of ROLES). Of three words or more the last is likely a noun, as in
+ * "Lane 056 one config read", so it picks nothing.
+ */
+export function wordRole(description: string): Role | undefined {
+  const words = description.match(/\S+/g) ?? []
+  const lastAt = words.length >= 3 ? description.trimEnd().length - words[words.length - 1]!.length : Infinity
   let best: Role | undefined
   let bestAt = Infinity
   for (const r of ROLES) {
     const m = r.words.exec(description)
-    if (m && m.index < bestAt) {
+    if (m && m.index < bestAt && m.index < lastAt) {
       best = r
       bestAt = m.index
     }
   }
-  return best ?? roleById(TYPE_ROLE[type])
+  return best
+}
+
+/**
+ * The role a mission reads as: an agent type that already says what it does
+ * (Explore, Plan), else the brief's "You are …" line, else the task's words,
+ * else none (the helper keeps the plain look).
+ */
+export function roleOf(description: string, type: string, prompt = ''): Role | undefined {
+  return roleById(TYPE_ROLE[type]) ?? namedRole(prompt) ?? wordRole(description)
 }
 
 /** The color of a new helper of `role`: the next shade after its teammates. */

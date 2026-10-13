@@ -43,23 +43,27 @@ export function windowsRoot(systemRoot: string | undefined): string {
 export const powershellPath = (systemRoot: string | undefined): string =>
   `${windowsRoot(systemRoot)}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
 
+/** One way to play a clip: the argv to run, and variables set for it. */
+export type Player = { argv: string[]; env?: Record<string, string> }
+
+/**
+ * Windows' script: fixed text, the clip's path read from the environment, so
+ * no character of a path (a quote, U+2019, a `$`) is ever PowerShell syntax.
+ * PlaySync, since Play() is cut off when the process exits.
+ */
+export const PS_SCRIPT = '(New-Object System.Media.SoundPlayer $env:MC_SOUND).PlaySync()'
+
 /**
  * The commands that can play the clip at `path`, to try in order. Windows:
- * PlaySync, since Play() is cut off when the process exits. Linux: PulseAudio
- * or PipeWire, then plain ALSA, by name: Linux searches only PATH, never the
- * current folder, and a full path would miss players outside /usr/bin. Mac
- * and none: no command.
+ * PS_SCRIPT with `MC_SOUND` set to the path. Linux: PulseAudio or PipeWire,
+ * then plain ALSA, by name: Linux searches only PATH, never the current
+ * folder, and a full path would miss players outside /usr/bin. Mac and none:
+ * no command.
  */
-export function playersFor(platform: Platform, path: string, systemRoot?: string): string[][] {
+export function playersFor(platform: Platform, path: string, systemRoot?: string): Player[] {
   if (platform === 'windows')
-    return [
-      [
-        powershellPath(systemRoot),
-        ...PS_ARGS,
-        `(New-Object System.Media.SoundPlayer '${path.replace(/'/g, "''")}').PlaySync()`,
-      ],
-    ]
-  if (platform === 'linux') return [['paplay', path], ['pw-play', path], ['aplay', '-q', path]]
+    return [{ argv: [powershellPath(systemRoot), ...PS_ARGS, PS_SCRIPT], env: { MC_SOUND: path } }]
+  if (platform === 'linux') return [{ argv: ['paplay', path] }, { argv: ['pw-play', path] }, { argv: ['aplay', '-q', path] }]
   return []
 }
 

@@ -5,7 +5,18 @@ export type Sample = { at: number; costUsd: number; fiveHour?: number; sevenDay?
 export type Progress = { done: number; total?: number; note?: string; steps?: string[]; at: number; since?: number }
 
 /** One request the person made (mirrors hooks/asks.ts). */
-export type Ask = { id: string; text: string; status: 'open' | 'done' | 'dropped' | 'partial' | 'answered'; proof?: string; at: number; doneAt?: number }
+export type Ask = {
+  id: string
+  text: string
+  status: 'open' | 'done' | 'dropped' | 'partial' | 'answered'
+  proof?: string
+  at: number
+  doneAt?: number
+  /** 'model': the model added it itself; absent for the person's own. */
+  by?: 'model'
+  /** The main turn running when the person typed it; absent when idle. */
+  turnId?: string
+}
 
 /** Step history for time-left guesses (mirrors hooks/eta.ts). */
 export type StepTrack = {
@@ -81,6 +92,8 @@ export type MainLoop = {
   turnStartedAt: number
   /** When the last main turn ended: an ask still open after it is late. */
   turnEndedAt?: number
+  /** The last main turn's id: an ask typed over it waits for its own turn, even when a helper ends first. */
+  turnId?: string
   model?: string
   effort?: string
   toolCount: number
