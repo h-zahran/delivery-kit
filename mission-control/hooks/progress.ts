@@ -13,7 +13,8 @@ export const stepToolArgs: ToolSpec = {
   description:
     'Report progress on your own task to the side pane, which draws it as a progress bar. ' +
     'Once you have a plan, call it with `total` (your plan in 3-8 steps) and `done: 0`; ' +
-    'call it again with the new `done` each time a step finishes, and `note` naming the step now in progress. ' +
+    'call it again with the new `done` each time a step finishes, and `note` naming the step now in progress; ' +
+    'report `done` = `total` when the work is over, so the plan finishes. ' +
     'Cheap and silent: it returns "ok", changes nothing else, and needs no mention in your answer. ' +
     'Leave `total` out to keep the previous one; send a new one if the plan changes. ' +
     'Optionally send `steps` (the step names, 2-3 words each) once, with the plan.',
@@ -126,7 +127,8 @@ export function progressHint(pluginName: string): string {
   return (
     `Progress: if you have the tool \`${tool}\`, call it once you have a plan, with \`total\` (your plan in 3-8 steps) and \`done: 0\`. ` +
     `You may add \`steps\`: the step names, 2-3 words each. ` +
-    `After each step finishes, call it again with the new \`done\` and a short \`note\` (the next step, a few words). ` +
+    `After each step finishes, call it again with the new \`done\` and a short \`note\` (the next step, a few words); ` +
+    `report \`done\` = \`total\` when the work is over. ` +
     `It is cheap and silent; do not mention it in your answer. If you do not have that tool, ignore this.`
   )
 }
