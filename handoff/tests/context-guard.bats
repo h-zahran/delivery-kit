@@ -1418,6 +1418,70 @@ load ../../tests/helper
   done
 }
 
+@test "a .git folder that is not a git directory is climbed past, as git does" {
+  # An empty .git folder, or a folder holding HEAD, objects and refs whose HEAD
+  # is no ref and no object id, is not a git directory to git: it keeps
+  # climbing to the real top. So must the walk, and read the top's file.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/empty/.git" "$TEST_DIR/repo/empty/in" \
+    "$TEST_DIR/repo/look/objects" "$TEST_DIR/repo/look/refs" "$TEST_DIR/repo/look/in"
+  printf 'junk\n' > "$TEST_DIR/repo/look/HEAD"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  local d i=0
+  for d in empty/in look/in; do
+    i=$((i + 1))
+    [ "$(cd "$(git -C "$TEST_DIR/repo/$d" rev-parse --show-toplevel)" && pwd -P)" = "$(cd "$TEST_DIR/repo" && pwd -P)" ] \
+      || { echo "fixture: git does not climb past $d"; false; }
+    run_hook --cwd "$TEST_DIR/repo/$d" "$t" "notgitdir-$i"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")' \
+      || { echo "from $d the guard stopped short of the repository's top"; false; }
+  done
+}
+
+@test "a .git file that names no gitdir gives no top, as git refuses it" {
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/odd/in"
+  git -C "$TEST_DIR/repo" init -q
+  printf 'garbage\n' > "$TEST_DIR/repo/odd/.git"
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  [ -z "$(git -C "$TEST_DIR/repo/odd/in" rev-parse --show-toplevel 2>/dev/null)" ] \
+    || { echo "fixture: git accepts the .git file"; false; }
+  run_hook --cwd "$TEST_DIR/repo/odd/in" "$t" badgitfile
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "a .git file git refuses was taken as a top: $output"; false; }
+}
+
+@test "a working directory written as a UNC share path finds what git -C found" {
+  # On Windows, a UNC cwd reaches the walk with backslashes, and git -C took
+  # it. The local administrative share stands in for a network one. Where the
+  # share cannot be reached, git finds nothing and neither may the walk.
+  # Elsewhere a leading pair of backslashes is part of a folder's name, git -C
+  # finds nothing, and neither may the walk.
+  t="$(transcript_with 30000 30000 30000 30000 30000)"
+  mkdir -p "$TEST_DIR/repo/sub"
+  git -C "$TEST_DIR/repo" init -q
+  write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
+  local w cwd top
+  if command -v cygpath > /dev/null 2>&1; then
+    w="$(cygpath -w "$TEST_DIR/repo/sub")"
+    cwd='\\localhost\'"${w%%:*}"'$'"${w#?:}"
+  else
+    cwd='\\'"$(printf '%s' "${TEST_DIR#/}/repo/sub" | tr '/' '\\')"
+  fi
+  case $cwd in '\\'*) ;; *) echo "fixture: not a UNC-shaped path: $cwd"; false ;; esac
+  top="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+  run_hook --cwd "$cwd" "$t" unc
+  [ "$status" -eq 0 ]
+  if [ -n "$top" ]; then
+    echo "$output" | jq -e '.reason | test("at 60% of the 50000-token window")' \
+      || { echo "git found $top from $cwd; the guard did not"; false; }
+  else
+    [ -z "$output" ] || { echo "git found nothing from $cwd; the guard did: $output"; false; }
+  fi
+}
+
 @test "sweeps flag files older than seven days and keeps the fresh ones" {
   # FR-004. One flag file per session accumulates in the temp directory
   # forever, so the guard sweeps the old ones — and it does that on the rare
