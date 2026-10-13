@@ -27,7 +27,7 @@ export const ROLES: readonly Role[] = [
     robot: 'fixer',
     shades: ['#ff8a7a', '#ffad9f', '#e86a5a'],
     says: { work: 'fixing…', done: 'fixed!' },
-    words: /\b(fix(es|ed|ing)?\b|debug|bugs?\b|bugfix|errors?\b|repair|patch|resolv|crash)/i,
+    words: /\b(fix(es|ed|ing)?\b|debug|bugs?\b|bugfix|errors?\b|repair|patch|resolv|crash|reproduc(e|es|ed|ing)\b|repro\b|regression)/i,
     named: /^(fix|debug)/i,
   },
   {
@@ -59,7 +59,7 @@ export const ROLES: readonly Role[] = [
     robot: 'writer',
     shades: ['#f78fb3', '#fab3cc', '#e06d95'],
     says: { work: 'writing…', done: 'done writing!' },
-    words: /\b(writ|document|docs?\b|draft|reports?\b|report(ed|ing)\b|describ|explain)/i,
+    words: /\b(writ|document|readme|changelog|docs?\b|draft|reports?\b|report(ed|ing)\b|describ|explain)/i,
     named: /^writ/i,
   },
   {
@@ -75,7 +75,7 @@ export const ROLES: readonly Role[] = [
     robot: 'Explore',
     shades: ['#4fd6e8', '#86e6f2', '#2cb4c8'],
     says: { work: 'looking around…', done: 'found it!' },
-    words: /\b(find|read(s|ing)?\b|summar|scan|explor|search|look(s|ed|ing)?\b|list(s|ed|ing)?\b|map(s|ped|ping)?\b|locat|survey)/i,
+    words: /\b(find|read(s|ing)?\b|summar|scan|explor|search|look(s|ed|ing)?\b|list(s|ed|ing)?\b|map(s|ped)?\b|locat|survey)/i,
     named: /^(scout|explor)/i,
   },
 ]
@@ -104,10 +104,12 @@ export function namedRole(prompt: string): Role | undefined {
 /**
  * The role a task's words pick: the word that comes first (ties go by the
  * order of ROLES). Of three words or more the last is likely a noun, as in
- * "Lane 056 one config read", so it picks nothing.
+ * "Lane 056 one config read", so it picks nothing. Of two, a last "plan" is
+ * the thing made: a test plan is a planner's.
  */
 export function wordRole(description: string): Role | undefined {
   const words = description.match(/\S+/g) ?? []
+  if (words.length === 2 && /^plans?$/i.test(words[1]!)) return roleById('planner')
   const lastAt = words.length >= 3 ? description.trimEnd().length - words[words.length - 1]!.length : Infinity
   let best: Role | undefined
   let bestAt = Infinity
@@ -124,10 +126,15 @@ export function wordRole(description: string): Role | undefined {
 /**
  * The role a mission reads as: an agent type that already says what it does
  * (Explore, Plan), else the brief's "You are …" line, else the task's words,
- * else none (the helper keeps the plain look).
+ * else none (the helper keeps the plain look). A fix is a fixer's work even
+ * when the brief calls its helper the implementer.
  */
 export function roleOf(description: string, type: string, prompt = ''): Role | undefined {
-  return roleById(TYPE_ROLE[type]) ?? namedRole(prompt) ?? wordRole(description)
+  const typed = roleById(TYPE_ROLE[type])
+  if (typed) return typed
+  const named = namedRole(prompt)
+  if (named?.id === 'builder' && /\bfix(es|ed|ing)?\b/i.test(description)) return roleById('fixer')
+  return named ?? wordRole(description)
 }
 
 /** The color of a new helper of `role`: the next shade after its teammates. */
