@@ -1445,6 +1445,10 @@ load ../../tests/helper
   mkdir -p "$TEST_DIR/repo/odd/in"
   git -C "$TEST_DIR/repo" init -q
   printf 'garbage\n' > "$TEST_DIR/repo/odd/.git"
+  # A configuration both beside the refused file and at the repository's top:
+  # either one read would warn, so the silence below means neither was taken
+  # as the top.
+  write_config "$TEST_DIR/repo/odd/.delivery-kit.json" '{"windowTokens":50000}'
   write_config "$TEST_DIR/repo/.delivery-kit.json" '{"windowTokens":50000}'
   [ -z "$(git -C "$TEST_DIR/repo/odd/in" rev-parse --show-toplevel 2>/dev/null)" ] \
     || { echo "fixture: git accepts the .git file"; false; }
