@@ -38,7 +38,53 @@ export function shortNames(groups: readonly (readonly Named[])[]): Map<string, s
 export type PlanTone = 'done' | 'now' | 'next' | 'line' | 'extra'
 export type PlanPart = { text: string; tone: PlanTone }
 
-const cellsOf = (s: string): number => [...s].length
+// East Asian Wide and Fullwidth: two terminal cells. Emoji drawn as emoji
+// (Emoji_Presentation) are Wide too.
+const WIDE: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f], [0x2329, 0x232a], [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff], [0xa000, 0xa4cf], [0xa960, 0xa97f], [0xac00, 0xd7a3], [0xf900, 0xfaff],
+  [0xfe10, 0xfe19], [0xfe30, 0xfe6f], [0xff00, 0xff60], [0xffe0, 0xffe6], [0x16fe0, 0x16fe4],
+  [0x17000, 0x18cff], [0x1b000, 0x1b2ff], [0x1f200, 0x1f2ff], [0x20000, 0x2fffd], [0x30000, 0x3fffd],
+]
+const EMOJI = /\p{Emoji_Presentation}/u
+// Zero cells: combining marks (variation selectors among them) and skin-tone modifiers.
+const ZERO = /[\p{M}\p{Emoji_Modifier}]/u
+const ZWJ = 0x200d
+
+/** One code point's cells; `joined` when it follows a zero-width joiner (drawn inside the glyph before it). */
+function cellOf(ch: string, joined: boolean): number {
+  const cp = ch.codePointAt(0) ?? 0
+  if (joined || cp === ZWJ || ZERO.test(ch)) return 0
+  if (cp < 0x1100) return 1
+  if (EMOJI.test(ch)) return 2
+  return WIDE.some(([lo, hi]) => cp >= lo && cp <= hi) ? 2 : 1
+}
+
+/** Terminal cells a text takes: wide CJK and emoji 2, combining marks and joiners 0, the rest 1. */
+export function cellsOf(s: string): number {
+  let n = 0
+  let joined = false
+  for (const ch of s) {
+    n += cellOf(ch, joined)
+    joined = ch.codePointAt(0) === ZWJ
+  }
+  return n
+}
+
+/** The longest start of `s` that fits in `n` cells. */
+export function cutCells(s: string, n: number): string {
+  let used = 0
+  let end = 0
+  let joined = false
+  for (const ch of s) {
+    const w = cellOf(ch, joined)
+    if (used + w > n) break
+    used += w
+    end += ch.length
+    joined = ch.codePointAt(0) === ZWJ
+  }
+  return s.slice(0, end)
+}
 
 /** Parts cut to `width` cells, the last one ending in … when anything was cut. */
 function cutParts(parts: readonly PlanPart[], width: number): PlanPart[] {
@@ -53,7 +99,7 @@ function cutParts(parts: readonly PlanPart[], width: number): PlanPart[] {
       room -= n
       continue
     }
-    out.push({ text: [...p.text].slice(0, room).join('') + '…', tone: p.tone })
+    out.push({ text: cutCells(p.text, room) + '…', tone: p.tone })
     break
   }
   return out
@@ -104,8 +150,10 @@ export function wrapWords(text: string, width: number, maxLines: number): string
         lines.push(cur)
         cur = ''
       }
-      lines.push([...rest].slice(0, w).join(''))
-      rest = [...rest].slice(w).join('')
+      // A wide character in a one-cell width still takes a line of its own.
+      const head = cutCells(rest, w) || (Array.from(rest)[0] ?? rest)
+      lines.push(head)
+      rest = rest.slice(head.length)
     }
     const next = cur ? `${cur} ${rest}` : rest
     if (cellsOf(next) <= w) cur = next
@@ -118,6 +166,6 @@ export function wrapWords(text: string, width: number, maxLines: number): string
   if (lines.length <= maxLines) return lines
   const kept = lines.slice(0, maxLines)
   const last = kept[maxLines - 1] ?? ''
-  kept[maxLines - 1] = cellsOf(last) >= w ? [...last].slice(0, w - 1).join('') + '…' : `${last}…`
+  kept[maxLines - 1] = cellsOf(last) >= w ? cutCells(last, w - 1) + '…' : `${last}…`
   return kept
 }

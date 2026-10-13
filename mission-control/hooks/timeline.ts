@@ -1,7 +1,8 @@
-// ACTIVITY card: pure layout helpers. No imports, no side effects.
+// ACTIVITY card: pure layout helpers. No side effects; the one import is fit.ts's cell width.
 // Every glyph used here is East Asian Width A or N (never W/F), so one cell each:
 // ■ 25A0 A, □ 25A1 A, ▣ 25A3 A, ● 25CF A, ○ 25CB A, ◉ 25C9 N,
 // ━ 2501 A, ╸ 2578 N, ╺ 257A N, ✓ 2713 N, ✗ 2717 N, • 2022 A, … 2026 A.
+import { cellsOf, cutCells } from './fit'
 
 export type Kind = 'read' | 'edit' | 'shell' | 'web' | 'agent' | 'mcp' | 'other'
 export type Status = 'run' | 'ok' | 'err'
@@ -81,13 +82,17 @@ export type DurationInput = {
   endedAt?: number
 }
 
-const shortTool = (tool: string): string => tool.replace(/^mcp__([^_]+)__/, '$1:')
+// The server name runs to the first `__`: it may hold single underscores (claude_ai_Slack).
+const shortTool = (tool: string): string => tool.replace(/^mcp__(.+?)__/, '$1:')
 
+/** Exactly `w` cells: padded, or cut with … (and a space where a wide character did not fit). */
 function fit(s: string, w: number): string {
   if (w <= 0) return ''
-  const cps = Array.from(s.replace(/\s+/g, ' '))
-  if (cps.length <= w) return cps.join('') + ' '.repeat(w - cps.length)
-  return cps.slice(0, w - 1).join('') + '…'
+  const t = s.replace(/\s+/g, ' ')
+  const n = cellsOf(t)
+  if (n <= w) return t + ' '.repeat(w - n)
+  const cut = cutCells(t, w - 1)
+  return cut + '…' + ' '.repeat(w - 1 - cellsOf(cut))
 }
 
 export function fmtDur(ms: number): string {

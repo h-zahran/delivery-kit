@@ -10,6 +10,10 @@ const HOUR = 60 * MIN;
 export const COST_EPS = 0.05; // $ change
 export const PCT_EPS = 1; // percentage-point change in fiveHour / sevenDay
 
+/** What runOut needs before it projects: this much time, and this many points of rise. */
+export const MIN_SPAN_MS = 5 * MIN;
+export const MIN_RISE = 2;
+
 function pctChanged(a: number | undefined, b: number | undefined): boolean {
   if (a === undefined || b === undefined) return a !== b;
   return Math.abs(a - b) >= PCT_EPS;
@@ -19,16 +23,19 @@ function pctChanged(a: number | undefined, b: number | undefined): boolean {
  * Append `s` if ≥ minGapMs (default 30 s) since the last sample, or if a value
  * changed meaningfully (cost ±$0.05, either percent ±1 pt, or a percent
  * appearing/disappearing). Samples older than the last one are ignored.
- * Returns a new array when appending (trimmed to the last `keep`, default 120),
- * otherwise the same `hist` reference.
+ * Returns a new array when appending, otherwise the same `hist` reference.
+ * Kept by age: samples more than `maxAgeMs` (default 30 min, the sparkline's
+ * window) before `s` go, all but the newest of them, which anchors the
+ * window's first delta. `keep` (default 720) is a hard cap on top.
  */
 export function pushSample(
   hist: Sample[],
   s: Sample,
-  opts?: { minGapMs?: number; keep?: number },
+  opts?: { minGapMs?: number; keep?: number; maxAgeMs?: number },
 ): Sample[] {
   const minGapMs = opts?.minGapMs ?? 30_000;
-  const keep = Math.max(1, opts?.keep ?? 120);
+  const keep = Math.max(1, opts?.keep ?? 720);
+  const maxAgeMs = opts?.maxAgeMs ?? 30 * MIN;
   const last = hist[hist.length - 1];
   if (last) {
     if (s.at < last.at) return hist;
@@ -40,7 +47,9 @@ export function pushSample(
     if (!gapOk && !changed) return hist;
   }
   const next = hist.concat([s]);
-  return next.length > keep ? next.slice(next.length - keep) : next;
+  const fresh = next.findIndex((x) => x.at >= s.at - maxAgeMs);
+  const from = Math.max(0, fresh - 1, next.length - keep);
+  return from > 0 ? next.slice(from) : next;
 }
 
 const LEVELS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'] as const;
@@ -113,7 +122,8 @@ export function burnPerHour(hist: Sample[], now: number, windowMs: number = 15 *
 /**
  * Linear (least-squares) projection of percent-used over the last 20 min to
  * 100 %. Only samples after the latest drop (window reset) are used.
- * undefined if < 3 samples, zero time span, or slope ≤ 0.
+ * undefined if < 3 samples, under MIN_SPAN_MS of span, a rise under MIN_RISE
+ * points (percents are whole numbers: one tick in 30 s is noise), or slope ≤ 0.
  * etaMs is measured from `now` (≥ 0). beforeReset: eta lands before
  * `resetIso`; true when resetIso is absent/unparseable (no reset known).
  */
@@ -134,7 +144,8 @@ export function runOut(
   }
   const last = pts[pts.length - 1];
   const first = pts[0];
-  if (!last || !first || pts.length < 3 || last.t === first.t) return undefined;
+  if (!last || !first || pts.length < 3) return undefined;
+  if (last.t - first.t < MIN_SPAN_MS || last.v - first.v < MIN_RISE) return undefined;
   const n = pts.length;
   let st = 0, sv = 0;
   for (const p of pts) { st += p.t; sv += p.v; }

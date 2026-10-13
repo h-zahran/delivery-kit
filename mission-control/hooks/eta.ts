@@ -31,11 +31,14 @@ const RECENT = 5
  *   (TodoWrite often flips several todos at once; k equal stamps would read 0).
  * - `done` shrank: the list was rewritten; history resets, startedAt kept.
  * - only `total` changed (a todo added mid-flight): history kept.
+ * - a time ≤ 0 is no time: it changes nothing, and a track based on one is
+ *   started afresh at the next real time, so no step is measured from 0.
  */
 export function trackSteps(prev: StepTrack | undefined, next: StepCount, at: number): StepTrack {
   const done = Math.max(0, Math.floor(next.done))
   const total = Math.max(0, Math.floor(next.total))
-  if (!prev) return { startedAt: at, lastAt: at, done, total, marks: [] }
+  if (!(at > 0)) return prev ?? { startedAt: 0, lastAt: 0, done, total, marks: [] }
+  if (!prev || !(prev.lastAt > 0)) return { startedAt: at, lastAt: at, done, total, marks: [] }
   if (done < prev.done) return { startedAt: prev.startedAt, lastAt: at, done, total, marks: [] }
   if (done > prev.done) {
     const n = done - prev.done
@@ -74,7 +77,8 @@ export function etaOf(track: StepTrack | undefined, now: number): Eta | undefine
   return {
     leftMs: Math.max(0, med - cur) + med * (remaining - 1),
     isRough: samples.length < 2,
-    isLong: med > 0 && cur > 2 * med,
+    // One measured step is a guess, not a pace to fall behind.
+    isLong: samples.length >= 2 && med > 0 && cur > 2 * med,
   }
 }
 
@@ -116,15 +120,17 @@ export type RowIn = {
  * The Spinner row's text, or undefined to leave the engine's own.
  * Convention: percent = done/total, step = the one in progress (done+1).
  *   `25% · step 2/4 · 4m33s · ~12m left`   (4m33s: time on the current step)
- *   `3 helpers working · ~5m left`          (ETA only when every helper has one)
+ *   `3 helpers working · ~5m left`          (every helper has an ETA: the slowest)
+ *   `3 helpers working · 2 ~5m left (1 unknown)`   (some have none yet)
+ * The percent rounds down: 199/200 is 99%, never 100% with a step left.
  */
 export function workingRow(i: RowIn): string | undefined {
   const fromTodos = todoCount(i.todos)
   const { done, total } =
     fromTodos.total > 0 ? fromTodos : { done: i.progress?.done ?? 0, total: i.progress?.total ?? 0 }
   if (total > 0 && done < total) {
-    const parts = [`${Math.round((100 * done) / total)}%`, `step ${done + 1}/${total}`]
-    if (i.mainTrack) parts.push(fmtDur(i.now - i.mainTrack.lastAt))
+    const parts = [`${Math.floor((100 * done) / total)}%`, `step ${done + 1}/${total}`]
+    if (i.mainTrack && i.mainTrack.lastAt > 0) parts.push(fmtDur(i.now - i.mainTrack.lastAt))
     const eta = etaPart(etaOf(i.mainTrack, i.now))
     if (eta) parts.push(eta)
     return parts.join(' · ')
@@ -135,11 +141,43 @@ export function workingRow(i: RowIn): string | undefined {
   const etas = running.map(h => etaOf(h.track, i.now))
   const long = etas.filter(e => e?.isLong).length
   const known = etas.filter((e): e is Eta => e !== undefined)
-  if (known.length === etas.length && known.every(e => !e.isLong)) {
+  if (long > 0) parts.push(`${long} running long`)
+  else if (known.length > 0) {
     const slowest = known.reduce((a, e) => (e.leftMs > a.leftMs ? e : a), known[0] as Eta)
-    parts.push(fmtLeft(slowest.leftMs) + (known.some(e => e.isRough) ? '?' : ''))
-  } else if (long > 0) parts.push(`${long} running long`)
+    const left = fmtLeft(slowest.leftMs) + (known.some(e => e.isRough) ? '?' : '')
+    const unknown = etas.length - known.length
+    parts.push(unknown > 0 ? `${known.length} ${left} (${unknown} unknown)` : left)
+  }
   return parts.join(' · ')
+}
+
+/** The main loop's tracks: `main` (its step reports) and `main:*` (its todos, `main:todos`). */
+const isMainKey = (k: string): boolean => k === 'main' || k.startsWith('main:')
+
+/** The tracks of agents still listed, and the main loop's; `t` itself when none goes. */
+export function pruneTracks<T>(t: Record<string, T>, ids: readonly string[]): Record<string, T> {
+  const keep = new Set(ids)
+  const gone = Object.keys(t).filter(k => !isMainKey(k) && !keep.has(k))
+  if (gone.length === 0) return t
+  const out = { ...t }
+  for (const k of gone) delete out[k]
+  return out
+}
+
+/**
+ * At a turn's start: the main loop's tracks restart their current step at `at`
+ * (the time between turns was the person's), their measured steps kept.
+ * Helpers' tracks are left alone; `t` itself when there is no main track.
+ */
+export function restartSteps(t: Record<string, StepTrack>, at: number): Record<string, StepTrack> {
+  const keys = Object.keys(t).filter(isMainKey)
+  if (keys.length === 0) return t
+  const out = { ...t }
+  for (const k of keys) {
+    const tr = out[k]
+    if (tr) out[k] = { ...tr, lastAt: at }
+  }
+  return out
 }
 
 export type RunIn = { status: string; startedAt: number; endedAt?: number }

@@ -40,7 +40,11 @@ export type Line = {
   path?: string
 }
 
-export type TreeOpts = { maxLines?: number; now?: number }
+/** `drives`: read Git Bash's `/e/x` as `E:\x` (Windows sessions only: on Linux it is a real path). */
+export type PathOpts = { drives?: boolean }
+
+/** `home`: the session user's real home folder, drawn as `~` wherever it shows. */
+export type TreeOpts = PathOpts & { maxLines?: number; now?: number; home?: string }
 
 /** Right columns a renderer draws after the name: ' ' + owner(L10) + ' ' + age(R4). */
 export const OWNER_W = 10
@@ -71,15 +75,26 @@ export function fitStart(s: string, n: number): string {
 
 // ---------------------------------------------------------------- parsing
 
-type Parsed = { key: string; disp: string; sep: string; win: boolean; segs: string[] }
+/** `base`: real segments folded out of `segs` (the home folder), drawn as `~`. */
+type Parsed = { key: string; disp: string; sep: string; win: boolean; segs: string[]; base?: readonly string[] }
 
-function split(p: string): string[] {
-  return p.split('/').filter((s) => s !== '' && s !== '.')
+/** Segments, with `.` dropped and `..` taking the one before it (kept only at a relative start). */
+function split(p: string, isRelative = false): string[] {
+  const out: string[] = []
+  for (const s of p.split('/')) {
+    if (s === '' || s === '.') continue
+    if (s !== '..') out.push(s)
+    else if (out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else if (isRelative) out.push(s)
+  }
+  return out
 }
 
-function parse(raw: string): Parsed {
+function parse(raw: string, opts: PathOpts = {}): Parsed {
   let p = raw.trim().replace(/\\/g, '/')
+  p = p.replace(/^\/\/[?.]\/UNC\//i, '//') // \\?\UNC\server\share
   p = p.replace(/^\/\/[?.]\//, '') // \\?\C:\... long-path prefix
+  if (opts.drives) p = p.replace(/^\/([A-Za-z])(?=\/|$)/, '$1:') // Git Bash /e/x
   let m = /^([A-Za-z]):(?:\/|$)/.exec(p)
   if (m) {
     const d = (m[1] ?? '').toUpperCase() + ':'
@@ -91,19 +106,33 @@ function parse(raw: string): Parsed {
     return { key: r.toLowerCase(), disp: r, sep: '\\', win: true, segs: split(p.slice(m[0].length)) }
   }
   if (p.startsWith('/')) return { key: '/', disp: '', sep: '/', win: false, segs: split(p) }
-  return { key: '.', disp: '.', sep: '/', win: false, segs: split(p) }
+  return { key: '.', disp: '.', sep: '/', win: false, segs: split(p, true) }
 }
 
-function joinPath(g: { disp: string; sep: string }, segs: readonly string[]): string {
+function joinPath(g: { disp: string; sep: string; base?: readonly string[] }, segs: readonly string[]): string {
   const head = g.disp === '' ? '/' : g.disp === '.' ? '' : g.disp + g.sep
-  const s = head + segs.join(g.sep)
+  const s = head + [...(g.base ?? []), ...segs].join(g.sep)
   return s === '' ? '.' : s
 }
 
-/** C:/Users/me/x -> ~/x, /home/me/x or /Users/me/x -> ~/x. */
-function homeShort(s: string, sep: string): string {
-  const re = sep === '\\' ? /^[A-Za-z]:\\Users\\[^\\]+(?=\\|$)/i : /^\/(?:home|Users)\/[^/]+(?=\/|$)/
-  return re.test(s) ? s.replace(re, '~') : s
+/** One spelling of a path: separators, the drive's case, `\\?\` prefixes, `.` and `..` settled. */
+export function normPath(raw: string, opts: PathOpts = {}): string {
+  const p = parse(raw, opts)
+  return joinPath(p, p.segs)
+}
+
+/** What makes two paths one file: normPath, with case folded on Windows-style paths. */
+export function pathKey(raw: string, opts: PathOpts = {}): string {
+  const p = parse(raw, opts)
+  return p.key + '|' + p.segs.map((s) => fold(s, p.win)).join('/')
+}
+
+/** A path below `home` as its own `~` root (another user's folder, or Public, is not), else `p`. */
+function underHome(p: Parsed, home: Parsed | undefined): Parsed {
+  if (!home || home.segs.length === 0 || p.key !== home.key || p.segs.length <= home.segs.length) return p
+  const n = home.segs.length
+  for (let i = 0; i < n; i++) if (fold(p.segs[i] ?? '', p.win) !== fold(home.segs[i] ?? '', p.win)) return p
+  return { ...p, key: '~' + p.key, base: p.segs.slice(0, n), segs: p.segs.slice(n) }
 }
 
 // ---------------------------------------------------------------- tree
@@ -128,8 +157,11 @@ type Group = {
   disp: string
   sep: string
   win: boolean
+  base?: readonly string[]
   items: { segs: string[]; f: FileN }[]
   root?: DirN
+  /** The root's segments below the head: the files' common folder. */
+  pre: string[]
   /** Max children of the root shown; the rest fold into '… N more'. */
   limit: number
 }
@@ -142,12 +174,13 @@ function fold(s: string, win: boolean): string {
   return win ? s.toLowerCase() : s
 }
 
-function buildGroups(files: readonly TouchLike[]): Group[] {
+function buildGroups(files: readonly TouchLike[], opts: TreeOpts): Group[] {
+  const home = opts.home ? parse(opts.home, opts) : undefined
   // 1. Dedupe by path (case-insensitive on Windows), merging touches.
   const merged = new Map<string, { p: Parsed; at: number; kind: Kind; owner: string; editors: Set<string> }>()
   for (const t of files) {
     if (!t || typeof t.path !== 'string' || t.path.trim() === '') continue
-    const p = parse(t.path)
+    const p = underHome(parse(t.path, opts), home)
     if (p.segs.length === 0) continue
     const k = p.key + '|' + p.segs.map((s) => fold(s, p.win)).join('/')
     const at = Number.isFinite(t.at) ? t.at : 0
@@ -171,7 +204,8 @@ function buildGroups(files: readonly TouchLike[]): Group[] {
     const { p } = m
     let g = groups.get(p.key)
     if (!g) {
-      g = { key: p.key, disp: p.disp, sep: p.sep, win: p.win, items: [], limit: Infinity }
+      g = { key: p.key, disp: p.disp, sep: p.sep, win: p.win, items: [], limit: Infinity, pre: [] }
+      if (p.base) g.base = p.base
       groups.set(p.key, g)
     }
     const name = p.segs[p.segs.length - 1] ?? ''
@@ -191,6 +225,7 @@ function buildGroups(files: readonly TouchLike[]): Group[] {
       while (i < pre.length && i < dir.length && fold(pre[i] ?? '', g.win) === fold(dir[i] ?? '', g.win)) i++
       pre = pre.slice(0, i)
     }
+    g.pre = pre
     const root = newDir('', joinPath(g, pre), 0)
     for (const it of g.items) {
       let node = root
@@ -350,7 +385,7 @@ function renderGroup(ctx: Ctx, g: Group, out: Line[]): void {
   if (!r) return
   const l = dirLine(ctx, '', r)
   l.root = true
-  l.name = fitName(ctx, '', homeShort(r.path, g.sep))
+  l.name = fitName(ctx, '', g.base ? ['~', ...g.pre].join(g.sep) : r.path)
   out.push(l)
   renderBody(ctx, r, '', out, g.limit)
 }
@@ -381,7 +416,7 @@ export function treeLines(files: readonly TouchLike[], width: number, opts: Tree
   const ctx: Ctx = { width: Math.max(1, Math.floor(width)), now: opts.now ?? Date.now() }
   const max = opts.maxLines ?? Infinity
   if (max <= 0) return []
-  const groups = buildGroups(files)
+  const groups = buildGroups(files, opts)
   let lines = renderAll(ctx, groups)
   if (lines.length <= max) return lines
 

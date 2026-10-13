@@ -49,7 +49,9 @@ function toNote(v: unknown, max = NOTE_MAX): string | undefined {
   if (typeof v !== 'string') return undefined
   const s = v.replace(/\s+/g, ' ').trim()
   if (!s) return undefined
-  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
+  // Cut by code point: a cut by UTF-16 unit can leave half an emoji.
+  const cps = Array.from(s)
+  return cps.length > max ? `${cps.slice(0, max - 1).join('').trimEnd()}…` : s
 }
 
 // Step names: an array of strings (or one in JSON), each clipped; none when empty.
