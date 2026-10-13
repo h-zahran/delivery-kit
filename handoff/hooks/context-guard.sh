@@ -157,7 +157,9 @@ CONFIG_JQ='.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens
 # which fromjson cannot reproduce. A missing, unreadable or directory path is
 # never handed to jq at all. And if the file vanishes or locks between the
 # test and jq's open, jq exits 2 before it reads stdin, so the call is made
-# again without it and the file goes to the old reader.
+# again without it and the file goes to the old reader. The retry takes ANY
+# exit 2 while the file is passed; a bad payload never exits 2 on a supported
+# jq (4 on 1.6, 5 on 1.7.1 and 1.8.2, measured).
 #
 # The user half comes LAST, five fields that never hold the separator: the
 # re-read flag, then the four values split as the old reader split them, with

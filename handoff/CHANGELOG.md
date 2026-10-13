@@ -19,11 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every tool call. The user-level file is now read by the jq that already
   reads the payload. The ordinary call spends 2 jq processes instead of 3
   with only that file, and 3 instead of 4 with both files. With no file,
-  or a user file that is not one JSON document, it saves nothing; such a
-  file still goes to the old reader. Measured on Windows with Git Bash,
-  where one jq start costs about 80 ms: medians over 31 alternating runs
-  were 96 and 135 ms faster with only the user file, 64 and 110 ms faster
-  with both, and no faster with neither (8 and 15 ms, noise).
+  or a user file that is not one JSON document or holds a NUL byte, it
+  saves nothing; such a file still goes to the old reader. Measured on
+  Windows with Git Bash, where one jq start costs about 80 ms: medians over
+  31 alternating runs were 97 and 136 ms faster with only the user file,
+  110 and 65 ms faster with both, and no faster with neither (15 and 8 ms,
+  noise).
   Each value is still checked on its own and applied in the same order:
   user file, repository file, environment.
 
