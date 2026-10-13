@@ -77,6 +77,8 @@ export type AgentRun = {
   /** When a permission ask for it began; absent when nothing waits. */
   waitSince?: number
   waitTool?: string
+  /** The asking call's tool_use_id, when the engine's check named it; absent: the tool name decides. */
+  waitId?: string
   /** What the agent reported through the step tool, if it did. */
   progress?: Progress
 }
@@ -103,6 +105,8 @@ export type MainLoop = {
   progress?: Progress
   waitSince?: number
   waitTool?: string
+  /** The asking call's tool_use_id, when the engine's check named it; absent: the tool name decides. */
+  waitId?: string
 }
 
 export type FileTouch = {

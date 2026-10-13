@@ -1,6 +1,6 @@
 // talk.ts — Mission Control's commentator and agent-to-agent message arcs.
-// Pure parts (turnDigest, commentPrompt, cleanLine, msgOf, arcs) need no engine;
-// commentate($, digest) makes the one Haiku call and never throws.
+// Pure parts only (turnDigest, commentRequest, commentLine, msgOf, arcs): no engine.
+// The hooks module makes the one Haiku call (register.tsx `commentate`).
 import type { ModelCompleteRequest, ModelCompleteResult } from 'claude-code'
 
 // --- shapes (structural subsets of types/index.d.ts, so this file stands alone)
@@ -133,22 +133,18 @@ export function cleanLine(text: string | undefined): string | undefined {
 
 export const COMMENT_REQUEST = { model: 'haiku', maxTokens: 60, effort: 'low', timeoutMs: 15_000 } as const
 
-type ModelPort = { model: { complete: (r: ModelCompleteRequest) => Promise<ModelCompleteResult> } }
-
 /**
- * One cheap Haiku call → one line, or undefined. Never throws: a refused
- * request (model not allowlisted, bad cap) rejects rather than resolving a
- * reason, so it is caught here too.
+ * The one cheap Haiku request for a turn, or undefined for a quiet one. The
+ * hooks module makes the call itself: the host follows `$` only into a
+ * function of the same file, never across an import.
  */
-export async function commentate($: ModelPort, d: Digest): Promise<string | undefined> {
+export function commentRequest(d: Digest): ModelCompleteRequest | undefined {
   if (isQuiet(d)) return undefined
-  try {
-    const r = await $.model.complete({ ...COMMENT_REQUEST, system: COMMENT_SYSTEM, prompt: commentPrompt(d) })
-    return r.isAnswered ? cleanLine(r.text) : undefined
-  } catch {
-    return undefined
-  }
+  return { ...COMMENT_REQUEST, system: COMMENT_SYSTEM, prompt: commentPrompt(d) }
 }
+
+/** The shown line from the call's answer, or undefined when it gave none. */
+export const commentLine = (r: ModelCompleteResult): string | undefined => (r.isAnswered ? cleanLine(r.text) : undefined)
 
 /** Keeps the newest KEEP_TALK lines, oldest first. */
 export const pushTalk = (list: readonly TalkLine[], line: TalkLine): TalkLine[] => [...list, line].slice(-KEEP_TALK)

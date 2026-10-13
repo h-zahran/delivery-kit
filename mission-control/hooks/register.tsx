@@ -6,15 +6,15 @@ import type { AgentRun, Ask, Compaction, FileTouch, MainLoop, RunStatus, StepTra
 import { burnPerHour, costSpark, fmtEta, pushSample, runOut } from './forecast'
 import { applyStep, parseStep, stepToolArgs, stepToolFullName, withHint } from './progress'
 import { batchesOf, receipt, timeline } from './summary'
-import { applyAskCall, ASK_TOOL_FULL, askToolArgs, composeContext, composeSection, fromPerson, markAnswered, newAsk, parseAskCall, shownAsk } from './asks'
+import { addAsk, applyAskCall, ASK_TOOL_FULL, askToolArgs, composeContext, composePlanLine, composePlanRule, composeSection, fromPerson, markAnswered, parseAskCall, shownAsk, takeBack } from './asks'
 import { cellsOf, planParts, shortNames, wrapWords } from './fit'
 import { lookOf, roleById, roleOf, sayOf, shadeOf } from './roles'
 import type { PlanTone } from './fit'
 import { isLongTurn, isNeedsYou, platformOf, playersFor, SOUND_ASSETS } from './chime'
 import type { Platform, SoundKind } from './chime'
-import { batchEnded, etaOf, etaPart, pruneTracks, restartSteps, rollCall, todoCount, trackSteps, workingRow } from './eta'
+import { batchEnded, etaOf, etaPart, isNewPlan, isTodoPlan, pruneTracks, restartSteps, rollCall, todoCount, trackSteps, workingRow } from './eta'
 import { normPath, pathKey, treeLines } from './filetree'
-import { arcs, cleanLine, COMMENT_REQUEST, COMMENT_SYSTEM, commentPrompt, isQuiet, msgOf, pushMsg, pushTalk, turnDigest } from './talk'
+import { arcs, commentLine, commentRequest, msgOf, pushMsg, pushTalk, turnDigest } from './talk'
 import type { Digest } from './talk'
 import { activityRows, kindCounts, squares } from './timeline'
 
@@ -71,6 +71,8 @@ const KEEP_FILES = 30
 const KEEP_AGENTS = 60
 // A dialog the person answers at once is not worth a flash of "needs you".
 const WAIT_SHOWN_MS = 1500
+// With nothing running, the clock reads usage every 30 beats (30 s), not every 5.
+const IDLE_USAGE_BEATS = 30
 // The robot column: 7 cells of robot and a gap of 2.
 const ROBOT_W = 9
 
@@ -184,9 +186,9 @@ const modelName = (id: string): string => {
   return `${family.charAt(0).toUpperCase()}${family.slice(1).toLowerCase()} ${major}${minor ? '.' + minor : ''}`
 }
 
-/** The main loop's step track: its todo list's when it has one, else its step reports'. */
-const mainTrackOf = (m: { todos?: readonly unknown[] }, tr: Record<string, StepTrack>): StepTrack | undefined =>
-  (m.todos ?? []).length > 0 ? tr['main:todos'] : tr.main
+/** The main loop's step track: its todo list's while that is the plan (isTodoPlan), else its step reports'. */
+const mainTrackOf = (m: { todos?: readonly { status: string }[]; progress?: { total?: number } }, tr: Record<string, StepTrack>): StepTrack | undefined =>
+  isTodoPlan(m.todos ?? [], m.progress) ? tr['main:todos'] : tr.main
 
 // --- rough per-subagent cost: $ per million tokens [input, output, cache read, cache write]
 
@@ -329,6 +331,8 @@ async function reconcile($: EngineInterface): Promise<void> {
         endedAt: isOver ? (a.endedAt ?? at) : undefined,
         tools: isOver ? settleAll(a.tools, at) : a.tools,
         waitSince: isOver ? undefined : a.waitSince,
+        waitTool: isOver ? undefined : a.waitTool,
+        waitId: isOver ? undefined : a.waitId,
       }
     }),
   )
@@ -390,12 +394,14 @@ let isWindows = false
 // When the last batch's toast was shown: the next toast counts only newer helpers.
 let lastBatchEndAt = 0
 
-// One cheap Haiku line about the turn, or undefined; never throws.
+// One cheap Haiku line about the turn, or undefined; never throws: a refused
+// request rejects rather than resolving a reason. The request and the line
+// are talk.ts's; the call stays here, where the host follows `$`.
 async function commentate($: EngineInterface, d: Digest): Promise<string | undefined> {
-  if (isQuiet(d)) return undefined
+  const request = commentRequest(d)
+  if (!request) return undefined
   try {
-    const r = await $.model.complete({ ...COMMENT_REQUEST, system: COMMENT_SYSTEM, prompt: commentPrompt(d) })
-    return r.isAnswered ? cleanLine(r.text) : undefined
+    return commentLine(await $.model.complete(request))
   } catch {
     return undefined
   }
@@ -524,9 +530,11 @@ export const register: Register = on => {
         const m = await read($, main)
         const list = await read($, agents)
         const isWorking = m.isBusy || list.some(a => a.status === 'running')
-        // Nothing runs, so nothing waits (stateOf): only a parked helper's end is worth a look.
+        // Nothing runs, so nothing waits (stateOf): only a parked helper's end is worth a look,
+        // and usage now and then, so the limit meters and /clear (usageStartedAt) stay current.
         if (!isWorking && lastWaitN === 0) {
           if (beat % 5 === 0) await safe(() => reconcile($))
+          if (beat % IDLE_USAGE_BEATS === 0) await refreshUsage($)
           return
         }
         const now = await $.clock.now()
@@ -567,27 +575,53 @@ export const register: Register = on => {
 
   // Each request the person types becomes an ask. The live list, this one
   // included, goes beside the prompt for the model alone, and only when the
-  // model can call the ask tool; the ask is kept only once the prompt entered
-  // (a dropped one leaves none).
+  // model can call the ask tool. The ask is kept before the prompt goes on, so
+  // the id shown is the id stored: an ask the model adds meanwhile takes the
+  // next one. A dropped prompt takes its ask back (it leaves none).
   on('prompt.submit', async ($, e, next) => {
     if (!fromPerson(e.origin)) return next(e)
     const at = await $.clock.now()
+    let added: string | undefined
     let block: string | undefined
     await safe(async () => {
-      if (!(await $.tool.list()).some(t => t.name === ASK_TOOL_FULL)) return
-      block = composeContext(newAsk(await read($, asks), e.text, at, e.turnId))
+      // The updater may run again on a version miss: each run sets the id afresh.
+      const kept = await update($, asks, list => {
+        const r = addAsk(list, e.text, at, e.turnId)
+        added = r.id
+        return r.list
+      })
+      const offered = new Set((await $.tool.list()).map(t => t.name))
+      // An unfinished plan of the main loop's own rides along, with the rule to report it.
+      const plan = offered.has(STEP) ? composePlanLine((await read($, main)).progress, STEP) : undefined
+      const asksBlock = offered.has(ASK_TOOL_FULL) ? composeContext(kept) : undefined
+      block = [asksBlock, plan].filter(Boolean).join('\n') || undefined
     })
-    const result = await next(block ? { ...e, context: [...(e.context ?? []), block] } : e)
-    if (result.drop === undefined) await safe(() => update($, asks, list => newAsk(list, e.text, at, e.turnId)))
-    return result
+    const id = added
+    const giveBack = () => (id ? safe(() => update($, asks, list => takeBack(list, id))) : undefined)
+    try {
+      const result = await next(block ? { ...e, context: [...(e.context ?? []), block] } : e)
+      if (result.drop !== undefined) await giveBack()
+      return result
+    } catch (err) {
+      // The prompt never entered.
+      await giveBack()
+      throw err
+    }
   })
 
-  // How to tick asks, in fixed words at the end of the system prompt; the list
-  // itself rides beside each prompt. None where the request offers no ask tool.
+  // How to tick asks and report the main loop's own plan, in fixed words at the
+  // end of the system prompt; the list itself rides beside each prompt. Each
+  // part only where the request offers its tool.
   on('prompt.compose', async ($, e, next) => {
     const result = await next(e)
-    if (!e.tools.includes(ASK_TOOL_FULL)) return result
-    return { sections: [...result.sections, { id: 'mission-control:asks', text: composeSection(), scope: 'session' as const }] }
+    const text = [
+      e.tools.includes(ASK_TOOL_FULL) ? composeSection() : '',
+      e.tools.includes(STEP) ? composePlanRule(STEP) : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+    if (!text) return result
+    return { sections: [...result.sections, { id: 'mission-control:asks', text, scope: 'session' as const }] }
   })
 
   on('command.run', { command: 'mission' }, async $ => {
@@ -610,18 +644,47 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A permission dialog for the person: the robot waits until the call settles.
+  // The calls the engine's check put to the mode's decider, per loop ('main' or
+  // an agent's id), oldest first. tool.check carries the call's tool_use_id;
+  // classic.PermissionRequest does not, so the dialog takes its id from here.
+  // A call leaves the list when it ends; a reload empties it (the tool name decides then).
+  const asking = new Map<string, { tool: string; id: string }[]>()
+  const unask = (loop: string, id: string) => {
+    const rest = (asking.get(loop) ?? []).filter(c => c.id !== id)
+    if (rest.length) asking.set(loop, rest)
+    else asking.delete(loop)
+  }
+
+  // The verdict is only read: an ask may still go to a classifier, not the person,
+  // so the wait itself starts at the dialog (classic.PermissionRequest).
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (verdict.decision === 'ask' && e.tool_use_id) {
+      const loop = e.agentId ?? 'main'
+      asking.set(loop, [...(asking.get(loop) ?? []), { tool: e.tool, id: e.tool_use_id }].slice(-20))
+    }
+    return verdict
+  }).catch(($, e, next) => next(e))
+
+  // A permission dialog for the person: the robot waits until the asking call settles.
+  // The settings hooks run first: one that answered (allow or deny) opened no dialog.
+  // No event says the person answered (the dialog runs inside tool.call's next), so
+  // the wait ends with the asking call, by its tool_use_id where the check named it.
   on('classic.PermissionRequest', async ($, e, next) => {
+    const result = await next(e)
+    if (result.decision !== undefined || result.block !== undefined) return result
     const at = await $.clock.now()
     const owner = e.agent_id
+    const loop = owner ?? 'main'
+    const call = (asking.get(loop) ?? []).find(c => c.tool === e.tool_name)
+    if (call) unask(loop, call.id)
+    const wait = { waitSince: at, waitTool: e.tool_name, waitId: call?.id }
     await safe(() =>
       owner
-        ? update($, agents, list =>
-            list.map(a => (a.id === owner ? { ...a, waitSince: at, waitTool: e.tool_name } : a)),
-          )
-        : update($, main, m => ({ ...m, waitSince: at, waitTool: e.tool_name })),
+        ? update($, agents, list => list.map(a => (a.id === owner ? { ...a, ...wait } : a)))
+        : update($, main, m => ({ ...m, ...wait })),
     )
-    return next(e)
+    return result
   }).catch(($, e, next) => next(e))
 
   // A subagent's progress report: answered here, never a tool row. Registered
@@ -631,8 +694,15 @@ export const register: Register = on => {
     if (!step) return { result: 'ignored: `done` must be a number' }
     const at = await $.clock.now()
     const owner = e.agentId
+    // A new plan (isNewPlan) replaces the old one whole: its names, note and timing go.
+    let isFresh = false
     if (!owner) {
-      await safe(() => update($, main, m => ({ ...m, progress: applyStep(m.progress, step, at) })))
+      await safe(() =>
+        update($, main, m => {
+          isFresh = isNewPlan(m.progress, step)
+          return { ...m, progress: applyStep(isFresh ? undefined : m.progress, step, at) }
+        }),
+      )
       const m = await read($, main)
       const total = m.progress?.total
       if (total) {
@@ -640,14 +710,24 @@ export const register: Register = on => {
           update($, tracks, t => ({
             ...t,
             // Before any turn (a reload) turnStartedAt is 0: seed at the call instead.
-            main: trackSteps(t.main ?? trackSteps(undefined, { done: 0, total }, m.turnStartedAt || at), { done: m.progress?.done ?? 0, total }, at),
+            main: trackSteps(
+              isFresh ? undefined : (t.main ?? trackSteps(undefined, { done: 0, total }, m.turnStartedAt || at)),
+              { done: m.progress?.done ?? 0, total },
+              at,
+            ),
           })),
         )
       }
       return { result: 'ok' }
     }
     await safe(() =>
-      update($, agents, list => list.map(a => (a.id === owner ? { ...a, progress: applyStep(a.progress, step, at) } : a))),
+      update($, agents, list =>
+        list.map(a => {
+          if (a.id !== owner) return a
+          isFresh = isNewPlan(a.progress, step)
+          return { ...a, progress: applyStep(isFresh ? undefined : a.progress, step, at) }
+        }),
+      ),
     )
     const list = await read($, agents)
     const a = list.find(x => x.id === owner)
@@ -657,7 +737,7 @@ export const register: Register = on => {
         update($, tracks, all => {
           // Agent tracks are added only here, so here they follow the list trimAgents keeps.
           const t = pruneTracks(all, list.map(x => x.id))
-          const prev = t[owner] ?? trackSteps(undefined, { done: 0, total }, a.startedAt)
+          const prev = (isFresh ? undefined : t[owner]) ?? trackSteps(undefined, { done: 0, total }, isFresh ? at : a.startedAt)
           return { ...t, [owner]: trackSteps(prev, { done: a.progress?.done ?? 0, total }, at) }
         }),
       )
@@ -742,10 +822,12 @@ export const register: Register = on => {
     } finally {
       const end = await $.clock.now()
       // Only the call that asked clears the wait: a parallel call's end leaves the dialog shown.
-      // State from before waitTool clears on any end.
-      const clearsWait = (w: { waitTool?: string }) => w.waitTool === undefined || w.waitTool === e.tool
-      const unwait = <T extends { waitSince?: number; waitTool?: string }>(w: T): T =>
-        clearsWait(w) ? { ...w, waitSince: undefined, waitTool: undefined } : w
+      // By its id where the check named it, else by its tool; state from before waitTool clears on any end.
+      unask(owner ?? 'main', id)
+      const clearsWait = (w: { waitTool?: string; waitId?: string }) =>
+        w.waitId !== undefined ? w.waitId === id : w.waitTool === undefined || w.waitTool === e.tool
+      const unwait = <T extends { waitSince?: number; waitTool?: string; waitId?: string }>(w: T): T =>
+        clearsWait(w) ? { ...w, waitSince: undefined, waitTool: undefined, waitId: undefined } : w
       await safe(() =>
         owner
           ? update($, agents, list =>
@@ -908,6 +990,8 @@ export const register: Register = on => {
               endedAt: at,
               tools: settleAll(a.tools, at),
               waitSince: undefined,
+              waitTool: undefined,
+              waitId: undefined,
             }
           })
           isBatchEnd = batchEnded(list, ended)
@@ -916,7 +1000,7 @@ export const register: Register = on => {
       )
     } else {
       await safe(() =>
-        update($, main, m => ({ ...m, isBusy: false, turnEndedAt: at, tools: settleAll(m.tools, at), waitSince: undefined })),
+        update($, main, m => ({ ...m, isBusy: false, turnEndedAt: at, tools: settleAll(m.tools, at), waitSince: undefined, waitTool: undefined, waitId: undefined })),
       )
     }
     // Read now, before `next`: once it resolves a queued prompt's turn may start.
@@ -1028,9 +1112,16 @@ export const register: Register = on => {
     // The pane redraws once a second: a pulse reads better than a slow spinner.
     const spin = t % 2 ? '●' : '○'
 
+    // RUNNING draws the idle helpers too (their robots doze); only the running ones work.
     const running = list.filter(a => a.status === 'running' || a.status === 'idle').reverse()
+    const workingN = running.filter(a => a.status === 'running').length
+    const idleN = running.length - workingN
     const finished = list.filter(a => a.status === 'done' || a.status === 'failed').reverse()
-    const isWorking = m.isBusy || running.length > 0
+    const isWorking = m.isBusy || workingN > 0
+    const helpers = (n: number) => `${n} helper${n === 1 ? '' : 's'}`
+    const crewNow = workingN
+      ? `${helpers(workingN)} working${idleN ? ` · ${idleN} idle` : ''}`
+      : `waiting for you${idleN ? ` · ${helpers(idleN)} idle` : ''}`
     const waiting = list.filter(a => stateOf(a, now) === 'wait').length
 
     // Short names for helpers that ran together ("bin", "mods" for "Summarize bin folder"...).
@@ -1337,6 +1428,8 @@ export const register: Register = on => {
     const mainFrame = mainWaits ? C.warn : m.isBusy ? C.brand : C.frame
     const mainLast = m.tools[m.tools.length - 1]
     const todos = m.todos ?? []
+    // The todo list is the plan while a todo is open; a finished one gives way to the step plan.
+    const isTodos = isTodoPlan(todos, m.progress)
     const todosDone = todos.filter(x => x.status === 'completed').length
     const todoNow = todos.find(x => x.status === 'in_progress')
     const mainErr = errorText(m.tools)
@@ -1403,7 +1496,7 @@ export const register: Register = on => {
               <Text color={C.brand}>● working</Text>
             ) : (
               <Text color={C.muted}>
-                idle · {running.length ? `${running.length} helper${running.length === 1 ? '' : 's'} working` : 'waiting for you'}
+                idle · {crewNow}
               </Text>
             ),
           ),
@@ -1437,7 +1530,7 @@ export const register: Register = on => {
           [
           line(
             'main-3-t',
-            todos.length > 0 ? (
+            isTodos ? (
               <Text>
                 <Text color={C.brand}>{bar((todosDone / todos.length) * 100, 10, '▰', '')}</Text>
                 <Text color={C.faint}>{'▱'.repeat(10 - Math.round((10 * todosDone) / todos.length))}</Text>
@@ -1460,7 +1553,7 @@ export const register: Register = on => {
           ]
           ],
         )}
-        {todos.length === 0 && mpSteps.length > 0 && planRow('main-plan', mainFrame, mpSteps, mpDone, C.brand, crewText)}
+        {!isTodos && mpSteps.length > 0 && planRow('main-plan', mainFrame, mpSteps, mpDone, C.brand, crewText)}
         {mainErr && cardRow('main-err', mainFrame, line('main-err-t', <Text color={C.bad}>{' '.repeat(ROBOT_W)}{mainErr}</Text>))}
         {v.expanded === 'main' && toolLog('main', mainFrame, m.tools)}
         {cardBottom('main', mainFrame)}
@@ -2161,8 +2254,14 @@ export const register: Register = on => {
     const five = u.fiveHour !== undefined ? runOut(samples, now, 'fiveHour', u.fiveReset) : undefined
     const last = [...batchesOf(list, now)].reverse().find(b => b.ids.length >= 2 && b.endedAt)
 
-    const face = waiting ? '◕o◕' : running.length ? '◉‿◉' : failed && !done ? 'x_x' : '^‿^'
-    const status = running.length ? `${running.length} working` : 'all done'
+    // An idle helper waits (mail, its own background job): neither working nor done.
+    const idleN = list.filter(a => a.status === 'idle').length
+    const face = waiting ? '◕o◕' : running.length ? '◉‿◉' : idleN ? '˘_˘' : failed && !done ? 'x_x' : '^‿^'
+    const status = running.length
+      ? `${running.length} working${idleN ? ` · ${idleN} idle` : ''}`
+      : idleN
+        ? `${idleN} idle`
+        : 'all done'
     const counts = `✓${done}${failed ? ` ✗${failed}` : ''}`
     const money = `${fmtCost(u.costUsd)}${burn >= 0.01 ? ` · ${fmtCost(burn)}/h` : ''}`
 
@@ -2230,7 +2329,7 @@ export const register: Register = on => {
           <Text wrap="truncate-end">
             <Text color={C.brand}>◆ </Text>
             <Text color={waiting ? C.warn : (lead?.color ?? C.ok)}>{face} </Text>
-            <Text bold color={running.length ? C.run : C.ok}>
+            <Text bold color={running.length ? C.run : idleN ? C.muted : C.ok}>
               {status}
             </Text>
             {waiting > 0 && (

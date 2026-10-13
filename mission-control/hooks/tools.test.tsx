@@ -297,23 +297,34 @@ test('tools: a failing engine call inside the clock stops only its own part', as
   expect(reads).toBeGreaterThan(before)
 })
 
-test('tools: an idle clock asks for nothing; a wait that ended is still cleared', async ($, on) => {
+test('tools: an idle clock asks for no pane list and reads usage only every 30 s; a wait that ended is still cleared', async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   let panes = 0
+  let reads = 0
   on('ui.panes', () => {
     panes++
     return { value: [] }
+  })
+  on('session.usage', () => {
+    reads++
+    return { value: usageOf(5) }
   })
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   on('classic.PermissionRequest', () => ({}))
   on('turn.complete', () => ({ text: '' }))
   await $.session.start(startArgs).catch(() => undefined)
-  // The first beat writes the wait count once; after that, nothing runs, nothing is asked.
+  // The first beat writes the wait count once; after that, nothing runs: no pane list,
+  // and usage only at the 30th beat (the limit meters and /clear stay current).
   await clock.advance(1000)
   const settled = panes
+  const settledReads = reads
   await clock.advance(3000)
   expect(panes).toBe(settled)
+  expect(reads).toBe(settledReads)
+  await clock.advance(26_000)
+  expect(panes).toBe(settled)
+  expect(reads).toBe(settledReads + 1)
 
   await $.agent.spawn({ tool_use_id: 'tu-1', prompt: 'fix', description: 'fix', subagentType: 'general-purpose' } as unknown as Args<'agent.spawn'>)
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'git push' }, agent_id: 'ag-1' } as never)
