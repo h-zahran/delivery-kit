@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 
 # The version gate's tests: scripts/check-versions.sh and its heading walk,
-# scripts/check-versions-walk.awk. They were moved here from
+# scripts/check-versions-walk.awk, and the pointers from the script to its
+# page of reasons, scripts/check-versions.md. The tests were moved here from
 # tests/portability.bats, which keeps the leak scans, the link and layout
 # checks and the CI pins. Both files are in the tests/ suite root, so CI runs
 # them in the same shard.
@@ -2924,4 +2925,89 @@ gate_refuses() {
       || { echo "N6: the output is not the gate's own line alone. output: ${output:0:600}"; false; }
   fi
   chmod 644 "$c/.claude-plugin/marketplace.json"
+}
+
+# The gate's longer rationale lives on scripts/check-versions.md, and the
+# script keeps one pointer line where each part of it was moved:
+# `# Why: check-versions.md, "<section>".` pointer_check <script> <page>
+# holds the two together both ways: every line of the script that says
+# `# Why:` is a pointer of that shape and names a `## ` section the page holds
+# exactly once, and every section of the page is named by at least one
+# pointer. The shape is held here, never read from the script. Each fault is
+# printed and the function returns 1; every step returns explicitly, so a
+# caller may run it under `||`, where errexit is inert. awk, not a bash
+# loop over lines: under bats a per-line loop is slow.
+pointer_check() {
+  local sh=$1 md=$2 d="$TEST_DIR/pointers" bad=0
+  mkdir -p "$d" || { echo "fixture: could not make $d"; return 1; }
+  # Emptied first: awk writes a file only when it has a line for it, and a
+  # file left from an earlier call would be read as this one's.
+  : > "$d/names"; : > "$d/shapeless"
+  LC_ALL=C awk '
+    index($0, "# Why:") {
+      if ($0 ~ /^[ \t]*# Why: check-versions[.]md, "[^"]+"[.]$/) {
+        s = $0
+        sub(/^[ \t]*# Why: check-versions[.]md, "/, "", s)
+        sub(/"[.]$/, "", s)
+        print s > names
+      } else print > shapeless
+    }' names="$d/names" shapeless="$d/shapeless" "$sh" \
+    || { echo "fixture: awk could not read the script"; return 1; }
+  LC_ALL=C awk '/^## / { print substr($0, 4) }' "$md" > "$d/sections" \
+    || { echo "fixture: awk could not read the page"; return 1; }
+  LC_ALL=C sort -u "$d/names" > "$d/names.u" || return 1
+  LC_ALL=C sort "$d/sections" > "$d/sections.s" || return 1
+  LC_ALL=C sort -u "$d/sections" > "$d/sections.u" || return 1
+  [ -s "$d/names" ] || { echo "P0: the script holds no pointer"; bad=1; }
+  [ -s "$d/sections" ] || { echo "P0: the page holds no section"; bad=1; }
+  if [ -s "$d/shapeless" ]; then
+    echo "P1: a '# Why:' line is not a pointer of the held shape:"; cat "$d/shapeless"; bad=1
+  fi
+  LC_ALL=C uniq -d "$d/sections.s" > "$d/twice" || return 1
+  if [ -s "$d/twice" ]; then
+    echo "P2: the page holds a section more than once:"; cat "$d/twice"; bad=1
+  fi
+  LC_ALL=C comm -23 "$d/names.u" "$d/sections.u" > "$d/unknown" || return 1
+  if [ -s "$d/unknown" ]; then
+    echo "P3: a pointer names a section the page does not hold:"; cat "$d/unknown"; bad=1
+  fi
+  LC_ALL=C comm -13 "$d/names.u" "$d/sections.u" > "$d/unnamed" || return 1
+  if [ -s "$d/unnamed" ]; then
+    echo "P4: a section of the page is named by no pointer:"; cat "$d/unnamed"; bad=1
+  fi
+  return "$bad"
+}
+
+@test "every pointer in the gate names a section of its page, and every section is named" {
+  cd "$ROOT"
+  local c="$TEST_DIR/pointer-control" rc out first
+  pointer_check scripts/check-versions.sh scripts/check-versions.md
+
+  # Positive controls, one per direction and one per shape, each on a copy,
+  # each required to fail with its own clause: a check that has only ever
+  # passed has not been shown able to fail.
+  mkdir -p "$c"
+  out="$TEST_DIR/pointer-control.out"
+  # A section no pointer names.
+  cp scripts/check-versions.sh "$c/s.sh"
+  { cat scripts/check-versions.md; printf '\n## A section nothing names\n\nText.\n'; } > "$c/p.md"
+  rc=0; pointer_check "$c/s.sh" "$c/p.md" > "$out" || rc=$?
+  [ "$rc" -eq 1 ] && grep -q -F -- 'P4:' "$out" && grep -q -x -F -- 'A section nothing names' "$out" \
+    || { echo "control: an unnamed section was not refused as P4 (rc $rc)"; cat "$out"; false; }
+  # A pointer to a section the page does not hold.
+  { cat scripts/check-versions.sh; printf '# Why: check-versions.md, "No such section".\n'; } > "$c/s.sh"
+  rc=0; pointer_check "$c/s.sh" scripts/check-versions.md > "$out" || rc=$?
+  [ "$rc" -eq 1 ] && grep -q -F -- 'P3:' "$out" && grep -q -x -F -- 'No such section' "$out" \
+    || { echo "control: a pointer to a missing section was not refused as P3 (rc $rc)"; cat "$out"; false; }
+  # A pointer of another shape.
+  { cat scripts/check-versions.sh; printf '# Why: see check-versions.md\n'; } > "$c/s.sh"
+  rc=0; pointer_check "$c/s.sh" scripts/check-versions.md > "$out" || rc=$?
+  [ "$rc" -eq 1 ] && grep -q -F -- 'P1:' "$out" \
+    || { echo "control: a pointer of another shape was not refused as P1 (rc $rc)"; cat "$out"; false; }
+  # A section the page holds twice: its first one, again.
+  first=$(grep -m1 '^## ' scripts/check-versions.md) || { echo "fixture: the page holds no section"; false; }
+  { cat scripts/check-versions.md; printf '\n%s\n' "$first"; } > "$c/p.md"
+  rc=0; pointer_check scripts/check-versions.sh "$c/p.md" > "$out" || rc=$?
+  [ "$rc" -eq 1 ] && grep -q -F -- 'P2:' "$out" \
+    || { echo "control: a section held twice was not refused as P2 (rc $rc)"; cat "$out"; false; }
 }
