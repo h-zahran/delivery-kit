@@ -145,7 +145,10 @@ refused() {
              'x/../{member}/t.json' './x/{member}/t.json' 'x//{member}/t.json' \
              '.delivery-kit/{member}/t.json'; do
     setup
-    set_json .delivery-kit.json ".team.teams.alpha.tasks = $(jq -Rn --arg b "$bad" '$b')"
+    # On stdin, never as an argument: Git Bash rewrites an argument that
+    # starts with / before a native Windows jq sees it (/abs became
+    # C:/Program Files/Git/abs on windows-2025).
+    set_json .delivery-kit.json ".team.teams.alpha.tasks = $(printf '%s' "$bad" | jq -R .)"
     team config
     refused "'$bad'" || { echo "case: $bad"; false; }
   done
@@ -219,15 +222,24 @@ CASES
   refused "no member 'cy' in team 'alpha'"
 }
 
-@test "tasks: a malformed task file is refused, naming the fault" {
+# malformed_tasks <count> — runs each "filter|message" line of stdin on
+# ann's task file, in a fresh setup, and requires the message. Two tests
+# share it: one held all 14 cases and took 30.6 s on windows-2025, over the
+# 30 s budget.
+malformed_tasks() {
   local f='plan/alpha/ann/tasks.json' filter want n=0
   while IFS='|' read -r filter want <&4; do
     n=$((n + 1))
     setup
     set_json "$f" "$filter"
     team tasks alpha ann
-    refused "$want" || { echo "case: $filter"; false; }
-  done 4<<'CASES'
+    refused "$want" || { echo "case: $filter"; return 1; }
+  done 4<&0
+  [ "$n" -eq "$1" ] || { echo "ran $n of $1 cases"; return 1; }
+}
+
+@test "tasks: a task file without a field it needs is refused, naming the fault" {
+  malformed_tasks 7 <<'CASES'
 del(.tasks)|has no 'tasks' list
 .tasks[0] = 3|task 0 is not an object
 del(.tasks[0].id)|task 0 has no id
@@ -235,6 +247,11 @@ del(.tasks[0].branch)|task T-1 has no branch
 .tasks[0].branch = " "|task T-1 has no branch
 del(.tasks[0].specDir)|task T-1 has no specDir
 del(.tasks[0].seed)|task T-1 has no seed
+CASES
+}
+
+@test "tasks: a task file with a field of the wrong type or a repeated id is refused, naming the fault" {
+  malformed_tasks 7 <<'CASES'
 .tasks[0].title = 3|task T-1: title is not a string
 .tasks[0].number = 1|task T-1: number is not a string
 .tasks[0].trailers = "Plan-Item: T-1"|task T-1: trailers is not a list of strings
@@ -243,7 +260,6 @@ del(.tasks[0].seed)|task T-1 has no seed
 .tasks[0].seed = "two\nlines"|task T-1: seed holds a line break
 .tasks[0].blocked = true|task T-1: blocked is not a string
 CASES
-  [ "$n" -eq 14 ] || { echo "ran $n of 14 cases"; false; }
 }
 
 # --- who is at the keyboard ---------------------------------------------------

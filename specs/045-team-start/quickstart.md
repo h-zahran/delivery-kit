@@ -14,7 +14,7 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | # | File | What is broken | Test that goes red |
 |---|---|---|---|
 | 1 | `team/scripts/team.sh` | `progress` is a legal key again | config: an unknown key in a team is refused |
-| 2–4 | `team/scripts/team.sh` | the one-line seed check; the `blocked` type check; the `blocked` default | tasks: a malformed task file; tasks are printed in file order |
+| 2–4 | `team/scripts/team.sh` | the one-line seed check; the `blocked` type check; the `blocked` default | tasks: a task file with a field of the wrong type or a repeated id; tasks are printed in file order |
 | 5 | `team/scripts/team.sh` | email match is case-sensitive | suggest: the git email is matched to the roster |
 | 6–7 | `team/scripts/team.sh` | `iam` writes where git does not ignore; `iam` takes any member | iam: tests |
 | 8–10 | `team/scripts/team.sh` | each `whoami` check | whoami: no answer yet, or an answer the roster no longer holds |
