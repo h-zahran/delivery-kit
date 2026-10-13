@@ -108,18 +108,18 @@ const HELD_OUT: Case[] = [
 
 const roleIdOf = (d: string, type: string, prompt?: string): string => roleOf(d, type, prompt)?.id ?? 'none'
 
-test('roles: the frozen case list reads at most 6 missions wrong', async () => {
+test('roles: the frozen case list reads no mission wrong', async () => {
   const wrong = CASES.filter(c => !c.ok.includes(roleIdOf(c.d, c.type, c.first))).map(
     c => `${c.d} [${c.type}] -> ${roleIdOf(c.d, c.type, c.first)}`,
   )
-  expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^[0-6] wrong/)
+  expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^0 wrong/)
 })
 
-test('roles: the held-out case list reads at most 12 missions wrong', async () => {
+test('roles: the held-out case list reads at most 5 missions wrong', async () => {
   const wrong = HELD_OUT.filter(c => !c.ok.includes(roleIdOf(c.d, c.type, c.first))).map(
     c => `${c.d} [${c.type}] -> ${roleIdOf(c.d, c.type, c.first)}`,
   )
-  expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^([0-9]|1[0-2]) wrong/)
+  expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^[0-5] wrong/)
 })
 
 test('roles: the owner case is never a scout, with or without its brief', async () => {
@@ -156,6 +156,40 @@ test('roles: the last word of a longer description does not pick the role', asyn
   expect(roleIdOf('Port the config loader', gp)).toBe('builder')
   // Two words are too few to tell a noun from a verb: the last one still counts.
   expect(roleIdOf('Docs map', gp)).toBe('writer')
+})
+
+test('roles: the files and steps of the work name it: readme a writer, a repro a fixer', async () => {
+  expect(roleIdOf('Update README for asks', gp)).toBe('writer')
+  expect(roleIdOf('Fill in the CHANGELOG section', gp)).toBe('writer')
+  expect(roleIdOf('Reproduce the DST bug', gp)).toBe('fixer')
+  expect(roleIdOf('Repro the hang', gp)).toBe('fixer')
+  expect(roleIdOf('Regression in eta', gp)).toBe('fixer')
+  // "Reproducible" is not a repro.
+  expect(roleIdOf('Reproducible builds', gp)).not.toBe('fixer')
+})
+
+test('roles: "mapping" is not "map"', async () => {
+  expect(roleIdOf('Mapping layer cleanup', gp)).toBe('none')
+  expect(roleIdOf('Map the hook events', gp)).toBe('scout')
+  expect(roleIdOf('Mapped files', gp)).toBe('scout')
+})
+
+test('roles: of two words, a last "plan" is the thing made', async () => {
+  expect(roleIdOf('Test plan', gp)).toBe('planner')
+  expect(roleIdOf('Migration plans', gp)).toBe('planner')
+  // Longer: the first word still leads.
+  expect(roleIdOf('Review the plan', gp)).toBe('inspector')
+  expect(roleIdOf('Test plan review', gp)).toBe('inspector')
+})
+
+test('roles: a fix is a fixer\'s, even when the brief says implementer', async () => {
+  expect(roleIdOf('Listener teardown fix', gp, 'You are the implementer for the listener teardown fix.')).toBe('fixer')
+  expect(roleIdOf('Fix flaky test', gp, 'You are implementing Task 3: flaky test')).toBe('fixer')
+  // Only over a builder: a reviewer of a fix still reviews.
+  expect(roleIdOf('Review the fix', gp, 'You are the reviewer for PR 9.')).toBe('inspector')
+  // A whole word: a prefix or a fixture is no fix.
+  expect(roleIdOf('Prefix cache', gp, 'You are the implementer for lane 9.')).toBe('builder')
+  expect(roleIdOf('Fixture loader', gp, 'You are the implementer for lane 9.')).toBe('builder')
 })
 
 // The pane, mounted as mission.test.tsx mounts it.
