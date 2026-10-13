@@ -10,6 +10,20 @@ load ../../tests/helper
 
 setup() {
   TEAM_SH="$ROOT/team/scripts/team.sh"
+  # The developer's own git and gh must not reach these repositories: a
+  # global signing or hooks setting changes what a commit does, and a real
+  # gh signed in would answer for pull requests. Cut off as
+  # pipeline/tests/progress-git.bats does.
+  export HOME="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$HOME"
+  export GIT_CONFIG_NOSYSTEM=1
+  export XDG_CONFIG_HOME="$HOME/.config"
+  export GIT_CONFIG_GLOBAL="$HOME/.gitconfig"
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GH_REPO GH_HOST GH_TOKEN GITHUB_TOKEN
+  # A gh that fails, first on PATH for every test, so no real gh is asked.
+  FAKE="$BATS_TEST_TMPDIR/fake"; mkdir -p "$FAKE"
+  printf '#!/bin/sh\nexit 1\n' > "$FAKE/gh"; chmod +x "$FAKE/gh"
+  export PATH="$FAKE:$PATH"
   R="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$R/plan/alpha/ann" "$R/plan/alpha/bo"
   cat > "$R/.delivery-kit.json" <<'JSON'
@@ -382,9 +396,6 @@ JSON
   git -C "$R" push -q origin work:ann/T-3
   mkdir -p "$R/.delivery-kit/runs/001-T-1"
   printf '{"current_phase":"M","pr_url":"https://example.com/pr/1"}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
-  # A gh that fails, so no real gh on this machine is asked anything.
-  FAKE="$BATS_TEST_TMPDIR/fake"; mkdir -p "$FAKE"
-  printf '#!/bin/sh\nexit 1\n' > "$FAKE/gh"; chmod +x "$FAKE/gh"
 }
 
 # fake_prs <json> — the fake gh prints this list of pull requests.
@@ -427,16 +438,107 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
 @test "next: a run on this machine is resumed before anything new starts" {
   status_fixture
   rm "$R/.delivery-kit/runs/001-T-1/progress.json"
-  mkdir -p "$R/.delivery-kit/runs/002-T-2"
-  printf '{"current_phase":"H"}\n' > "$R/.delivery-kit/runs/002-T-2/progress.json"
+  mkdir -p "$R/.delivery-kit/runs/003-T-3"
+  printf '{"current_phase":"H"}\n' > "$R/.delivery-kit/runs/003-T-3/progress.json"
   team_fake next alpha ann
   [ "$status" -eq 0 ]
-  # T-1 now has nothing: not started. T-2 comes later in the file, but the
-  # first task that is not started or in progress is T-1.
-  [ "$(jq -c '[.action, .task.id]' <<<"$output")" = '["start","T-1"]' ]
-  printf '{"current_phase":"M","pr_url":"p"}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  # T-1 now has nothing: not started, and first in the file. T-2 is in
+  # progress by its branch alone. T-3's run is on this machine, so it comes
+  # first: a fresh start would meet the pipeline's resume prompt.
+  [ "$(jq -c '[.action, .task.id, .task.source]' <<<"$output")" = '["resume","T-3","run state"]' ]
+  rm "$R/.delivery-kit/runs/003-T-3/progress.json"
   team_fake next alpha ann
-  [ "$(jq -c '[.action, .task.id, .task.source]' <<<"$output")" = '["resume","T-2","run state"]' ]
+  [ "$(jq -c '[.action, .task.id]' <<<"$output")" = '["elsewhere","T-2"]' ]
+}
+
+@test "next: says what it could not read, so team:start can say it too" {
+  status_fixture
+  git -C "$R" remote remove origin
+  team_fake next alpha ann
+  [ "$(jq -c '[.originRead, .prRead]' <<<"$output")" = '[false,false]' ]
+  fake_prs '[]'
+  team_fake next alpha ann
+  [ "$(jq -c '.prRead' <<<"$output")" = 'true' ]
+}
+
+@test "status: a closed pull request is not in review, even when the run recorded it" {
+  status_fixture
+  printf '{"current_phase":"M","pr_url":"https://example.com/pr/1"}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  fake_prs '[{"headRefName":"ann/T-1","state":"CLOSED","url":"https://example.com/pr/1"}]'
+  team_fake status alpha ann
+  [ "$(jq -c '.tasks[0] | [.status, .source, .prClosed]' <<<"$output")" = '["in progress","run state",true]' ]
+  printf '{"current_phase":"DONE","pr_url":"https://example.com/pr/1"}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  team_fake status alpha ann
+  [ "$(jq -c '.tasks[0] | [.status, .source]' <<<"$output")" = '["finished","run state"]' ]
+  # An abandoned run that had opened a pull request is still abandoned.
+  printf '{"current_phase":"M","pr_url":"https://example.com/pr/1","abandoned":{"at":"t","phase":"M"}}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  fake_prs '[]'
+  team_fake status alpha ann
+  [ "$(jq -c '.tasks[0] | [.status, .source]' <<<"$output")" = '["abandoned","run state"]' ]
+}
+
+@test "a fault deep in a read stops the command with one line, never an empty answer" {
+  status_fixture
+  printf 'not json\n' > "$R/plan/alpha/roster.json"
+  team_fake status alpha ann
+  refused "roster 'plan/alpha/roster.json' is not valid JSON"
+  [ "$(printf '%s\n' "$stderr" | grep -c '^team.sh:')" -eq 1 ] || { echo "stderr: $stderr"; false; }
+  [ -z "$output" ]
+  team_fake next alpha ann
+  refused "is not valid JSON"
+  [ -z "$output" ]
+}
+
+@test "a broken identity file is refused by every reader, and iam leaves it as it was" {
+  repo_git 'ann@example.com'
+  mkdir -p "$R/.delivery-kit"
+  for bad in '{ not json' ''; do
+    printf '%s' "$bad" > "$R/.delivery-kit/team.json"
+    for c in whoami mine "iam alpha ann"; do
+      # shellcheck disable=SC2086 # the command and its words
+      team $c
+      refused "identity file '.delivery-kit/team.json'" "delete it and run team:start"
+      [ -z "$output" ] || { echo "$c printed: $output"; false; }
+    done
+    [ "$(cat "$R/.delivery-kit/team.json")" = "$bad" ]
+  done
+}
+
+@test "a member id or a team key that starts with a dot is refused, so no path climbs out" {
+  for id in '..' '.' '.hidden'; do
+    t="$(jq --arg id "$id" '.members[1].id = $id' "$R/plan/alpha/roster.json")"
+    printf '%s\n' "$t" > "$R/plan/alpha/roster.json"
+    team roster alpha
+    refused "member id '$id'" "starting with a letter or digit"
+  done
+  set_json .delivery-kit.json '.team.teams[".x"] = .team.teams.alpha'
+  team config
+  refused "team key '.x'"
+}
+
+@test "render: a member not in the roster is refused before any path is built" {
+  status_fixture
+  team_fake render alpha ..
+  refused "no member '..' in team 'alpha'"
+  [ ! -e "$BATS_TEST_TMPDIR/progress.md" ] && [ ! -e "$R/plan/progress.md" ]
+}
+
+@test "render: a task file that cannot be read writes no page" {
+  status_fixture
+  rm "$R/plan/alpha/ann/tasks.json"
+  team_fake render alpha ann
+  refused "task file 'plan/alpha/ann/tasks.json' does not exist"
+  [ "$(printf '%s\n' "$stderr" | grep -c '^team.sh:')" -eq 1 ] || { echo "stderr: $stderr"; false; }
+  [ ! -e "$R/plan/alpha/ann/progress.md" ]
+}
+
+@test "mine: leaves no temporary file behind" {
+  repo_git 'ann@example.com'
+  git -C "$R" add -A && git -C "$R" commit -q -m init
+  export TMPDIR="$BATS_TEST_TMPDIR/tmp"; mkdir -p "$TMPDIR"
+  team mine
+  [ "$status" -eq 0 ]
+  [ -z "$(ls -A "$TMPDIR")" ] || { ls -A "$TMPDIR"; false; }
 }
 
 @test "next: a task in progress with no run on this machine is reported, not started again" {

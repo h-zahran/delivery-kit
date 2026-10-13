@@ -37,6 +37,19 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 70 | `team/scripts/team.sh` | `finished` not read | status: an abandoned run and a finished run without a pull request are ended |
 | 71 | `team/scripts/team.sh` | the copied rule differs from `RUN_END_JQ` | status: how a run ended agrees with the pipeline's own progress.sh |
 | 72 | `team/scripts/team.sh` | `run_self` as a function call, where errexit is off | mine: a member who left is asked again, and a team that cannot be read does not hide the others |
+| 73 | `team/scripts/team.sh` | no refusal after the JSON read in `read_me` | a broken identity file is refused by every reader |
+| 74 | `team/scripts/team.sh` | no `\|\| exit 1` after `cmd_tasks` in `cmd_status` | render: a task file that cannot be read writes no page |
+| 75 | `team/scripts/team.sh` | an empty file read as JSON | a broken identity file is refused by every reader |
+| 76 | `team/scripts/team.sh` | a team key may start with a dot | a member id or a team key that starts with a dot is refused |
+| 77 | `team/scripts/team.sh` | a member id may start with a dot | a member id or a team key that starts with a dot is refused |
+| 78 | `team/scripts/team.sh` | `render` takes a member not in the roster | render: a member not in the roster is refused before any path is built |
+| 79 | `team/scripts/team.sh` | a closed pull request recorded by the run reads `in review` | status: a closed pull request is not in review |
+| 80 | `team/scripts/team.sh` | `abandoned` read after the recorded pull request | status: a closed pull request is not in review; status: an abandoned run and a finished run |
+| 81 | `team/scripts/team.sh` | `resume` not first | next: a run on this machine is resumed before anything new starts |
+| 82 | `team/scripts/team.sh` | `next` without `originRead` and `prRead` | next: says what it could not read |
+| 83 | `team/scripts/team.sh` | `iam` opens the file before building it | none: `read_me` stops first on a broken file, so this second guard is not reached |
+| 84 | `team/scripts/team.sh` | no EXIT trap for the temporary file | none: the normal path removes it, and no early exit was found |
+| 85 | `team/tests/team.bats` | the suite run with a global `commit.gpgsign=true`, `GH_REPO` set and a logging `gh` on `PATH` | none failed, and the logging `gh` was never called |
 
 ## 3. Record
 
@@ -44,3 +57,4 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 |---|---|---|---|
 | 2026-10-07 | Linux | `1..330`, all `ok` (was `1..314`) | 61 of 61 landed and went red |
 | 2026-10-13 | Linux | `tests` `1..126`, `handoff/tests` `1..158`, `pipeline/tests` `1..503`, `team/tests` `1..43`, all `ok` | 62–72: 11 landed; 10 went red, 67 is shown equivalent |
+| 2026-10-13 | Linux | `team/tests` `1..51`, all `ok` | 73–84: 12 landed; 10 went red, 83 and 84 are shown equivalent; 85 passed |

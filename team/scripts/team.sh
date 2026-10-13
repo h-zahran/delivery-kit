@@ -12,6 +12,12 @@
 # pre-flight checks a branch name, a spec folder and a trailer. A second
 # copy of those rules here would drift from the first.
 #
+# Every assignment from a function of this script ends in `|| exit 1`.
+# bash runs `$( )` with errexit off (bash 3.2 has no inherit_errexit), so
+# a die inside a function there ends only that function's subshell, and
+# the caller went on with an empty value. Measured: a broken identity file
+# read as "no answer", and the next iam emptied it.
+#
 # jq here may be a native Windows binary with text-mode stdout: this
 # script reads jq only through command substitution and exit codes. A
 # roster or a task file is read by its path, never through a herestring:
@@ -25,6 +31,9 @@ die()  { printf 'team.sh: %s\n' "$*" >&2; exit 1; }
 usage() { die "usage: team.sh [--dir <repo>] <config | roster <team> | tasks <team> <member> | suggest <team> | iam <team> <member> | whoami | mine | status <team> <member> | next <team> <member> | command <team> <member> <id> | render <team> <member>>"; }
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
+# The two files this script writes get LF line ends from a native Windows
+# jq too: -b where jq has it, probed as the pipeline's progress.sh does.
+JQB=''; if jq -b -n 1 >/dev/null 2>&1; then JQB=-b; fi
 
 # This script's own path, for the commands that read each team in its own
 # process: see run_self. Found the way pipeline/scripts/preflight.sh finds
@@ -40,8 +49,10 @@ if [ "${1:-}" = "--dir" ]; then dir="${2:?--dir needs a path}"; shift 2; fi
 cd "$dir" 2>/dev/null || die "cannot enter '$dir'"
 
 # A team key and a member id become path segments, so they hold the same
-# characters a run name may hold.
-name_ok() { case "$1" in ''|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac; }
+# characters a run name may hold, and start with a letter or a digit: "."
+# and ".." are directories already, and a member id of ".." made render
+# write outside the repository.
+name_ok() { case "$1" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac; }
 
 # A path in the team block is relative to the repository root, written one
 # way, and outside the pipeline's state directory. $1 names it in messages.
@@ -65,6 +76,8 @@ read_json() {
   local what="$1" f="$2" out
   [ -f "$f" ] || die "$what '$f' does not exist"
   out="$(jq -c . -- "$f" 2>/dev/null)" || die "$what '$f' is not valid JSON"
+  # An empty file is no JSON value: jq prints nothing for it, and exits 0.
+  [ -n "$out" ] || die "$what '$f' is not valid JSON"
   printf '%s' "$out"
 }
 
@@ -72,7 +85,7 @@ TEAM_KEYS=" roster tasks progressView "
 
 cmd_config() {
   local cfg team k entry v
-  cfg="$(read_json "settings file" ".delivery-kit.json")"
+  cfg="$(read_json "settings file" ".delivery-kit.json")" || exit 1
   [ "$(jq -r '.team | type' <<<"$cfg")" = "object" ] \
     || die "settings file '.delivery-kit.json' has no 'team' object; run team:setup"
   [ "$(jq -r '.team.teams | type' <<<"$cfg")" = "object" ] \
@@ -85,7 +98,7 @@ cmd_config() {
   while [ "$i" -lt "$n" ]; do
     team="$(jq -r --argjson i "$i" '.team.teams | keys[$i]' <<<"$cfg")"
     i=$((i + 1))
-    name_ok "$team" || die "team key '$team' — letters, digits, dot, dash, underscore only"
+    name_ok "$team" || die "team key '$team' — letters, digits, dot, dash, underscore only, starting with a letter or digit"
     entry="$(jq -c --arg t "$team" '.team.teams[$t]' <<<"$cfg")"
     [ "$(jq -r 'type' <<<"$entry")" = "object" ] || die "team '$team' is not an object"
     k="$(jq -r --arg legal "$TEAM_KEYS" '[keys[] | select(. as $k | $legal | split(" ") | map(select(. != "")) | index($k) | not)] | first // empty' <<<"$entry")"
@@ -121,8 +134,8 @@ team_entry() {
 cmd_roster() {
   local team="${1:-}" cfg entry f bad
   [ -n "$team" ] || usage
-  cfg="$(cmd_config)"
-  entry="$(team_entry "$cfg" "$team")"
+  cfg="$(cmd_config)" || exit 1
+  entry="$(team_entry "$cfg" "$team")" || exit 1
   f="$(jq -r '.roster' <<<"$entry")"
   read_json "roster" "$f" >/dev/null
   [ "$(jq -r '.members | type' -- "$f")" = "array" ] || die "roster '$f' has no 'members' list"
@@ -138,8 +151,8 @@ cmd_roster() {
         else empty end
     ] | first // empty' -- "$f")"
   [ -z "$bad" ] || die "roster '$f': $bad"
-  bad="$(jq -r '[.members[].id | select(test("^[A-Za-z0-9._-]+$") | not)] | first // empty' -- "$f")"
-  [ -z "$bad" ] || die "roster '$f': member id '$bad' — letters, digits, dot, dash, underscore only"
+  bad="$(jq -r '[.members[].id | select(test("^[A-Za-z0-9][A-Za-z0-9._-]*$") | not)] | first // empty' -- "$f")"
+  [ -z "$bad" ] || die "roster '$f': member id '$bad' — letters, digits, dot, dash, underscore only, starting with a letter or digit"
   bad="$(jq -r '[.members[].id] | group_by(.) | map(select(length > 1) | .[0]) | first // empty' -- "$f")"
   [ -z "$bad" ] || die "roster '$f': member id '$bad' appears twice"
   jq -c '[.members[] | {id, name, emails: (.emails // [])}]' -- "$f"
@@ -148,13 +161,14 @@ cmd_roster() {
 cmd_tasks() {
   local team="${1:-}" member="${2:-}" cfg entry members f bad
   [ -n "$team" ] && [ -n "$member" ] || usage
-  members="$(cmd_roster "$team")"
+  members="$(cmd_roster "$team")" || exit 1
   [ "$(jq -r --arg m "$member" 'any(.[]; .id == $m)' <<<"$members")" = "true" ] \
     || die "no member '$member' in team '$team'"
-  cfg="$(cmd_config)"
-  entry="$(team_entry "$cfg" "$team")"
+  cfg="$(cmd_config)" || exit 1
+  entry="$(team_entry "$cfg" "$team")" || exit 1
   f="$(jq -r '.tasks' <<<"$entry")"
   f="${f//\{member\}/$member}"
+  path_ok "team '$team': task file" "$f"
   read_json "task file" "$f" >/dev/null
   [ "$(jq -r '.tasks | type' -- "$f")" = "array" ] || die "task file '$f' has no 'tasks' list"
   bad="$(jq -r '
@@ -197,7 +211,9 @@ ME_FILE=".delivery-kit/team.json"
 read_me() {
   local me
   [ -f "$ME_FILE" ] || { printf '{}'; return 0; }
-  me="$(read_json "identity file" "$ME_FILE")"
+  # Not read_json: this file is the member's own, and its fault names the fix.
+  me="$(jq -c . -- "$ME_FILE" 2>/dev/null)" && [ -n "$me" ] \
+    || die "identity file '$ME_FILE' is not valid JSON; delete it and run team:start"
   jq -c '
     if type != "object" then error
     elif has("members") then .members
@@ -211,7 +227,7 @@ read_me() {
 cmd_suggest() {
   local team="${1:-}" members email
   [ -n "$team" ] || usage
-  members="$(cmd_roster "$team")"
+  members="$(cmd_roster "$team")" || exit 1
   email="$(git config user.email 2>/dev/null || true)"
   jq -c --arg e "$email" '{email: $e, matches: (if $e == "" then [] else
       [.[] | select(.emails | map(ascii_downcase) | index($e | ascii_downcase)) | .id] end)}' <<<"$members"
@@ -220,7 +236,7 @@ cmd_suggest() {
 cmd_iam() {
   local team="${1:-}" member="${2:-}" members saved rc=0
   [ -n "$team" ] && [ -n "$member" ] || usage
-  members="$(cmd_roster "$team")"
+  members="$(cmd_roster "$team")" || exit 1
   [ "$(jq -r --arg m "$member" 'any(.[]; .id == $m)' <<<"$members")" = "true" ] \
     || die "no member '$member' in team '$team'"
   # Written only where git ignores it: a tracked answer would be one
@@ -231,9 +247,11 @@ cmd_iam() {
     1) die "$ME_FILE is not ignored by git; add .delivery-kit/ to .gitignore first" ;;
     *) die "cannot ask git whether $ME_FILE is ignored" ;;
   esac
-  saved="$(read_me)"
+  saved="$(read_me)" || exit 1
   mkdir -p "${ME_FILE%/*}"
-  jq -n --argjson s "$saved" --arg t "$team" --arg m "$member" '{members: ($s + {($t): $m})}' > "$ME_FILE"
+  # Built before the file is opened: a failure leaves the old file whole.
+  saved="$(jq -n --argjson s "$saved" --arg t "$team" --arg m "$member" '{members: ($s + {($t): $m})}')" || exit 1
+  printf '%s\n' "$saved" | jq ${JQB:+"$JQB"} . > "$ME_FILE"
   jq -c . -- "$ME_FILE"
 }
 
@@ -251,8 +269,8 @@ run_self() { "$BASH" "$SELF" "$@"; }
 cmd_whoami() {
   local saved cfg n i team member members good='{}' stale='[]'
   [ -f "$ME_FILE" ] || die "no member chosen yet in $ME_FILE; team:start asks once"
-  saved="$(read_me)"
-  cfg="$(cmd_config)"
+  saved="$(read_me)" || exit 1
+  cfg="$(cmd_config)" || exit 1
   n="$(jq -r 'length' <<<"$saved")"; i=0
   while [ "$i" -lt "$n" ]; do
     team="$(jq -r --argjson i "$i" 'keys[$i]' <<<"$saved")"; i=$((i + 1))
@@ -275,11 +293,13 @@ cmd_whoami() {
 # or more have a task. A team whose files cannot be read is reported with
 # its fault, and the other teams are still read.
 cmd_mine() {
-  local saved cfg n i team member left members err next sug rows='[]' errf
-  saved="$(read_me)"
-  cfg="$(cmd_config)"
+  local saved cfg n i team member left members err next sug rows='[]'
+  saved="$(read_me)" || exit 1
+  cfg="$(cmd_config)" || exit 1
   gather
-  errf="$(mktemp)"
+  # Global, not local: the EXIT trap runs after this function has returned.
+  errf="$(mktemp)" || die "cannot make a temporary file"
+  trap 'rm -f -- "${errf:-}"' EXIT
   n="$(jq -r '.teams | length' <<<"$cfg")"; i=0
   while [ "$i" -lt "$n" ]; do
     team="$(jq -r --argjson i "$i" '.teams | keys[$i]' <<<"$cfg")"; i=$((i + 1))
@@ -329,7 +349,7 @@ remote_read=false; remote_heads=""; pr_read=false; prs='[]'; gh_cmd=""
 gather() {
   local out c
   if git remote get-url origin >/dev/null 2>&1 \
-     && out="$(git ls-remote --heads origin 2>/dev/null)"; then
+     && out="$(GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin 2>/dev/null </dev/null)"; then
     remote_read=true
     remote_heads="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's#^[0-9a-f]*[[:space:]]*refs/heads/##p')"
   fi
@@ -338,7 +358,7 @@ gather() {
     if command -v "$c" >/dev/null 2>&1; then gh_cmd="$c"; break; fi
   done
   if [ -n "$gh_cmd" ] \
-     && out="$("$gh_cmd" pr list --state all --limit 1000 --json headRefName,state,url 2>/dev/null)" \
+     && out="$(GH_PROMPT_DISABLED=1 "$gh_cmd" pr list --state all --limit 1000 --json headRefName,state,url 2>/dev/null </dev/null)" \
      && out="$(printf '%s' "$out" | tr -d '\r' | jq -c 'if type == "array" then . else error end' 2>/dev/null)"; then
     pr_read=true; prs="$out"
   fi
@@ -347,7 +367,7 @@ gather() {
 cmd_status() {
   local team="${1:-}" member="${2:-}" tasks n i t branch spec run_file run phase run_pr run_end lb rb pr rows
   [ -n "$team" ] && [ -n "$member" ] || usage
-  tasks="$(cmd_tasks "$team" "$member")"
+  tasks="$(cmd_tasks "$team" "$member")" || exit 1
   gather
   rows='[]'
   n="$(jq -r 'length' <<<"$tasks")"; i=0
@@ -373,9 +393,9 @@ cmd_status() {
       . + [ $t + (
         if $pr != null and $pr.state == "MERGED" then {status: "done", source: "pull request", pr: $pr.url}
         elif $pr != null and $pr.state == "OPEN" then {status: "in review", source: "pull request", pr: $pr.url}
-        elif $runpr != "" then {status: "in review", source: "run state", pr: $runpr}
-        elif $t.blocked != "" then {status: "blocked", source: "task file", pr: ""}
         elif $end == "abandoned" then {status: "abandoned", source: "run state", pr: ""}
+        elif $runpr != "" and ($pr == null or $pr.state != "CLOSED") then {status: "in review", source: "run state", pr: $runpr}
+        elif $t.blocked != "" then {status: "blocked", source: "task file", pr: ""}
         elif $end == "done" then {status: "finished", source: "run state", pr: ""}
         elif $run then {status: "in progress", source: "run state", pr: ""}
         elif $lb then {status: "in progress", source: "local branch", pr: ""}
@@ -388,9 +408,10 @@ cmd_status() {
     '{team: $team, member: $m, originRead: $rr, prRead: $pr, tasks: .}' <<<"$rows"
 }
 
-# The next task, in file order. A task in progress comes before a new one:
-# resumed when this machine holds its run, reported when only a branch
-# shows it, because a fresh start would fight the work already there.
+# The next task. Every task in progress comes before a new one: the first
+# whose run is on this machine is resumed, else the first in progress is
+# reported, because a fresh start would fight the work already there.
+# Only then the first task not started, in file order.
 # An abandoned run and a finished run are passed over: the pipeline
 # refuses to work on an abandoned run again, and a finished run has
 # nothing left to resume.
@@ -398,11 +419,14 @@ cmd_next() {
   local team="${1:-}" member="${2:-}"
   [ -n "$team" ] && [ -n "$member" ] || usage
   cmd_status "$team" "$member" | jq -c '
-    [.tasks[] | select(.status == "in progress" or .status == "not started")] | first as $t
-    | if $t == null then {action: "none", task: null}
-      elif $t.status == "not started" then {action: "start", task: $t}
-      elif $t.run then {action: "resume", task: $t}
-      else {action: "elsewhere", task: $t} end'
+    [.tasks[] | select(.status == "in progress")] as $ip
+    | ([$ip[] | select(.run)] | first) as $r
+    | ([.tasks[] | select(.status == "not started")] | first) as $new
+    | (if $r != null then {action: "resume", task: $r}
+       elif ($ip | length) > 0 then {action: "elsewhere", task: $ip[0]}
+       elif $new != null then {action: "start", task: $new}
+       else {action: "none", task: null} end)
+      + {originRead, prRead}'
 }
 
 # The /pipeline line for one task: the seed first, then the task's names,
@@ -411,7 +435,7 @@ cmd_next() {
 cmd_command() {
   local team="${1:-}" member="${2:-}" id="${3:-}" t
   [ -n "$team" ] && [ -n "$member" ] && [ -n "$id" ] || usage
-  t="$(cmd_tasks "$team" "$member" | jq -c --arg id "$id" '[.[] | select(.id == $id)] | first // empty')"
+  t="$(cmd_tasks "$team" "$member" | jq -c --arg id "$id" '[.[] | select(.id == $id)] | first // empty')" || exit 1
   [ -n "$t" ] || die "no task '$id' for member '$member' in team '$team'"
   jq -r '
     def q: if test("^[A-Za-z0-9._/:@=+,-]+$") then . else "\"" + gsub("(?<c>[\"\\\\])"; "\\\(.c)") + "\"" end;
@@ -425,24 +449,28 @@ cmd_command() {
 # edited by hand. It is written only when asked, into the path the team
 # block names, for the person who asked to commit.
 cmd_render() {
-  local team="${1:-}" member="${2:-}" cfg entry f st name
+  local team="${1:-}" member="${2:-}" cfg entry members f st name
   [ -n "$team" ] && [ -n "$member" ] || usage
-  cfg="$(cmd_config)"
-  entry="$(team_entry "$cfg" "$team")"
+  cfg="$(cmd_config)" || exit 1
+  entry="$(team_entry "$cfg" "$team")" || exit 1
   f="$(jq -r '.progressView // empty' <<<"$entry")"
   [ -n "$f" ] || die "team '$team' has no 'progressView'; add it with team:setup"
+  members="$(cmd_roster "$team")" || exit 1
+  [ "$(jq -r --arg m "$member" 'any(.[]; .id == $m)' <<<"$members")" = "true" ] \
+    || die "no member '$member' in team '$team'"
   f="${f//\{member\}/$member}"
-  st="$(cmd_status "$team" "$member")"
-  name="$(cmd_roster "$team" | jq -r --arg m "$member" '.[] | select(.id == $m) | .name')"
+  path_ok "team '$team': progress page" "$f"
+  st="$(cmd_status "$team" "$member")" || exit 1
+  name="$(jq -r --arg m "$member" '.[] | select(.id == $m) | .name' <<<"$members")"
   mkdir -p "$(dirname -- "$f")"
-  jq -r --arg name "$name" --arg day "$(date -u +%Y-%m-%d)" '
+  jq ${JQB:+"$JQB"} -r --arg name "$name" --arg day "$(date -u +%Y-%m-%d)" '
     def cell: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|");
     def code: if . == "" then "" else "`" + cell + "`" end;
     "# \($name) — progress",
     "",
     "> Written by `team:status` from git\(if .prRead then " and the pull requests" else "" end) on \($day). Do not edit by hand: run `team:status` again.",
     (if .originRead then empty else "> origin was not read: a branch pushed from another machine is not shown." end),
-    (if .prRead then empty else "> Pull requests were not read: a merged task shows as in progress or in review." end),
+    (if .prRead then empty else "> Pull requests were not read: a merged task shows as in progress, in review, or not started when its branch was deleted." end),
     "",
     "| No. | Task | Title | Status | Branch | PR | Note |",
     "|---|---|---|---|---|---|---|",

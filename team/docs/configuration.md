@@ -112,9 +112,9 @@ these facts for every task, and the first that answers wins:
 |---|---|---|
 | A merged pull request for the task's branch | done | `pull request` |
 | An open pull request for the task's branch | in review | `pull request` |
-| The pipeline's run on this machine recorded a pull request | in review | `run state` |
-| The task file has a `blocked` note | blocked | `task file` |
 | The pipeline's run on this machine was abandoned | abandoned | `run state` |
+| The pipeline's run on this machine recorded a pull request that is not closed | in review | `run state` |
+| The task file has a `blocked` note | blocked | `task file` |
 | The pipeline's run on this machine is at `DONE` | finished | `run state` |
 | The pipeline's run on this machine exists | in progress | `run state` |
 | The branch exists on this machine | in progress | `local branch` |
@@ -126,11 +126,15 @@ name the pipeline gives it. Three keys of its state file are read:
 `abandoned`, `current_phase` and `pr_url`. How a run ended follows the
 pipeline's rule, `RUN_END_JQ` in `pipeline/scripts/progress.sh`, and a
 test checks that the two agree. `team.sh next` passes over an abandoned
-and a finished task. `origin` is read with `git ls-remote`, never
+and a finished task. It returns a task in progress before a new one: first
+the task whose run is on this machine, then any other task in progress,
+and only then the first task not started. `origin` is read with `git ls-remote`, never
 fetched. Pull requests are read with `gh`, probed as `gh`, `gh.exe` and
 `gh.cmd`. The output says `originRead` and `prRead`: a source that could
 not be read is reported as not read, never taken as "no". Without `gh`, a
-merged task never shows as done.
+merged task never shows as done, and shows as not started when its branch
+was deleted. `gh` returns at most the newest 1000 pull requests: in a
+repository with more, an older merged task is read from the other facts.
 
 ## The commands
 
@@ -144,7 +148,7 @@ merged task never shows as done.
 | `team.sh whoami` | the saved answers, each checked against today's settings and roster, and the `stale` ones |
 | `team.sh mine` | for every team: the saved member and its next task, or the ids git's email suggests, and any fault |
 | `team.sh status <team> <member>` | each task with its status, its source, and what was not read |
-| `team.sh next <team> <member>` | `start`, `resume`, `elsewhere` or `none`, with the task |
+| `team.sh next <team> <member>` | `start`, `resume`, `elsewhere` or `none`, with the task, and `originRead` and `prRead` |
 | `team.sh command <team> <member> <id>` | the `/pipeline` line for the task |
 | `team.sh render <team> <member>` | the path of the progress page it wrote |
 
