@@ -2252,37 +2252,57 @@ fenced_block() {
   cmp "$HOME/.delivery-kit.json" "$TEST_DIR/home-config-before"
 }
 
-@test "the hook's divergence-count command prints the length of the list it introduces" {
-  # Audit H13. A comment in handoff/hooks/context-guard.sh tells the reader to
-  # take the number of recorded divergences from a grep over the differential,
-  # and then lists them. The grep it named printed 4 for a list of 3, because a
-  # later divergence (5ff33c6) is anchored the same way. Run the command the
-  # comment actually gives and compare it with the numbered entries in THAT
-  # comment block (the run of `#` lines holding the grep), numbered 1..n in
-  # order; require scripts/context-guard/README.md to give the same command.
-  line="$(grep -nF -- "grep -cE '^run_shape " "$HOOK" || true)"
-  [ "$(printf '%s\n' "$line" | grep -c .)" -eq 1 ] || { echo "expected one divergence-count grep in the hook, got: $line"; false; }
-  lineno="${line%%:*}"
+@test "the divergence-count command prints the length of the list it introduces" {
+  # Audit H13, then H15. The record of the per-line rule's divergences tells the
+  # reader to take their number from a grep over the differential, and then
+  # lists them. The grep it named printed 4 for a list of 3, because a later
+  # divergence (5ff33c6) is anchored the same way. The record used to be a
+  # comment in handoff/hooks/context-guard.sh; it now lives in the README
+  # section the hook points at beside READINGS_JQ, and this test followed it.
+  # Run the command that SECTION gives and compare it with the numbered entries
+  # in that section only, numbered 1..n in order. Scoped on purpose: the README
+  # gives the same command once more, under "Expectations", with no list.
+  sec="Divergences in the per-line rule"
+  hook_copy="$(tr -d '\r' < "$HOOK")"
+  tr -d '\r' < "$HOOK" > "$TEST_DIR/hook"
+  tr -d '\r' < "$ROOT/scripts/context-guard/README.md" > "$TEST_DIR/readme"
+
+  # The hook keeps ONE pointer to the section, in the comment run that ends at
+  # READINGS_JQ=, so moving either away from the other goes red here.
+  ptr="# Why: scripts/context-guard/README.md, \"$sec\"."
+  n="$(grep -cxF -- "$ptr" "$TEST_DIR/hook" || true)"
+  [ "$n" -eq 1 ] || { echo "expected one pointer to \"$sec\" in the hook, got $n"; false; }
+  near="$(awk -v p="$ptr" '
+    $0 == p { at = NR; next }
+    at && /^READINGS_JQ=/ { print "OK"; exit }
+    at && !/^#/ { print "BROKEN at line " NR ": " $0; exit }' "$TEST_DIR/hook")"
+  [ "$near" = "OK" ] || { echo "the pointer to \"$sec\" is not in the comment run above READINGS_JQ: $near"; false; }
+  # A count command left in the hook would be a copy this test no longer reads.
+  [[ "$hook_copy" != *"grep -cE '^run_shape "* ]] \
+    || { echo "the hook carries a divergence-count grep again; it belongs in the README section"; false; }
+
+  awk -v h="### $sec" '$0 == h { on = 1; next } on && /^#+ / { exit } on { print }' \
+    "$TEST_DIR/readme" > "$TEST_DIR/section"
+  [ -s "$TEST_DIR/section" ] || { echo "no section \"### $sec\" in scripts/context-guard/README.md"; false; }
+  n="$(grep -cF -- "grep -cE '^run_shape " "$TEST_DIR/section" || true)"
+  [ "$n" -eq 1 ] || { echo "expected one divergence-count grep in the section, got $n"; false; }
+  line="$(grep -F -- "grep -cE '^run_shape " "$TEST_DIR/section")"
   pat="${line#*grep -cE \'}"
   pat="${pat%%\'*}"
   [ -n "$pat" ] || { echo "could not read the pattern from: $line"; false; }
+  [[ "$line" == *"grep -cE '$pat' scripts/context-guard/differential.sh"* ]] \
+    || { echo "the section's command does not read scripts/context-guard/differential.sh: $line"; false; }
   counted="$(grep -cE -- "$pat" "$ROOT/scripts/context-guard/differential.sh" || true)"
 
-  # The comment block around the grep line, then its numbered entries. A
-  # number out of sequence prints BAD, which fails the count below.
-  listed="$(awk -v at="$lineno" '
-    /^#/ { if (!inblock) { start = NR; n = 0; bad = 0 } inblock = 1
-           if ($0 ~ /^#   [0-9]+\. /) { n++; split($0, w, " "); if (w[2] != n ".") bad = 1 }
-           next }
-    { if (inblock && start <= at && NR > at) { print (bad ? "BAD" : n); found = 1; exit } inblock = 0 }
-    END { if (!found) print "NONE" }' "$HOOK")"
-  [[ "$listed" =~ ^[0-9]+$ ]] || { echo "the comment block's numbered list is unreadable or out of order: $listed"; false; }
-  # Deliberate: a block with no entries must not let a grep printing 0 pass.
-  [ "$listed" -gt 0 ] || { echo "no numbered entries in the comment block that holds the grep"; false; }
-  [ "$counted" -eq "$listed" ] || { echo "the comment's grep prints $counted for a list of $listed (pattern: $pat)"; false; }
-  readme_copy="$(tr -d '\r' < "$ROOT/scripts/context-guard/README.md")"
-  [[ "$readme_copy" == *"grep -cE '$pat' scripts/context-guard/differential.sh"* ]] \
-    || { echo "scripts/context-guard/README.md does not give the hook's command: grep -cE '$pat'"; false; }
+  # The section's numbered entries. A number out of sequence prints BAD,
+  # which fails the count below.
+  listed="$(awk '
+    /^  [0-9]+\. / { n++; split($0, w, " "); if (w[1] != n ".") bad = 1 }
+    END { print (bad ? "BAD" : n + 0) }' "$TEST_DIR/section")"
+  [[ "$listed" =~ ^[0-9]+$ ]] || { echo "the section's numbered list is out of order: $listed"; false; }
+  # Deliberate: a section with no entries must not let a grep printing 0 pass.
+  [ "$listed" -gt 0 ] || { echo "no numbered entries in the section that holds the grep"; false; }
+  [ "$counted" -eq "$listed" ] || { echo "the section's grep prints $counted for a list of $listed (pattern: $pat)"; false; }
 }
 
 @test "the systemMessage names skills as the user types them; the reason to Claude does not change" {

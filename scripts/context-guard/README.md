@@ -8,6 +8,9 @@ They live here rather than under `handoff/` on purpose: `handoff/` is copied
 onto every user's machine at install, and these are maintainer tools. A clone
 of this repository gets them; a plugin install does not.
 
+The last section, "Notes moved from the hook", holds the measurement notes
+that used to be comments in the hook itself.
+
 | Script | Answers |
 |---|---|
 | [`differential.sh`](./differential.sh) | "Did this refactor change what the guard does?" |
@@ -384,6 +387,371 @@ It also finds both jq arrays **by pattern, never by line number**, and asserts
 the field names it expects are actually on the line it found — a rig that
 mutates the wrong line still produces a full table of plausible results.
 
+## Notes moved from the hook
+
+These notes used to be comments in `handoff/hooks/context-guard.sh`:
+measurement stories, histories of how a fault was found, long experiments
+and numbers from past runs. They moved here word for word from the hook at
+`3e36d78`, with only the comment markers removed. The hook keeps each
+load-bearing rule beside its code, in a shorter form, and a pointer line
+naming the section here:
+
+```bash
+# Why: scripts/context-guard/README.md, "<section>".
+```
+
+A test in `handoff/tests/context-guard.bats` holds every pointer to a section
+under this heading and every section to a pointer. In the quoted text,
+"above", "below" and "this line" mean the hook, at the pointer.
+
+### Threshold of 100, measured
+
+From the hook, beside `is_valid_threshold`:
+
+100 is the value this rule exists for, and the reason the comparison is
+`-lt` rather than `-le`. 450 is obviously a typo for 45 and looks wrong on
+sight; "warn me at 100%" reads like a deliberate choice and disarms the
+guard just as completely. MEASURED 2026-09-04 against the previous `-le`:
+with thresholdPct 100 and observed context at half the window, the guard
+emitted nothing at all. Pinned in both directions by the boundary tests in
+handoff/tests/context-guard.bats — 100 refused, 99 accepted.
+
+### Payload extraction, measured
+
+From the hook, above the payload `jq` call, on why it is one call:
+
+Every field this hook needs from the payload, in ONE jq call rather than one
+call per field. This hook runs on PostToolUse after EVERY tool call, and
+process spawn dominates on Windows under Git Bash, which is a supported
+platform. Measured 2026-09-01, on the NON-FIRING path — the one that follows
+almost every tool call: this took the whole run from 8/12/16 jq processes to
+5/6/7, for zero, one and two config files present. A firing run spends one
+more, on the emission at the bottom of this file, which is the output itself.
+
+From the hook, above the payload `jq` call, on reading stdin and the drain:
+
+jq READS STDIN ITSELF. The payload used to be copied into a shell variable at
+the top of this file and written back out here through a pipe — a `cat` and a
+`printf` subshell, on every run, for a value with exactly ONE consumer.
+
+THE DRAIN AFTER A FAILED CALL IS NOT BELT AND BRACES. It was a `|| cat` beside
+the call until the jq probe moved onto the same branch. jq reads to end of
+input only while the input keeps parsing: hand it something malformed at its
+FIRST token and it
+aborts at once, having read a buffer's worth and no more. The caller is then
+writing into a pipe nobody is reading, and takes the same broken-pipe death
+the drain exists to prevent — measured, 3 runs of 3, a 300KB payload
+beginning `{not json`: writer exit 141 without this, 0 with it, and 0 on the
+hook that copied stdin. This is the mirror image of the fault the copy's
+removal closed, and it was found by review rather than by the harness, which
+compares the hook's own stdout and never the writer's status.
+
+It costs NOTHING on the path that matters. The branch runs only when jq exits
+non-zero, which for a well-formed payload it never does, so the ordinary run
+still spends the two processes this change removed and no more.
+
+From the hook, above the payload `jq` call, on the jq probe:
+
+THE PROBE RUNS ONLY AFTER THIS CALL FAILS. It used to run first, on every tool
+call, to protect a path taken once per machine: one process, measured
+2026-10-10 at about 90 ms of the hook's ~750 ms floor on Windows (alternating
+runs, the fastest of thirty each). A jq that cannot run fails this call too,
+so asking `jq --version` only then reaches every jq the old probe reported,
+and a malformed payload pays one extra process where the ordinary run pays
+none. The test is the old one — `jq --version` failing — and NOT a table of
+exit codes: 127 and 126 are the obvious ones, but a jq that dies on a missing
+library, or a shim that exits 1, is just as unable to run, and an exit-code
+rule that missed one would leave the guard silent with no hint, which is the
+failure this branch exists to name.
+
+ONE CASE ANSWERS DIFFERENTLY, and it fails safe. A jq that parses the payload
+but fails `--version` was reported as missing, and the guard stayed off; now
+the payload call succeeds, the probe never runs, and the guard works. Found
+by review with a shim that fails only `--version`; the differential cannot
+see it, because it varies the hook and never jq.
+
+From the hook, above the payload `jq` call, on consuming stdin:
+
+CONSUME STDIN BEFORE LEAVING, AND THAT IS LOAD BEARING. A reader that exits
+without reading leaves the caller writing into a closed pipe. Measured
+2026-09-02, a ~200KB payload: a reader that never reads leaves the writer at
+exit 141 — killed by the broken pipe — while a reader that consumes it leaves
+the writer at 0. A jq that cannot start reads nothing, so the `cat` below
+drains the payload BEFORE the hint and its `exit 0`, on the same branch that
+drains it for a payload jq could not parse. Do not move the hint above it
+because the guard is exiting anyway: what it protects is the caller, not
+this hook.
+
+### Subagent payloads, measured
+
+From the hook, above the `agent_id` exit:
+
+Inside a subagent this hook is handed the PARENT's transcript_path and the
+PARENT's session_id — measured on 2026-08-18 by logging the hook's stdin and
+driving one throwaway subagent; both of its tool calls arrived carrying the
+parent session's transcript, indistinguishable from the main-chain calls
+around them except for the two fields read here.
+
+### Configuration reader, measured
+
+From the hook, inside `read_config`, on the separator trap:
+
+The trap is QUIETER here than it is up there, which makes it worse. Every
+value below is a positive integer, so a value that lands in the wrong slot
+PASSES validation and is installed. Measured with thresholdPct absent — an
+ordinary shape, since every key is optional — a tab-split installs maxBytes
+as thresholdTokens: the guard would fire at ten thousand tokens instead of
+six hundred and fifty thousand, with no error and no failing test.
+
+From the hook, inside `read_config`, on the split:
+
+Split with parameter expansion for the reason the payload block gives at
+length: `read` stops at the first newline, and a JSON string value may
+contain one. Measured here, this was not theoretical — a windowTokens of
+"5\n999999" truncated to "5" and took thresholdPct, thresholdTokens and
+maxBytes with it, all three silently reverting to their defaults.
+
+### The median window, measured
+
+From the hook, above `READINGS_JQ`, on the median of fifteen:
+
+Current context = input + cache_read + cache_creation per main-chain
+assistant message (the same arithmetic status-line tools use). MEDIAN of
+the last 15 entries, not the last one: a request that re-sends the full raw
+history (a review or advisory tool that forwards the transcript) inflates
+entries far above the live context, and a last-entry read fires the guard
+early — seen 2026-08-07, the hook reported 45% while the session was
+genuinely at 24%.
+
+15 and not 5, because such a tool does not inflate ONE entry. The assistant
+messages that follow it read the same oversized cache, so the inflation
+persists for four to six CONSECUTIVE entries. Measured against the advisor
+tool on 2026-08-15: 122774 -> 252163, 160982 -> 328729, 183166 -> 371027 —
+each about 2x, each lasting four to six readings. A 5-wide window is FILLED
+by that run, so the median is not merely dragged toward the spike, it IS the
+spike: the hook reported 37% where Claude Code's own status line read 19%.
+Reading high is the fail-loud direction, so the cost was half a wasted
+session rather than a session lost — but a guard that is wrong by 2x teaches
+the user to ignore it, which ends in the same place. 15 outvotes a run of 7.
+
+From the hook, above `READINGS_JQ`, on the line budget and the byte cap:
+
+The tail is a budget in LINES while the median needs fifteen READINGS, and the
+two diverge badly. Tool results, user turns and sidechain lines all consume
+the budget without yielding a reading, and in a session that dispatches
+subagents the sidechain lines dominate. At 300 the boundary was reachable:
+with ~295 intervening lines the window clipped every honest reading, the
+median degenerated to whichever single entry survived, and an inflated one
+reported 450% where the session was at 24% — reintroducing the 2026-08-07
+incident this arithmetic exists to prevent, and then telling the user to
+raise windowTokens, which converts a loud failure into a silent one. 5000
+leaves room for several subagent fan-outs between readings, and `.[-15:]`
+below already takes the last fifteen MATCHING entries, so nothing downstream
+has to change.
+
+But a budget in lines does not bound WORK. 5000 lines of tool results
+measured 48MB, and reading it cost 7.2s against a hook that runs on every
+tool call — 1.4x under the old 10s timeout, and a hook killed by its timeout
+emits nothing, which is a guard that is silently off. Hence the byte cap
+below: 8MB brought the common path to 2.0s, until 2026-10-10, when the first
+read became 1MB (the ladder below).
+
+### Divergences in the per-line rule
+
+From the hook, above `READINGS_JQ`, on its final `select`:
+
+THE FINAL `select` IS NOT COSMETIC. jq's `+` concatenates STRINGS, so a
+usage record whose three token fields are ALL strings does not error — it
+yields a string, and jq sorts every string AFTER every number. Without this
+line that junk lands inside the fifteen-wide window and pushes the middle
+index onto a LARGER reading: measured, readings 100, 200, 300 plus two such
+entries report a median of 300 where the true one is 200. An inflated median
+is the 2026-08-07 failure exactly, arrived at from a new direction.
+
+It also records divergences from the pre-refactor hook. The count went one,
+then two, then three as successive rounds of review measured further; all are
+kept, and the differential asserts each rather than hiding it. TAKE THE NUMBER
+FROM THE HARNESS, NOT FROM THIS SENTENCE — it has been wrong three times:
+`grep -cE '^run_shape .* diff@f495823$' scripts/context-guard/differential.sh`
+counts the entries listed below, and a test holds it to that list. It is
+scoped to f495823, the commit that brought these divergences in, on purpose:
+a later fix (5ff33c6, a threshold of exactly 100) added a divergence asserted
+the same way that belongs to a different rule, and the wider
+`diff@[0-9a-f]+$` counts that one as well. Until 2026-10-11 this sentence
+gave the wider grep. The anchor is not decoration either: a bare ` diff$`
+also matches a comment about the diff command and answered four where the
+truth was three, in the same breath as telling the reader to count rather
+than trust prose.
+
+  1. The concatenation is NOT parseable as a number — "abc". The old code
+     emitted it as a line, the separate median call then failed to parse the
+     whole stream, and THE GUARD SAID NOTHING. The new code drops it and
+     answers from the readings around it. Measured: 0 bytes against 556.
+
+  2. The concatenation IS parseable as a number — "180000" from three string
+     fields. The old code's raw output was re-parsed into a genuine reading
+     of 180000 and inflated the median; the new code drops it. Measured, on
+     two readings of 80000 and three such records: old median 180000 and the
+     guard fires at 90%, new median 80000 and it stays silent at 40%.
+
+  3. The junk is STARVED DOWN TO by the byte cap. It no longer counts toward
+     the floor of fifteen, so where the old code cleared the floor on fifteen
+     string readings and skipped the re-read, this one falls back and answers
+     from the real readings. Old fires at 90% on 180000, new is silent at the
+     true 15%. This one moves the FALLBACK DECISION, not just the median.
+
+They point in OPPOSITE directions — the first turns silence into speech, the
+other two turn speech into silence — and all three are corrections. In the
+last two the old guard was speaking because junk had inflated its median or
+padded its count, which is the 2026-08-07 fault itself. Restoring any of them
+byte-for-byte means restoring a defect.
+
+### The count rule, measured
+
+From the hook, above `SUMMARY_JQ`, on the single pass and its `?`:
+
+The count and the median come from ONE pass over the same list, composed here
+ONCE and spent at both call sites below. It used to be three: this program's
+ancestor emitted one number per line, a `grep -c` counted those lines, and a
+third jq took the median. Measured 2026-09-02 on the NON-FIRING path, which
+follows almost every tool call: 4/5/6 jq processes to 3/4/5 on an ordinary
+transcript and 5/6/7 to 4/5/6 on the starved one, for zero, one and two
+configuration files, and the grep gone.
+
+THE `?` AFTER THE PER-LINE PIPELINE IS LOAD BEARING. Streaming jq treats a
+runtime error as an error on THAT INPUT: it reports it and carries on with
+the next line. Collect the same pipeline into an array and the error escapes
+the array construction and kills the whole program, so jq emits NOTHING —
+every reading lost, ctx empty, and the guard silent, which is the one
+direction this hook must never fail in. Measured on a transcript whose middle
+line carries a string where a token count belongs: without the `?`, no output
+and exit 5; with it, the same two numbers streaming gives.
+
+From the hook, above `SUMMARY_JQ`, on what the count counts:
+
+FINITE is the honest word, and this said "every number" until it was measured.
+jq calls a NaN a number and renders it "null", which begins with neither — so
+`startswith` counts it where the regex and the original grep did not. Measured
+on 0, -0.0, -0, 1e30, 1e-7, 0.1+0.2, 2^53+1, a thirty-digit literal, 1e400,
+-1e400, 100, -5, -0.5 and 123.4: identical on every one. NaN is the sole
+disagreement.
+
+It is left standing rather than closed, and the direction is why. A NaN can
+only make the count LARGER, and a larger count can only skip the uncapped
+re-read — which returns the same last fifteen readings whenever the capped
+read holds fifteen at all, because the capped read is a byte suffix of the
+same file. To reach the answer a transcript would need a NaN AND a starved
+cap; a token count is a sum of integers and has no route to one. Named here
+so the next reader inherits the exception rather than the belief.
+
+`select(. >= 0)` was proposed and is NOT equivalent: -0.0 is >= 0 but its text
+form is "-0", which the old `grep -c '^[0-9]'` did not count. Measured, on
+100, 0, -5, -0.5, 1e30, 123.4, 1e-7 and -0.0: the regex and `startswith` agree
+on all eight, `. >= 0` disagrees on the last.
+
+THE COUNT IS NOT `length`, AND THAT IS LOAD BEARING TOO. The `grep -c` it
+replaces counted lines BEGINNING WITH A DIGIT, so a negative reading was
+excluded from the count and included in the median — the two look at
+different sets, and always have. `length` counts it, moving the fallback
+decision by one on such a transcript. Measured on readings 100, -5, 300: the
+old count says 2, `length` says 3, and the median is 100 either way. The cap
+may never change the answer, so this reproduces the rule rather than
+improving it.
+
+ONE PLACE WHERE THAT IS NOT QUITE TRUE, named rather than glossed. The
+`select(type == "number")` in the per-line rule removes junk from the array,
+and the count is taken over that array — so junk no longer counts toward the
+floor of fifteen either. Under a byte cap that starves the read to junk
+alone, the old code counted fifteen string readings, cleared the floor,
+skipped the fallback and answered from them; this counts none, falls back,
+and answers from the real readings. Measured: twenty readings of 30000 then
+fifteen junk records, cap set to the junk's byte length — old fires at 90%
+on a median of 180000, new is silent at 15% on the true 30000. Fail-safe, and
+the differential carries it as a third asserted difference.
+
+### The read ladder, measured
+
+From the hook, above `FIRST_BYTES`:
+
+That fallback read the file twice (until 2026-10-10; the ladder below reads
+it up to three times), so it is NOT free and this comment will not pretend
+otherwise: measured 8.2s where the uncapped code was 7.2s, on a 48MB
+transcript whose readings sit inside the line window but outside the byte
+cap. The timeout in hooks.json is 30 because of this path, not because of the
+2.0s common one of that time. Trading ~1s in a case that needs megabytes between
+readings for 3.6x in every ordinary session is the right trade; a cap that
+also bounded the fallback would be faster and occasionally wrong.
+
+Raising the floor from three to fifteen widened the door to that path, and
+the honest way to state it is as a rate: the read of the whole file runs
+whenever the capped 8MB holds fewer than fifteen readings, which needs upwards
+of half a megabyte between consecutive readings. An ordinary session is
+nowhere near that; a session whose tool results are that large pays ~1s and
+gets the right answer, which is the trade already made above rather than a
+new one. (The 1MB first read below climbs far more often — whenever readings
+sit more than about 67KB apart — which is what it costs to make the common
+read small.)
+
+THE READ NOW CLIMBS: 1MB FIRST, THEN maxBytes, THEN UNCAPPED, and it stops at
+the first rung holding fifteen readings. Added 2026-10-10 (audit item 12).
+The floor argument above is what makes this free: every rung is a byte suffix
+of the same file, so a rung holding fifteen readings has the same last
+fifteen as the uncapped read, and the answer cannot depend on which rung gave
+it. (Claude Code appends while the hook runs, so a later rung can see lines an
+earlier one did not; that is the timing every read here has always had, and
+the size check below is written for it.) What changes is the WORK. At the 8MB cap alone a 6.7MB transcript cost
+1.6-2.5s per tool call, while the last fifteen readings needed far less:
+measured over 35,053 points in 312 real transcripts, half needed 114KB or
+less, and 1MB held fifteen readings at 92.5% of them (2MB at 97.3%, 8MB at
+every one; the largest needed 5.3MB). So 1MB answers almost every call, and
+the 7.5% it starves pay one more read, of maxBytes — the trade the floor
+already made one rung up.
+
+The worst path now reads three times where it read twice: 1MB, then maxBytes,
+then uncapped. Measured 2026-10-10 on the 48MB transcript described above,
+readings inside the line window and outside the byte cap: 9.4s against 8.4s
+before (medians of six alternating runs on a loaded machine), still more
+than three times under the 30-second timeout in hooks.json.
+
+From the hook, above `measure_size`:
+
+A RUNG THAT HELD THE WHOLE FILE IS NOT READ AGAIN (audit H7). A session holds
+fewer than fifteen readings until its fifteenth assistant message, so until
+2026-10-10 every call before that read the file twice — the capped read, then
+the uncapped one — when the capped read had already taken all of it and the
+second returned the same bytes. One `wc -c` decides it, and it runs only
+after a rung has starved, so the ordinary call never pays for it.
+
+THE SIZE IS MEASURED AFTER THE READ IT VOUCHES FOR, and again after the next
+one. Claude Code appends while the hook runs, and the file only grows: a size
+taken AFTER a read is at least what that read saw, so "size <= cap" proves the
+read held the whole file. A size taken BEFORE a read proves nothing about it.
+Found by review on 2026-10-10: one size taken after the 1MB read and reused
+for the maxBytes read let a transcript that grew past maxBytes in between skip
+the whole-file read; the readings at its start were cut, and the guard stayed
+silent where the old hook fired at 95%. A second `wc`, only when the maxBytes
+read also starves, closes it. A transcript truncated in place would defeat
+this; Claude Code has never been seen to do that.
+
+### systemMessage, measured
+
+From the hook, inside the once-per-session window note:
+
+NO LONGER A HEDGE — it was measured. On 2026-08-18 a firing carrying both
+fields was watched from the user's own terminal: the reason arrived as
+`PostToolUse:Bash hook returned blocking error ...` and this string
+arrived as a separate `PostToolUse:Bash says: handoff: ...` line.
+systemMessage IS honoured alongside a decision on PostToolUse. Earlier
+comments here called that unresolvable from inside a session, and they
+were right — it took a human watching the screen.
+
+From the hook, above the `systemMessage` text:
+
+`systemMessage` IS documented — "Warning message shown to the user" — and was
+measured arriving on 2026-08-18 as its own `PostToolUse:Bash says:` line while
+a decision was present in the same emission. So the warning now travels both:
+the path that is observed to reach Claude, and the path that is documented to
+reach the user. One being withdrawn no longer produces silence.
 ## Related records
 
 - `specs/014-guard-jq-spawn-count/` — the phase these came from, including the
