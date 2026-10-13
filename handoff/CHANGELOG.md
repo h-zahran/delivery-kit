@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Highlights
 
-- The context guard's long comments now live in its README. Comments only:
-  the guard behaves exactly as before.
+- The context guard's measurement notes moved out of the hook into
+  `scripts/context-guard/README.md` at the repository root, which an
+  installed plugin does not carry. Comments only: the guard behaves exactly
+  as before.
 - A sample handoff document, for a fictional project, shows a whole one
   before your first run.
 
