@@ -8,8 +8,8 @@ They live here rather than under `handoff/` on purpose: `handoff/` is copied
 onto every user's machine at install, and these are maintainer tools. A clone
 of this repository gets them; a plugin install does not.
 
-The last section, "Notes moved from the hook", holds the measurement notes
-that used to be comments in the hook itself.
+The section "Notes moved from the hook", second from the end, holds the
+measurement notes that used to be comments in the hook itself.
 
 | Script | Answers |
 |---|---|
@@ -752,6 +752,7 @@ measured arriving on 2026-08-18 as its own `PostToolUse:Bash says:` line while
 a decision was present in the same emission. So the warning now travels both:
 the path that is observed to reach Claude, and the path that is documented to
 reach the user. One being withdrawn no longer produces silence.
+
 ## Related records
 
 - `specs/014-guard-jq-spawn-count/` — the phase these came from, including the
