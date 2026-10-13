@@ -92,9 +92,18 @@ Name fewer suites at the end to run part of it. The image keeps its bash in
 macOS does. `MSYS_NO_PATHCONV=1` and `pwd -W` are for Git Bash on Windows;
 elsewhere they change nothing.
 
-It catches bash 3.2 faults, and only those. The container's tools are GNU, or
-busybox where none is installed, not macOS's BSD `sed`, `grep` and `awk`, so a
-fault in a BSD tool still shows only on CI's macOS shard.
+It catches bash 3.2 faults. It does not catch BSD-tool faults: the container's
+tools are GNU, or busybox where none is installed, not macOS's BSD `sed`,
+`grep` and `awk`, so those still show only on CI's macOS shard.
+
+Two reds come from the container, not from your change; both also fail on a
+tree CI passes. `a constitution saved in an unreadable encoding warns and
+reads as not set` in `pipeline/tests/preflight.bats` fails every run. The
+branch-name tests there that check letter case, `feature branch: a name that
+exists here or on origin, in any letter case, ...` and `spec folder: without
+--feature-branch, ...`, fail about one run in three when the repository is
+mounted from a Windows folder, likely because that folder ignores letter
+case.
 
 ## What the tests protect
 
