@@ -20,7 +20,7 @@ set +o xtrace +o verbose +o noglob +o keyword; shopt -u dotglob nocasematch
 #
 # check-versions.sh — every plugin's manifest, marketplace entry and changelog
 # agree. ONE implementation, TWO callers: the suite gate in
-# tests/portability.bats and the version job in .github/workflows/ci.yml.
+# tests/gate.bats and the version job in .github/workflows/ci.yml.
 #
 # This file exists because those two callers used to hold two copies of this
 # logic. They were kept in step by hand, they drifted once — an unanchored

@@ -169,7 +169,7 @@ link test's list in the same commit; skills need no list edit — their
   entry whose `name` matches that manifest, and the newest heading in that
   plugin's own changelog must agree. That check lives in exactly ONE place —
   `scripts/check-versions.sh` — and both gates call it: the version test in
-  `tests/portability.bats` and the `version` job in
+  `tests/gate.bats` and the `version` job in
   `.github/workflows/ci.yml`. It used to live in both of them, kept in step by
   hand, and it drifted — an unanchored regex in one accepted a changelog
   heading the other refused, and nothing noticed until a release. A separate
