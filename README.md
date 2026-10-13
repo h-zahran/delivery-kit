@@ -176,6 +176,10 @@ This repository builds itself with its own pipeline. The directories under
 one small feature with everything a finished run leaves behind — the spec,
 with the two clarifying questions a human answered, then the research, plan,
 data model, contract, quickstart and task list beside it.
+[The annotated run](pipeline/docs/examples/018-annotated-run.md) says which
+phase wrote each file and what to look at. Two fictional samples show what you
+get back: [a handoff document](handoff/docs/examples/2026-08-25-csv-export-SESSION-HANDOFF.md)
+and [a pull request's review guide](pipeline/docs/examples/review-guide.md).
 
 ## Contributing
 
