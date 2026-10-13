@@ -484,7 +484,7 @@ for dir in */; do
   shown cv_s "$cv"
 
   # Print what was read before comparing it.
-  # Why: check-versions.md, "The report line".
+  # Why: check-versions.md, "The report line and the first heading".
   # Every value is printed through its masked copy. jq emits a value raw, a
   # version or a directory name may hold a line feed, and this line lands in
   # a public workflow log where a forged extra line would misreport what the
@@ -496,7 +496,7 @@ for dir in */; do
   # them — `grep -m1` skips it rather than rejecting it, and reads the release
   # below. Reported on every run; enforced only for the plugin named by
   # --released, because unreleased work is normal and correct everywhere else.
-  # Why: check-versions.md, "The first heading".
+  # Why: check-versions.md, "The report line and the first heading".
   #
   # Under the C locale: under a UTF-8 locale grep calls a line holding a byte
   # that is not valid text binary, and prints "Binary file ... matches" in

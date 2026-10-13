@@ -2,6 +2,8 @@
 
 The longer reasons behind scripts/check-versions.sh, moved out of its
 comments: what was measured, what review found, and how a rule came to be.
+The script keeps the short why beside each line and this page holds the full
+paragraph, so the two overlap on purpose; the script is the authority.
 Beside each line the script keeps the sentences that say why that line must
 be exactly as it is, and one pointer line,
 `# Why: check-versions.md, "<section>".`, where a longer reason was moved
@@ -82,7 +84,15 @@ normalise before comparing: what is asserted is WHICH directory is named, not
 how it was written. One function, called from both walks. Writing this rule
 out twice — in the file whose header explains why a hand-kept pair is the
 defect — would be the same mistake one level down.
+norm_source <name> <value> sets the named variable, as shown() does, and
+prints nothing: called in a `$( )` it cost a process per marketplace
+entry, about 20 ms each on Windows (400 entries: 9 s, and 1.3 s by name,
+measured; research R5), which a fork listing thousands of entries turns
+into minutes. The name is a caller's variable, never one of the locals
+below.
 
+Collapse doubled separators FIRST, then strip leading current-directory
+prefixes, then trailing separators — in that order, and each repeatedly.
 A single pass of each was not enough: ".//handoff" survived as "/handoff",
 which then tripped the absolute-path guard in the reverse walk and was
 reported as escaping the repository. Every spelling here names the same
@@ -103,9 +113,16 @@ norm_source works: under a UTF-8 locale the substitution cost 9.2 ms on
 a 4,091-character source and 17.6 ms on 16 parts of 250, against 2.9
 and 4.5 ms in C (measured, research R1). A separator byte never occurs
 inside a UTF-8 character, so the count is the same in either locale.
+The pattern is held in a variable, as norm_source holds its own.
 
 ## Trailing line feeds
 
+One jq per plugin reads its plugin.json on standard input and the
+marketplace by its fixed path, and answers: the shape check; the name and
+the version; whether an entry has that name (`1` or `0`); and the
+matching entries' versions and sources. Each value is what one jq per
+value, read through $( ), gives on Linux (research R1): `// ""` for a
+missing value, and trailing line feeds removed, as $( ) removes them.
 nl finds the last character that is not a line feed and cuts there, in
 time that grows with the length. Two other ways grow with its square
 (measured, 64,000 line feeds, research R12): cutting one line feed per
@@ -150,6 +167,8 @@ for the duration.
 
 ## The NUL count
 
+A NUL byte makes grep call the changelog binary: the version read below
+then finds no version, and errexit ends the run with no message at all.
 Name it instead, in both forms. Counted with tr, before any grep or awk
 reads the file, because what an awk does with a NUL differs between the
 awks CI runs; tr under the C locale, because macOS tr under a UTF-8
@@ -183,14 +202,16 @@ heading carrying a trailing parenthetical in one of the two copies this file
 replaces while the other refused it. That divergence is the drift this file
 exists to end.
 
-## The report line
+## The report line and the first heading
 
 Print what was read before comparing it. In a workflow log this line is the
 difference between a red that explains itself and a red that sends someone
 to open three files.
-
-## The first heading
-
+Every value is printed through its masked copy. jq emits a value raw, a
+version or a directory name may hold a line feed, and this line lands in
+a public workflow log where a forged extra line would misreport what the
+gate found. The comparisons below read the raw values, so the masking
+cleans the report and hides nothing from the check.
 Is the version heading the FIRST heading, or does something sit above it?
 The three comparisons in this loop are satisfied by ANY matching heading, so
 an `## [Unreleased]` heading above the newest release is invisible to them —
@@ -234,6 +255,9 @@ jq stops such a file before any line is written. The loop is then fed by
 printf over the assigned text, which cannot fail, and not by a herestring:
 Git Bash hung, naming nothing, on a herestring of 65,536 to about 65,700
 bytes (measured), a size a fork controls through one entry's name.
+An empty result would make the loop below run zero times and pass vacuously.
+The count comparison further down would not catch it either when the tree
+holds no plugin directory — two zeroes agree.
 
 ## Traversal
 
@@ -276,3 +300,5 @@ newer local copy therefore sees FEWER findings than the gate does.
 A loop over zero plugins passes vacuously, having verified nothing. That is
 the defect this repository keeps rediscovering, and it is why the count above
 is compared rather than trusted. Pin that this walk found work to do.
+The working directory is not printed here either, for the reason given at
+the refusal above.
