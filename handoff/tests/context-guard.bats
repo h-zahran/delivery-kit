@@ -1346,9 +1346,9 @@ load ../../tests/helper
 }
 
 @test "a backslash working directory finds what git -C found on that platform" {
-  # On Windows, Claude Code can send D:\repo\sub, and git -C took it: the walk
-  # must too. Elsewhere a backslash is part of a folder's name, which git -C
-  # kept: the walk must not split on it.
+  # On Windows, Claude Code can send a drive path written with backslashes,
+  # and git -C took it: the walk must too. Elsewhere a backslash is part of a
+  # folder's name, which git -C kept: the walk must not split on it.
   t="$(transcript_with 30000 30000 30000 30000 30000)"
   local repo cwd
   if command -v cygpath > /dev/null 2>&1; then

@@ -220,12 +220,13 @@ if [ ! -f "$config" ]; then
   # Walked in the shell, not `git rev-parse --show-toplevel`: that spawned
   # git on every tool call in the zero-config case. The string is walked with
   # ${walk%/*}, never `cd ..`, which in Git Bash alternates between / and //
-  # forever. A Windows cwd (D:\repo, \\host\share) is made forward first, as
-  # git -C took both; elsewhere a backslash is part of a folder's name and is
-  # kept. A folder that is itself a git directory (HEAD, objects and refs:
-  # a bare repository, or inside .git) has no work tree, and git answered
-  # nothing there, so the walk stops with no top. A differential against
-  # git over 22 shapes found the same top in every one.
+  # forever. A Windows cwd written with backslashes (after a drive letter, or
+  # a \\host\share) is made forward first, as git -C took both; elsewhere a
+  # backslash is part of a folder's name and is kept. A folder that is itself
+  # a git directory (HEAD, objects and refs: a bare repository, or inside
+  # .git) has no work tree, and git answered nothing there, so the walk stops
+  # with no top. A differential against git over 22 shapes found the same top
+  # in every one.
   toplevel="" walk=$cwd bs=\\
   case $walk in [A-Za-z]:*|"$bs$bs"*) walk=${walk//"$bs"//} ;; esac
   case $walk in /*|[A-Za-z]:*) ;; *) walk=$PWD/$walk ;; esac
