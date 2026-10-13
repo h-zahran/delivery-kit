@@ -134,6 +134,7 @@ US=$'\037'
 # The configuration program: the four settings of ONE file, in a fixed order,
 # joined by the separator. Written once and spent twice: by read_config below,
 # and inside the payload call for the user-level file.
+# shellcheck disable=SC2016 # $US is a jq variable, set with --arg
 CONFIG_JQ='.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join($US)'
 
 # THE USER-LEVEL FILE IS READ BY THE PAYLOAD CALL, NOT BY A JQ OF ITS OWN. Its
@@ -165,6 +166,7 @@ CONFIG_JQ='.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens
 # for byte, and is split by the four lines it always was. The `lf` strips its
 # trailing newlines, which $( ) stripped while it was last. maxBytes is last
 # now, so $( ) strips it as it stripped the old reader's last field.
+# shellcheck disable=SC2016 # $US and $ucfg are jq variables, set by the call
 PAYLOAD_JQ='def lf: if endswith("\n") then rtrimstr("\n") | lf else . end;
 ([.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US) | lf)
 + $US
