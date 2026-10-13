@@ -72,6 +72,40 @@ const CASES: Case[] = [
   { d: 'Report generator', type: gp, ok: ['builder', 'none'], arch: 'builder', first: 'You are implementing Task 5: report generator', verbFirst: false },
 ]
 
+// A held-out list for 0.9.5, same shape, written and frozen before any 0.9.5
+// variant of the rules ran: a change to the rules is kept only if it lowers
+// the count above and does not raise this one. Some pass today, and some put
+// a rule word where its role is wrong ("Patch notes", "Regression tests").
+const HELD_OUT: Case[] = [
+  // ---- verb-first ----
+  { d: 'Fix flaky timeline test', type: gp, ok: ['fixer', 'inspector'], arch: 'fixer', first: 'You are the implementer for the flaky timeline test fix.', verbFirst: true },
+  { d: 'Update CHANGELOG for 0.9.5', type: gp, ok: ['writer'], arch: 'writer', first: 'Update CHANGELOG.md with the 0.9.5 section.', verbFirst: true },
+  { d: 'Map the hook events', type: gp, ok: ['scout', 'researcher'], arch: 'scout', first: 'List every hook event the mod registers and where.', verbFirst: true },
+  { d: 'Reproduce flaky CI on macOS', type: gp, ok: ['fixer', 'researcher', 'inspector'], arch: 'fixer', first: 'A test fails on macOS CI only; reproduce it locally.', verbFirst: true },
+  { d: 'Review the API docs', type: gp, ok: ['inspector', 'writer'], arch: 'inspector', first: 'You are the reviewer for the API reference pages.', verbFirst: true },
+  { d: 'Write the bats tests for chime', type: gp, ok: ['inspector', 'builder'], arch: 'builder', first: 'Write bats tests for the chime players.', verbFirst: true },
+  { d: 'Port tests to bun', type: gp, ok: ['builder', 'inspector'], arch: 'builder', first: 'You are implementing Task 4: move the tests to bun', verbFirst: true },
+  { d: 'Bisect the slow startup', type: gp, ok: ['fixer', 'researcher', 'none'], arch: 'researcher', first: 'Startup went from 1 s to 4 s between 0.9.2 and 0.9.4; bisect it.', verbFirst: true },
+  { d: 'Tidy the docs folder', type: gp, ok: ['writer', 'builder', 'none'], arch: 'writer', first: 'Move stale pages out of docs/ and fix the links.', verbFirst: true },
+  { d: 'Look up TIRED_PCT uses', type: gp, ok: ['scout'], arch: 'scout', first: 'Find every place TIRED_PCT is read.', verbFirst: true },
+  { d: 'Study the spawn payload', type: gp, ok: ['researcher', 'scout'], arch: 'researcher', first: 'Study what agent.spawn hands the hook, field by field.', verbFirst: true },
+  { d: 'Clean up stale worktrees', type: gp, ok: ['builder', 'none'], arch: 'builder', first: 'Remove the merged worktrees under the repo parent.', verbFirst: true },
+  // ---- noun-ish ----
+  { d: 'Changelog for 0.9.5', type: gp, ok: ['writer'], arch: 'writer', first: 'Collect the merged PR titles into the CHANGELOG.', verbFirst: false },
+  { d: 'Regression in eta rounding', type: gp, ok: ['fixer'], arch: 'fixer', first: 'The eta shows 0 min for a long run since 0.9.4; find and fix it.', verbFirst: false },
+  { d: 'Regression tests for asks', type: gp, ok: ['inspector', 'builder'], arch: 'builder', first: 'You are implementing Task 2: regression tests for asks.ts', verbFirst: false },
+  { d: 'Docs site build fix', type: gp, ok: ['fixer'], arch: 'fixer', first: 'You are the implementer for the docs site build fix.', verbFirst: false },
+  { d: 'Release plan', type: gp, ok: ['planner', 'none'], arch: 'planner', first: 'Lay out the steps for the 0.9.5 release.', verbFirst: false },
+  { d: 'Pricing plan', type: gp, ok: ['builder', 'none'], arch: 'builder', first: 'Add a pricing plan page to the site.', verbFirst: false },
+  { d: 'README link checker', type: gp, ok: ['builder', 'inspector', 'none'], arch: 'builder', first: 'Add a CI step that checks every README link.', verbFirst: false },
+  { d: 'README install section', type: gp, ok: ['writer'], arch: 'writer', first: 'Rewrite the install section of the README for Windows users.', verbFirst: false },
+  { d: 'Summary panel crash fix', type: gp, ok: ['fixer'], arch: 'fixer', first: 'You are the implementer for lane 071.', verbFirst: false },
+  { d: 'Error message wording', type: gp, ok: ['writer', 'none'], arch: 'writer', first: 'Reword the error messages in forecast.ts in plain English.', verbFirst: false },
+  { d: 'Patch notes', type: gp, ok: ['writer', 'none'], arch: 'writer', first: 'Turn the merged PRs into patch notes for the release page.', verbFirst: false },
+  { d: 'Reproducible builds', type: gp, ok: ['builder', 'none'], arch: 'builder', first: 'Make the release tarball byte-identical across runs.', verbFirst: false },
+  { d: 'Mapping table tests', type: gp, ok: ['inspector', 'builder', 'none'], arch: 'builder', first: 'You are the implementer for lane 080.', verbFirst: false },
+]
+
 const roleIdOf = (d: string, type: string, prompt?: string): string => roleOf(d, type, prompt)?.id ?? 'none'
 
 test('roles: the frozen case list reads at most 6 missions wrong', async () => {
@@ -79,6 +113,13 @@ test('roles: the frozen case list reads at most 6 missions wrong', async () => {
     c => `${c.d} [${c.type}] -> ${roleIdOf(c.d, c.type, c.first)}`,
   )
   expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^[0-6] wrong/)
+})
+
+test('roles: the held-out case list reads at most 12 missions wrong', async () => {
+  const wrong = HELD_OUT.filter(c => !c.ok.includes(roleIdOf(c.d, c.type, c.first))).map(
+    c => `${c.d} [${c.type}] -> ${roleIdOf(c.d, c.type, c.first)}`,
+  )
+  expect(`${wrong.length} wrong:\n${wrong.join('\n')}`).toMatch(/^([0-9]|1[0-2]) wrong/)
 })
 
 test('roles: the owner case is never a scout, with or without its brief', async () => {
