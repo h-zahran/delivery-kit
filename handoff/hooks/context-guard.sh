@@ -130,7 +130,68 @@ US=$'\037'
 # parse. Do not move the hint above it because the guard is exiting anyway:
 # what it protects is the caller, not this hook.
 # Why: scripts/context-guard/README.md, "Payload extraction, measured".
-if ! payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US)' 2>/dev/null); then
+#
+# The configuration program: the four settings of ONE file, in a fixed order,
+# joined by the separator. Written once and spent twice: by read_config below,
+# and inside the payload call for the user-level file.
+CONFIG_JQ='.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join($US)'
+
+# THE USER-LEVEL FILE IS READ BY THE PAYLOAD CALL, NOT BY A JQ OF ITS OWN. Its
+# path needs only HOME, which is known before the payload is, so it rides that
+# call with --rawfile and saves one process on every tool call where it
+# exists. The repository file keeps its own read: its path needs the payload's
+# cwd. Precedence is untouched: the payload call only CARRIES the user file's
+# four values, and they are validated and applied below, in the same order as
+# before — user, repository, environment.
+# Why: scripts/context-guard/README.md, "Configuration reader, measured".
+#
+# THE CONFIGURATION HALF IS TOTAL, AND THAT IS LOAD BEARING. A failed payload
+# call is how this hook detects a missing jq, so an error from the user file
+# would silence the guard. Its text is parsed with `fromjson?`, never trusted;
+# the four values come from CONFIG_JQ inside a `try` whose catch is the four
+# empty values a failing read gave before. A file that is not exactly ONE JSON
+# text (empty, `{not json`, two documents, trailing garbage, or holding a NUL
+# byte, which some jq builds cut at) sets the first field, and the old reader
+# reads it again below: jq's file parser keeps the documents before an error,
+# which fromjson cannot reproduce. A missing, unreadable or directory path is
+# never handed to jq at all. And if the file vanishes or locks between the
+# test and jq's open, jq exits 2 before it reads stdin, so the call is made
+# again without it and the file goes to the old reader.
+#
+# The user half comes LAST, five fields that never hold the separator: the
+# re-read flag, then the four values split as the old reader split them, with
+# a maxBytes that held the separator (invalid either way) emptied. They are
+# taken off the END, so the payload half before them is the old string, byte
+# for byte, and is split by the four lines it always was. The `lf` strips its
+# trailing newlines, which $( ) stripped while it was last. maxBytes is last
+# now, so $( ) strips it as it stripped the old reader's last field.
+PAYLOAD_JQ='def lf: if endswith("\n") then rtrimstr("\n") | lf else . end;
+([.agent_id // "", .transcript_path // "", .session_id // "unknown", .cwd // ""] | map(tostring) | join($US) | lf)
++ $US
++ ( if $ucfg == null then ["", "", "", "", ""]
+    elif ($ucfg | index([0] | implode)) then ["1", "", "", "", ""]
+    else [$ucfg | fromjson?]
+      | if length == 0 then ["1", "", "", "", ""]
+        else .[0] | try ('"$CONFIG_JQ"' | split($US) | ["", .[0], .[1], .[2], (if length > 4 then "" else .[3] end)])
+                    catch ["", "", "", "", ""]
+        end
+    end
+  | join($US) )'
+user_config="$HOME/.delivery-kit.json"
+if [ -f "$user_config" ] && [ -r "$user_config" ]; then
+  user_args=(--rawfile ucfg "$user_config")
+else
+  user_args=(--argjson ucfg null)
+fi
+payload=$(jq -r --arg US "$US" "${user_args[@]}" "$PAYLOAD_JQ" 2>/dev/null)
+rc=$?
+user_lost=""
+if [ "$rc" -eq 2 ] && [ "${user_args[0]}" = --rawfile ]; then
+  user_lost=1
+  payload=$(jq -r --arg US "$US" --argjson ucfg null "$PAYLOAD_JQ" 2>/dev/null)
+  rc=$?
+fi
+if [ "$rc" -ne 0 ]; then
   cat > /dev/null 2>&1
   if ! jq --version >/dev/null 2>&1; then
     hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint"
@@ -141,6 +202,12 @@ if ! payload=$(jq -r --arg US "$US" '[.agent_id // "", .transcript_path // "", .
     exit 0
   fi
 fi
+user_max_bytes=${payload##*"$US"};  payload=${payload%"$US"*}
+user_tokens=${payload##*"$US"};     payload=${payload%"$US"*}
+user_threshold=${payload##*"$US"};  payload=${payload%"$US"*}
+user_window=${payload##*"$US"};     payload=${payload%"$US"*}
+user_reread=${payload##*"$US"};     payload=${payload%"$US"*}
+[ -z "$user_lost" ] || user_reread=1
 agent_id=${payload%%"$US"*};  rest=${payload#*"$US"}
 transcript=${rest%%"$US"*};   rest=${rest#*"$US"}
 session=${rest%%"$US"*}
@@ -250,7 +317,7 @@ MAX_BYTES=$DEFAULT_MAX_BYTES
 # this release exists to make harder.
 THRESHOLD_TOKENS=""
 
-# One reader for both files, so the two cannot drift into applying different
+# One validator for both files, so the two cannot drift into applying different
 # validation — which would let an invalid value disable the guard from
 # whichever file was checked less carefully. A missing file is not an error:
 # both are optional and zero-config is the supported case.
@@ -260,6 +327,36 @@ THRESHOLD_TOKENS=""
 # the user profile, which is the intended location; that shell is where this
 # project has already been bitten once by a TEMP-versus-TMPDIR difference, so
 # it is called out rather than assumed.
+#
+# apply_config <window> <threshold> <tokens> <max-bytes> — validates each value
+# on its own and installs only the valid ones, so an invalid value in a later
+# file never shadows a valid one from an earlier file.
+apply_config() {
+  is_positive_int "$1" && WINDOW=$1
+  is_valid_threshold "$2" && THRESHOLD_PCT=$2
+  # No upper bound, unlike the threshold above. That cap exists because a
+  # percentage of 100 or above can only be reached once context has already filled
+  # the window, so it is unreachable by construction; a token count has no such
+  # ceiling — it is a number about the user's model, and any positive value is a
+  # setting somebody could legitimately mean. The arithmetic ceiling documented
+  # at is_positive_int still rejects an out-of-range value like any other
+  # invalid input.
+  is_positive_int "$3" && THRESHOLD_TOKENS=$3
+  is_positive_int "$4" && MAX_BYTES=$4
+  # Insurance, not a live fix, and no test covers it — stated plainly so the
+  # next reader does not go looking for the bug it prevents. The last
+  # conditional fails whenever maxBytes is absent, which is the ordinary case,
+  # so without this the function would usually return 1. Nothing today notices:
+  # the hook sets neither `set -e` nor `set -u`, and every call site below
+  # ignores the status. Removing the line leaves the suite green. It earns its
+  # place against the caller that does read $? — a `&&` chain, a `set -e` added
+  # later — where a function returning 1 on its SUCCESS path is a trap. Keep it
+  # last as keys are added above it.
+  return 0
+}
+
+# read_config <file> — the repository file's reader, and the user file's when
+# the payload call could not parse it as one JSON text.
 read_config() {
   [ -f "$1" ] || return 0
   # ONE jq call for all four settings, not one per setting. Same reasoning as
@@ -272,46 +369,30 @@ read_config() {
   # a tab-split installs maxBytes as thresholdTokens, with no error.
   # Why: scripts/context-guard/README.md, "Configuration reader, measured".
   #
-  # tostring after the empty default: these are JSON numbers. The local jq
-  # joins numbers without help, but CI runs a different one, and this project
-  # has already been bitten by an analyser version gap of exactly that shape.
-  # One token of jq buys out the question.
+  # tostring after the empty default (in CONFIG_JQ, above): these are JSON
+  # numbers. The local jq joins numbers without help, but CI runs a different
+  # one, and this project has already been bitten by an analyser version gap of
+  # exactly that shape. One token of jq buys out the question.
   #
   # Split with parameter expansion for the reason the payload block gives:
   # `read` stops at the first newline, and a JSON string value may contain
   # one.
   # Why: scripts/context-guard/README.md, "Configuration reader, measured".
-  cfg=$(jq -r --arg US "$US" '.contextGuard // {} | [.windowTokens, .thresholdPct, .thresholdTokens, .maxBytes] | map(. // "" | tostring) | join($US)' "$1" 2>/dev/null)
+  cfg=$(jq -r --arg US "$US" "$CONFIG_JQ" "$1" 2>/dev/null)
   cfg_window=${cfg%%"$US"*};      r=${cfg#*"$US"}
   cfg_threshold=${r%%"$US"*};     r=${r#*"$US"}
   cfg_tokens=${r%%"$US"*}
   cfg_max_bytes=${r#*"$US"}
-  is_positive_int "$cfg_window" && WINDOW=$cfg_window
-  is_valid_threshold "$cfg_threshold" && THRESHOLD_PCT=$cfg_threshold
-  # No upper bound, unlike the threshold above. That cap exists because a
-  # percentage of 100 or above can only be reached once context has already filled
-  # the window, so it is unreachable by construction; a token count has no such
-  # ceiling — it is a number about the user's model, and any positive value is a
-  # setting somebody could legitimately mean. The arithmetic ceiling documented
-  # at is_positive_int still rejects an out-of-range value like any other
-  # invalid input.
-  is_positive_int "$cfg_tokens" && THRESHOLD_TOKENS=$cfg_tokens
-  is_positive_int "$cfg_max_bytes" && MAX_BYTES=$cfg_max_bytes
-  # Insurance, not a live fix, and no test covers it — stated plainly so the
-  # next reader does not go looking for the bug it prevents. The last
-  # conditional fails whenever maxBytes is absent, which is the ordinary case,
-  # so without this the function would usually return 1. Nothing today notices:
-  # the hook sets neither `set -e` nor `set -u`, and both call sites below
-  # ignore the status. Removing the line leaves the suite green. It earns its
-  # place against the caller that does read $? — a `&&` chain, a `set -e` added
-  # later — where a function returning 1 on its SUCCESS path is a trap. Keep it
-  # last as keys are added above it.
-  return 0
+  apply_config "$cfg_window" "$cfg_threshold" "$cfg_tokens" "$cfg_max_bytes"
 }
 
-# Read in precedence order. Reading the same path twice, when a repository
+# Applied in precedence order. Reading the same path twice, when a repository
 # happens to sit at HOME, is idempotent and needs no guard.
-read_config "$HOME/.delivery-kit.json"
+if [ "$user_reread" = 1 ]; then
+  read_config "$user_config"
+else
+  apply_config "$user_window" "$user_threshold" "$user_tokens" "$user_max_bytes"
+fi
 read_config "$config"
 
 is_positive_int "$DELIVERY_KIT_WINDOW_TOKENS" && WINDOW=$DELIVERY_KIT_WINDOW_TOKENS
