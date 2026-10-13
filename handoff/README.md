@@ -64,6 +64,10 @@ working tree, because it is still only there.
 You can also invoke the skill yourself at any time. Say "hand off", or "stop
 after this batch and hand off".
 
+To see a whole document before your first run, read
+[a sample handoff document](docs/examples/2026-08-25-csv-export-SESSION-HANDOFF.md),
+written for a fictional project.
+
 ## What ships
 
 Four pieces. The guard and the handoff skill work together and are useful
