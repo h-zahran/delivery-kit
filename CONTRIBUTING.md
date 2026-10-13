@@ -69,6 +69,33 @@ for it.
 Expect all tests to pass on Linux, macOS, and Windows under Git Bash. CI runs
 all three; a change that passes on only one is not finished.
 
+### bash 3.2 without a Mac
+
+macOS runs the suites under its own bash 3.2: no `mapfile`, no `${var,,}`, no
+`declare -A`. A change can pass on Linux and Windows and go red only there. A
+container gives you that bash. Run this from the root of a clone, not a linked
+worktree: a worktree's `.git` file points outside the container, and git in it
+cannot follow.
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W 2>/dev/null || pwd):/repo" -w /repo bash:3.2 bash -c '
+  apk add --no-cache -q git jq coreutils grep sed gawk findutils diffutils &&
+  ln -s /usr/local/bin/bash /bin/bash &&
+  git config --global --add safe.directory "*" &&
+  git -c advice.detachedHead=false clone -q --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git /opt/bats &&
+  bash --version | head -n 1 &&
+  bash /opt/bats/bin/bats -r --print-output-on-failure "$@"' _ tests handoff/tests pipeline/tests
+```
+
+Name fewer suites at the end to run part of it. The image keeps its bash in
+`/usr/local/bin`, so the link gives a `#!/bin/bash` script the same 3.2 that
+macOS does. `MSYS_NO_PATHCONV=1` and `pwd -W` are for Git Bash on Windows;
+elsewhere they change nothing.
+
+It catches bash 3.2 faults, and only those. The container's tools are GNU, or
+busybox where none is installed, not macOS's BSD `sed`, `grep` and `awk`, so a
+fault in a BSD tool still shows only on CI's macOS shard.
+
 ## What the tests protect
 
 `handoff/tests/context-guard.bats` covers the hook's behaviour. Two cases are
