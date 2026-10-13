@@ -640,8 +640,11 @@ run_shape "two files: separator inside a user value"  "$P_REPO_OK"  '{"contextGu
 # taken off the end: everything before them would shift, the cwd included.
 run_shape "two files: separator inside user maxBytes" "$P_REPO_OK"  '{"contextGuard":{"thresholdPct":20,"maxBytes":"1\u001f2"}}'
 # $( ) stripped the cwd's trailing newlines while the cwd was the last field.
+# The user file must NOT set the window here: this shape first used C_USER,
+# whose 300000 equals the repository's, so a cwd that missed the repository
+# file still printed 300000, and a hook without the strip compared equal.
 run_shape "two files: cwd ending in newlines" \
-  '{"transcript_path":"%TRANSCRIPT%","session_id":"s1","cwd":"'"$repo_ok"'\n\n"}' "$C_USER"
+  '{"transcript_path":"%TRANSCRIPT%","session_id":"s1","cwd":"'"$repo_ok"'\n\n"}' '{"contextGuard":{"thresholdPct":20}}'
 
 printf '== transcript shapes ==\n'
 run_shape "transcript: empty file"             "$P_MAIN" "" empty
