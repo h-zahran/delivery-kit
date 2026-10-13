@@ -807,7 +807,7 @@ the human as surely as marking it resolved would.
 | Project type | Strategy |
 |---|---|
 | `web` | Start the dev server (`devCommand`, else the manifest's script table: `dev`, then `start`, then `serve`), drive the browser, screenshot every changed route, read the screenshots back |
-| `mobile-android` | Invoke `pipeline:device-verify` (build, install, navigate, screenshot, read back; needs `adb` and exactly one attached device) |
+| `mobile-android` | Invoke `pipeline:device-verify` (build, install, navigate, screenshot, read back; needs `adb` and one attached device, or `ANDROID_SERIAL` naming one) |
 | `other` | Run `verifyCommand`, demand an artefact, read it |
 
 Route mapping is best-effort and says so: map changed files to routes by the framework's convention, else report the mapping failed and check the entry route only. If no server command
