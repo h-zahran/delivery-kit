@@ -2261,7 +2261,8 @@ fenced_block() {
   # section the hook points at beside READINGS_JQ, and this test followed it.
   # Run the command that SECTION gives and compare it with the numbered entries
   # in that section only, numbered 1..n in order. Scoped on purpose: the README
-  # gives the same command once more, under "Expectations", with no list.
+  # gives the same command once more, under "Expectations", with no list, so
+  # that copy is held separately: every copy in the README must be this one.
   sec="Divergences in the per-line rule"
   hook_copy="$(tr -d '\r' < "$HOOK")"
   tr -d '\r' < "$HOOK" > "$TEST_DIR/hook"
@@ -2294,10 +2295,22 @@ fenced_block() {
     || { echo "the section's command does not read scripts/context-guard/differential.sh: $line"; false; }
   counted="$(grep -cE -- "$pat" "$ROOT/scripts/context-guard/differential.sh" || true)"
 
-  # The section's numbered entries. A number out of sequence prints BAD,
-  # which fails the count below.
+  # The README's two copies: the section's and the one under "Expectations".
+  # Both must give exactly the command the section's list is checked against.
+  grep -F -- "grep -cE '^run_shape " "$TEST_DIR/readme" > "$TEST_DIR/copies" || true
+  n="$(grep -c . "$TEST_DIR/copies" || true)"
+  [ "$n" -eq 2 ] || { echo "expected two divergence-count greps in the README, got $n"; false; }
+  want="grep -cE '$pat' scripts/context-guard/differential.sh"
+  odd=""
+  while IFS= read -r copy; do
+    [[ "$copy" == *"$want"* ]] || odd="$odd$copy;"
+  done < "$TEST_DIR/copies"
+  [ -z "$odd" ] || { echo "a README copy is not the section's command ($want): $odd"; false; }
+
+  # The section's numbered entries. A number out of sequence, or an entry
+  # not indented by exactly two spaces, prints BAD, which fails below.
   listed="$(awk '
-    /^  [0-9]+\. / { n++; split($0, w, " "); if (w[1] != n ".") bad = 1 }
+    /^ *[0-9]+\. / { n++; split($0, w, " "); if (w[1] != n "." || $0 !~ /^  [0-9]/) bad = 1 }
     END { print (bad ? "BAD" : n + 0) }' "$TEST_DIR/section")"
   [[ "$listed" =~ ^[0-9]+$ ]] || { echo "the section's numbered list is out of order: $listed"; false; }
   # Deliberate: a section with no entries must not let a grep printing 0 pass.
