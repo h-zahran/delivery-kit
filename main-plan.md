@@ -3354,3 +3354,45 @@ writing them.
 ```
 /pipeline Phase 44: a team plugin, set up once
 ```
+
+## Phase 45: a member starts the next task, and anyone sees where the work stands
+
+Phase 44 fixed the team block and the task file. Nothing yet reads them
+for a member's daily work.
+
+Two facts found while designing this phase change the Phase 44 plan:
+
+1. The pipeline skill is started by the `/pipeline` command "and by
+   nothing else". A team skill that starts it would break that rule.
+2. Pre-flight aborts on a changed tree (decision item 5). A progress file
+   written into the repository before a run makes the tree changed, so
+   the run would stop at once.
+
+Decision (the agent's, under the owner's overnight mandate, after showing
+the owner three options; the owner can reverse it): `team:start` prepares
+and prints the `/pipeline` line, and the member pastes it. Status is never
+stored: `team.sh status` reads, in order, the pull request, the run state
+on this machine, a `blocked` note in the task file, and the branch here or
+on `origin`, and names the source and what could not be read. The
+`progress` key is removed (the plugin is unreleased); `progressView` is
+written by `team:status` only when asked, for its own commit.
+
+The change: `team:start` and `team:status`; `team.sh` gains `suggest`,
+`iam`, `whoami`, `status`, `next`, `command` and `render`; the task file
+gains an optional `blocked` note, and its seed must be one line.
+`team:start` checks the tree is clean, never stashes, checks out or pulls,
+and never decides who is at the keyboard from the git email.
+
+Changed on 2026-10-13: `.delivery-kit/team.json` keeps one answer per
+team, so a member in two teams switches with no manual step;
+`team.sh mine` reads every team, and `team:start <team>` goes straight to
+one. A run the pipeline abandoned reads as `abandoned`, and a run at
+`DONE` with no pull request as `finished`, by the pipeline's own
+`RUN_END_JQ`; `next` passes over both.
+
+**Invocation:**
+
+```
+/pipeline Phase 45: a member starts the next task, and anyone sees where the work stands
+```
+
