@@ -3,6 +3,10 @@ import type { Args } from 'claude-code'
 import { playersFor } from './chime'
 import { normPath, pathKey, treeLines } from './filetree'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 const PANE = {
   plugin: 'mission-control',
   component: 'Pane',
@@ -44,7 +48,7 @@ test('tools: chime on Windows passes the path as MC_SOUND to a fixed script', as
   ])
 })
 
-test('tools: the engine runs PowerShell with MC_SOUND set and the script fixed', async ($, on) => {
+test('tools: the engine runs PowerShell with MC_SOUND set and the script fixed', ENGINE, async ($, on) => {
   mock.clock(on)
   mock.env(on, { OS: 'Windows_NT' })
   const runs: { argv: string[]; env?: Record<string, string> }[] = []
@@ -125,7 +129,7 @@ test('tools: paths normalise: \\\\?\\UNC, .., Git Bash drives, case on Windows',
 
 // --- F9: a touch counts only when the call went through; only edit tools edit
 
-test('tools: a denied or failed edit is not a touch; a non-edit tool reads', async ($, on) => {
+test('tools: a denied or failed edit is not a touch; a non-edit tool reads', ENGINE, async ($, on) => {
   mock.clock(on)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   on('tool.call', ($, e) =>
@@ -152,7 +156,7 @@ test('tools: a denied or failed edit is not a touch; a non-edit tool reads', asy
   await ui.unmount()
 })
 
-test('tools: one file spelled three ways is one entry, and two editors clash', async ($, on) => {
+test('tools: one file spelled three ways is one entry, and two editors clash', ENGINE, async ($, on) => {
   mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   mock.env(on, { OS: 'Windows_NT' })
@@ -171,7 +175,7 @@ test('tools: one file spelled three ways is one entry, and two editors clash', a
 
 // --- F8: another call's end does not clear the dialog it did not open
 
-test('tools: a parallel call ending leaves "needs your OK"; the asking tool clears it', async ($, on) => {
+test('tools: a parallel call ending leaves "needs your OK"; the asking tool clears it', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('classic.PermissionRequest', () => ({}))
@@ -191,7 +195,7 @@ test('tools: a parallel call ending leaves "needs your OK"; the asking tool clea
 
 // --- S10: TodoWrite keeps its own track; the step tool keeps main's
 
-test('tools: a TodoWrite does not wipe the step reports\' time left', async ($, on) => {
+test('tools: a TodoWrite does not wipe the step reports\' time left', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   const step = (done: number) => $.tool.call({ tool: 'mcp__mission-control__step', done, total: 4 } as never)
@@ -210,7 +214,7 @@ test('tools: a TodoWrite does not wipe the step reports\' time left', async ($, 
 
 // --- S6 / S7: the clock and the band never throw, and one failed register stops nothing
 
-test('tools: one failed command.register still registers the tools and starts the clock', async ($, on) => {
+test('tools: one failed command.register still registers the tools and starts the clock', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   const tools: string[] = []
@@ -247,7 +251,7 @@ test('tools: one failed command.register still registers the tools and starts th
   expect(opened).toBe(1)
 })
 
-test('tools: /clear starts a new session, so the pane opens itself once more', async ($, on) => {
+test('tools: /clear starts a new session, so the pane opens itself once more', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   let startedAt = 5
@@ -277,7 +281,7 @@ test('tools: /clear starts a new session, so the pane opens itself once more', a
   expect(opened).toBe(2)
 })
 
-test('tools: a failing engine call inside the clock stops only its own part', async ($, on) => {
+test('tools: a failing engine call inside the clock stops only its own part', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   let reads = 0
@@ -297,7 +301,7 @@ test('tools: a failing engine call inside the clock stops only its own part', as
   expect(reads).toBeGreaterThan(before)
 })
 
-test('tools: an idle clock asks for no pane list and reads usage only every 30 s; a wait that ended is still cleared', async ($, on) => {
+test('tools: an idle clock asks for no pane list and reads usage only every 30 s; a wait that ended is still cleared', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: 'D:/w' }))
   let panes = 0

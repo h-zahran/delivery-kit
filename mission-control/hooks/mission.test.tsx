@@ -6,6 +6,10 @@ import { rollCall } from './eta'
 import { applyAskCall, composeContext, markAnswered } from './asks'
 import { isNeedsYou, platformOf, playersFor, powershellPath, windowsRoot } from './chime'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 const PANE = {
   plugin: 'mission-control',
   component: 'Pane',
@@ -38,7 +42,7 @@ const spawnArgs = (description: string) =>
     subagentType: 'Explore',
   }) as unknown as Args<'agent.spawn'>
 
-test('the pane shows main, a finished helper with its answer and tools, and the files', async ($, on) => {
+test('the pane shows main, a finished helper with its answer and tools, and the files', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -87,7 +91,7 @@ test('the pane shows main, a finished helper with its answer and tools, and the 
   }
 })
 
-test('a running helper gets a full card; a failed one says why', async ($, on) => {
+test('a running helper gets a full card; a failed one says why', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'boom: no such file\nmore', isError: true }))
   let n = 0
@@ -112,7 +116,7 @@ test('a running helper gets a full card; a failed one says why', async ($, on) =
   await ui.unmount()
 })
 
-test('a permission dialog that lasts shows "needs your OK" under Main', async ($, on) => {
+test('a permission dialog that lasts shows "needs your OK" under Main', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('classic.PermissionRequest', () => ({}))
@@ -130,7 +134,7 @@ test('a permission dialog that lasts shows "needs your OK" under Main', async ($
   await later.unmount()
 })
 
-test('TodoWrite fills the todo line under Main', async ($, on) => {
+test('TodoWrite fills the todo line under Main', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   await $.tool.call({
@@ -146,7 +150,7 @@ test('TodoWrite fills the todo line under Main', async ($, on) => {
   await ui.unmount()
 })
 
-test('the pane draws an empty crew before anything runs', async ($, on) => {
+test('the pane draws an empty crew before anything runs', ENGINE, async ($, on) => {
   mock.clock(on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ text: /RUNNING/ })).toBeUndefined()
@@ -154,7 +158,7 @@ test('the pane draws an empty crew before anything runs', async ($, on) => {
   await ui.unmount()
 })
 
-test('the band stays away until a helper starts', async ($, on) => {
+test('the band stays away until a helper starts', ENGINE, async ($, on) => {
   mock.clock(on)
   // The engine's own band, which the mod leaves alone while no helper ran.
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
@@ -167,7 +171,7 @@ test('the band stays away until a helper starts', async ($, on) => {
   await band.unmount()
 })
 
-test('the band fits a narrow column and a one-row slot', async ($, on) => {
+test('the band fits a narrow column and a one-row slot', ENGINE, async ($, on) => {
   mock.clock(on)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   await $.agent.spawn(spawnArgs('look around'))
@@ -181,7 +185,7 @@ test('the band fits a narrow column and a one-row slot', async ($, on) => {
   await band.unmount()
 })
 
-test('/mission-band brings back a band the person closed', async ($, on) => {
+test('/mission-band brings back a band the person closed', ENGINE, async ($, on) => {
   mock.clock(on)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   await $.agent.spawn(spawnArgs('look around'))
@@ -202,7 +206,7 @@ test('/mission-band brings back a band the person closed', async ($, on) => {
   await again.unmount()
 })
 
-test('a pane drawn over state an older version wrote does not break', async ($, on) => {
+test('a pane drawn over state an older version wrote does not break', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -215,7 +219,7 @@ test('a pane drawn over state an older version wrote does not break', async ($, 
   await ui.unmount()
 })
 
-test('the busy pane draws at 46, 56 and 70 columns, with the batch and DONE limits', async ($, on) => {
+test('the busy pane draws at 46, 56 and 70 columns, with the batch and DONE limits', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   let n = 0
@@ -245,7 +249,7 @@ test('the busy pane draws at 46, 56 and 70 columns, with the batch and DONE limi
   await ended.unmount()
 })
 
-test('a helper reports its steps: the hint is added and the card draws its progress', async ($, on) => {
+test('a helper reports its steps: the hint is added and the card draws its progress', ENGINE, async ($, on) => {
   mock.clock(on)
   let prompt = ''
   on('agent.spawn', ($, e) => {
@@ -265,7 +269,7 @@ test('a helper reports its steps: the hint is added and the card draws its progr
   await ui.unmount()
 })
 
-test('an allowlist helper gets no hint', async ($, on) => {
+test('an allowlist helper gets no hint', ENGINE, async ($, on) => {
   mock.clock(on)
   let prompt = ''
   on('agent.spawn', ($, e) => {
@@ -276,7 +280,7 @@ test('an allowlist helper gets no hint', async ($, on) => {
   expect(prompt).not.toContain('mcp__mission-control__step')
 })
 
-test('one pane: activity and the file tree under MAIN, no tabs', async ($, on) => {
+test('one pane: activity and the file tree under MAIN, no tabs', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   await $.tool.call({ tool: 'Edit', file_path: 'D:/Warp/app/src/a.ts', old_string: 'a', new_string: 'b' })
@@ -294,7 +298,7 @@ test('one pane: activity and the file tree under MAIN, no tabs', async ($, on) =
   }
 })
 
-test('a typed request becomes an ask that the main loop ticks with proof', async ($, on) => {
+test('a typed request becomes an ask that the main loop ticks with proof', ENGINE, async ($, on) => {
   mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   await $.prompt.submit({ text: 'fix the login bug on the settings page', origin: { kind: 'composer' } } as unknown as Args<'prompt.submit'>)
@@ -308,7 +312,7 @@ test('a typed request becomes an ask that the main loop ticks with proof', async
   await after.unmount()
 })
 
-test('the ask tool adds a request and ticks it', async ($, on) => {
+test('the ask tool adds a request and ticks it', ENGINE, async ($, on) => {
   mock.clock(on)
   const added = await $.tool.call({ tool: 'mcp__mission-control__ask', add: 'ship the pane' } as never)
   expect(JSON.stringify(added)).not.toContain('ignored')
@@ -317,7 +321,7 @@ test('the ask tool adds a request and ticks it', async ($, on) => {
   await ui.unmount()
 })
 
-test('/mission-talk turns the commentator card on and off', async ($, on) => {
+test('/mission-talk turns the commentator card on and off', ENGINE, async ($, on) => {
   mock.clock(on)
   await $.command.run({ command: 'mission-talk', args: 'on' } as unknown as Args<'command.run'>)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -329,7 +333,7 @@ test('/mission-talk turns the commentator card on and off', async ($, on) => {
   await off.unmount()
 })
 
-test('five helpers: full cards even on a short pane, short names in files', async ($, on) => {
+test('five helpers: full cards even on a short pane, short names in files', ENGINE, async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   let n = 0
@@ -349,7 +353,7 @@ test('five helpers: full cards even on a short pane, short names in files', asyn
   await ui.unmount()
 })
 
-test('the main loop reports steps: MAIN draws the bar and the request text skips the paste tag', async ($, on) => {
+test('the main loop reports steps: MAIN draws the bar and the request text skips the paste tag', ENGINE, async ($, on) => {
   mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   await $.prompt.submit({ text: '<pasted_content id="7f37">\nTest run for my side pane.\n</pasted_content>' } as never)
@@ -364,7 +368,7 @@ test('the main loop reports steps: MAIN draws the bar and the request text skips
   await ui.unmount()
 })
 
-test('a helper that ends a turn but still runs comes back to RUNNING', async ($, on) => {
+test('a helper that ends a turn but still runs comes back to RUNNING', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -381,7 +385,7 @@ test('a helper that ends a turn but still runs comes back to RUNNING', async ($,
   await again.unmount()
 })
 
-test('six running helpers all get full cards', async ($, on) => {
+test('six running helpers all get full cards', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
@@ -393,7 +397,7 @@ test('six running helpers all get full cards', async ($, on) => {
   await ui.unmount()
 })
 
-test('the main plan: step names in a row, and the helpers of the current step', async ($, on) => {
+test('the main plan: step names in a row, and the helpers of the current step', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
@@ -410,7 +414,7 @@ test('the main plan: step names in a row, and the helpers of the current step', 
   await ui.unmount()
 })
 
-test('requests: done ones fold under the newest, and one left open turns answered', async ($, on) => {
+test('requests: done ones fold under the newest, and one left open turns answered', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.complete', () => ({ text: '' }))
@@ -429,7 +433,7 @@ test('requests: done ones fold under the newest, and one left open turns answere
   await ui.unmount()
 })
 
-test('activity: counts by kind, and a failed call listed first', async ($, on) => {
+test('activity: counts by kind, and a failed call listed first', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', ($, e) => (e.tool === 'Bash' ? { result: 'boom', isError: true } : { result: 'ok' }))
   await $.tool.call({ tool: 'Read', file_path: 'D:/Warp/a.md' })
@@ -443,7 +447,7 @@ test('activity: counts by kind, and a failed call listed first', async ($, on) =
   await ui.unmount()
 })
 
-test('roles: a mission picks the robot, the color family and what it says', async ($, on) => {
+test('roles: a mission picks the robot, the color family and what it says', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
@@ -485,7 +489,7 @@ test('moods: tired, nervous and ouch over the state', async () => {
   expect(sayOf(scout, 'running', 'work')).toBe('looking around…')
 })
 
-test('moods: a helper whose call just failed says "ouch!", then calms down', async ($, on) => {
+test('moods: a helper whose call just failed says "ouch!", then calms down', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', () => ({ result: 'no such file', isError: true }))
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -534,7 +538,7 @@ test('chime: the right player for each system', async () => {
   expect(isNeedsYou('idle_prompt')).toBe(false)
 })
 
-test('chime: a permission notification plays the "needs you" clip', async ($, on) => {
+test('chime: a permission notification plays the "needs you" clip', ENGINE, async ($, on) => {
   mock.clock(on)
   const runs: string[][] = []
   const sounds: string[] = []
@@ -553,7 +557,7 @@ test('chime: a permission notification plays the "needs you" clip', async ($, on
   expect(sounds[0]).toContain('sounds/needs-you.wav')
 })
 
-test('requests: answered only when nothing runs, and an aborted turn stays open', async ($, on) => {
+test('requests: answered only when nothing runs, and an aborted turn stays open', ENGINE, async ($, on) => {
   const list = [
     { id: 'a1', text: 'fix it', status: 'open' as const, at: 10 },
     { id: 'a2', text: 'half', status: 'partial' as const, at: 10 },
