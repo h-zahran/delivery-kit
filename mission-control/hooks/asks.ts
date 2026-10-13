@@ -169,10 +169,26 @@ const isOpen = (a: Ask): boolean => a.status === 'open' || a.status === 'partial
  * not ask-worthy or repeats an ask still open. `turnId`: the turn it was typed over.
  */
 export function newAsk(list: readonly Ask[], text: string, at: number, turnId?: string): Ask[] {
-  if (!isAskWorthy(text)) return list as Ask[]
+  return addAsk(list, text, at, turnId).list
+}
+
+/** newAsk, and the id of the ask it added; no id when it added none. */
+export function addAsk(list: readonly Ask[], text: string, at: number, turnId?: string): { list: Ask[]; id?: string } {
+  if (!isAskWorthy(text)) return { list: list as Ask[] }
   const t = askText(text)
-  if (list.some(a => isOpen(a) && a.text === t)) return list as Ask[]
-  return trim([...list, { id: nextId(list), text: t, status: 'open', at, ...(turnId ? { turnId } : {}) }])
+  if (list.some(a => isOpen(a) && a.text === t)) return { list: list as Ask[] }
+  const id = nextId(list)
+  return { list: trim([...list, { id, text: t, status: 'open', at, ...(turnId ? { turnId } : {}) }]), id }
+}
+
+/**
+ * The list without the person's ask `id`, while it is still plain open: a
+ * prompt that was dropped after its ask was kept takes it back. The same list
+ * when there is none to take.
+ */
+export function takeBack(list: readonly Ask[], id: string): Ask[] {
+  if (!list.some(a => a.id === id && a.status === 'open' && a.by === undefined)) return list as Ask[]
+  return list.filter(a => a.id !== id)
 }
 
 const normId = (v: unknown): string | undefined => {
@@ -263,6 +279,25 @@ export function composeSection(): string {
     `Before your final answer, call ${ASK_TOOL_FULL} for each ask you finished: its id, status (done, dropped or partial) and a short proof; ` +
     'its reply lists the asks still open. Main conversation only.'
   )
+}
+
+/** The rule for the main loop's own plan, in the same words in the section and beside a prompt. */
+export const composePlanRule = (stepTool: string): string =>
+  `Report each step of your plan with ${stepTool} as it finishes; report done = total when the work is over.`
+
+/**
+ * One line beside a person's prompt while the main loop's own step plan is
+ * unfinished: where it stands, then the rule. Undefined with no plan, or a
+ * finished one. The step's name is quoted as an ask's text is.
+ */
+export function composePlanLine(
+  p: { done: number; total?: number; note?: string; steps?: readonly string[] } | undefined,
+  stepTool: string,
+): string | undefined {
+  const total = p?.total ?? 0
+  if (!p || !(total > 0) || p.done >= total) return undefined
+  const name = p.steps?.[p.done] ?? p.note
+  return wellFormed(`Your plan: step ${p.done + 1}/${total}${name ? ` "${quoted(name)}"` : ''}. ${composePlanRule(stepTool)}`)
 }
 
 /** The context block beside a person's prompt: the open and answered asks, or undefined when there are none. */

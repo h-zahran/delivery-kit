@@ -106,10 +106,35 @@ export function etaPart(eta: Eta | undefined): string | undefined {
   return fmtLeft(eta.leftMs) + (eta.isRough ? '?' : '')
 }
 
+/**
+ * Whether the main loop's plan is its todo list: one with a todo still open,
+ * or a finished one with no step plan beside it. A finished list gives way to
+ * the step reports, which may still have steps to go.
+ */
+export function isTodoPlan(todos: readonly { status: string }[], progress?: { total?: number }): boolean {
+  if (todos.length === 0) return false
+  return todos.some(t => t.status !== 'completed') || !((progress?.total ?? 0) > 0)
+}
+
+/**
+ * Whether a step report starts a new plan rather than moving the one there is:
+ * `done: 0` with a `total` (or step names), over a plan that had moved on, was
+ * finished, or counts or names other steps. The old plan's names, note and
+ * timing go; the same plan sent again at step 0 stays as it is.
+ */
+export function isNewPlan(
+  prev: { done: number; total?: number; steps?: readonly string[] } | undefined,
+  step: { done: number; total?: number; steps?: readonly string[] },
+): boolean {
+  if (!prev || step.done !== 0 || step.total === undefined) return false
+  if (prev.done > 0 || step.total !== prev.total) return true
+  return step.steps !== undefined && step.steps.join('\n') !== (prev.steps ?? []).join('\n')
+}
+
 export type HelperIn = { status: string; track?: StepTrack }
 export type RowIn = {
   todos: readonly { status: string }[]
-  /** The main loop's own step reports, used when it keeps no todos. */
+  /** The main loop's own step reports, used when its todos are not the plan (isTodoPlan). */
   progress?: { done: number; total?: number }
   mainTrack?: StepTrack
   helpers: readonly HelperIn[]
@@ -125,9 +150,9 @@ export type RowIn = {
  * The percent rounds down: 199/200 is 99%, never 100% with a step left.
  */
 export function workingRow(i: RowIn): string | undefined {
-  const fromTodos = todoCount(i.todos)
-  const { done, total } =
-    fromTodos.total > 0 ? fromTodos : { done: i.progress?.done ?? 0, total: i.progress?.total ?? 0 }
+  const { done, total } = isTodoPlan(i.todos, i.progress)
+    ? todoCount(i.todos)
+    : { done: i.progress?.done ?? 0, total: i.progress?.total ?? 0 }
   if (total > 0 && done < total) {
     const parts = [`${Math.floor((100 * done) / total)}%`, `step ${done + 1}/${total}`]
     if (i.mainTrack && i.mainTrack.lastAt > 0) parts.push(fmtDur(i.now - i.mainTrack.lastAt))
