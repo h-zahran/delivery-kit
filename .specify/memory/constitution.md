@@ -118,7 +118,7 @@ A comment asking maintainers to edit a pair together is exactly what was in
 place when this repository's pair drifted: an unanchored regex in one copy
 accepted a changelog heading the other rejected, and nobody saw it until a
 release. `scripts/check-versions.sh` is that pair collapsed into one
-implementation, and `tests/portability.bats` pins that both callers name it — so
+implementation, and `tests/gate.bats` pins that both callers name it — so
 a hand-written copy cannot quietly return.
 
 One implementation is the only arrangement that cannot drift. A rule written
