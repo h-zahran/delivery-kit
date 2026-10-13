@@ -140,7 +140,8 @@ load helper
   cd "$ROOT"
 
   # The invocation must live INSIDE the version gate, not merely somewhere in
-  # this file. Measured in review: gutting the gate's body to `true` and parking
+  # this file or in tests/portability.bats, the two files it reads. Measured in
+  # review: gutting the gate's body to `true` and parking
   # the invocation in an unrelated test left this test green while the suite
   # carried no version coverage at all — `grep -m1` binds to the first match in
   # the file, and the first match is not necessarily the gate's.
@@ -246,8 +247,9 @@ load helper
 # with every path and name passed as an argument (U1), never
 # `run bash <script>` at the start of a line. That is not cosmetic: the
 # "one version-agreement script" test above requires EXACTLY ONE
-# `run bash <path>.sh` in this file and asserts which @test owns it. A second
-# such line would redden a correct tree.
+# `run bash <path>.sh` across this file and tests/portability.bats, and
+# asserts which @test owns it. A second such line would redden a correct
+# tree.
 # ---------------------------------------------------------------------------
 
 # The walk's inputs, as the tests hold them. The gate hands its heading walk

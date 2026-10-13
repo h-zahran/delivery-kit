@@ -469,7 +469,7 @@ stub() {
   done
 }
 
-# speclink <target> <name>: a symbolic link, made as tests/portability.bats
+# speclink <target> <name>: a symbolic link, made as tests/gate.bats
 # makes one. Under Git Bash, `ln -s` without nativestrict makes a COPY, so
 # pre-flight would rightly accept the path and the test would go red for no
 # fault (review 3, blocking 3). `|| true`: where ln cannot make a native
@@ -480,7 +480,7 @@ speclink() {
   [ -L "$2" ]
 }
 
-# link_or_file <target> <name>: the shape of tests/portability.bats. Makes
+# link_or_file <target> <name>: the shape of tests/gate.bats. Makes
 # <name> a symbolic link and returns 0. Only on Windows, where a runner may
 # not have the right to make a link, it may instead write what a checkout
 # makes in a link's place, a file holding the target path, and return 1;
