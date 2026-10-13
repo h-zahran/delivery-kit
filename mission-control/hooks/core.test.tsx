@@ -1,6 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Args, On } from 'claude-code'
 
+import { progressHint, stepToolArgs } from './progress'
+
 // The core lane of 0.9.5: the permission wait, the ask ids beside a prompt,
 // usage while idle, the main plan the card and the Spinner read, idle helpers,
 // the commentator's one call, and the main loop's own plan reported and finished.
@@ -423,4 +425,9 @@ test('core L8: a new plan replaces the old one whole; the same plan sent again s
   await reportStep($, { done: 0, steps: ['one', 'two', 'three', 'four', 'five'] })
   expect(await card(/0\/5 · one/)).toBe(true)
   expect(await card(/alpha/)).toBe(false)
+})
+
+test('L8: the step tool and a helper hint both say to finish the plan when the work is over', () => {
+  expect(stepToolArgs.description).toContain('report `done` = `total` when the work is over')
+  expect(progressHint('mission-control')).toContain('report `done` = `total` when the work is over')
 })
