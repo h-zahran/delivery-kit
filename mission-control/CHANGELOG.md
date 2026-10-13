@@ -2,6 +2,55 @@
 
 All notable changes to the `mission-control` plugin.
 
+## [Unreleased]
+
+### Highlights
+
+- The main loop's plan moves with the work and finishes when the work is
+  done. A plan left at "1/5" for hours was a plan the model stopped
+  reporting; now each prompt reminds it of the current step.
+- Helper robots match their work more often: on the 54-task list, wrong
+  roles fell from 6 to 0, and on 25 new tasks written before the change, from
+  12 to 5.
+- An idle helper shows as idle, not working, and the rate-limit meters keep
+  moving while nothing runs.
+
+### Changed
+
+- **The main loop is reminded of its plan.** While its plan is unfinished,
+  the block beside each person prompt carries one line, such as
+  `Your plan: step 2/5 "Lane builds"`, with the rule to report each step and
+  report `done` = `total` when the work is over. The system-prompt section
+  and the `step` tool's own description say the same.
+- **A new plan replaces the old one whole.** A report of `done: 0` with a
+  different plan resets the step names, note and timer, for the main loop
+  and for helpers alike.
+- **A finished todo list no longer hides the step plan.** The todo list is
+  the plan while a todo is open, or when it is finished and no step plan
+  stands beside it.
+- **More task words pick a role.** README and CHANGELOG name a writer;
+  reproduce, repro and regression name a fixer; a two-word task ending in
+  "plan" names a planner; the word "fix" in the task names a fixer even when
+  the brief calls the helper an implementer. "Mapping" no longer counts as
+  "map".
+- **An idle helper is not counted as working.** The main row reads
+  `1 helper idle`, and the band shows `1 idle`. The RUNNING card still shows
+  the dozing robot.
+- **The rate-limit meters refresh every 30 seconds while nothing runs**, so
+  they, and the reopening of the pane after `/clear`, stay current.
+
+### Fixed
+
+- **"Needs your OK" waits only for a real dialog.** When a settings hook
+  answers the permission request, no dialog opens and no wait shows. The
+  wait is now matched to the call that asked, by its id, so another call
+  ending cannot clear it. It still stays up while an approved call runs: the
+  engine reports no moment between the answer and the run.
+- **The ask id beside a prompt is the id stored.** A tick that landed while
+  the prompt entered could shift the id by one.
+- **The tool named in "Needs your OK" clears with the wait** at the end of a
+  turn.
+
 ## [0.9.4] - 2026-10-13
 
 ### Highlights
