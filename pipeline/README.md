@@ -87,6 +87,11 @@ preflight â†’ A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* â
 `pipeline:status` reads a run's state file and reports where it got to, which
 gate or pause it is waiting on, and the exact next thing to type.
 
+To see what a finished run leaves before your first, read
+[an annotated run](docs/examples/018-annotated-run.md): each file of this
+repository's own `specs/018-progress-commits-pieces`, with the phase that
+wrote it.
+
 ## What ships
 
 The orchestrator is the thing you invoke. The rest run inside a phase, and two
@@ -148,6 +153,8 @@ one row per commit, oldest first, giving the commit, its kind, the piece it
 built, the task IDs and the files. One line above it tells you to read it top
 to bottom. On a feature too large for one pull-request body, the body gives
 each commit's file count, and the full guide follows as pull-request comments.
+[A sample review guide](docs/examples/review-guide.md) shows one, with its
+escaping rules.
 
 | Kind | Made by | Holds |
 |---|---|---|
