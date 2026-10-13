@@ -17,6 +17,10 @@ import {
 import type { Ask } from './asks'
 import { arcs, cleanLine, commentPrompt, fmtAge, isQuiet, msgOf, pushMsg, pushTalk, turnDigest } from './talk'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 const PANE = {
   plugin: 'mission-control',
   component: 'Pane',
@@ -194,7 +198,7 @@ test('asks: the tool says it is for the main conversation only', async () => {
 
 // --- asks, through the engine
 
-test('asks: each person prompt carries the live list; the section stays fixed', async ($, on) => {
+test('asks: each person prompt carries the live list; the section stays fixed', ENGINE, async ($, on) => {
   mock.clock(on)
   const seen: (readonly string[] | undefined)[] = []
   on('prompt.submit', ($, e) => {
@@ -218,7 +222,7 @@ test('asks: each person prompt carries the live list; the section stays fixed', 
   expect(seen[2]).toBeUndefined()
 })
 
-test('asks: no ask tool offered, no section and no list; the pane still tracks the ask', async ($, on) => {
+test('asks: no ask tool offered, no section and no list; the pane still tracks the ask', ENGINE, async ($, on) => {
   mock.clock(on)
   const seen: (readonly string[] | undefined)[] = []
   on('prompt.submit', ($, e) => {
@@ -236,7 +240,7 @@ test('asks: no ask tool offered, no section and no list; the pane still tracks t
   await ui.unmount()
 })
 
-test('asks: a dropped prompt leaves no ask', async ($, on) => {
+test('asks: a dropped prompt leaves no ask', ENGINE, async ($, on) => {
   mock.clock(on)
   on('prompt.submit', () => ({ drop: 'not now' }))
   await $.prompt.submit(prompt('fix the login bug on the settings page')).catch(() => undefined)
@@ -245,7 +249,7 @@ test('asks: a dropped prompt leaves no ask', async ($, on) => {
   await ui.unmount()
 })
 
-test('asks: one typed over a running turn is not answered at that turn end', async ($, on) => {
+test('asks: one typed over a running turn is not answered at that turn end', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('prompt.submit', ($, e) => ({ text: e.text }))
@@ -266,7 +270,7 @@ test('asks: one typed over a running turn is not answered at that turn end', asy
   await later.unmount()
 })
 
-test('asks: a helper ending first does not answer an ask typed over the last main turn', async ($, on) => {
+test('asks: a helper ending first does not answer an ask typed over the last main turn', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('prompt.submit', ($, e) => ({ text: e.text }))
@@ -292,7 +296,7 @@ test('asks: a helper ending first does not answer an ask typed over the last mai
   await later.unmount()
 })
 
-test('asks: a subagent cannot tick an ask', async ($, on) => {
+test('asks: a subagent cannot tick an ask', ENGINE, async ($, on) => {
   mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   await $.prompt.submit(prompt('fix the login bug on the settings page'))
@@ -306,7 +310,7 @@ test('asks: a subagent cannot tick an ask', async ($, on) => {
   await ui.unmount()
 })
 
-test('asks: a write that fails is refused, never "ok"', async ($, on) => {
+test('asks: a write that fails is refused, never "ok"', ENGINE, async ($, on) => {
   mock.clock(on)
   on('state.set', ($, e, next) => {
     if ((e as { key?: string }).key === 'asks') return { deny: 'store down' }
@@ -317,7 +321,7 @@ test('asks: a write that fails is refused, never "ok"', async ($, on) => {
   expect(reply).not.toContain('ok')
 })
 
-test('asks: an id no spawn gave ends no helper and answers no ask', async ($, on) => {
+test('asks: an id no spawn gave ends no helper and answers no ask', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.complete', () => ({ text: '' }))
@@ -331,7 +335,7 @@ test('asks: an id no spawn gave ends no helper and answers no ask', async ($, on
   await ui.unmount()
 })
 
-test('asks: an idle helper does not keep an ask from turning answered', async ($, on) => {
+test('asks: an idle helper does not keep an ask from turning answered', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   on('agent.list', () => ({ value: [{ id: 'ag-1', description: 'wait for mail', type: 'teammate', status: 'idle' }] }))
@@ -361,7 +365,7 @@ test('asks: an idle helper does not keep an ask from turning answered', async ($
   await ui.unmount()
 })
 
-test('asks: two helpers ending at once raise one batch toast', async ($, on) => {
+test('asks: two helpers ending at once raise one batch toast', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   const toasts: string[] = []
   on('ui.toast', ($, e) => {

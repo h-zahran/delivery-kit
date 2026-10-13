@@ -3,6 +3,10 @@ import type { Args, On } from 'claude-code'
 
 import { progressHint, stepToolArgs } from './progress'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 // The core lane of 0.9.5: the permission wait, the ask ids beside a prompt,
 // usage while idle, the main plan the card and the Spinner read, idle helpers,
 // the commentator's one call, and the main loop's own plan reported and finished.
@@ -79,7 +83,7 @@ const writes = (on: On) => {
 
 // --- L1: a dialog a settings hook answered never opened
 
-test('core L1: a settings hook that answers the permission request opens no dialog, so nobody waits', async ($, on) => {
+test('core L1: a settings hook that answers the permission request opens no dialog, so nobody waits', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   let answer: object = { decision: { behavior: 'allow' } }
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -101,7 +105,7 @@ test('core L1: a settings hook that answers the permission request opens no dial
 
 // --- L1: the wait is the asking call's, by its tool_use_id
 
-test('core L1: another call of the same tool ending leaves the dialog shown; the asking call clears it', async ($, on) => {
+test('core L1: another call of the same tool ending leaves the dialog shown; the asking call clears it', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   const st = writes(on)
   let release = () => {}
@@ -141,7 +145,7 @@ test('core L1: another call of the same tool ending leaves the dialog shown; the
 
 // --- L2: the id beside the prompt is the id stored
 
-test('core L2: an ask the model adds while the prompt enters keeps the person\'s id as shown', async ($, on) => {
+test('core L2: an ask the model adds while the prompt enters keeps the person\'s id as shown', ENGINE, async ($, on) => {
   mock.clock(on)
   const seen: string[] = []
   on('tool.list', () => ({ value: [{ name: 'Read', description: 'r', mcp: false }, { name: ASK, description: 'a', mcp: true }] }))
@@ -160,7 +164,7 @@ test('core L2: an ask the model adds while the prompt enters keeps the person\'s
   await ui.unmount()
 })
 
-test('core L2: a dropped prompt stores nothing and leaves an ask already open alone', async ($, on) => {
+test('core L2: a dropped prompt stores nothing and leaves an ask already open alone', ENGINE, async ($, on) => {
   mock.clock(on)
   let isDrop = false
   on('prompt.submit', ($, e) => (isDrop ? { drop: 'not now' } : { text: e.text }))
@@ -178,7 +182,7 @@ test('core L2: a dropped prompt stores nothing and leaves an ask already open al
 
 // --- L3: an idle clock still reads usage, every 30 s
 
-test('core L3: an idle clock reads usage every 30 s, so /clear is seen with nothing running', async ($, on) => {
+test('core L3: an idle clock reads usage every 30 s, so /clear is seen with nothing running', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   sessionHooks(on)
   let startedAt = 5
@@ -216,7 +220,7 @@ test('core L3: an idle clock reads usage every 30 s, so /clear is seen with noth
 
 // --- L4: a finished todo list gives way to the step plan
 
-test('core L4: with the todo list all done, the card and the Spinner show the step plan and its time left', async ($, on) => {
+test('core L4: with the todo list all done, the card and the Spinner show the step plan and its time left', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   engineSpinner(on as never)
   on('tool.call', () => ({ result: 'ok' }))
@@ -249,7 +253,7 @@ test('core L4: with the todo list all done, the card and the Spinner show the st
 
 // --- L5: a turn's end clears the whole wait
 
-test('core L5: a turn\'s end clears the waiting tool with the wait, main\'s and a helper\'s', async ($, on) => {
+test('core L5: a turn\'s end clears the waiting tool with the wait, main\'s and a helper\'s', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   const st = writes(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -273,7 +277,7 @@ test('core L5: a turn\'s end clears the waiting tool with the wait, main\'s and 
 
 // --- L6: an idle helper is not working
 
-test('core L6: an idle helper reads idle, never working, in the pane and on the band', async ($, on) => {
+test('core L6: an idle helper reads idle, never working, in the pane and on the band', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   let status: 'running' | 'idle' = 'running'
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -300,7 +304,7 @@ test('core L6: an idle helper reads idle, never working, in the pane and on the 
 
 // --- L7: the commentator: talk.ts builds the request and reads the line, the module makes the call
 
-test('core L7: a turn\'s end with the commentator on draws the one line the model wrote', async ($, on) => {
+test('core L7: a turn\'s end with the commentator on draws the one line the model wrote', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   const asked: string[] = []
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -332,7 +336,7 @@ const composeArgs = (tools: string[]) =>
 const reportStep = ($: { tool: { call: (e: never) => Promise<unknown> } }, e: Record<string, unknown>) =>
   $.tool.call({ tool: STEP, ...e } as never)
 
-test('core L8: an unfinished main plan rides beside the person\'s prompt with the rule, quoted, only with the step tool offered', async ($, on) => {
+test('core L8: an unfinished main plan rides beside the person\'s prompt with the rule, quoted, only with the step tool offered', ENGINE, async ($, on) => {
   mock.clock(on)
   const seen: string[] = []
   let offered = [ASK, STEP]
@@ -362,7 +366,7 @@ test('core L8: an unfinished main plan rides beside the person\'s prompt with th
   expect(seen[3]).toContain('a4 "write the release notes"')
 })
 
-test('core L8: the fixed section says the plan rule where the step tool is offered', async ($, on) => {
+test('core L8: the fixed section says the plan rule where the step tool is offered', ENGINE, async ($, on) => {
   mock.clock(on)
   on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'core', scope: 'shared' as const }] }))
   const sectionOf = async (tools: string[]) =>
@@ -375,7 +379,7 @@ test('core L8: the fixed section says the plan rule where the step tool is offer
   expect(await sectionOf(['Read'])).toBeUndefined()
 })
 
-test('core L8: a plan reported done = total shows finished, then clears at the next turn', async ($, on) => {
+test('core L8: a plan reported done = total shows finished, then clears at the next turn', ENGINE, async ($, on) => {
   mock.clock(on)
   engineSpinner(on as never)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -399,7 +403,7 @@ test('core L8: a plan reported done = total shows finished, then clears at the n
   await after.unmount()
 })
 
-test('core L8: a new plan replaces the old one whole; the same plan sent again stays', async ($, on) => {
+test('core L8: a new plan replaces the old one whole; the same plan sent again stays', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   on('tool.call', () => ({ result: 'ok' }))
   const card = async (re: RegExp) => {

@@ -3,6 +3,10 @@ import type { Engine } from 'claude-code/testing'
 import type { Args } from 'claude-code'
 import { roleOf } from './roles'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 // The 0.9.3 review's case list, copied as it was frozen: written before any
 // variant of the role rules ran.
 // ok: the roles a person would accept; 'none' = the plain look is acceptable (no role claimed).
@@ -216,7 +220,7 @@ const roleNames = async ($: Engine, role: string) => {
   return names.filter(t => t.props.bold)
 }
 
-test('roles: a spawn reads its role from the brief\'s first line', async ($, on) => {
+test('roles: a spawn reads its role from the brief\'s first line', ENGINE, async ($, on) => {
   mock.clock(on)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
   await $.agent.spawn({
@@ -228,7 +232,7 @@ test('roles: a spawn reads its role from the brief\'s first line', async ($, on)
   expect(await roleNames($, 'builder')).toHaveLength(1)
 })
 
-test('roles: two helpers of one role spawned together get different shades', async ($, on) => {
+test('roles: two helpers of one role spawned together get different shades', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
@@ -240,7 +244,7 @@ test('roles: two helpers of one role spawned together get different shades', asy
   expect(colors[0]).not.toBe(colors[1])
 })
 
-test('roles: two plain helpers spawned together get different colors', async ($, on) => {
+test('roles: two plain helpers spawned together get different colors', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))

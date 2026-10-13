@@ -1,6 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Args, On } from 'claude-code'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 // The lead's wiring across the lanes (ac03d8e): which main track the
 // Spinner and the main card read, the home fold in FILES, and "late" with an
 // idle helper about.
@@ -61,7 +65,7 @@ const sessionHooks = (on: On) => {
 
 // --- the main track: the todo list's when there is one, else the step reports'
 
-test('integration: with a todo list the Spinner and the main card read its ETA, without one the step track', async ($, on) => {
+test('integration: with a todo list the Spinner and the main card read its ETA, without one the step track', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   engineSpinner(on as never)
   on('tool.call', () => ({ result: 'ok' }))
@@ -107,7 +111,7 @@ test('integration: with a todo list the Spinner and the main card read its ETA, 
 // --- FILES: the real home is drawn as ~, the username never
 
 // Launched from PowerShell or cmd, Windows sets USERPROFILE and no HOME.
-test('integration: FILES folds USERPROFILE to ~ on Windows and never shows the username', async ($, on) => {
+test('integration: FILES folds USERPROFILE to ~ on Windows and never shows the username', ENGINE, async ($, on) => {
   mock.clock(on)
   mock.env(on, { OS: 'Windows_NT', USERPROFILE: 'C:\\Users\\zqinteg' })
   sessionHooks(on)
@@ -125,7 +129,7 @@ test('integration: FILES folds USERPROFILE to ~ on Windows and never shows the u
 })
 
 // No USERPROFILE, only Git Bash's HOME: its /c/ spelling still names the drive.
-test('integration: FILES folds a Git Bash HOME to ~ on Windows', async ($, on) => {
+test('integration: FILES folds a Git Bash HOME to ~ on Windows', ENGINE, async ($, on) => {
   mock.clock(on)
   mock.env(on, { OS: 'Windows_NT', HOME: '/c/users/zqbash' })
   sessionHooks(on)
@@ -140,7 +144,7 @@ test('integration: FILES folds a Git Bash HOME to ~ on Windows', async ($, on) =
   await ui.unmount()
 })
 
-test('integration: FILES folds HOME to ~ off Windows and never shows the username', async ($, on) => {
+test('integration: FILES folds HOME to ~ off Windows and never shows the username', ENGINE, async ($, on) => {
   mock.clock(on)
   mock.env(on, { HOME: '/home/zqposix', USERPROFILE: 'C:\\Users\\zqother' })
   sessionHooks(on)
@@ -157,7 +161,7 @@ test('integration: FILES folds HOME to ~ off Windows and never shows the usernam
 
 // --- "late": an idle helper may wait for good, so it does not hide an open ask
 
-test('integration: an idle helper does not stop an open ask from showing late; a running one does', async ($, on) => {
+test('integration: an idle helper does not stop an open ask from showing late; a running one does', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   let status: 'running' | 'idle' = 'running'
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
@@ -194,7 +198,7 @@ test('integration: an idle helper does not stop an open ask from showing late; a
 
 // --- a refused write in a Button's press is caught, never a rejected press
 
-test('integration: a refused view write rejects no press, on the band or in the pane', async ($, on) => {
+test('integration: a refused view write rejects no press, on the band or in the pane', ENGINE, async ($, on) => {
   mock.clock(on)
   let n = 0
   let isRefused = false

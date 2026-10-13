@@ -8,6 +8,10 @@ import { parseStep } from './progress'
 import { activityRows } from './timeline'
 import { cellsOf, planParts, wrapWords } from './fit'
 
+// An engine test loads the plugin and often draws the pane; on a busy machine
+// that took up to 4 s of the default 5. A real hang still fails, at 15 s.
+const ENGINE = { timeoutMs: 15_000 }
+
 const MIN = 60_000
 const HOUR = 60 * MIN
 const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
@@ -130,7 +134,7 @@ test('F11: a track seeded at time 0 takes no duration from it', async () => {
   expect(workingRow({ todos: [], progress: { done: 1, total: 5 }, mainTrack: zero, helpers: [], now })).toBe('20% · step 2/5')
 })
 
-test('F11: a new turn restarts the time on the current step and keeps the plan', async ($, on) => {
+test('F11: a new turn restarts the time on the current step and keeps the plan', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   engineSpinner(on as never)
   await clock.set(1_760_000_000_000)
@@ -156,7 +160,7 @@ test('F11: a new turn restarts the time on the current step and keeps the plan',
   await ui.unmount()
 })
 
-test('F11: the main loop step tool before any turn seeds at the call, not at 0', async ($, on) => {
+test('F11: the main loop step tool before any turn seeds at the call, not at 0', ENGINE, async ($, on) => {
   const clock = mock.clock(on)
   engineSpinner(on as never)
   await clock.set(1_760_000_000_000)
