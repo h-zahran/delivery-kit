@@ -52,7 +52,9 @@ the guard would never fire in time, silently, which is the one thing a settings
 file must not be able to do. **100 is included in that rule and is the value it
 exists for**: 450 is plainly a typo for 45, while "warn me at 100%" reads like a
 deliberate choice and disarms the guard just as completely. The highest
-threshold accepted is therefore 99. A malformed config file is ignored entirely.
+threshold accepted is therefore 99. A config file that is not JSON is ignored;
+one that starts with a valid JSON object and has junk after it still applies
+that object.
 No invalid value can disable the guard. A value that is valid but wrong is a
 different matter, and the next section is about the one case that bites.
 

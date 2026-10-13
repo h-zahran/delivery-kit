@@ -553,7 +553,12 @@ errors as four empty values (what the old reader's empty output gave), and
 sends any text that is not one JSON document, or that holds a NUL byte, back
 to the old reader. A 34-shape probe over the three jq versions found the
 values the shell applies identical to the old reader's on every shape. Without
-the NUL test, the jq 1.6 Windows build installed that window of 5.
+the NUL test, the jq 1.6 Windows build installed that window of 5, and the jq
+1.7.1 Windows build installed a window of 3 from a user file holding
+`"windowTokens":3<NUL>00000`, where the base hook kept 200000. jq 1.8.2, the
+one CI pins, and the Linux builds of all three diverged on no shape, so no
+bats test can pin the NUL test on CI; the NUL test in context-guard.bats pins
+only that a NUL-bearing user file leaves the guard running.
 
 The fold could not simply append the user's values after the payload's. The
 payload's last field, cwd, may hold the separator, and $( ) stripped its
