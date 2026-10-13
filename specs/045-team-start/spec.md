@@ -80,6 +80,12 @@ A team leader runs `team:status`. Each task's status is read from its pull reque
 - **FR-009**: An answer whose team or id is gone MUST NOT be used. `team:start` MUST ask again.
 - **FR-010**: `team:start` MUST NOT choose between two teams for the member. It MUST NOT ask about a team that has no saved answer and no email match.
 - **FR-011**: How a run ended MUST follow `RUN_END_JQ` in `pipeline/scripts/progress.sh`, and a test MUST check the copy against the pipeline's script.
+- **FR-012** (final review, 2026-10-13): A fault in any read MUST stop the command with one `team.sh:` line and no answer on stdout. An empty file MUST be refused as not JSON.
+- **FR-013**: A team key and a member id MUST start with a letter or a digit, so no path climbs out of the repository.
+- **FR-014**: A pull request closed without a merge MUST NOT read as `in review`, even when the run recorded it.
+- **FR-015**: `next` MUST return a task in progress before a new one, and MUST carry `originRead` and `prRead`.
+- **FR-016**: `team:start` MUST NOT refuse a changed tree for `resume`.
+- **FR-017**: The suite MUST NOT read the developer's git configuration or call a real `gh`.
 
 ## Success Criteria *(mandatory)*
 

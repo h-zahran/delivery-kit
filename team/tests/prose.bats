@@ -72,6 +72,9 @@ Ask which team to work on now. Never choose for the member.
 Leave the row out. Do not ask: a team the member is not in would be asked about on every run.
 It keeps the answers for the other teams.
 Say that the team leader gives the task a new `specDir` in the task file.
+For `resume`, skip this step. The tree may hold the run's own work,
+a task merged from another machine, with its branch deleted, then reads as not started.
+Read each row against this table from the top, and use the first line that fits:
 PINS
 }
 
@@ -81,10 +84,12 @@ Status is read, never stored.
 | A merged pull request | done |
 A closed pull request that was not merged is not done:
 | A run on this machine that was abandoned | abandoned |
-| A run on this machine at `DONE`, with no pull request | finished |
+| A run on this machine at `DONE`, with no open or merged pull request | finished |
+When `prClosed` is true, say so in the row:
 To do that task again, the team leader gives it a new `specDir`.
 **Say what was not read.**
-a merged task shows as in progress or in review, never as done.
+a merged task shows as in progress or in review, never as done, and as not started when its branch was deleted.
+| A run on this machine that recorded a pull request not closed | in review |
 It never fetches, pulls or changes the tree.
 ## 3. Write the progress page, only when asked
 the page belongs in its own commit, never inside a feature branch's work.
@@ -95,7 +100,8 @@ PINS
   pinned "$(flat "$DOCS")" 'the configuration page' <<'PINS'
 There is no key for a stored status.
 | A merged pull request for the task's branch | done | `pull request` |
-| The pipeline's run on this machine recorded a pull request | in review | `run state` |
+| The pipeline's run on this machine recorded a pull request that is not closed | in review | `run state` |
+It returns a task in progress before a new one:
 | The task file has a `blocked` note | blocked | `task file` |
 | The branch exists on `origin` | in progress | `origin branch` |
 a source that could not be read is reported as not read, never taken as "no".

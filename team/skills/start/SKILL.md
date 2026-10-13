@@ -42,15 +42,16 @@ only. Run `team.sh whoami`. When `members` holds the team, take that id
 and go to step 3. Otherwise ask for this team alone, as below.
 
 **Otherwise** run `team.sh mine`. It prints one row per team in the
-settings:
+settings. Read each row against this table from the top, and use the
+first line that fits:
 
 | Row | What it means | What to do |
 |---|---|---|
-| `member` is set | The answer for this team is saved | Keep the row. |
-| `member` is null and `suggested` holds ids | No answer is saved, and git's email matches one or more ids in this roster | Ask once, as below. |
-| `member` is null and `suggested` is empty | No answer is saved, and the email matches no one | Leave the row out. Do not ask: a team the member is not in would be asked about on every run. |
-| `left` is set | The saved id is no longer in this roster | Say so, and ask once, as below. |
 | `error` is set | This team's files could not be read | Show the team and the message exactly, and go on with the other rows. |
+| `left` is set | The saved id is no longer in this roster | Say so, and ask once, as below. |
+| `member` is set | The answer for this team is saved | Keep the row. |
+| `suggested` holds ids | No answer is saved, and git's email matches one or more ids in this roster | Ask once, as below. |
+| `suggested` is empty | No answer is saved, and the email matches no one | Leave the row out. Do not ask: a team the member is not in would be asked about on every run. |
 
 To ask for a team: show the roster with `team.sh roster <team>`. When
 `suggested` holds one id, offer it as the likely answer and name the
@@ -67,14 +68,7 @@ match names it once: `team:start <team>`.
 
 Each answer is asked once. The next `team:start` reads it from the file.
 
-## 3. The tree must be clean
-
-Run `git status --porcelain`. When it prints anything, list the paths and
-stop: the pipeline's pre-flight refuses a changed tree, so a line pasted
-now would stop there. Say that the member commits or removes those
-changes themselves. Never stash, reset or check out to clean the tree.
-
-## 4. The next task
+## 3. The next task
 
 With one team, run `team.sh next <team> <member>`. With `team.sh mine`,
 each kept row already holds `next`.
@@ -89,8 +83,8 @@ Then act on the chosen `action`:
 
 | `action` | What it means | What to do |
 |---|---|---|
-| `start` | The first task not started, after every task in progress | Go to step 5. |
-| `resume` | A task in progress, with its run on this machine | Print `/pipeline --resume` and the task's id and title. The pipeline's resume prompt takes it from there. |
+| `start` | No task is in progress, and this is the first task not started | Go to step 4. |
+| `resume` | A task in progress, with its run on this machine. It comes before every other task. | Print `/pipeline --resume` and the task's id and title. The pipeline's resume prompt takes it from there. |
 | `elsewhere` | A task in progress, with a branch but no run on this machine | Show the task, its branch and where the branch was seen (`source`). Stop. Starting it again would fight the work already on that branch. |
 | `none` | Every task is in review, done, finished, abandoned or blocked | Say so, and suggest `team:status`. |
 
@@ -101,7 +95,19 @@ Say that the team leader gives the task a new `specDir` in the task file.
 Show the task's number, id and title. When the output reports
 `originRead: false` or `prRead: false`, say which was not read: the
 answer may then miss a branch pushed from another machine, or a merged
-pull request.
+pull request. For `start`, say it before the line to paste: a task merged
+from another machine, with its branch deleted, then reads as not started.
+
+## 4. The tree must be clean, for a new start
+
+For `resume`, skip this step. The tree may hold the run's own work, and
+the pipeline's pre-flight accepts the changes its run state claims.
+
+For `start`, run `git status --porcelain`. When it prints anything, list
+the paths and stop: the pipeline's pre-flight refuses a changed tree, so
+a line pasted now would stop there. Say that the member commits or
+removes those changes themselves. Never stash, reset or check out to
+clean the tree.
 
 ## 5. The line to paste
 

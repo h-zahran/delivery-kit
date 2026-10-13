@@ -14,3 +14,5 @@
 - [X] T012 Tests: two teams, the first file form, stale answers, `mine`, the run's end, and the agreement test with `pipeline/scripts/progress.sh`.
 - [X] T013 Skills, configuration page, README, changelog, prose pins.
 - [X] T014 Mutations 62–72 (`quickstart.md`); shellcheck 0.11.0 locally on the files CI analyses.
+- [X] T015 Final review fixes: `|| exit 1` on every assignment from a function, empty JSON refused, ids and keys start with a letter or digit, closed pull request, `next` order and read flags, `resume` skips the clean-tree check, no prompts from git or gh, `jq -b` for writes, the temporary file cleaned, the suite isolated.
+- [X] T016 Mutations 73–85 (`quickstart.md`).

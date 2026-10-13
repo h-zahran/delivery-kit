@@ -11,18 +11,20 @@
 
 `runEnd` is `live`, `abandoned` or `done` by `RUN_END_JQ` in `pipeline/scripts/progress.sh`, or empty with no run.
 
-Order, first that answers wins: merged PR → `done`; open PR → `in review`; run with `pr_url` → `in review`; `blocked` note → `blocked`; run abandoned → `abandoned`; run at `DONE` → `finished`; run → `in progress`; local branch → `in progress`; `origin` branch → `in progress`; else `not started`.
+Order, first that answers wins: merged PR → `done`; open PR → `in review`; run abandoned → `abandoned`; run with `pr_url`, its pull request not closed → `in review`; `blocked` note → `blocked`; run at `DONE` → `finished`; run → `in progress`; local branch → `in progress`; `origin` branch → `in progress`; else `not started`.
 
 ## `team.sh next <team> <member>`
 
-The first task, in file order, that is `in progress` or `not started`:
+A task in progress comes before a new one. In order, the first that fits:
 
 | Task | `action` |
 |---|---|
-| `not started` | `start` |
-| `in progress`, run on this machine | `resume` |
-| `in progress`, no run here | `elsewhere` |
+| the first `in progress` with its run on this machine | `resume` |
+| the first `in progress`, no run here | `elsewhere` |
+| the first `not started`, in file order | `start` |
 | none | `none`, `task: null` |
+
+Every answer also carries `originRead` and `prRead`.
 
 `abandoned` and `finished` are passed over.
 
