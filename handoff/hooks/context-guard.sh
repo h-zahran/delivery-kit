@@ -220,21 +220,48 @@ if [ ! -f "$config" ]; then
   # Walked in the shell, not `git rev-parse --show-toplevel`: that spawned
   # git on every tool call in the zero-config case. The string is walked with
   # ${walk%/*}, never `cd ..`, which in Git Bash alternates between / and //
-  # forever. A Windows cwd written with backslashes (after a drive letter, or
-  # a \\host\share) is made forward first, as git -C took both; elsewhere a
-  # backslash is part of a folder's name and is kept. A folder that is itself
-  # a git directory (HEAD, objects and refs: a bare repository, or inside
-  # .git) has no work tree, and git answered nothing there, so the walk stops
-  # with no top. A differential against git over 22 shapes found the same top
-  # in every one.
+  # forever. On Windows ($OSTYPE msys or cygwin), a cwd written with
+  # backslashes (after a drive letter, or a \\host\share) is made forward
+  # first, as git -C took both. Elsewhere a backslash is part of a folder's
+  # name, git -C kept it, and so does the walk.
+  #
+  # What counts is what git counts. A `.git` file is a top only when it says
+  # `gitdir: `; git refuses any other, and answers nothing. A `.git` folder
+  # counts only when it is a git directory: objects and refs folders, and a
+  # HEAD that reads `ref: refs/...` or an object id. An empty `.git` folder
+  # does not, and git climbs past it. A folder that is itself a git directory
+  # (a bare repository, or inside .git) has no work tree and the walk stops
+  # with no top, as git did. One shape differs: in a submodule's git
+  # directory (.git/modules/<name>) git names the submodule's work tree
+  # through core.worktree, and the walk finds no top. Folders are followed as
+  # written, never resolved: git follows a symbolic link to the real folder.
+  # Claude Code's cwd is a real path, so the two agree there.
   toplevel="" walk=$cwd bs=\\
-  case $walk in [A-Za-z]:*|"$bs$bs"*) walk=${walk//"$bs"//} ;; esac
+  case $OSTYPE in
+    msys*|cygwin*) case $walk in [A-Za-z]:*|"$bs$bs"*) walk=${walk//"$bs"//} ;; esac ;;
+  esac
   case $walk in /*|[A-Za-z]:*) ;; *) walk=$PWD/$walk ;; esac
   if [ -d "$walk" ]; then
     while [ "$walk" != "${walk%/}" ]; do walk=${walk%/}; done
     while :; do
-      if [ -f "$walk/.git" ] || [ -d "$walk/.git" ]; then toplevel=${walk:-/}; break; fi
-      if [ -f "$walk/HEAD" ] && [ -d "$walk/objects" ] && [ -d "$walk/refs" ]; then break; fi
+      if [ -f "$walk/.git" ]; then
+        gitline=""; IFS= read -r gitline 2>/dev/null < "$walk/.git"
+        case $gitline in "gitdir: "*) toplevel=${walk:-/} ;; esac
+        break
+      fi
+      gitstop=""
+      for gitdir in "$walk/.git" "$walk"; do
+        [ -f "$gitdir/HEAD" ] && [ -d "$gitdir/objects" ] && [ -d "$gitdir/refs" ] || continue
+        gitline=""; IFS= read -r gitline 2>/dev/null < "$gitdir/HEAD"
+        case $gitline in
+          "ref: refs/"*) ;;
+          ''|*[!0-9a-f]*) continue ;;
+          *) [ "${#gitline}" -eq 40 ] || [ "${#gitline}" -eq 64 ] || continue ;;
+        esac
+        gitstop=$gitdir; break
+      done
+      if [ "$gitstop" = "$walk/.git" ]; then toplevel=${walk:-/}; break; fi
+      [ -z "$gitstop" ] || break
       [ -n "$walk" ] && [ "${walk%/*}" != "$walk" ] || break
       walk=${walk%/*}
     done
@@ -691,7 +718,8 @@ last_bucket=$(cat "$flag" 2>/dev/null)
 # `|| exit 0` below silences the guard for the rest of the session.
 #
 # The sentinel is -1, not 0, because 0 is a real bucket: it covers everything
-# below 5% of the window. With 0 standing for "never warned", the gate below
+# below one bucket (5% of the window, or thresholdTokens when smaller). With
+# 0 standing for "never warned", the gate below
 # could never fire in that band at all, so a low threshold — or a window large
 # enough that 5% is tens of thousands of tokens — would produce silence and
 # read as a broken install. That is the first thing a new user tests.
@@ -782,7 +810,8 @@ find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-
 # would return 200000 for a 1M session, confidently and with no signal that it
 # had guessed. Verified against a live 1M transcript. See issue #1.
 #
-# INVARIANT: ctx > WINDOW implies pct >= 100, which implies bucket >= 20. The
+# INVARIANT: ctx > WINDOW implies pct >= 100, which implies bucket >= 20 (with
+# token buckets, bucket >= WINDOW / thresholdTokens, which is above 20). The
 # threshold gate cannot block that, because is_valid_threshold admits no
 # threshold of 100 or above — the highest it accepts is 99. So pct here does
 # not merely MEET the highest admissible threshold, it strictly EXCEEDS it.
@@ -791,7 +820,8 @@ find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-
 # the note rides an emission rather than needing one of its own.
 #
 # One exception, and it is deliberate: a reading landing exactly on WINDOW
-# records bucket 20 without the note, because the test below is strict and
+# records its bucket (20, or WINDOW / thresholdTokens with token buckets)
+# without the note, because the test below is strict and
 # ctx == WINDOW is not provably a misconfiguration. An over-window reading
 # still inside that bucket is then suppressed by the bucket gate, and the note
 # defers to the next bucket. Deferred, never dropped — on the misconfiguration

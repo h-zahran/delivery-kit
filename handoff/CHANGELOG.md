@@ -11,9 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The guard finds the repository's configuration without git.** When no
   `.delivery-kit.json` sat beside the working directory, every tool call
   ran `git rev-parse --show-toplevel`. The guard now walks up the folders
-  to the nearest `.git` file or folder instead, and reads the same file git
-  pointed it to. That saved about 115 ms a call on Windows, measured. It
-  also means the guard no longer needs git at all.
+  to the nearest `.git` file or git directory instead. It finds the top git
+  found in every shape tested but two. Inside a submodule's git directory
+  it finds none. And it follows folders as written, where git resolves a
+  symbolic link first; Claude Code's working directory is a real path. That
+  saved about 115 ms a call on Windows, measured. It also means the guard no
+  longer needs git at all.
 - **Re-warnings step by `thresholdTokens` when it is under 5% of the
   window.** The guard re-warned once per 5% of `windowTokens`, so with a
   window far too large, the first warning could be the only one: at a
