@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Highlights
 
 - The context guard starts one process fewer on every tool call when a
-  valid `~/.delivery-kit.json` exists. What it decides has not changed.
+  valid `~/.delivery-kit.json` exists.
+- What it decides has not changed.
 
 ### Changed
 

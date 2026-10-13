@@ -536,7 +536,10 @@ exists, and nothing without one.
 Windows release build, and apt's on Ubuntu 22.04), 1.7.1 and 1.8.2. On all
 three a `--rawfile` that cannot be opened exits 2 BEFORE jq reads stdin, so
 the hook can make the payload call again without it. A malformed payload
-exits 4 on 1.6 and 5 on 1.7.1 and 1.8.2, never 2.
+exits 4 on 1.6 and 5 on 1.7.1 and 1.8.2, never 2. The whole hook, run on
+each of the four builds with no file, a user file, a `{not json` user file
+and both files, spoke the same bytes as the base hook on every one; on
+Ubuntu, a user file made unreadable with `chmod 000` did too.
 
 `fromjson` is not jq's file parser, and three differences were measured. The
 file parser keeps every document before an error, so `{...} garbage`, two
