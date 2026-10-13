@@ -1305,10 +1305,13 @@ judge_big() {
 
 # No size test can catch the other fault: on Git Bash, grep reading
 # `< <(printf ...)` reported a token that is not there in 43 of 1,800 calls
-# under load, and never in a quiet run. So the shape itself is refused.
+# under load, and never in a quiet run. So the shape itself is refused, with
+# any spacing inside `< <( printf`, and on a line that holds a `#` before it
+# (`${x#y}`, a quoted '#'). Only a whole-line comment is skipped.
 @test "pre-flight feeds no grep from a process substitution" {
   local hits
-  hits="$(grep -n '^[^#]*grep[^#]*< <(printf' "$PROBE" || true)"
+  hits="$(awk '/^[[:space:]]*#/ { next }
+    /grep.*<[[:space:]]*<\([[:space:]]*printf/ { print FNR ": " $0 }' "$PROBE")"
   [ -z "$hits" ] || { echo "grep fed by < <(printf ...): $hits"; false; }
 }
 
