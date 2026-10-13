@@ -460,15 +460,15 @@ jobs:
       - *install-jq
       - *check-jq
 
-      # ONE implementation, TWO callers. This step and the suite gate in
-      # tests/portability.bats used to hold two copies of the walk this line
+      # ONE implementation, TWO callers. This step and the suite gate, now in
+      # tests/gate.bats, used to hold two copies of the walk this line
       # replaces, kept in step by hand. They drifted once — an unanchored regex
       # here read a changelog heading the suite copy rejected — and the drift
       # was invisible until a release. The logic now lives in
       # scripts/check-versions.sh and both callers invoke it, so there is no
       # pair left to keep in step.
       #
-      # A test in tests/portability.bats pins that both callers name one script
+      # A test in tests/gate.bats pins that both callers name one script
       # AND that neither has grown an inline copy beside the call, so the
       # arrangement this comment describes cannot silently come apart again.
       #
