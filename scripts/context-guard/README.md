@@ -511,6 +511,55 @@ contain one. Measured here, this was not theoretical — a windowTokens of
 "5\n999999" truncated to "5" and took thresholdPct, thresholdTokens and
 maxBytes with it, all three silently reverting to their defaults.
 
+Added 2026-10-13, not moved: the user-level file rides the payload call.
+
+Until then every configuration file that existed cost a jq of its own: 2, 3
+or 4 jq processes on the ordinary call for no file, the user file only, or
+both. The user file's path needs only HOME, so the payload call now reads it
+with `--rawfile` and the hook spends 2, 2 or 3. The repository file keeps its
+own read, because its path needs the payload's cwd. Counted with a logging jq
+first on PATH; a malformed user file still costs 3, as before, and a missing
+or directory one 2. The hook still validates and applies each file's four
+values in the shell, user then repository then environment, so an invalid
+repository value still leaves a valid user value standing.
+
+Timed on Windows under Git Bash, outside bats, the base hook and this one
+alternating, HOME and TMPDIR isolated per side, a 1.5MB transcript on the
+silent path. A bare `jq -n 1` started in a median 78 and 80 ms over two runs.
+Medians over 31 calls each, in the same two runs: no file 642 against 627
+and 656 against 648 ms, no saving beyond noise; the user file only 771
+against 674 and 820 against 684 ms; both files 911 against 801 and 865
+against 800 ms. So one jq start, about 65 to 135 ms, whenever a user file
+exists, and nothing without one.
+
+`--rawfile` is in every jq the repository supports: measured on jq 1.6 (the
+Windows release build, and apt's on Ubuntu 22.04), 1.7.1 and 1.8.2. On all
+three a `--rawfile` that cannot be opened exits 2 BEFORE jq reads stdin, so
+the hook can make the payload call again without it. A malformed payload
+exits 4 on 1.6 and 5 on 1.7.1 and 1.8.2, never 2.
+
+`fromjson` is not jq's file parser, and three differences were measured. The
+file parser keeps every document before an error, so `{...} garbage`, two
+documents, and on jq 1.6 a NUL after the document, all applied the first
+document's values; `fromjson` rejects the whole text. On the jq 1.6 Windows
+build `fromjson` accepted `{"contextGuard":{"windowTokens":"5<NUL>"}}` and
+returned a window of 5, where the file parser refused the file. And a
+non-object `contextGuard` is a runtime error inside the program, not a parse
+error. So the payload call parses with `fromjson?`, catches the program's
+errors as four empty values (what the old reader's empty output gave), and
+sends any text that is not one JSON document, or that holds a NUL byte, back
+to the old reader. A 34-shape probe over the three jq versions found the
+values the shell applies identical to the old reader's on every shape. Without
+the NUL test, the jq 1.6 Windows build installed that window of 5.
+
+The fold could not simply append the user's values after the payload's. The
+payload's last field, cwd, may hold the separator, and $( ) stripped its
+trailing newlines only while it was last. So the user half goes last, in five
+fields that cannot hold the separator, taken off the end; the payload half is
+the old string, byte for byte, with its trailing newlines stripped in jq.
+A cwd ending in newlines, a cwd holding the separator, and a separator inside
+a user value each compare equal with the old hook.
+
 ### The median window, measured
 
 From the hook, above `READINGS_JQ`, on the median of fifteen:

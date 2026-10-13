@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Highlights
+
+- The context guard starts one process fewer on every tool call when a
+  valid `~/.delivery-kit.json` exists. What it decides has not changed.
+
+### Changed
+
+- **The user-level file rides the guard's payload call.** Each
+  `.delivery-kit.json` that existed cost the guard a jq of its own on
+  every tool call. The user-level file is now read by the jq that already
+  reads the payload. The ordinary call spends 2 jq processes instead of 3
+  with only that file, and 3 instead of 4 with both files. With no file,
+  or a user file that is not one JSON document, it saves nothing; such a
+  file still goes to the old reader. Measured on Windows with Git Bash,
+  where one jq start costs about 80 ms: medians over 31 alternating runs
+  were 96 and 135 ms faster with only the user file, 64 and 110 ms faster
+  with both, and no faster with neither (8 and 15 ms, noise).
+  Each value is still checked on its own and applied in the same order:
+  user file, repository file, environment.
+
 ## [2.4.1] - 2026-10-13
 
 ### Highlights
