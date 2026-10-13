@@ -2,6 +2,29 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Highlights
+
+- A sample review guide shows the table a run's pull request carries, and
+  how its cells are escaped.
+- An annotated run walks this repository's own
+  `specs/018-progress-commits-pieces` file by file, naming the phase that
+  wrote each.
+
+### Changed
+
+- **A sample review guide.**
+  [docs/examples/review-guide.md](docs/examples/review-guide.md) is the table
+  `progress.sh guide` printed for a fictional run's branch, unchanged, with
+  how to read it and the escaping rules. The README links it under
+  "Reviewing a run commit by commit".
+- **An annotated run.**
+  [docs/examples/018-annotated-run.md](docs/examples/018-annotated-run.md)
+  gives one note per file of `specs/018-progress-commits-pieces`: what it is,
+  which phase wrote it, what to look at. Its links reach `specs/`, which a
+  clone of the repository carries and an installed plugin does not.
+
 ## [1.6.1] - 2026-10-13
 
 ### Changed

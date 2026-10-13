@@ -240,6 +240,11 @@ link test's list in the same commit; skills need no list edit — their
   CI never runs the script; `tests/release.bats` runs it on a copy of the
   release files.
 
+  Each release section opens with a `### Highlights` subsection: two or three
+  short lines saying what a user gets, written under `## [Unreleased]` before
+  step 1. A level-3 heading is invisible to the gate, and sections released
+  before this rule keep the shape they shipped with.
+
 ## Maintainers
 
 ### After cloning
