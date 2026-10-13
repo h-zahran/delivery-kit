@@ -597,6 +597,52 @@ run_shape "config: thresholdPct exactly 100" "$P_MAIN" '{"contextGuard":{"window
 run_shape "config: thresholdPct 99"          "$P_MAIN" '{"contextGuard":{"windowTokens":181000,"thresholdPct":99}}'
 run_shape "config: thresholdPct 101"         "$P_MAIN" '{"contextGuard":{"windowTokens":360000,"thresholdPct":101}}'
 
+# THE USER FILE AND THE REPOSITORY FILE TOGETHER (2026-10-13, lane 056). The
+# user file rides the payload call now, and the repository file keeps its own
+# read, so the shapes that matter put a value in each. run_shape writes <cfg>
+# to the USER file only; a repository file is reached here by pointing the
+# payload's cwd at a folder made once, shared by both sides and only ever read.
+#
+# Every shape below SPEAKS, so a lost layer is a visible difference: six
+# readings of 180000 are 60% of the repository's 300000 window and 90% of the
+# default. A user threshold of 20 is named only if the user file was read; a
+# repository window of 300000 only if that file was.
+#
+# Three bad user files cannot be written by run_shape, which writes <cfg> only
+# when it is non-empty and always as a file: an EMPTY file, a DIRECTORY, and an
+# UNREADABLE file. handoff/tests/context-guard.bats covers those.
+repo_ok="$root/repo-ok"
+repo_bad="$root/repo-bad"
+mkdir -p "$repo_ok" "$repo_bad" || exit 9
+printf '%s' '{"contextGuard":{"windowTokens":300000}}' > "$repo_ok/.delivery-kit.json"
+printf '%s' '{"contextGuard":{"windowTokens":"abc","thresholdPct":50}}' > "$repo_bad/.delivery-kit.json"
+P_REPO_OK='{"transcript_path":"%TRANSCRIPT%","session_id":"s1","cwd":"'"$repo_ok"'"}'
+P_REPO_BAD='{"transcript_path":"%TRANSCRIPT%","session_id":"s1","cwd":"'"$repo_bad"'"}'
+C_USER='{"contextGuard":{"windowTokens":300000,"thresholdPct":20}}'
+
+printf '== user and repository files ==\n'
+run_shape "two files: user file only, speaks"         "$P_MAIN"     "$C_USER"
+run_shape "two files: both, repository wins window"   "$P_REPO_OK"  '{"contextGuard":{"windowTokens":1000000,"thresholdPct":20}}'
+# An invalid repository value must not shadow the valid user value it meets.
+run_shape "two files: repository value invalid"       "$P_REPO_BAD" "$C_USER"
+run_shape "two files: user contextGuard a string"     "$P_REPO_OK"  '{"contextGuard":"string"}'
+run_shape "two files: user file not JSON"             "$P_REPO_OK"  '{not json'
+run_shape "two files: user file a JSON array"         "$P_REPO_OK"  '[1,2]'
+run_shape "two files: user file whitespace only"      "$P_REPO_OK"  '   '
+# Not one JSON text: the old reader kept the documents before the error, and
+# the new hook hands such a file back to that reader.
+run_shape "two files: user file two documents"        "$P_REPO_OK"  '{"contextGuard":{"thresholdPct":20}} {"contextGuard":{"thresholdPct":7}}'
+run_shape "two files: user file trailing garbage"     "$P_REPO_OK"  '{"contextGuard":{"thresholdPct":20}} garbage'
+# The separator inside a value, written as a JSON escape so every jq accepts
+# it. The old split shifted it into the next slot: threshold 20, applied.
+run_shape "two files: separator inside a user value"  "$P_REPO_OK"  '{"contextGuard":{"windowTokens":"300000\u001f20"}}'
+# In the LAST user value the separator would add a field, and the fields are
+# taken off the end: everything before them would shift, the cwd included.
+run_shape "two files: separator inside user maxBytes" "$P_REPO_OK"  '{"contextGuard":{"thresholdPct":20,"maxBytes":"1\u001f2"}}'
+# $( ) stripped the cwd's trailing newlines while the cwd was the last field.
+run_shape "two files: cwd ending in newlines" \
+  '{"transcript_path":"%TRANSCRIPT%","session_id":"s1","cwd":"'"$repo_ok"'\n\n"}' "$C_USER"
+
 printf '== transcript shapes ==\n'
 run_shape "transcript: empty file"             "$P_MAIN" "" empty
 run_shape "transcript: one reading"            "$P_MAIN" "" one
