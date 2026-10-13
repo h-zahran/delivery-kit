@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Highlights
+
+- The context guard's long comments now live in its README. Comments only:
+  the guard behaves exactly as before.
+- A sample handoff document, for a fictional project, shows a whole one
+  before your first run.
+
+### Changed
+
+- **A sample handoff document.**
+  [docs/examples/2026-08-25-csv-export-SESSION-HANDOFF.md](docs/examples/2026-08-25-csv-export-SESSION-HANDOFF.md)
+  is a whole handoff for a fictional project: every section the skill
+  requires, and a Reconcile section written by `reconcile-block.sh` itself.
+  The README links it under "What is in the document".
+
 ## [2.4.0] - 2026-10-13
 
 ### Changed
