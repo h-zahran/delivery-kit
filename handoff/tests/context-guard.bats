@@ -492,11 +492,114 @@ load ../../tests/helper
 }
 
 @test "a malformed config file falls back to defaults rather than disabling the guard" {
+  # BOTH files, because they are read by different code. The repository file
+  # has its own jq; the user file rides the payload call, where an error that
+  # escaped would fail the payload parse and silence the guard. So this pin
+  # bites the `?` on that call's fromjson: without it this test goes red.
   printf 'this is not json\n' > "$TEST_DIR/.delivery-kit.json"
+  printf 'this is not json\n' > "$HOME/.delivery-kit.json"
   t="$(transcript_with 90000 90000 90000 90000 90000)"
   run_hook "$t"
   echo "$output" | jq -e '.reason | test("200000-token")'
   echo "$output" | jq -e '.reason | test("threshold 45%")'
+}
+
+@test "an invalid repository value does not shadow a valid user value" {
+  # Validation is per value and precedence is applied in bash, one file after
+  # the other, so a repository value that fails validation leaves the user's
+  # value standing. Under the 200000 default this reading is 225% and the
+  # reason would name 200000; only the user file says 1000000.
+  write_config "$HOME/.delivery-kit.json" '{"windowTokens":1000000}'
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":"abc"}'
+  t="$(transcript_with 450000 450000 450000 450000 450000)"
+  run_hook "$t" noshadow
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 45% of the 1000000-token window")'
+}
+
+# bad_user_file_keeps_guard — the user file is already written; the repository
+# file and the environment each set a value of their own. The guard must still
+# speak with both of them, and must not write the jq hint: a broken user file
+# is not a broken jq. With a working jq the hint cannot be written at all, so
+# the speaking is what carries this; the hint check guards the other half.
+bad_user_file_keeps_guard() {
+  write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":300000}'
+  export DELIVERY_KIT_THRESHOLD_TOKENS=140000
+  t="$(transcript_with 150000 150000 150000 150000 150000)"
+  run_hook "$t" baduser
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("past the 140000-token limit [(]50% of the 300000-token window[)]")'
+  [ ! -e "$TMPDIR/dk-jq-hint" ]
+}
+
+@test "bad user file, empty: the guard runs on the other layers" {
+  : > "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, not JSON: the guard runs on the other layers" {
+  printf '{not json' > "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, a NUL byte: the guard runs on the other layers" {
+  printf '{"contextGuard":\000{"windowTokens":"5\000"}}' > "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, about 5 MB: the guard runs on the other layers" {
+  head -c 5000000 /dev/zero | tr '\000' ' ' > "$HOME/.delivery-kit.json"
+  printf '{not json' >> "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, a JSON array: the guard runs on the other layers" {
+  printf '[1,2]' > "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, contextGuard a string: the guard runs on the other layers" {
+  # The file parses, and CONFIG_JQ then errors on it. That error is caught
+  # inside the payload call: without the `try` it fails the payload parse.
+  printf '{"contextGuard":"string"}' > "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, a directory: the guard runs on the other layers" {
+  mkdir "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+}
+
+@test "bad user file, unreadable: the guard runs on the other layers" {
+  # chmod 000 makes the file unreadable on Linux and macOS. Git Bash on
+  # Windows ignores it, and the file is then read like any other; the repo
+  # and environment values below still win, so the test holds either way.
+  printf '{"contextGuard":{"windowTokens":1000000}}' > "$HOME/.delivery-kit.json"
+  chmod 000 "$HOME/.delivery-kit.json"
+  bad_user_file_keeps_guard
+  chmod 600 "$HOME/.delivery-kit.json"
+}
+
+@test "a user file jq cannot open goes to the old reader, and the guard runs" {
+  # The file passes the shell's -f and -r tests, then jq cannot open it: it
+  # vanished, or another program holds it locked. jq exits 2 before it reads
+  # stdin, so the hook runs the payload call again without the file and hands
+  # the file to read_config. A stub jq fails every --rawfile here, so the
+  # threshold below can only have come from that second read; without the
+  # retry the payload is lost and the guard says nothing.
+  real_jq="$(command -v jq)"
+  mkdir -p "$TEST_DIR/stub"
+  printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = --rawfile ] && { echo "stub: cannot open" >&2; exit 2; }; done\nexec "%s" "$@"\n' \
+    "$real_jq" > "$TEST_DIR/stub/jq"
+  chmod +x "$TEST_DIR/stub/jq"
+  export PATH="$TEST_DIR/stub:$PATH"
+  write_config "$HOME/.delivery-kit.json" '{"thresholdPct":30}'
+  t="$(transcript_with 70000 70000 70000 70000 70000)"   # 35% of 200000
+  run_hook "$t" noopen
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.reason | test("at 35% of the 200000-token window [(]threshold 30%[)]")'
+  [ ! -e "$TMPDIR/dk-jq-hint" ]
 }
 
 @test "unknown config keys are ignored" {
