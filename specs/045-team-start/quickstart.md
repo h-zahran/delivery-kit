@@ -63,6 +63,21 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 96 | `team/scripts/team.sh` | no ssh options on `ls-remote` | status: ls-remote has a time limit |
 | 97 | `team/scripts/team.sh` | ssh options added to any ssh command, plink too | status: ls-remote has a time limit |
 | 98–103 | `team/skills/*/SKILL.md`, `team/docs/configuration.md` | each new pinned line in `team/tests/prose.bats` | the prose test that pins it |
+| 104 | `team/scripts/team.sh` | a file whose top is not an object is read on | a settings file, a roster or a task file whose top is not an object is refused in one line |
+| 105 | `team/scripts/team.sh` | a line break in `branch` passes | tasks: a line break in the branch or the spec folder; command: a value with a line break never reaches the pipeline line |
+| 106 | `team/scripts/team.sh` | a line break in `specDir` passes | tasks: a line break in the branch or the spec folder |
+| 107–108 | `team/scripts/team.sh` | a line break in a trailer passes; in a flag | tasks: a line break in a trailer or a flag |
+| 109 | `team/scripts/team.sh` | `q` anchored with `^` and `$` again | none: `tasks` refuses every line break first, so `q` never sees one. Probed on jq 1.8.1: `"main\n"` is plain with `^…$`, not with `\A…\z` |
+| 110 | `team/scripts/team.sh` | a `progressView` equal to `tasks` passes | config: a progress page that is the task file or the roster is refused |
+| 111 | `team/scripts/team.sh` | a `progressView` equal to `roster` passes | config: a progress page that is the task file or the roster is refused, by its message only: the `{member}` rule still refuses that value |
+| 112 | `team/scripts/team.sh` | a `.git` segment passes | config: a path with a .git segment is refused |
+| 113 | `team/scripts/team.sh` | `.git` compared with letter case | config: a path with a .git segment is refused |
+| 114 | `team/scripts/team.sh` | `render` takes a page that is a member's task file | render: a page that would be a member's task file is refused |
+| 115 | `team/scripts/team.sh` | `render` takes a page that is the roster | render: a page that would be the roster or a folder is refused |
+| 116 | `team/scripts/team.sh` | `render` compares with letter case | render: a page that would be a member's task file is refused |
+| 117 | `team/scripts/team.sh` | `render` takes a page path that is a folder | render: a page that would be the roster or a folder is refused |
+| 118 | `team/scripts/team.sh` | the page written in place, not moved into place | none: no failure was found between opening the page and its end, and the EXIT trap removes the unused temporary file |
+| 119 | `team/scripts/team.sh` | no EXIT trap in `render` | render: a task file that cannot be read writes no page |
 
 ## 3. Record
 
@@ -72,3 +87,4 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 2026-10-13 | Linux | `tests` `1..126`, `handoff/tests` `1..158`, `pipeline/tests` `1..503`, `team/tests` `1..43`, all `ok` | 62–72: 11 landed; 10 went red, 67 is shown equivalent |
 | 2026-10-13 | Linux | `team/tests` `1..51`, all `ok` | 73–84: 12 landed; 10 went red, 83 and 84 are shown equivalent; 85 passed |
 | 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1 | `team/tests` `1..60`: 57 `ok`; 3 timed out at 60 s on a loaded machine (22, 23, 32), three tests not changed here, which timed out on the baseline before this change too (`1..52`, 47 `ok`) | 86–103: 18 landed, 18 went red. The old `team.sh` read the reviewer's 3,000-branch origin as "not started" in 5 of 5 runs, the new one as "in progress" in 5 of 5. |
+| 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1, a second suite running beside it | `team/tests` `1..60` in five filtered runs that together name each test once: 49 `ok`, 11 `not ok`, each `timeout after 60s` and none an assertion. The same 11, with only the timeout raised in a throw-away copy, all `ok`. The baseline before these changes, `1..52`, timed out on 5 of the same tests | 104–119: 16 landed; 14 went red, 109 and 118 are shown equivalent |

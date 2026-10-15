@@ -54,4 +54,4 @@ One row per team in the settings, in key order. `member` is the saved answer whe
 /pipeline "<seed>" --branch <branch> --spec-dir <specDir> [--trailer <t>]... [<flag>]...
 ```
 
-The seed is always double-quoted. Any other value with a character outside `[A-Za-z0-9._/:@=+,-]` is double-quoted. Inside quotes, `"` and `\` are escaped with `\`.
+The seed is always double-quoted. Any other value with a character outside `[A-Za-z0-9._/:@=+,-]` is double-quoted, judged on the whole value. Inside quotes, `"` and `\` are escaped with `\`. No value holds a line break: `tasks` refuses one first, so the line is always one line.

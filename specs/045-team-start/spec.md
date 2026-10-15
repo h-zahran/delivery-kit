@@ -38,6 +38,9 @@ The first form of `.delivery-kit/team.json`, one `{team, member}` pair, is read 
 | **`next` resumes any run still live on this machine first, whatever its status.** | A run in phases M to O reads as `in review`. It was passed over, the next task was offered as a start, and pre-flight then met the live run and its lock. |
 | **status reads its facts once, into files, and builds every task in one jq program.** Nothing that grows with the tasks goes through a herestring. A branch is matched by its whole name. `mine` reads origin and the pull requests once for every team. | Git Bash hangs a herestring of 65,536 to about 65,700 bytes: 152 tasks hung status for good. A grep that stopped at its first match broke its pipe under pipefail: 3,000 origin branches, the task's first, read as absent. 151 tasks took 245 s. `mine` read origin and the pull requests once per team, plus once. |
 | **`git ls-remote` gives up on an origin that does not answer.** http after 10 s below 1000 bytes a second; ssh after 10 s to connect, in batch mode, after the member's own ssh command. | An origin that accepts and never answers hung status for good. |
+| **A file whose top is not an object is refused in one line.** The settings file, the roster and the task file must each hold one JSON object. | A roster of `[]` printed jq's own error before the `team.sh:` line: two lines where one is promised, and `mine` copied both into a row's `error`. A task file of `"x"` did the same. |
+| **No value of the `/pipeline` line holds a line break.** `tasks` refuses one in `branch`, `specDir`, each trailer and each flag, as it did in `seed`. `command` quotes any value that is not wholly plain characters. | A branch of `ann/alpha/001\n--no-auto` passed, and `command` printed a line split in three, the second starting `--no-auto`. The quoting check used `^` and `$`, which jq matches at each line end, so the value was not even quoted. |
+| **`render` never writes over the roster, a task file, or `.git`.** `config` refuses a `progressView` equal to `tasks` or `roster`, and any path with a `.git` segment, in any letter case. `render` refuses a page that, after `{member}` is replaced, is the roster or any member's task file, again in any letter case. It writes the page to a temporary file in the same folder, then moves it into place. | A `progressView` equal to `tasks` made `render` replace the member's task file with the page. A `progressView` of `.git/{member}` and a member `config` wrote over `.git/config`. |
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -102,6 +105,10 @@ A team leader runs `team:status`. Each task's status is read from its pull reque
 - **FR-020** (2026-10-15): No data that grows with the tasks MAY pass through a herestring, and `status` MUST NOT run jq once per task.
 - **FR-021** (2026-10-15): `mine` MUST read origin and the pull requests once for all its teams.
 - **FR-022** (2026-10-15): `git ls-remote` MUST give up on an origin that does not answer, without replacing the member's own ssh command.
+- **FR-023** (review of PR #92, 2026-10-15): A settings file, a roster or a task file whose top is not a JSON object MUST be refused with one `team.sh:` line, and no jq message.
+- **FR-024**: `tasks` MUST refuse a line break in `branch`, `specDir`, each trailer and each flag, naming the task and the field. `command` MUST quote any value that is not wholly plain characters, judged on the whole value, not per line.
+- **FR-025**: `config` MUST refuse a `progressView` equal to `tasks` or `roster`, and any path with a `.git` segment, ignoring letter case.
+- **FR-026**: `render` MUST refuse a page path that, after `{member}` is replaced, is the roster or any member's task file, ignoring letter case, or is a folder. It MUST write the page whole or leave the old one as it was.
 
 ## Success Criteria *(mandatory)*
 
