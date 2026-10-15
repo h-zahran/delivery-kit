@@ -42,7 +42,12 @@ answer before the next question.
    goes.
 4. Optionally, a path for each member's readable progress page, with
    `{member}`. `team:status` writes it when asked. No answer leaves it
-   out.
+   out. It is never the task file's path or the roster's: the page is
+   written over whatever is there.
+
+No path is inside `.git` or `.delivery-kit/`, in any letter case.
+`team.sh config` names the first rule a path breaks; the full list is in
+`docs/configuration.md`.
 
 You may suggest a path you see in the repository. Say where you saw it.
 Never fill an answer in without asking.

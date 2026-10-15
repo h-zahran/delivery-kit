@@ -35,9 +35,19 @@ There is no key for a stored status. Status is read from git and the pull
 requests each time; see "Status" below.
 
 Every path is relative to the repository root, uses `/` between folders,
-has no `..`, `.` or empty segment, and is not under `.delivery-kit/`. Any
+has no `..`, `.` or empty segment, and is not under `.delivery-kit/`. No
+segment is `.git`, in any letter case: macOS and Windows ignore case, so
+`.GIT/x` is inside `.git` there. Any
 other key in a team entry is refused by name, so a misspelt key is never
 silently ignored.
+
+`progressView` is never the same path as `tasks` or `roster`, in any
+letter case. Two different paths can still meet for one member id, so
+`team.sh render` checks again after `{member}` is replaced: it refuses a
+page that would be the roster or any member's task file, and a page path
+that is a folder. It writes the
+page to a temporary file in the same folder and then moves it into place,
+so a failure never leaves half a page.
 
 ## The roster file
 
@@ -82,7 +92,11 @@ The order of the list is the order the tasks are worked. A task the pipeline
 does not run, such as a machine setup, is not in this file.
 
 `scripts/team.sh` checks the shape: each required field is there, each field
-has the right type, and no id appears twice. It does not check what a value
+has the right type, and no id appears twice. The settings file, the roster
+and the task file each hold one JSON object. The values the `/pipeline`
+line carries are one line each: `seed`, `branch`, `specDir`, each trailer
+and each flag. A line break in any of them is refused, naming the task and
+the field, so the pasted line can never become two commands. It does not check what a value
 means. The pipeline's pre-flight checks the branch name, the spec folder and
 each trailer, so those rules live in one place.
 

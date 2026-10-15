@@ -24,9 +24,13 @@ All notable changes to the `team` plugin.
   writes each task's branch, spec folder, seed, trailers and extra flags
   into the task file, and the plugin passes them on.
 - **`scripts/team.sh`**, which reads and checks the team block, a roster
-  and a task file, and names the first fault it finds. It checks shape
-  only. The pipeline's pre-flight checks what a branch name, a spec
-  folder or a trailer means, so those rules stay in one place.
+  and a task file, and names the first fault it finds in one line. It
+  checks shape only. The pipeline's pre-flight checks what a branch name,
+  a spec folder or a trailer means, so those rules stay in one place. It
+  does refuse a line break in any value of the `/pipeline` line, so the
+  pasted line is always one line. No path may be inside `.git`, and a
+  progress page may never be the roster or a task file: `render` checks
+  this for every member, and writes the page whole or not at all.
 - **`team:start`: the next task, ready to paste.** It asks each member
   once per team who they are and keeps the answers in
   `.delivery-kit/team.json`, one per team, which git must ignore; the git
