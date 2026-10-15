@@ -271,9 +271,10 @@ one_line() {
 }
 
 # malformed_tasks <count> — runs each "filter|message" line of stdin on
-# ann's task file, in a fresh setup, and requires the message. Two tests
-# share it: one held all 14 cases and took 30.6 s on windows-2025, over the
-# 30 s budget.
+# ann's task file, in a fresh setup, and requires the message. Four tests
+# share it, at most four cases each: one held all 14 cases and took 30.6 s
+# on windows-2025, and seven cases took 61 s on a Windows 11 laptop, over
+# the 60 s timeout (one `tasks` call there starts jq 66 times, 8.6 s).
 malformed_tasks() {
   local f='plan/alpha/ann/tasks.json' filter want n=0
   while IFS='|' read -r filter want <&4; do
@@ -287,11 +288,16 @@ malformed_tasks() {
 }
 
 @test "tasks: a task file without a field it needs is refused, naming the fault" {
-  malformed_tasks 7 <<'CASES'
+  malformed_tasks 4 <<'CASES'
 del(.tasks)|has no 'tasks' list
 .tasks[0] = 3|task 0 is not an object
 del(.tasks[0].id)|task 0 has no id
 del(.tasks[0].branch)|task T-1 has no branch
+CASES
+}
+
+@test "tasks: a task file with a blank branch, or without a spec folder or a seed, is refused, naming the fault" {
+  malformed_tasks 3 <<'CASES'
 .tasks[0].branch = " "|task T-1 has no branch
 del(.tasks[0].specDir)|task T-1 has no specDir
 del(.tasks[0].seed)|task T-1 has no seed
@@ -299,14 +305,19 @@ CASES
 }
 
 @test "tasks: a task file with a field of the wrong type or a repeated id is refused, naming the fault" {
-  malformed_tasks 7 <<'CASES'
+  malformed_tasks 3 <<'CASES'
+.tasks[1].id = "T-1"|task id 'T-1' appears twice
+.tasks[0].seed = "two\nlines"|task T-1: seed holds a line break
+.tasks[0].blocked = true|task T-1: blocked is not a string
+CASES
+}
+
+@test "tasks: a title, a number, the trailers or the flags of the wrong type are refused, naming the fault" {
+  malformed_tasks 4 <<'CASES'
 .tasks[0].title = 3|task T-1: title is not a string
 .tasks[0].number = 1|task T-1: number is not a string
 .tasks[0].trailers = "Plan-Item: T-1"|task T-1: trailers is not a list of strings
 .tasks[0].flags = [1]|task T-1: flags is not a list of strings
-.tasks[1].id = "T-1"|task id 'T-1' appears twice
-.tasks[0].seed = "two\nlines"|task T-1: seed holds a line break
-.tasks[0].blocked = true|task T-1: blocked is not a string
 CASES
 }
 
@@ -432,23 +443,38 @@ two_teams() {
   [ "$(jq -c '[.originRead, .prRead]' <<<"$output")" = '[false,false]' ]
 }
 
-@test "mine: a member who left is asked again, and a team that cannot be read does not hide the others" {
+# mine_fixture <answers> — two teams, committed, with these saved answers.
+# The three tests below were one, which took 83.5 s on a Windows 11
+# laptop, over the 60 s timeout: one `mine` each.
+mine_fixture() {
   repo_git 'ann@example.com'
   two_teams
   git -C "$R" add -A && git -C "$R" commit -q -m init
   mkdir -p "$R/.delivery-kit"
-  printf '{"members":{"alpha":"cy","beta":"a2"}}\n' > "$R/.delivery-kit/team.json"
+  printf '%s\n' "$1" > "$R/.delivery-kit/team.json"
+}
+
+@test "mine: a member who left is asked again" {
+  mine_fixture '{"members":{"alpha":"cy","beta":"a2"}}'
   team mine
   [ "$status" -eq 0 ]
   [ "$(jq -c '.teams[0] | [.member, .left, .suggested]' <<<"$output")" = '[null,"cy",["ann"]]' ]
+}
+
+@test "mine: a team whose roster cannot be read does not hide the others" {
+  mine_fixture '{"members":{"alpha":"cy","beta":"a2"}}'
   printf 'not json\n' > "$R/plan/alpha/roster.json"
   team mine
   [ "$status" -eq 0 ]
   [ "$(jq -r '.teams[0].error' <<<"$output")" = "roster 'plan/alpha/roster.json' is not valid JSON" ]
   [ "$(jq -c '.teams[1] | [.member, .next.action]' <<<"$output")" = '["a2","start"]' ]
-  printf '{"members":{"beta":"a2"}}\n' > "$R/.delivery-kit/team.json"
+}
+
+@test "mine: a team whose task file cannot be read names the fault, and does not hide the others" {
+  mine_fixture '{"members":{"beta":"a2"}}'
   rm "$R/plan/beta/a2/tasks.json"
   team mine
+  [ "$status" -eq 0 ]
   [ "$(jq -c '.teams[1] | [.member, .next, .error]' <<<"$output")" = \
     '["a2",null,"task file '"'"'plan/beta/a2/tasks.json'"'"' does not exist"]' ]
 }

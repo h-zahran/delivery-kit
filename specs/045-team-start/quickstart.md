@@ -32,11 +32,11 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 65 | `team/scripts/team.sh` | `whoami` takes an id the roster no longer holds | whoami: an answer the settings or the roster no longer hold is listed as stale |
 | 66 | `team/scripts/team.sh` | `mine` uses an id that left the team | mine: a member who left is asked again |
 | 67 | `team/scripts/team.sh` | `mine` drops a roster fault | none: `suggest` reads the same roster next and reports the same fault, so the output does not change |
-| 68 | `team/scripts/team.sh` | `mine` drops a `next` fault | mine: a member who left is asked again, and a team that cannot be read does not hide the others |
+| 68 | `team/scripts/team.sh` | `mine` drops a `next` fault | mine: a team whose task file cannot be read names the fault, and does not hide the others |
 | 69 | `team/scripts/team.sh` | `abandoned` not read | status: an abandoned run and a finished run without a pull request are ended |
 | 70 | `team/scripts/team.sh` | `finished` not read | status: an abandoned run and a finished run without a pull request are ended |
 | 71 | `team/scripts/team.sh` | the copied rule differs from `RUN_END_JQ` | status: how a run ended agrees with the pipeline's own progress.sh |
-| 72 | `team/scripts/team.sh` | `run_self` as a function call, where errexit is off | mine: a member who left is asked again, and a team that cannot be read does not hide the others |
+| 72 | `team/scripts/team.sh` | `run_self` as a function call, where errexit is off | none since 2026-10-15: every read in `next` and `status` now ends in `|| exit 1`, so the in-process call (`run_self() { local c="$1"; shift; "cmd_$c" "$@"; }`) changes no output. Probed on all six `mine` tests and on the combined test they were split from, with the timeout raised: all `ok` |
 | 73 | `team/scripts/team.sh` | no refusal after the JSON read in `read_me` | a broken identity file is refused by every reader |
 | 74 | `team/scripts/team.sh` | no `\|\| exit 1` after `cmd_tasks` in `cmd_status` | render: a task file that cannot be read writes no page |
 | 75 | `team/scripts/team.sh` | an empty file read as JSON | a broken identity file is refused by every reader |
@@ -88,3 +88,4 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 2026-10-13 | Linux | `team/tests` `1..51`, all `ok` | 73–84: 12 landed; 10 went red, 83 and 84 are shown equivalent; 85 passed |
 | 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1 | `team/tests` `1..60`: 57 `ok`; 3 timed out at 60 s on a loaded machine (22, 23, 32), three tests not changed here, which timed out on the baseline before this change too (`1..52`, 47 `ok`) | 86–103: 18 landed, 18 went red. The old `team.sh` read the reviewer's 3,000-branch origin as "not started" in 5 of 5 runs, the new one as "in progress" in 5 of 5. |
 | 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1, a second suite running beside it | `team/tests` `1..60` in five filtered runs that together name each test once: 49 `ok`, 11 `not ok`, each `timeout after 60s` and none an assertion. The same 11, with only the timeout raised in a throw-away copy, all `ok`. The baseline before these changes, `1..52`, timed out on 5 of the same tests | 104–119: 16 landed; 14 went red, 109 and 118 are shown equivalent |
+| 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1, both branches joined, nothing else running | `team/tests` `1..68`: 65 `ok`, 3 timed out (the two seven-case `tasks` tests at 61-62 s, the three-step `mine` test at 83.5 s). Split into 4+3, 3+4 and three `mine` tests: the 7 run alone all `ok`, the slowest 37 s. `tests` `1..126`, all `ok` | 66 and 68 red on the split tests; 72 shown equivalent, above |
