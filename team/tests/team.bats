@@ -167,6 +167,32 @@ refused() {
   done
 }
 
+@test "config: a progress page that is the task file or the roster is refused, in any letter case" {
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = .team.teams.alpha.tasks'
+  team config
+  refused "'progressView' 'plan/alpha/{member}/tasks.json' is the task file"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "plan/alpha/{member}/Tasks.json"'
+  team config
+  refused "'progressView' 'plan/alpha/{member}/Tasks.json' is the task file"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "PLAN/alpha/roster.json"'
+  team config
+  refused "'progressView' 'PLAN/alpha/roster.json' is the roster"
+}
+
+@test "config: a path with a .git segment is refused, in any letter case, and .github is not" {
+  local bad
+  for bad in '.git/{member}' 'plan/.GIT/{member}/t.json'; do
+    setup
+    set_json .delivery-kit.json ".team.teams.alpha.progressView = \"$bad\""
+    team config
+    refused "'$bad' is inside a .git folder" || { echo "case: $bad"; false; }
+  done
+  # The edge: a segment that only starts with .git is an ordinary folder.
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = ".github/{member}.md"'
+  team config
+  [ "$status" -eq 0 ] || { echo "stderr: $stderr"; false; }
+}
+
 @test "roster: the members are printed, emails defaulting to an empty list" {
   team roster alpha
   [ "$status" -eq 0 ]
@@ -596,10 +622,13 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
 @test "render: a task file that cannot be read writes no page" {
   status_fixture
   rm "$R/plan/alpha/ann/tasks.json"
+  export TMPDIR="$BATS_TEST_TMPDIR/tmp"; mkdir -p "$TMPDIR"
   team_fake render alpha ann
   refused "task file 'plan/alpha/ann/tasks.json' does not exist"
   [ "$(printf '%s\n' "$stderr" | grep -c '^team.sh:')" -eq 1 ] || { echo "stderr: $stderr"; false; }
   [ ! -e "$R/plan/alpha/ann/progress.md" ]
+  # The status is read into a temporary file, and the EXIT trap removes it.
+  [ -z "$(ls -A "$TMPDIR")" ] || { ls -A "$TMPDIR"; false; }
 }
 
 @test "mine: origin and the pull requests are read once for every team, and each team says the same" {
@@ -852,6 +881,42 @@ big_fixture() {
   grep -qF '| 001 | `T-1` | Has a run with a PR | in review | `ann/T-1` | https://example.com/pr/1 |  |' "$f"
   grep -qF '| 004 | `T-4` | Is blocked | blocked | `ann/T-4` |  | waits for \| the API |' "$f"
   grep -qF '| 005 | `T-5` | Not started | not started |  |  |  |' "$f"
+  # Written beside the page and moved into place: no temporary file stays.
+  [ -z "$(find "$R/plan" -name '.progress.*')" ]
+}
+
+# Two tests of two renders each: four in one passed 60 s on a loaded
+# Windows machine. Each pattern passes config; it meets a file for one id.
+@test "render: a page that would be a member's task file is refused, in any letter case, and the file is left as it was" {
+  set_json plan/alpha/roster.json '.members += [{id: "alpha", name: "A"}]'
+  # A task file of its own, so a render that got past the check would write.
+  mkdir -p "$R/plan/alpha/alpha" && cp "$R/plan/alpha/ann/tasks.json" "$R/plan/alpha/alpha/"
+  cp "$R/plan/alpha/ann/tasks.json" "$BATS_TEST_TMPDIR/tasks.keep"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "plan/{member}/ann/tasks.json"'
+  team render alpha alpha
+  refused "progress page 'plan/alpha/ann/tasks.json' is the task file of member 'ann'"
+  # Another letter case is the same file on macOS and Windows.
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "plan/{member}/ANN/tasks.json"'
+  team render alpha alpha
+  refused "progress page 'plan/alpha/ANN/tasks.json' is the task file of member 'ann'"
+  cmp "$R/plan/alpha/ann/tasks.json" "$BATS_TEST_TMPDIR/tasks.keep"
+  [ -z "$(find "$R/plan" -name '.progress.*')" ]
+}
+
+@test "render: a page that would be the roster or a folder is refused, and the roster is left as it was" {
+  set_json plan/alpha/roster.json '.members += [{id: "roster", name: "R"}]'
+  mkdir -p "$R/plan/alpha/roster" && cp "$R/plan/alpha/ann/tasks.json" "$R/plan/alpha/roster/"
+  cp "$R/plan/alpha/roster.json" "$BATS_TEST_TMPDIR/roster.keep"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "plan/alpha/{member}.json"'
+  team render alpha roster
+  refused "progress page 'plan/alpha/roster.json' is the roster"
+  # A folder at the page's path: mv would put the page inside it.
+  mkdir "$R/plan/alpha/bo.json"
+  cp "$R/plan/alpha/ann/tasks.json" "$R/plan/alpha/bo/"
+  team render alpha bo
+  refused "progress page 'plan/alpha/bo.json' is a folder"
+  cmp "$R/plan/alpha/roster.json" "$BATS_TEST_TMPDIR/roster.keep"
+  [ -z "$(find "$R/plan" -name '.progress.*')" ]
 }
 
 @test "render: a team with no progressView is refused, naming team:setup" {
