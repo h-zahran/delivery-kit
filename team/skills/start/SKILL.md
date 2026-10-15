@@ -84,9 +84,10 @@ Then act on the chosen `action`:
 | `action` | What it means | What to do |
 |---|---|---|
 | `start` | No task is in progress, and this is the first task not started | Go to step 4. |
-| `resume` | A task in progress, with its run on this machine. It comes before every other task. | Print `/pipeline --resume` and the task's id and title. The pipeline's resume prompt takes it from there. |
+| `resume` | A task whose run is still live on this machine, whatever its status: a run in review still has phases to run after its pull request opens. It comes before every other task. | Print `/pipeline --resume` and the task's id and title. The pipeline's resume prompt takes it from there. |
+| `unreadable` | A task whose run state file on this machine cannot be read | Show the task and the file, `runFile`, in a code span. Say that the pipeline cannot resume or abandon a file it cannot read, and that the member repairs or removes that file. Stop. |
 | `elsewhere` | A task in progress, with a branch but no run on this machine | Show the task, its branch and where the branch was seen (`source`). Stop. Starting it again would fight the work already on that branch. |
-| `none` | Every task is in review, done, finished, abandoned or blocked | Say so, and suggest `team:status`. |
+| `none` | No run is live here, and every task is in review, done, finished, abandoned or blocked | Say so, and suggest `team:status`. |
 
 A task whose run was abandoned is never started again by this skill: the
 pipeline refuses to work on an abandoned run, under the same spec folder.

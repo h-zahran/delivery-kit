@@ -14,6 +14,7 @@ answers wins:
 |---|---|
 | A merged pull request | done |
 | An open pull request | in review |
+| A run on this machine whose state file cannot be read | unreadable |
 | A run on this machine that was abandoned | abandoned |
 | A run on this machine that recorded a pull request not closed | in review |
 | A `blocked` note in the task file | blocked |
@@ -24,6 +25,12 @@ answers wins:
 How a run ended is the pipeline's own rule. An abandoned run is ended for
 good: the pipeline refuses to work on it again under the same spec
 folder. To do that task again, the team leader gives it a new `specDir`.
+
+A state file that is not one JSON object with a string `current_phase`
+is unreadable, by the rule the pipeline's pre-flight applies. The
+pipeline cannot resume or abandon it. Show the file, `runFile`, in a
+code span, and say that the member on that machine repairs or removes
+it.
 
 A closed pull request that was not merged is not done: the task is then
 read from the other facts, and the row says the pull request was closed.

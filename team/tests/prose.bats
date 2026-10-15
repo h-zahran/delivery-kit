@@ -75,6 +75,9 @@ Say that the team leader gives the task a new `specDir` in the task file.
 For `resume`, skip this step. The tree may hold the run's own work,
 a task merged from another machine, with its branch deleted, then reads as not started.
 Read each row against this table from the top, and use the first line that fits:
+| `unreadable` | A task whose run state file on this machine cannot be read |
+Say that the pipeline cannot resume or abandon a file it cannot read, and that the member repairs or removes that file. Stop.
+| `resume` | A task whose run is still live on this machine, whatever its status:
 PINS
 }
 
@@ -93,6 +96,7 @@ a merged task shows as in progress or in review, never as done, and as not start
 It never fetches, pulls or changes the tree.
 ## 3. Write the progress page, only when asked
 the page belongs in its own commit, never inside a feature branch's work.
+| A run on this machine whose state file cannot be read | unreadable |
 PINS
 }
 
@@ -109,5 +113,7 @@ a source that could not be read is reported as not read, never taken as "no".
 | The pipeline's run on this machine was abandoned | abandoned | `run state` |
 | The pipeline's run on this machine is at `DONE` | finished | `run state` |
 `pipeline/scripts/progress.sh`, and a test checks that the two agree.
+| The pipeline's run on this machine has a state file that cannot be read | unreadable | `run state` |
+first the task whose run is still live on this machine, whatever its status,
 PINS
 }

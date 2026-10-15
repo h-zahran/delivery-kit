@@ -30,6 +30,15 @@ Two changes, approved by the owner ("make sure we don't use this manually"):
 
 The first form of `.delivery-kit/team.json`, one `{team, member}` pair, is read as one answer. The plugin is unreleased, so that form exists only on the machines that tried it.
 
+## Changed on 2026-10-15, from the review of PR #92
+
+| Change | Why |
+|---|---|
+| **A run state file that cannot be read is `unreadable`.** The rule is the pipeline's pre-flight's: not one JSON object with a string `current_phase`. The task reads `unreadable`, source `run state`, and a new field `runFile` names the file. `next` returns a new action, `unreadable`, before `elsewhere` and `start`. | The file was read as a live run: its task stayed `in progress`, and `next` offered it for resume forever. The pipeline cannot resume or abandon a file it cannot read. |
+| **`next` resumes any run still live on this machine first, whatever its status.** | A run in phases M to O reads as `in review`. It was passed over, the next task was offered as a start, and pre-flight then met the live run and its lock. |
+| **status reads its facts once, into files, and builds every task in one jq program.** Nothing that grows with the tasks goes through a herestring. A branch is matched by its whole name. `mine` reads origin and the pull requests once for every team. | Git Bash hangs a herestring of 65,536 to about 65,700 bytes: 152 tasks hung status for good. A grep that stopped at its first match broke its pipe under pipefail: 3,000 origin branches, the task's first, read as absent. 151 tasks took 245 s. `mine` read origin and the pull requests once per team, plus once. |
+| **`git ls-remote` gives up on an origin that does not answer.** http after 10 s below 1000 bytes a second; ssh after 10 s to connect, in batch mode, after the member's own ssh command. | An origin that accepts and never answers hung status for good. |
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A member starts the next task (Priority: P1)
@@ -42,10 +51,12 @@ A member runs `team:start`. The first time, it asks their team and id, suggestin
 
 1. **Given** a task in progress with its run on this machine, **When** `next` runs, **Then** it returns `resume` for that task before any new one.
 2. **Given** a task in progress with only a branch, **When** `next` runs, **Then** it returns `elsewhere`, never `start`.
-3. **Given** every task in review, done or blocked, **When** `next` runs, **Then** it returns `none`.
+3. **Given** every task in review, done or blocked, and no run live on this machine, **When** `next` runs, **Then** it returns `none`.
 4. **Given** a seed with a quote and a backslash, and a trailer with a space, **When** `command` runs, **Then** each is double-quoted and escaped.
 5. **Given** a run the pipeline abandoned, or a run at `DONE` with no pull request, **When** `next` runs, **Then** it passes over that task.
 6. **Given** answers saved for two teams, each with a task, **When** `team:start` runs, **Then** it shows each team's next task and asks which.
+7. **Given** a run still live on this machine after its pull request opened, **When** `next` runs, **Then** it returns `resume` for that task, never `start` for another.
+8. **Given** a run state file that cannot be read, **When** `next` runs, **Then** it returns `unreadable` with the file, never `resume`.
 
 ---
 
@@ -86,6 +97,11 @@ A team leader runs `team:status`. Each task's status is read from its pull reque
 - **FR-015**: `next` MUST return a task in progress before a new one, and MUST carry `originRead` and `prRead`.
 - **FR-016**: `team:start` MUST NOT refuse a changed tree for `resume`.
 - **FR-017**: The suite MUST NOT read the developer's git configuration or call a real `gh`.
+- **FR-018** (2026-10-15): A run state file that is not one JSON object with a string `current_phase` MUST read as `unreadable`, never as a live run, and `next` MUST NOT resume it.
+- **FR-019** (2026-10-15): `next` MUST resume a run still live on this machine before any other task, whatever its status.
+- **FR-020** (2026-10-15): No data that grows with the tasks MAY pass through a herestring, and `status` MUST NOT run jq once per task.
+- **FR-021** (2026-10-15): `mine` MUST read origin and the pull requests once for all its teams.
+- **FR-022** (2026-10-15): `git ls-remote` MUST give up on an origin that does not answer, without replacing the member's own ssh command.
 
 ## Success Criteria *(mandatory)*
 
