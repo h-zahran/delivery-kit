@@ -190,11 +190,15 @@ cmd_tasks() {
             elif ($t | str("specDir") | not) then "task \($id) has no specDir"
             elif ($t | str("seed") | not) then "task \($id) has no seed"
             elif ($t.seed | test("[\r\n]")) then "task \($id): seed holds a line break; the pipeline line is one line"
+            elif ($t.branch | test("[\r\n]")) then "task \($id): branch holds a line break; the pipeline line is one line"
+            elif ($t.specDir | test("[\r\n]")) then "task \($id): specDir holds a line break; the pipeline line is one line"
             elif ($t | has("blocked")) and (($t.blocked | type) != "string") then "task \($id): blocked is not a string"
             elif ($t | has("title")) and (($t.title | type) != "string") then "task \($id): title is not a string"
             elif ($t | has("number")) and (($t.number | type) != "string") then "task \($id): number is not a string"
             elif ($t | strs("trailers") | not) then "task \($id): trailers is not a list of strings"
             elif ($t | strs("flags") | not) then "task \($id): flags is not a list of strings"
+            elif any($t.trailers[]?; test("[\r\n]")) then "task \($id): a trailer holds a line break; the pipeline line is one line"
+            elif any($t.flags[]?; test("[\r\n]")) then "task \($id): a flag holds a line break; the pipeline line is one line"
             else empty end
         end
     ] | first // empty' -- "$f")"
@@ -525,18 +529,22 @@ cmd_next() {
 
 # The /pipeline line for one task: the seed first, then the task's names,
 # its trailers, and its own flags as written. A value with anything but
-# plain characters is double-quoted, with " and \ escaped.
+# plain characters is double-quoted, with " and \ escaped. Plain is judged
+# on the whole value with \A and \z: jq's ^ and $ match at each line end,
+# so "main\n" read as plain. tasks refuses a line break first; this is
+# the second guard. The task goes to jq through a pipe, never a herestring:
+# Git Bash hangs a herestring of about 64 KB.
 cmd_command() {
   local team="${1:-}" member="${2:-}" id="${3:-}" t
   [ -n "$team" ] && [ -n "$member" ] && [ -n "$id" ] || usage
   t="$(cmd_tasks "$team" "$member" | jq -c --arg id "$id" '[.[] | select(.id == $id)] | first // empty')" || exit 1
   [ -n "$t" ] || die "no task '$id' for member '$member' in team '$team'"
-  jq -r '
-    def q: if test("^[A-Za-z0-9._/:@=+,-]+$") then . else "\"" + gsub("(?<c>[\"\\\\])"; "\\\(.c)") + "\"" end;
+  printf '%s\n' "$t" | jq -r '
+    def q: if test("\\A[A-Za-z0-9._/:@=+,-]+\\z") then . else "\"" + gsub("(?<c>[\"\\\\])"; "\\\(.c)") + "\"" end;
     "/pipeline " + ("\"" + (.seed | gsub("(?<c>[\"\\\\])"; "\\\(.c)")) + "\"")
     + " --branch " + (.branch | q) + " --spec-dir " + (.specDir | q)
     + ([.trailers[] | " --trailer " + q] | join(""))
-    + ([.flags[] | " " + q] | join(""))' <<<"$t"
+    + ([.flags[] | " " + q] | join(""))'
 }
 
 # The readable copy: a markdown table written from the status, never
