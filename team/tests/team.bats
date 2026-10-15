@@ -420,6 +420,23 @@ fake_prs() {
   printf '#!/bin/sh\ncat "%s"\n' "$BATS_TEST_TMPDIR/prs.json" > "$FAKE/gh"
 }
 
+# git_stub <file> — a git first on PATH that answers ls-remote with <file>
+# and logs the call, with its GIT_SSH_COMMAND, to $BATS_TEST_TMPDIR/git.log.
+# Every other git command goes to the real git, found before the stub is
+# written: call it once per test.
+git_stub() {
+  local real
+  real="$(command -v git)"
+  cat > "$FAKE/git" <<SH
+#!/bin/sh
+case " \$* " in
+  *" ls-remote "*) printf '%s|%s\n' "\$*" "\${GIT_SSH_COMMAND:-}" >> "$BATS_TEST_TMPDIR/git.log"; cat "$1"; exit 0 ;;
+esac
+exec "$real" "\$@"
+SH
+  chmod +x "$FAKE/git"
+}
+
 # team_fake <args...> — runs the script with the fake gh first on PATH.
 team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir "$R" "$@"; }
 
@@ -612,6 +629,104 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
     [ "$got" = "$want" ] || { echo "$f: team.sh read '$got', progress.sh '$want'"; false; }
   done
   [ "$(jq -c '[.tasks[0:3][] | .runEnd]' <<<"$output")" = '["live","abandoned","done"]' ]
+}
+
+@test "status: a branch on origin is found among thousands, the task's first, and only by its whole name" {
+  # The reviewer's case: 3,000 branches on origin, the task's first. A grep
+  # that stops at its first match broke the pipe that fed it, and pipefail
+  # read the branch as absent. The names fill more than one pipe buffer.
+  status_fixture
+  local sha=0123456789abcdef0123456789abcdef01234567
+  { printf '%s\trefs/heads/ann/T-3\n%s\trefs/heads/ann/T-55\n' "$sha" "$sha"
+    awk -v s="$sha" 'BEGIN { for (i = 0; i < 3000; i++) printf "%s\trefs/heads/zz/a-branch-name-long-enough-to-fill-a-pipe-%04d\n", s, i }'
+  } > "$BATS_TEST_TMPDIR/heads.txt"
+  [ "$(wc -c < "$BATS_TEST_TMPDIR/heads.txt")" -gt 150000 ]
+  git_stub "$BATS_TEST_TMPDIR/heads.txt"
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.tasks[2] | [.status, .source, .originBranch, .runFile]' <<<"$output")" = '["in progress","origin branch",true,""]' ]
+  # ann/T-55 is not ann/T-5.
+  [ "$(jq -c '.tasks[4] | [.status, .originBranch]' <<<"$output")" = '["not started",false]' ]
+}
+
+# big_fixture — a git repository with one local branch, ann/T-2, and no
+# origin: the least a large status needs, so the large tests stay quick.
+big_fixture() {
+  repo_git 'ann@example.com'
+  git -C "$R" add -A && git -C "$R" commit -q -m init
+  git -C "$R" branch ann/T-2
+}
+
+@test "status finishes on a task list of the size where a Git Bash herestring hangs" {
+  # Git Bash hangs a herestring of 65,536 to about 65,700 bytes. Status
+  # read its task list through one; 152 tasks reached the window and it
+  # never returned, and next, mine and render with it. The list here is
+  # made exactly 65,600 bytes: each task holds every field team.sh fills,
+  # in its order, so the list team.sh prints is the file's own list. Each
+  # answer goes to a file, never through `run`: bats reads `run`'s output
+  # through a herestring of its own.
+  big_fixture
+  local f="$R/plan/alpha/ann/tasks.json" o="$BATS_TEST_TMPDIR/out" n
+  set_json plan/alpha/ann/tasks.json '.tasks = [range(150) as $i | {id: "T-\($i)", number: "", title: "", branch: "ann/T-\($i)",
+    specDir: "specs/ann/T-\($i)", seed: ("s" * 300), trailers: [], flags: [], blocked: ""}]'
+  n="$(jq -cj .tasks "$f" | wc -c)"
+  [ "$n" -lt 65600 ] || { echo "the list is already $n bytes"; false; }
+  set_json plan/alpha/ann/tasks.json ".tasks[0].seed += (\"x\" * $((65600 - n)))"
+  n="$(jq -cj .tasks "$f" | wc -c)"
+  [ "$n" -eq 65600 ] || { echo "the list is $n bytes"; false; }
+  bash "$TEAM_SH" --dir "$R" status alpha ann > "$o"
+  [ "$(jq -cj '[.tasks[] | del(.status, .source, .pr, .run, .phase, .runEnd, .runFile, .localBranch, .originBranch, .prClosed)]' "$o" | wc -c)" -eq 65600 ]
+  [ "$(jq -c '[.tasks[2].status, (.tasks | length)]' "$o")" = '["in progress",150]' ]
+}
+
+@test "render finishes on a status of the size where a Git Bash herestring hangs" {
+  # render read the status through a herestring. Here the status itself is
+  # made exactly 65,600 bytes: one seed is padded by what it lacks, and the
+  # seed appears once in the status, so the status grows by the same count.
+  big_fixture
+  local o="$BATS_TEST_TMPDIR/out" n
+  set_json plan/alpha/ann/tasks.json '.tasks = [range(100) as $i | {id: "T-\($i)", branch: "ann/T-\($i)", specDir: "specs/ann/T-\($i)", seed: ("s" * 300)}]'
+  bash "$TEAM_SH" --dir "$R" status alpha ann > "$o"
+  n="$(jq -cj . "$o" | wc -c)"
+  [ "$n" -lt 65600 ] || { echo "the status is already $n bytes"; false; }
+  set_json plan/alpha/ann/tasks.json ".tasks[0].seed += (\"x\" * $((65600 - n)))"
+  bash "$TEAM_SH" --dir "$R" render alpha ann > "$o"
+  [ "$(grep -c '^| ' "$R/plan/alpha/ann/progress.md")" -eq 101 ]
+}
+
+@test "status: a run state file that cannot be read is unreadable, never a live run" {
+  # Each is a file the pipeline's pre-flight names unreadable: empty, not
+  # JSON, a list, a phase that is not a string, and two documents.
+  status_fixture
+  local d="$R/.delivery-kit/runs" n
+  for n in 002-T-2 003-T-3 004-T-4 005-T-5; do mkdir -p "$d/$n"; done
+  : > "$d/001-T-1/progress.json"
+  printf '{ not json' > "$d/002-T-2/progress.json"
+  printf '[]\n' > "$d/003-T-3/progress.json"
+  printf '{"current_phase":5}\n' > "$d/004-T-4/progress.json"
+  printf '{"current_phase":"H"}\n{"current_phase":"H"}\n' > "$d/005-T-5/progress.json"
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.tasks[] | [.id, .status, .source, .runEnd]]' <<<"$output")" = \
+    '[["T-1","unreadable","run state","unreadable"],["T-2","unreadable","run state","unreadable"],["T-3","unreadable","run state","unreadable"],["T-4","unreadable","run state","unreadable"],["T-5","unreadable","run state","unreadable"]]' ]
+  [ "$(jq -r '.tasks[1].runFile' <<<"$output")" = ".delivery-kit/runs/002-T-2/progress.json" ]
+  # Never resumed, and before T-2's local branch would be reported.
+  team_fake next alpha ann
+  [ "$(jq -c '[.action, .task.id, .task.runFile]' <<<"$output")" = '["unreadable","T-1",".delivery-kit/runs/001-T-1/progress.json"]' ]
+}
+
+@test "status: a pull request still wins over an unreadable run, and next reports the first task it leaves" {
+  status_fixture
+  mkdir -p "$R/.delivery-kit/runs/002-T-2" "$R/.delivery-kit/runs/003-T-3"
+  printf '{ not json' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  printf '{ not json' > "$R/.delivery-kit/runs/002-T-2/progress.json"
+  printf '[]\n' > "$R/.delivery-kit/runs/003-T-3/progress.json"
+  fake_prs '[{"headRefName":"ann/T-1","state":"MERGED","url":"u1"},{"headRefName":"ann/T-2","state":"OPEN","url":"u2"}]'
+  team_fake status alpha ann
+  [ "$(jq -c '[.tasks[0:3][] | [.status, .source, .runEnd]]' <<<"$output")" = \
+    '[["done","pull request","unreadable"],["in review","pull request","unreadable"],["unreadable","run state","unreadable"]]' ]
+  team_fake next alpha ann
+  [ "$(jq -c '[.action, .task.id]' <<<"$output")" = '["unreadable","T-3"]' ]
 }
 
 @test "command: the pipeline line carries the seed, the names, each trailer and the flags, quoted where needed" {

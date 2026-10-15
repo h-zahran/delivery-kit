@@ -19,10 +19,14 @@
 # read as "no answer", and the next iam emptied it.
 #
 # jq here may be a native Windows binary with text-mode stdout: this
-# script reads jq only through command substitution and exit codes. A
-# roster or a task file is read by its path, never through a herestring:
-# Git Bash hangs a herestring of about 64 KB (recorded in the pipeline's
-# preflight.sh), and a task file with many seeds can reach that size.
+# script reads jq's answers through command substitution and exit codes,
+# or from files that only jq reads again, where a CR is stripped or is
+# JSON whitespace. Nothing that grows with the tasks goes through a
+# herestring: Git Bash hangs a herestring of 65,536 to about 65,700 bytes
+# (recorded in the pipeline's preflight.sh), and 152 tasks reached it. A
+# roster or a task file is read by its path. status writes the task list,
+# origin's branches, the pull requests, the local branches and the run
+# states to files in a temporary folder, and one jq program reads them.
 set -euo pipefail
 unset CDPATH GREP_OPTIONS
 export LC_ALL=C
@@ -262,6 +266,17 @@ cmd_iam() {
 # Measured: a missing task file then read as "no task left".
 run_self() { "$BASH" "$SELF" "$@"; }
 
+# work_dir — this process's own temporary folder, made once and removed
+# when the process exits. Global, not local: the EXIT trap runs after the
+# function that made it has returned. A subshell that makes it removes it
+# when the subshell exits.
+W=""
+work_dir() {
+  [ -z "$W" ] || return 0
+  W="$(mktemp -d)" || die "cannot make a temporary folder"
+  trap 'rm -rf -- "${W:-}"' EXIT
+}
+
 # Every saved answer, checked against today's settings and rosters: a team
 # can be removed, and a member can leave a team. An answer that no longer
 # holds is listed in `stale` and never used. One bad answer does not hide
@@ -296,10 +311,10 @@ cmd_mine() {
   local saved cfg n i team member left members err next sug rows='[]'
   saved="$(read_me)" || exit 1
   cfg="$(cmd_config)" || exit 1
+  work_dir
   gather
-  # Global, not local: the EXIT trap runs after this function has returned.
-  errf="$(mktemp)" || die "cannot make a temporary file"
-  trap 'rm -f -- "${errf:-}"' EXIT
+  # In this process's own folder, which its EXIT trap removes.
+  errf="$W/err"
   n="$(jq -r '.teams | length' <<<"$cfg")"; i=0
   while [ "$i" -lt "$n" ]; do
     team="$(jq -r --argjson i "$i" '.teams | keys[$i]' <<<"$cfg")"; i=$((i + 1))
@@ -325,8 +340,7 @@ cmd_mine() {
       def opt: if . == "" then null else . end;
       . + [{team: $t, member: ($m | opt), next: $nx, suggested: $sg, left: ($l | opt), error: ($e | opt)}]' <<<"$rows")"
   done
-  rm -f -- "$errf"
-  jq -c --argjson rr "$remote_read" --argjson pr "$pr_read" '{originRead: $rr, prRead: $pr, teams: .}' <<<"$rows"
+  jq -c --slurpfile read "$G/read.json" '{originRead: $read[0].originRead, prRead: $read[0].prRead, teams: .}' <<<"$rows"
 }
 
 # --- where each task stands --------------------------------------------------
@@ -342,70 +356,118 @@ cmd_mine() {
 # these three keys of the state file are read: abandoned, current_phase and
 # pr_url. team/tests/team.bats runs the pipeline's own progress.sh on a run
 # and checks that this copy agrees with it.
+#
+# A state file that is not one JSON object with a string current_phase
+# (empty, not JSON, two documents, a list) is "unreadable", by the rule the
+# pipeline's pre-flight applies. It is never read as a live run: the
+# pipeline cannot resume or abandon a file it cannot read, so a live
+# reading would offer it for resume forever.
 RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_phase == "DONE" then "done" else "live" end'
 
-remote_read=false; remote_heads=""; pr_read=false; prs='[]'; gh_cmd=""
-
+# gather — reads every fact status needs beyond the task list, once, each
+# into a file in the folder named by G: `heads`, origin's branches, one per
+# line; `prs.json`, the pull requests; `local`, the branches on this
+# machine, one ref per line; `runs.jsonl`, one line per run on this
+# machine; and `read.json`, whether origin and the pull requests were read.
+# Every file is written even when its source could not be read, so a
+# missing source reads as not read, never as an error.
+#
+# `mine` gathers once and names its folder in TEAM_SH_GATHERED for the
+# `next` it runs for each team. A folder named there is used when it holds
+# every file, and is never removed here: the process that made it does that.
 gather() {
-  local out c
+  local f s r line out c gh_cmd="" remote_read=false pr_read=false
+  G="${TEAM_SH_GATHERED:-}"
+  for f in heads prs.json local runs.jsonl read.json; do
+    [ -n "$G" ] && [ -f "$G/$f" ] || G=""
+  done
+  [ -z "$G" ] || return 0
+  work_dir; G="$W"
+  : > "$G/heads"
   if git remote get-url origin >/dev/null 2>&1 \
-     && out="$(GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin 2>/dev/null </dev/null)"; then
+     && ls_remote > "$G/ls-remote" 2>/dev/null </dev/null; then
     remote_read=true
-    remote_heads="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's#^[0-9a-f]*[[:space:]]*refs/heads/##p')"
+    sed -n 's#^[0-9a-f]*[[:space:]]*refs/heads/##p' "$G/ls-remote" > "$G/heads"
   fi
+  printf '[]\n' > "$G/prs.json"
   # Probed under three names, as the pipeline's pre-flight does.
   for c in gh gh.exe gh.cmd; do
     if command -v "$c" >/dev/null 2>&1; then gh_cmd="$c"; break; fi
   done
   if [ -n "$gh_cmd" ] \
-     && out="$(GH_PROMPT_DISABLED=1 "$gh_cmd" pr list --state all --limit 1000 --json headRefName,state,url 2>/dev/null </dev/null)" \
-     && out="$(printf '%s' "$out" | tr -d '\r' | jq -c 'if type == "array" then . else error end' 2>/dev/null)"; then
-    pr_read=true; prs="$out"
+     && GH_PROMPT_DISABLED=1 "$gh_cmd" pr list --state all --limit 1000 --json headRefName,state,url > "$G/gh" 2>/dev/null </dev/null \
+     && out="$(jq -c -s 'if length == 1 and (.[0] | type) == "array" then .[0] else error end' -- "$G/gh" 2>/dev/null)"; then
+    pr_read=true; printf '%s\n' "$out" > "$G/prs.json"
   fi
+  git for-each-ref --format='%(refname)' refs/heads/ > "$G/local" 2>/dev/null || : > "$G/local"
+  # Every run, read the way the pipeline's pre-flight reads it, one jq per
+  # run. A run whose name starts with a dot is a run too, so the two dot
+  # globs read it.
+  : > "$G/runs.jsonl"
+  for s in .delivery-kit/runs/*/progress.json .delivery-kit/runs/.[!.]*/progress.json .delivery-kit/runs/..?*/progress.json; do
+    [ -e "$s" ] || continue
+    r="${s%/progress.json}"; r="${r##*/}"
+    line="$(jq -c -s --arg r "$r" 'if length == 1 and (.[0] | type) == "object" and (.[0].current_phase | type) == "string"
+      then .[0] | {name: $r, end: ('"$RUN_END_JQ"'), phase: .current_phase, pr: (.pr_url | if type == "string" then . else "" end)}
+      else {name: $r, end: "unreadable", phase: "", pr: ""} end' -- "$s" 2>/dev/null)" \
+      || line="$(jq -nc --arg r "$r" '{name: $r, end: "unreadable", phase: "", pr: ""}')"
+    printf '%s\n' "$line" >> "$G/runs.jsonl"
+  done
+  printf '{"originRead":%s,"prRead":%s}\n' "$remote_read" "$pr_read" > "$G/read.json"
 }
 
+# ls_remote — origin's branches, read with a time limit. Without one, an
+# origin that accepts the connection and never answers hangs ls-remote.
+ls_remote() {
+  GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin
+}
+
+# Every task in one jq program, over the files gather wrote: one process,
+# whatever the number of tasks. A task's run is the one named by the last
+# segment of its specDir, the name the pipeline gives it. Membership is
+# exact, by the whole name: a branch is on origin when a line of `heads`
+# is that name, and on this machine when a line of `local` is its ref.
 cmd_status() {
-  local team="${1:-}" member="${2:-}" tasks n i t branch spec run_file run phase run_pr run_end lb rb pr rows
+  local team="${1:-}" member="${2:-}" tasks
   [ -n "$team" ] && [ -n "$member" ] || usage
   tasks="$(cmd_tasks "$team" "$member")" || exit 1
+  work_dir
+  printf '%s\n' "$tasks" > "$W/tasks.json"
   gather
-  rows='[]'
-  n="$(jq -r 'length' <<<"$tasks")"; i=0
-  while [ "$i" -lt "$n" ]; do
-    t="$(jq -c --argjson i "$i" '.[$i]' <<<"$tasks")"; i=$((i + 1))
-    branch="$(jq -r '.branch' <<<"$t")"; spec="$(jq -r '.specDir' <<<"$t")"
-    run_file=".delivery-kit/runs/${spec##*/}/progress.json"
-    run=false; phase=""; run_pr=""; run_end=""
-    if [ -f "$run_file" ]; then
-      run=true
-      phase="$(jq -r '.current_phase // "" | strings' -- "$run_file" 2>/dev/null || true)"
-      run_pr="$(jq -r '.pr_url // "" | strings' -- "$run_file" 2>/dev/null || true)"
-      # A state file that cannot be read is left to the pipeline, which
-      # names the fault on resume: it reads as a live run here.
-      run_end="$(jq -r "$RUN_END_JQ" -- "$run_file" 2>/dev/null || true)"
-      [ -n "$run_end" ] || run_end="live"
-    fi
-    lb=false; git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null && lb=true
-    rb=false; [ "$remote_read" = true ] && printf '%s\n' "$remote_heads" | grep -Fxq -- "$branch" && rb=true
-    pr="$(jq -c --arg b "$branch" '[.[] | select(.headRefName == $b)] | first // null' <<<"$prs")"
-    rows="$(jq -c --argjson t "$t" --argjson run "$run" --arg phase "$phase" --arg runpr "$run_pr" \
-      --arg end "$run_end" --argjson lb "$lb" --argjson rb "$rb" --argjson pr "$pr" '
-      . + [ $t + (
-        if $pr != null and $pr.state == "MERGED" then {status: "done", source: "pull request", pr: $pr.url}
-        elif $pr != null and $pr.state == "OPEN" then {status: "in review", source: "pull request", pr: $pr.url}
-        elif $end == "abandoned" then {status: "abandoned", source: "run state", pr: ""}
-        elif $runpr != "" and ($pr == null or $pr.state != "CLOSED") then {status: "in review", source: "run state", pr: $runpr}
-        elif $t.blocked != "" then {status: "blocked", source: "task file", pr: ""}
-        elif $end == "done" then {status: "finished", source: "run state", pr: ""}
-        elif $run then {status: "in progress", source: "run state", pr: ""}
-        elif $lb then {status: "in progress", source: "local branch", pr: ""}
-        elif $rb then {status: "in progress", source: "origin branch", pr: ""}
-        else {status: "not started", source: "", pr: ""} end
-        + {run: $run, phase: $phase, runEnd: $end, localBranch: $lb, originBranch: $rb,
-           prClosed: ($pr != null and $pr.state == "CLOSED")}) ]' <<<"$rows")"
-  done
-  jq -c --arg team "$team" --arg m "$member" --argjson rr "$remote_read" --argjson pr "$pr_read" \
-    '{team: $team, member: $m, originRead: $rr, prRead: $pr, tasks: .}' <<<"$rows"
+  jq -c --arg team "$team" --arg m "$member" \
+    --rawfile heads "$G/heads" --rawfile local "$G/local" \
+    --slurpfile runs "$G/runs.jsonl" --slurpfile prs "$G/prs.json" --slurpfile read "$G/read.json" '
+    def lines: split("\n") | map(rtrimstr("\r") | select(. != ""));
+    def keyset: reduce .[] as $k ({}; .[$k] = true);
+    $read[0] as $rd
+    | ($heads | lines | keyset) as $rh
+    | ($local | lines | keyset) as $lh
+    | (reduce $runs[] as $r ({}; .[$r.name] = $r)) as $rn
+    | $prs[0] as $prl
+    | {team: $team, member: $m, originRead: $rd.originRead, prRead: $rd.prRead, tasks: [ .[] | . as $t
+        | ($t.specDir | split("/") | last // "") as $name
+        | ($rn[$name] // null) as $r
+        | ($r != null) as $run
+        | ($r.phase // "") as $phase | ($r.pr // "") as $runpr | ($r.end // "") as $end
+        | ($lh["refs/heads/" + $t.branch] == true) as $lb
+        | ($rd.originRead and $rh[$t.branch] == true) as $rb
+        | ([$prl[] | select(.headRefName == $t.branch)] | first // null) as $pr
+        | $t + (
+          if $pr != null and $pr.state == "MERGED" then {status: "done", source: "pull request", pr: $pr.url}
+          elif $pr != null and $pr.state == "OPEN" then {status: "in review", source: "pull request", pr: $pr.url}
+          elif $end == "unreadable" then {status: "unreadable", source: "run state", pr: ""}
+          elif $end == "abandoned" then {status: "abandoned", source: "run state", pr: ""}
+          elif $runpr != "" and ($pr == null or $pr.state != "CLOSED") then {status: "in review", source: "run state", pr: $runpr}
+          elif $t.blocked != "" then {status: "blocked", source: "task file", pr: ""}
+          elif $end == "done" then {status: "finished", source: "run state", pr: ""}
+          elif $run then {status: "in progress", source: "run state", pr: ""}
+          elif $lb then {status: "in progress", source: "local branch", pr: ""}
+          elif $rb then {status: "in progress", source: "origin branch", pr: ""}
+          else {status: "not started", source: "", pr: ""} end
+          + {run: $run, phase: $phase, runEnd: $end,
+             runFile: (if $run then ".delivery-kit/runs/\($name)/progress.json" else "" end),
+             localBranch: $lb, originBranch: $rb,
+             prClosed: ($pr != null and $pr.state == "CLOSED")}) ]}' -- "$W/tasks.json"
 }
 
 # The next task. Every task in progress comes before a new one: the first
@@ -414,15 +476,19 @@ cmd_status() {
 # Only then the first task not started, in file order.
 # An abandoned run and a finished run are passed over: the pipeline
 # refuses to work on an abandoned run again, and a finished run has
-# nothing left to resume.
+# nothing left to resume. A run whose state file cannot be read is
+# reported before anything else is offered: the pipeline cannot resume or
+# abandon it, and a new start would leave it stuck.
 cmd_next() {
   local team="${1:-}" member="${2:-}"
   [ -n "$team" ] && [ -n "$member" ] || usage
   cmd_status "$team" "$member" | jq -c '
     [.tasks[] | select(.status == "in progress")] as $ip
     | ([$ip[] | select(.run)] | first) as $r
+    | ([.tasks[] | select(.status == "unreadable")] | first) as $bad
     | ([.tasks[] | select(.status == "not started")] | first) as $new
     | (if $r != null then {action: "resume", task: $r}
+       elif $bad != null then {action: "unreadable", task: $bad}
        elif ($ip | length) > 0 then {action: "elsewhere", task: $ip[0]}
        elif $new != null then {action: "start", task: $new}
        else {action: "none", task: null} end)
@@ -461,6 +527,9 @@ cmd_render() {
   f="${f//\{member\}/$member}"
   path_ok "team '$team': progress page" "$f"
   st="$(cmd_status "$team" "$member")" || exit 1
+  # By its path, never a herestring: the status grows with the tasks.
+  work_dir
+  printf '%s\n' "$st" > "$W/status.json"
   name="$(jq -r --arg m "$member" '.[] | select(.id == $m) | .name' <<<"$members")"
   mkdir -p "$(dirname -- "$f")"
   jq ${JQB:+"$JQB"} -r --arg name "$name" --arg day "$(date -u +%Y-%m-%d)" '
@@ -475,7 +544,7 @@ cmd_render() {
     "| No. | Task | Title | Status | Branch | PR | Note |",
     "|---|---|---|---|---|---|---|",
     (.tasks[] | "| \(.number | cell) | \(.id | code) | \(.title | cell) | \(.status) | \(if .status == "not started" then "" else (.branch | code) end) | \(.pr | cell) | \(.blocked | cell) |")
-  ' <<<"$st" > "$f"
+  ' -- "$W/status.json" > "$f"
   jq -nc --arg f "$f" '{written: $f}'
 }
 
