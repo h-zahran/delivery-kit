@@ -202,6 +202,28 @@ CASES
   [ "$n" -eq 10 ] || { echo "ran $n of 10 cases"; false; }
 }
 
+# one_line — the last run's stderr is one line, with no message of jq's.
+one_line() {
+  [[ "$stderr" != *$'\n'* && "$stderr" != *"jq:"* ]] || { echo "stderr: $stderr"; return 1; }
+}
+
+@test "a settings file, a roster or a task file whose top is not an object is refused in one line" {
+  # jq's own "Cannot index array" error came before the team.sh line.
+  printf '[]\n' > "$R/plan/alpha/roster.json"
+  team roster alpha
+  refused "roster 'plan/alpha/roster.json' is not a JSON object"
+  one_line
+  setup
+  printf '"x"\n' > "$R/plan/alpha/ann/tasks.json"
+  team tasks alpha ann
+  refused "task file 'plan/alpha/ann/tasks.json' is not a JSON object"
+  one_line
+  printf '[]\n' > "$R/.delivery-kit.json"
+  team config
+  refused "settings file '.delivery-kit.json' is not a JSON object"
+  one_line
+}
+
 @test "tasks: a member's tasks are printed in file order, with defaults filled" {
   team tasks alpha ann
   [ "$status" -eq 0 ]
