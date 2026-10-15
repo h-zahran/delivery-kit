@@ -565,6 +565,26 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   [ ! -e "$R/plan/alpha/ann/progress.md" ]
 }
 
+@test "mine: origin and the pull requests are read once for every team, and each team says the same" {
+  # Each team's next read them again: one more ls-remote and one more gh
+  # call per team, and the top level answered from another read. One team
+  # shows it and keeps the test quick: mine runs next in its own process.
+  repo_git 'ann@example.com'
+  git -C "$R" remote add origin https://example.invalid/r.git
+  printf '%s\trefs/heads/ann/alpha/002-T-2-second\n' 0123456789abcdef0123456789abcdef01234567 > "$BATS_TEST_TMPDIR/heads.txt"
+  git_stub "$BATS_TEST_TMPDIR/heads.txt"
+  printf '#!/bin/sh\necho "$*" >> "%s/gh.log"\necho "[]"\n' "$BATS_TEST_TMPDIR" > "$FAKE/gh"
+  mkdir -p "$R/.delivery-kit"
+  printf '{"members":{"alpha":"ann"}}\n' > "$R/.delivery-kit/team.json"
+  team mine
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.teams[] | [.team, .next.action, .next.task.id, .next.task.source]]' <<<"$output")" = '[["alpha","elsewhere","T-2","origin branch"]]' ]
+  [ "$(jq -c '[.originRead, .prRead]' <<<"$output")" = '[true,true]' ]
+  [ "$(jq -c '[.originRead, .prRead] as $top | [.teams[].next | [.originRead, .prRead] == $top] | unique' <<<"$output")" = '[true]' ]
+  [ "$(grep -c 'ls-remote' "$BATS_TEST_TMPDIR/git.log")" -eq 1 ] || { cat "$BATS_TEST_TMPDIR/git.log"; false; }
+  [ "$(grep -c '^pr list' "$BATS_TEST_TMPDIR/gh.log")" -eq 1 ] || { cat "$BATS_TEST_TMPDIR/gh.log"; false; }
+}
+
 @test "mine: leaves no temporary file behind" {
   repo_git 'ann@example.com'
   git -C "$R" add -A && git -C "$R" commit -q -m init

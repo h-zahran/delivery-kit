@@ -307,14 +307,21 @@ cmd_whoami() {
 # it must: who you are in a team with no answer, and which team when two
 # or more have a task. A team whose files cannot be read is reported with
 # its fault, and the other teams are still read.
+#
+# origin and the pull requests are read once, here, for every team: each
+# team's `next` reads the folder TEAM_SH_GATHERED names, so every team and
+# the top level answer from the same read. The rows go to a file, one per
+# line, never through a herestring: each holds a task.
 cmd_mine() {
-  local saved cfg n i team member left members err next sug rows='[]'
+  local saved cfg n i team member left members err next sug errf rows
   saved="$(read_me)" || exit 1
   cfg="$(cmd_config)" || exit 1
   work_dir
   gather
+  export TEAM_SH_GATHERED="$G"
   # In this process's own folder, which its EXIT trap removes.
-  errf="$W/err"
+  errf="$W/err"; rows="$W/rows.jsonl"
+  : > "$rows"
   n="$(jq -r '.teams | length' <<<"$cfg")"; i=0
   while [ "$i" -lt "$n" ]; do
     team="$(jq -r --argjson i "$i" '.teams | keys[$i]' <<<"$cfg")"; i=$((i + 1))
@@ -336,11 +343,11 @@ cmd_mine() {
       fi
     fi
     err="${err#team.sh: }"
-    rows="$(jq -c --arg t "$team" --arg m "$member" --arg l "$left" --argjson nx "$next" --argjson sg "$sug" --arg e "$err" '
+    jq -nc --arg t "$team" --arg m "$member" --arg l "$left" --argjson nx "$next" --argjson sg "$sug" --arg e "$err" '
       def opt: if . == "" then null else . end;
-      . + [{team: $t, member: ($m | opt), next: $nx, suggested: $sg, left: ($l | opt), error: ($e | opt)}]' <<<"$rows")"
+      {team: $t, member: ($m | opt), next: $nx, suggested: $sg, left: ($l | opt), error: ($e | opt)}' >> "$rows"
   done
-  jq -c --slurpfile read "$G/read.json" '{originRead: $read[0].originRead, prRead: $read[0].prRead, teams: .}' <<<"$rows"
+  jq -c -s --slurpfile read "$G/read.json" '{originRead: $read[0].originRead, prRead: $read[0].prRead, teams: .}' -- "$rows"
 }
 
 # --- where each task stands --------------------------------------------------
