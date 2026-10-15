@@ -112,6 +112,7 @@ these facts for every task, and the first that answers wins:
 |---|---|---|
 | A merged pull request for the task's branch | done | `pull request` |
 | An open pull request for the task's branch | in review | `pull request` |
+| The pipeline's run on this machine has a state file that cannot be read | unreadable | `run state` |
 | The pipeline's run on this machine was abandoned | abandoned | `run state` |
 | The pipeline's run on this machine recorded a pull request that is not closed | in review | `run state` |
 | The task file has a `blocked` note | blocked | `task file` |
@@ -125,11 +126,16 @@ The run is found at `.delivery-kit/runs/<last segment of specDir>/`, the
 name the pipeline gives it. Three keys of its state file are read:
 `abandoned`, `current_phase` and `pr_url`. How a run ended follows the
 pipeline's rule, `RUN_END_JQ` in `pipeline/scripts/progress.sh`, and a
-test checks that the two agree. `team.sh next` passes over an abandoned
-and a finished task. It returns a task in progress before a new one: first
-the task whose run is on this machine, then any other task in progress,
-and only then the first task not started. `origin` is read with `git ls-remote`, never
-fetched. Pull requests are read with `gh`, probed as `gh`, `gh.exe` and
+test checks that the two agree. A state file that is not one JSON object
+with a string `current_phase` is `unreadable`, by the rule the pipeline's
+pre-flight applies, and `runFile` names it: the pipeline cannot resume or
+abandon it, so the member repairs or removes it. `team.sh next` passes
+over an abandoned and a finished task. It returns a task in progress before a new one:
+first the task whose run is still live on this machine, whatever its
+status, then a task whose run is unreadable, then any other task in
+progress, and only then the first task not started. `origin` is read
+with `git ls-remote`, never fetched, and an origin that does not answer
+is given up after about 10 s. Pull requests are read with `gh`, probed as `gh`, `gh.exe` and
 `gh.cmd`. The output says `originRead` and `prRead`: a source that could
 not be read is reported as not read, never taken as "no". Without `gh`, a
 merged task never shows as done, and shows as not started when its branch
@@ -148,7 +154,7 @@ repository with more, an older merged task is read from the other facts.
 | `team.sh whoami` | the saved answers, each checked against today's settings and roster, and the `stale` ones |
 | `team.sh mine` | for every team: the saved member and its next task, or the ids git's email suggests, and any fault |
 | `team.sh status <team> <member>` | each task with its status, its source, and what was not read |
-| `team.sh next <team> <member>` | `start`, `resume`, `elsewhere` or `none`, with the task, and `originRead` and `prRead` |
+| `team.sh next <team> <member>` | `resume`, `unreadable`, `elsewhere`, `start` or `none`, with the task, and `originRead` and `prRead` |
 | `team.sh command <team> <member> <id>` | the `/pipeline` line for the task |
 | `team.sh render <team> <member>` | the path of the progress page it wrote |
 

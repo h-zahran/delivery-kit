@@ -41,5 +41,13 @@ All notable changes to the `team` plugin.
   says which source answered and which could not be read. A run the
   pipeline abandoned reads as `abandoned`, and a run at `DONE` with no
   pull request as `finished`, by the pipeline's own rule; `team:start`
-  passes over both. On request it writes each member's progress page from
-  that status.
+  passes over both. A run whose state file cannot be read reads as
+  `unreadable`, by the rule of the pipeline's pre-flight, and is named
+  so the member repairs or removes it; it is never resumed. A run still
+  live on this machine is resumed first, even after its pull request
+  opened. The facts are read once, into files, and every task is built
+  in one jq program, so a long task list neither hangs Git Bash nor
+  takes minutes; `team:start` reads origin and the pull requests once
+  for all teams, and `git ls-remote` gives up on an origin that does
+  not answer. On request, `team:status` writes each member's progress
+  page from that status.

@@ -50,6 +50,19 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 83 | `team/scripts/team.sh` | `iam` opens the file before building it | none: `read_me` stops first on a broken file, so this second guard is not reached |
 | 84 | `team/scripts/team.sh` | no EXIT trap for the temporary file | none: the normal path removes it, and no early exit was found |
 | 85 | `team/tests/team.bats` | the suite run with a global `commit.gpgsign=true`, `GH_REPO` set and a logging `gh` on `PATH` | none failed, and the logging `gh` was never called |
+| 86 | `team/scripts/team.sh` | an origin branch matched as a substring of the list | status: a branch on origin is found among thousands, the task's first, and only by its whole name |
+| 87 | `team/scripts/team.sh` | a state file that is not one object with a string phase read as `live` | status: a run state file that cannot be read is unreadable, never a live run |
+| 88 | `team/scripts/team.sh` | a state file jq cannot parse read as `live` | status: a run state file that cannot be read is unreadable, never a live run |
+| 89 | `team/scripts/team.sh` | the `unreadable` status never chosen | status: a run state file that cannot be read is unreadable, never a live run |
+| 90 | `team/scripts/team.sh` | `next` without the `unreadable` action | status: a run state file that cannot be read is unreadable, never a live run |
+| 91 | `team/scripts/team.sh` | `render` reads the status through a herestring | render finishes on a status of the size where a Git Bash herestring hangs (a timeout: the process hung until killed) |
+| 92 | `team/scripts/team.sh` | `status` reads the task list through a herestring | status finishes on a task list of the size where a Git Bash herestring hangs (a timeout: the process hung until killed) |
+| 93 | `team/scripts/team.sh` | `resume` only for a task `in progress` | next: a run still live after its pull request opened is resumed |
+| 94 | `team/scripts/team.sh` | `mine` does not name its gathered folder | mine: origin and the pull requests are read once for every team |
+| 95 | `team/scripts/team.sh` | no http time limit on `ls-remote` | status: ls-remote has a time limit |
+| 96 | `team/scripts/team.sh` | no ssh options on `ls-remote` | status: ls-remote has a time limit |
+| 97 | `team/scripts/team.sh` | ssh options added to any ssh command, plink too | status: ls-remote has a time limit |
+| 98–103 | `team/skills/*/SKILL.md`, `team/docs/configuration.md` | each new pinned line in `team/tests/prose.bats` | the prose test that pins it |
 
 ## 3. Record
 
@@ -58,3 +71,4 @@ Each mutation runs in a throw-away copy, with the new files marked intent-to-add
 | 2026-10-07 | Linux | `1..330`, all `ok` (was `1..314`) | 61 of 61 landed and went red |
 | 2026-10-13 | Linux | `tests` `1..126`, `handoff/tests` `1..158`, `pipeline/tests` `1..503`, `team/tests` `1..43`, all `ok` | 62–72: 11 landed; 10 went red, 67 is shown equivalent |
 | 2026-10-13 | Linux | `team/tests` `1..51`, all `ok` | 73–84: 12 landed; 10 went red, 83 and 84 are shown equivalent; 85 passed |
+| 2026-10-15 | Windows 11, Git Bash 5.3.9, jq 1.8.1 | `team/tests` `1..60`: 57 `ok`; 3 timed out at 60 s on a loaded machine (22, 23, 32), three tests not changed here, which timed out on the baseline before this change too (`1..52`, 47 `ok`) | 86–103: 18 landed, 18 went red. The old `team.sh` read the reviewer's 3,000-branch origin as "not started" in 5 of 5 runs, the new one as "in progress" in 5 of 5. |
