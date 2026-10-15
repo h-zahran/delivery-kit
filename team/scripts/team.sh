@@ -82,6 +82,10 @@ read_json() {
   out="$(jq -c . -- "$f" 2>/dev/null)" || die "$what '$f' is not valid JSON"
   # An empty file is no JSON value: jq prints nothing for it, and exits 0.
   [ -n "$out" ] || die "$what '$f' is not valid JSON"
+  # Each of the three files holds one object. A roster of [] made the next
+  # read print jq's own error before this script's line: two lines where
+  # one is promised, and mine copied both into a row's error.
+  [ "$(jq -r 'type' -- "$f" 2>/dev/null)" = "object" ] || die "$what '$f' is not a JSON object"
   printf '%s' "$out"
 }
 
@@ -142,7 +146,7 @@ cmd_roster() {
   entry="$(team_entry "$cfg" "$team")" || exit 1
   f="$(jq -r '.roster' <<<"$entry")"
   read_json "roster" "$f" >/dev/null
-  [ "$(jq -r '.members | type' -- "$f")" = "array" ] || die "roster '$f' has no 'members' list"
+  [ "$(jq -r '.members | type' -- "$f" 2>/dev/null)" = "array" ] || die "roster '$f' has no 'members' list"
   [ "$(jq -r '.members | length' -- "$f")" -gt 0 ] || die "roster '$f' lists no member"
   # The first fault, in file order, named by its position and field.
   bad="$(jq -r '
@@ -174,7 +178,7 @@ cmd_tasks() {
   f="${f//\{member\}/$member}"
   path_ok "team '$team': task file" "$f"
   read_json "task file" "$f" >/dev/null
-  [ "$(jq -r '.tasks | type' -- "$f")" = "array" ] || die "task file '$f' has no 'tasks' list"
+  [ "$(jq -r '.tasks | type' -- "$f" 2>/dev/null)" = "array" ] || die "task file '$f' has no 'tasks' list"
   bad="$(jq -r '
     def str($k): (.[$k] | type) == "string" and (.[$k] | test("\\S"));
     def strs($k): (has($k) | not) or ((.[$k] | type) == "array" and ([.[$k][] | type] - ["string"] | length) == 0);
