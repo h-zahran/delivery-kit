@@ -470,26 +470,27 @@ cmd_status() {
              prClosed: ($pr != null and $pr.state == "CLOSED")}) ]}' -- "$W/tasks.json"
 }
 
-# The next task. Every task in progress comes before a new one: the first
-# whose run is on this machine is resumed, else the first in progress is
-# reported, because a fresh start would fight the work already there.
-# Only then the first task not started, in file order.
-# An abandoned run and a finished run are passed over: the pipeline
-# refuses to work on an abandoned run again, and a finished run has
-# nothing left to resume. A run whose state file cannot be read is
-# reported before anything else is offered: the pipeline cannot resume or
-# abandon it, and a new start would leave it stuck.
+# The next task. A run still live on this machine is resumed first,
+# whatever its task's status: after its pull request opens, the pipeline
+# still has phases to run, and a new start would meet its lock. Then a
+# run whose state file cannot be read is reported: the pipeline cannot
+# resume or abandon it, and a new start would leave it stuck. Then the
+# first task in progress, with no run here, is reported, because a fresh
+# start would fight the work already there. Only then the first task not
+# started, in file order. An abandoned run and a finished run are passed
+# over: the pipeline refuses to work on an abandoned run again, and a
+# finished run has nothing left to resume.
 cmd_next() {
   local team="${1:-}" member="${2:-}"
   [ -n "$team" ] && [ -n "$member" ] || usage
   cmd_status "$team" "$member" | jq -c '
-    [.tasks[] | select(.status == "in progress")] as $ip
-    | ([$ip[] | select(.run)] | first) as $r
+    ([.tasks[] | select(.run and .runEnd == "live")] | first) as $live
     | ([.tasks[] | select(.status == "unreadable")] | first) as $bad
+    | ([.tasks[] | select(.status == "in progress")] | first) as $ip
     | ([.tasks[] | select(.status == "not started")] | first) as $new
-    | (if $r != null then {action: "resume", task: $r}
+    | (if $live != null then {action: "resume", task: $live}
        elif $bad != null then {action: "unreadable", task: $bad}
-       elif ($ip | length) > 0 then {action: "elsewhere", task: $ip[0]}
+       elif $ip != null then {action: "elsewhere", task: $ip}
        elif $new != null then {action: "start", task: $new}
        else {action: "none", task: null} end)
       + {originRead, prRead}'
