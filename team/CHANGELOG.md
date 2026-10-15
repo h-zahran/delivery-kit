@@ -2,7 +2,7 @@
 
 All notable changes to the `team` plugin.
 
-## [0.1.0] - 2026-10-12
+## [0.1.0] - 2026-10-15
 
 ### Highlights
 
