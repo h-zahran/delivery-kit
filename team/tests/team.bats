@@ -576,6 +576,8 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
 
 @test "next: a task in progress with no run on this machine is reported, not started again" {
   status_fixture
+  # T-1's live run would be resumed first; without it, T-1 is not started.
+  rm "$R/.delivery-kit/runs/001-T-1/progress.json"
   team_fake next alpha ann
   [ "$status" -eq 0 ]
   [ "$(jq -c '[.action, .task.id, .task.source]' <<<"$output")" = '["elsewhere","T-2","local branch"]' ]
@@ -583,12 +585,28 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
 
 @test "next: blocked, in review and done tasks are passed over, and none left says so" {
   status_fixture
-  fake_prs '[{"headRefName":"ann/T-2","state":"MERGED","url":"u2"},{"headRefName":"ann/T-3","state":"OPEN","url":"u3"}]'
+  # In review by its pull request alone: a live run would be resumed.
+  rm "$R/.delivery-kit/runs/001-T-1/progress.json"
+  fake_prs '[{"headRefName":"ann/T-1","state":"OPEN","url":"u1"},{"headRefName":"ann/T-2","state":"MERGED","url":"u2"},{"headRefName":"ann/T-3","state":"OPEN","url":"u3"}]'
   team_fake next alpha ann
   [ "$(jq -c '[.action, .task.id]' <<<"$output")" = '["start","T-5"]' ]
-  fake_prs '[{"headRefName":"ann/T-2","state":"MERGED","url":"u2"},{"headRefName":"ann/T-3","state":"OPEN","url":"u3"},{"headRefName":"ann/T-5","state":"MERGED","url":"u5"}]'
+  fake_prs '[{"headRefName":"ann/T-1","state":"OPEN","url":"u1"},{"headRefName":"ann/T-2","state":"MERGED","url":"u2"},{"headRefName":"ann/T-3","state":"OPEN","url":"u3"},{"headRefName":"ann/T-5","state":"MERGED","url":"u5"}]'
   team_fake next alpha ann
   [ "$(jq -c '[.action, .task]' <<<"$output")" = '["none",null]' ]
+}
+
+@test "next: a run still live after its pull request opened is resumed, never passed over for a new start" {
+  # Phases M to O run after the pull request opens. Read as in review and
+  # passed over, the next task was offered as a start, and pre-flight then
+  # met the live run and its lock.
+  status_fixture
+  printf '{"current_phase":"M","pr_url":"https://github.com/o/r/pull/7"}\n' > "$R/.delivery-kit/runs/001-T-1/progress.json"
+  team_fake next alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.action, .task.id, .task.status, .task.source, .task.runEnd]' <<<"$output")" = '["resume","T-1","in review","run state","live"]' ]
+  fake_prs '[{"headRefName":"ann/T-1","state":"OPEN","url":"https://github.com/o/r/pull/7"}]'
+  team_fake next alpha ann
+  [ "$(jq -c '[.action, .task.id, .task.status, .task.source]' <<<"$output")" = '["resume","T-1","in review","pull request"]' ]
 }
 
 @test "status: an abandoned run and a finished run without a pull request are ended, and next passes over both" {
