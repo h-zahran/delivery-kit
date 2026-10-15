@@ -424,10 +424,26 @@ gather() {
 }
 
 # ls_remote — origin's branches, read with a time limit. Without one, an
-# origin that accepts the connection and never answers hangs ls-remote.
-ls_remote() {
-  GIT_TERMINAL_PROMPT=0 git ls-remote --heads origin
-}
+# origin that accepts the connection and never answers hangs ls-remote:
+# measured, http and ssh both still waiting after 40 s. `timeout` is not
+# on macOS, so git's own limits are used: http gives up below 1000 bytes
+# a second for 10 s, and ssh after 10 s to connect, never asking for a
+# password. The ssh options go after the member's own ssh command, from
+# GIT_SSH_COMMAND or core.sshCommand, never in place of it. A command
+# that is not OpenSSH's (plink, or a program named in GIT_SSH) takes no
+# -o options, and is left as it is. A subshell: the export stays here.
+ls_remote() (
+  ssh="${GIT_SSH_COMMAND:-}"
+  if [ -z "$ssh" ] && [ -z "${GIT_SSH:-}" ]; then
+    ssh="$(git config core.sshCommand 2>/dev/null || true)"
+    [ -n "$ssh" ] || ssh=ssh
+  fi
+  case "${ssh%% -*}" in
+    *ssh|*ssh.exe|*ssh\"|*ssh.exe\"|*ssh\'|*ssh.exe\')
+      export GIT_SSH_COMMAND="$ssh -o BatchMode=yes -o ConnectTimeout=10" ;;
+  esac
+  GIT_TERMINAL_PROMPT=0 exec git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --heads origin
+)
 
 # Every task in one jq program, over the files gather wrote: one process,
 # whatever the number of tasks. A task's run is the one named by the last
