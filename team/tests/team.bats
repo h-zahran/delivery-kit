@@ -570,6 +570,7 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   # call per team, and the top level answered from another read. One team
   # shows it and keeps the test quick: mine runs next in its own process.
   repo_git 'ann@example.com'
+  unset GIT_SSH_COMMAND GIT_SSH
   git -C "$R" remote add origin https://example.invalid/r.git
   printf '%s\trefs/heads/ann/alpha/002-T-2-second\n' 0123456789abcdef0123456789abcdef01234567 > "$BATS_TEST_TMPDIR/heads.txt"
   git_stub "$BATS_TEST_TMPDIR/heads.txt"
@@ -582,7 +583,25 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   [ "$(jq -c '[.originRead, .prRead]' <<<"$output")" = '[true,true]' ]
   [ "$(jq -c '[.originRead, .prRead] as $top | [.teams[].next | [.originRead, .prRead] == $top] | unique' <<<"$output")" = '[true]' ]
   [ "$(grep -c 'ls-remote' "$BATS_TEST_TMPDIR/git.log")" -eq 1 ] || { cat "$BATS_TEST_TMPDIR/git.log"; false; }
+  grep -q -- '|ssh -o BatchMode=yes -o ConnectTimeout=10$' "$BATS_TEST_TMPDIR/git.log"
   [ "$(grep -c '^pr list' "$BATS_TEST_TMPDIR/gh.log")" -eq 1 ] || { cat "$BATS_TEST_TMPDIR/gh.log"; false; }
+}
+
+@test "status: ls-remote has a time limit, after the member's own ssh command, and leaves one that is not OpenSSH's alone" {
+  # An origin that accepts and never answers hung ls-remote for good.
+  repo_git 'ann@example.com'
+  unset GIT_SSH_COMMAND GIT_SSH
+  git -C "$R" remote add origin https://example.invalid/r.git
+  : > "$BATS_TEST_TMPDIR/heads.txt"
+  git_stub "$BATS_TEST_TMPDIR/heads.txt"
+  git -C "$R" config core.sshCommand 'ssh -i my-key'
+  team status alpha ann
+  [ "$status" -eq 0 ]
+  git -C "$R" config core.sshCommand 'plink -batch'
+  team status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(cat "$BATS_TEST_TMPDIR/git.log")" = "-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --heads origin|ssh -i my-key -o BatchMode=yes -o ConnectTimeout=10
+-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=10 ls-remote --heads origin|" ] || { cat "$BATS_TEST_TMPDIR/git.log"; false; }
 }
 
 @test "mine: leaves no temporary file behind" {
