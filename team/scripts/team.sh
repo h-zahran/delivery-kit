@@ -72,7 +72,16 @@ path_ok() {
     */./*|*//*) die "$what '$p' has an empty or . segment" ;;
     /.delivery-kit/*) die "$what '$p' is inside the state directory .delivery-kit/" ;;
   esac
+  # In any letter case: macOS and Windows ignore it, so .GIT/x is .git/x
+  # there. A progress page of .git/{member} and a member `config` wrote
+  # over .git/config.
+  case "/$(lower "$p")/" in
+    */.git/*) die "$what '$p' is inside a .git folder" ;;
+  esac
 }
+
+# lower <text> — ASCII letters made lower case. Not ${1,,}: bash 3.2 has none.
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # Reads one JSON file. A missing file and a file that is not JSON are two
 # different faults, and each is named.
@@ -120,6 +129,14 @@ cmd_config() {
         || die "team '$team': '$k' is not a string"
       v="$(jq -r --arg k "$k" '.[$k]' <<<"$entry")"
       path_ok "team '$team': '$k'" "$v"
+      # render writes over whatever is at the page's path. Checked before
+      # the {member} rule below, which would name a roster match otherwise.
+      if [ "$k" = progressView ]; then
+        [ "$(lower "$v")" != "$(lower "$(jq -r '.tasks' <<<"$entry")")" ] \
+          || die "team '$team': 'progressView' '$v' is the task file; render would write over it"
+        [ "$(lower "$v")" != "$(lower "$(jq -r '.roster' <<<"$entry")")" ] \
+          || die "team '$team': 'progressView' '$v' is the roster; render would write over it"
+      fi
       case "$k:$v" in
         roster:*'{member}'*) die "team '$team': 'roster' '$v' must not hold {member}; one roster serves the whole team" ;;
         roster:*) ;;
@@ -277,12 +294,14 @@ run_self() { "$BASH" "$SELF" "$@"; }
 # work_dir — this process's own temporary folder, made once and removed
 # when the process exits. Global, not local: the EXIT trap runs after the
 # function that made it has returned. A subshell that makes it removes it
-# when the subshell exits.
-W=""
+# when the subshell exits. The trap also removes render's page while it is
+# still a temporary file beside the real one: one trap, so neither can
+# replace the other.
+W=""; page=""
 work_dir() {
   [ -z "$W" ] || return 0
   W="$(mktemp -d)" || die "cannot make a temporary folder"
-  trap 'rm -rf -- "${W:-}"' EXIT
+  trap 'rm -rf -- "${W:-}"; rm -f -- "${page:-}"' EXIT
 }
 
 # Every saved answer, checked against today's settings and rosters: a team
@@ -551,7 +570,7 @@ cmd_command() {
 # edited by hand. It is written only when asked, into the path the team
 # block names, for the person who asked to commit.
 cmd_render() {
-  local team="${1:-}" member="${2:-}" cfg entry members f st name
+  local team="${1:-}" member="${2:-}" cfg entry members f st name hit
   [ -n "$team" ] && [ -n "$member" ] || usage
   cfg="$(cmd_config)" || exit 1
   entry="$(team_entry "$cfg" "$team")" || exit 1
@@ -562,12 +581,26 @@ cmd_render() {
     || die "no member '$member' in team '$team'"
   f="${f//\{member\}/$member}"
   path_ok "team '$team': progress page" "$f"
+  # Two different patterns can still meet for one member id: a page of
+  # plan/{member}/ann/tasks.json is ann's task file for a member `alpha`.
+  # Every member's task file is checked, in any letter case.
+  hit="$(printf '%s\n' "$members" | jq -r --arg f "$f" --arg r "$(jq -r '.roster' <<<"$entry")" \
+      --arg p "$(jq -r '.tasks' <<<"$entry")" '
+    ($f | ascii_downcase) as $lf
+    | if ($r | ascii_downcase) == $lf then "the roster"
+      else [.[].id | . as $id | select(($p | gsub("\\{member\\}"; $id) | ascii_downcase) == $lf)]
+        | first // empty | "the task file of member '"'"'\(.)'"'"'" end')" || exit 1
+  [ -z "$hit" ] || die "team '$team': progress page '$f' is $hit; render would write over it"
+  [ ! -d "$f" ] || die "team '$team': progress page '$f' is a folder"
   st="$(cmd_status "$team" "$member")" || exit 1
   # By its path, never a herestring: the status grows with the tasks.
   work_dir
   printf '%s\n' "$st" > "$W/status.json"
   name="$(jq -r --arg m "$member" '.[] | select(.id == $m) | .name' <<<"$members")"
   mkdir -p "$(dirname -- "$f")"
+  # Written whole beside the page, then moved into place: a failure leaves
+  # the old page as it was, never half a page.
+  page="$(mktemp "$(dirname -- "$f")/.progress.XXXXXX")" || die "cannot make a temporary file beside '$f'"
   jq ${JQB:+"$JQB"} -r --arg name "$name" --arg day "$(date -u +%Y-%m-%d)" '
     def cell: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|");
     def code: if . == "" then "" else "`" + cell + "`" end;
@@ -580,7 +613,9 @@ cmd_render() {
     "| No. | Task | Title | Status | Branch | PR | Note |",
     "|---|---|---|---|---|---|---|",
     (.tasks[] | "| \(.number | cell) | \(.id | code) | \(.title | cell) | \(.status) | \(if .status == "not started" then "" else (.branch | code) end) | \(.pr | cell) | \(.blocked | cell) |")
-  ' -- "$W/status.json" > "$f"
+  ' -- "$W/status.json" > "$page"
+  mv -f -- "$page" "$f"
+  page=""
   jq -nc --arg f "$f" '{written: $f}'
 }
 
