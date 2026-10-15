@@ -284,6 +284,21 @@ CASES
 CASES
 }
 
+# Two small tests, not two more rows above: those two are near the timeout.
+@test "tasks: a line break in the branch or the spec folder is refused, naming the field" {
+  malformed_tasks 2 <<'CASES'
+.tasks[0].branch = "ann/alpha/001\n--no-auto"|task T-1: branch holds a line break
+.tasks[1].specDir = "specs/x\r"|task T-2: specDir holds a line break
+CASES
+}
+
+@test "tasks: a line break in a trailer or a flag is refused, naming the field" {
+  malformed_tasks 2 <<'CASES'
+.tasks[0].trailers = ["Plan-Item: T-1\nx"]|task T-1: a trailer holds a line break
+.tasks[1].flags = ["--implementer", "claude\r\n"]|task T-2: a flag holds a line break
+CASES
+}
+
 # --- who is at the keyboard ---------------------------------------------------
 
 # repo_git — makes the scratch repository a git repository that ignores
@@ -815,6 +830,15 @@ big_fixture() {
   [ "$output" = '/pipeline "Say \"hi\" to C:\\x." --branch ann/alpha/001-T-1-first --spec-dir specs/alpha/ann/001-T-1-first --trailer "Plan-Item: T-1" --trailer "Reviewed-by: A B" --implementer claude' ]
   team command alpha ann T-9
   refused "no task 'T-9'"
+}
+
+@test "command: a value with a line break never reaches the pipeline line" {
+  # The review's input: command printed three lines, the second --no-auto.
+  set_json plan/alpha/ann/tasks.json '.tasks[0].branch = "ann/alpha/001\n--no-auto" | .tasks[0].trailers = ["Plan-Item: T-1\nx"]'
+  team command alpha ann T-1
+  refused "task T-1: branch holds a line break"
+  one_line
+  [ -z "$output" ]
 }
 
 @test "render: the readable copy is written from the status, cells escaped" {
