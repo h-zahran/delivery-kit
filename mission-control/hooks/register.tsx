@@ -338,6 +338,71 @@ async function reconcile($: EngineInterface): Promise<void> {
   )
 }
 
+// A robot on the list, numbered and shaded as its spawn raised it. One the list
+// already holds is replaced by a spawn and kept by a late join.
+async function addRun(
+  $: EngineInterface,
+  s: { id: string; parentId?: string; type: string; description: string; prompt: string; model: string; isJoin?: boolean },
+): Promise<void> {
+  const at = await $.clock.now()
+  // Spawns raised together each get their own number and count their mates
+  // in the write itself, so two of one role never share a shade.
+  const n = (await update($, seq, v => v + 1)) - 1
+  const role = roleOf(s.description, s.type, s.prompt)
+  const run: AgentRun = {
+    id: s.id,
+    parentId: s.parentId,
+    type: s.type,
+    description: s.description,
+    model: s.model,
+    color: AGENT_COLORS[n % AGENT_COLORS.length] ?? C.run,
+    ...(role ? { role: role.id } : {}),
+    status: 'running',
+    startedAt: at,
+    ctxTokens: 0,
+    ctxMax: windowOf(s.model),
+    ctxHist: [],
+    costUsd: 0,
+    toolCount: 0,
+    tools: [],
+  }
+  await update($, agents, list => {
+    if (s.isJoin && list.some(a => a.id === run.id)) return list
+    const rest = list.filter(a => a.id !== run.id)
+    const color = role ? shadeOf(role, rest.filter(a => a.role === role.id).length) : run.color
+    return trimAgents([...rest, { ...run, color }])
+  })
+}
+
+// A loop the engine tracks with no agent.spawn (a forked skill) joins at its
+// first event, as `$.agent.list()` gives it. An id no list names (a workflow's
+// agent, an engine fork such as compaction) is left out, and asked about again
+// only after LOOK_AGAIN_MS, in case the list named it late; a reload forgets
+// the misses. Calls at once wait for the one lookup.
+const LOOK_AGAIN_MS = 10_000
+const unlisted = new Map<string, number>()
+const joining = new Map<string, Promise<void>>()
+async function join($: EngineInterface, owner: string, model?: string): Promise<void> {
+  const pending = joining.get(owner)
+  if (pending) return pending
+  const work = (async () => {
+    const missed = unlisted.get(owner)
+    if (missed !== undefined && (await $.clock.now()) - missed < LOOK_AGAIN_MS) return
+    if ((await read($, agents)).some(a => a.id === owner)) return
+    const info = (await $.agent.list()).find(a => a.id === owner)
+    if (!info) {
+      unlisted.set(owner, await $.clock.now())
+      return
+    }
+    unlisted.delete(owner)
+    const known = model ?? (await read($, main)).model ?? ''
+    await addRun($, { id: owner, parentId: info.parentId, type: info.type, description: info.description, prompt: '', model: known, isJoin: true })
+  })()
+  const settled = safe(() => work).finally(() => joining.delete(owner))
+  joining.set(owner, settled)
+  return settled
+}
+
 const mapStatus = (s: string): RunStatus =>
   s === 'completed' ? 'done' : s === 'failed' || s === 'killed' ? 'failed' : s === 'idle' ? 'idle' : 'running'
 
@@ -720,6 +785,7 @@ export const register: Register = on => {
       }
       return { result: 'ok' }
     }
+    await join($, owner)
     await safe(() =>
       update($, agents, list =>
         list.map(a => {
@@ -774,6 +840,7 @@ export const register: Register = on => {
     const id = e.tool_use_id ?? `${e.tool}-${at}`
     const row: ToolRow = { id, tool: e.tool, label: labelOf(e, e.tool), status: 'run', startedAt: at }
     const owner = e.agentId
+    if (owner) await join($, owner)
 
     await safe(async () => {
       if (owner) {
@@ -869,35 +936,16 @@ export const register: Register = on => {
     const started = await next(isHinted ? { ...e, prompt: withHint(e.prompt, PLUGIN) } : e)
     if (started.deny !== undefined || !started.agentId) return started
     const agentId = started.agentId
-    await safe(async () => {
-      const at = await $.clock.now()
-      // Spawns raised together each get their own number and count their mates
-      // in the write itself, so two of one role never share a shade.
-      const n = (await update($, seq, v => v + 1)) - 1
-      const role = roleOf(e.description, e.subagentType, e.prompt ?? '')
-      const run: AgentRun = {
+    await safe(() =>
+      addRun($, {
         id: agentId,
         parentId: e.parentAgentId,
         type: e.subagentType,
         description: e.description,
+        prompt: e.prompt ?? '',
         model: started.model,
-        color: AGENT_COLORS[n % AGENT_COLORS.length] ?? C.run,
-        ...(role ? { role: role.id } : {}),
-        status: 'running',
-        startedAt: at,
-        ctxTokens: 0,
-        ctxMax: windowOf(started.model),
-        ctxHist: [],
-        costUsd: 0,
-        toolCount: 0,
-        tools: [],
-      }
-      await update($, agents, list => {
-        const rest = list.filter(a => a.id !== run.id)
-        const color = role ? shadeOf(role, rest.filter(a => a.role === role.id).length) : run.color
-        return trimAgents([...rest, { ...run, color }])
-      })
-    })
+      }),
+    )
     return started
   }).catch(($, e, next) => next(e))
 
@@ -913,6 +961,7 @@ export const register: Register = on => {
       return result
     }
     if (!u) return result
+    await join($, owner, model)
     const ctx = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
     await safe(() =>
       update($, agents, list =>
