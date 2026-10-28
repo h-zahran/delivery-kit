@@ -2,6 +2,18 @@
 
 All notable changes to the `mission-control` plugin.
 
+## [0.9.6] - 2026-10-28
+
+### Fixed
+
+- **A skill that runs forked gets a robot.** `/code-review` and other skills
+  that run in a forked copy of the session start no `agent.spawn`, so the
+  pane never showed them. Now the first tool call, step report or model step
+  from an unknown loop asks the engine's agent list. A loop the list names
+  joins the pane with its description and type, and its end shows as done or
+  failed. A loop the list does not name, such as compaction or a workflow's
+  agent, still gets no robot, and is asked about again only after 10 seconds.
+
 ## [0.9.5] - 2026-10-13
 
 ### Highlights
