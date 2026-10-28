@@ -960,9 +960,10 @@ export const register: Register = on => {
       await safe(() => update($, main, m => ({ ...m, model, effort: effort ?? m.effort })))
       return result
     }
-    if (!u) return result
+    // A step with no usage still joins, so a fork whose one step failed shows as failed.
     await join($, owner, model)
-    const ctx = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+    if (!u) return result
+    const ctx =(u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
     await safe(() =>
       update($, agents, list =>
         list.map(a => {
