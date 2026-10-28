@@ -1,7 +1,8 @@
 # mission-control
 
 A Claude Code mod that adds a side pane with robots: one for the main loop and
-one for every subagent. Each robot shows its tools, context, cost, rate limits
+one for every subagent, including a skill that runs forked, such as
+`/code-review`. Each robot shows its tools, context, cost, rate limits
 and the files it touched. The mod also adds a band above the prompt, a
 REQUESTS card, toasts and sounds.
 
