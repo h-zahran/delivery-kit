@@ -113,13 +113,18 @@ test('core L1: another call of the same tool ending leaves the dialog shown; the
   let reached = () => {}
   const atDialog = new Promise<void>(r => (reached = r))
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  on('tool.check', () => ({ decision: 'ask' }))
+  // The engine checks every call before tool.call itself; that check allows.
+  // Only the check the fake engine makes below asks, so only its dialog opens.
+  let isAsking = false
+  on('tool.check', () => ({ decision: isAsking ? 'ask' : 'allow' }))
   on('classic.PermissionRequest', () => ({}))
   // The engine, beneath every hook: the asking call is checked, its dialog opens and holds.
   on('tool.call', async (_h, e) => {
     if (e.tool_use_id === 'tu-ask') {
+      isAsking = true
       await $.tool.check({ tool: 'Bash', input: { command: 'git push' }, tool_use_id: 'tu-ask' } as never)
       await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'git push' } })
+      isAsking = false
       reached()
       await gate
     }
