@@ -197,6 +197,25 @@ test('forked: a model step as the first event makes the robot with that step\'s 
   expect(run?.model).toBe('claude-sonnet-5-5')
 })
 
+test('forked: a loop whose one model step failed, with no usage, still shows, as failed', ENGINE, async ($, on) => {
+  mock.clock(on)
+  const agents = agentWrites(on)
+  agentList(on, () => [listed])
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as never
+  })
+  on('turn.complete', () => ({ text: '' }))
+
+  const stream = $.turn.step({ turnId: 't-1', index: 0, model: 'claude-sonnet-5-5', messageCount: 1, ...inFork })
+  for await (const _ of stream) {
+    // No chunks: the step answers with its result alone.
+  }
+  await stream.result
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 't-1', agentId: 'ag-f', reason: 'error' } as never)
+
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('failed')
+})
+
 test('forked: a spawned helper is still made by its spawn, and its calls ask for no list', ENGINE, async ($, on) => {
   mock.clock(on)
   const agents = agentWrites(on)
