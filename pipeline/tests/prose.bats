@@ -400,7 +400,7 @@ prose_flat() {
 # Carriage returns are stripped. The document carries none today and
 # .gitattributes pins *.md to LF, so this changes nothing now; it exists so a
 # checkout that somehow did carry them fails over line endings NOWHERE rather
-# than failing all five pins at once with a message about missing prose.
+# than failing every sliced pin at once with a message about missing prose.
 prose_slice() {
   local file="${1-}" open="${2-}" close="${3-}" form="${4-}" name="${5-}"
   local s first last n inner d
@@ -410,7 +410,7 @@ prose_slice() {
   # WRONG MESSAGE, which is the one outcome this helper's comments spend most
   # of their length trying to prevent. `falt` for `flat` returns the slice
   # unflattened; every clause anchor then spans a line break, every grep
-  # misses, and five tests report "the clause was altered" about a document
+  # misses, and every caller reports "the clause was altered" about a document
   # nobody touched. It fails loudly and points at the wrong thing, which is
   # worse than failing quietly — a maintainer acts on it.
   [ "$#" -ge 5 ] || {
@@ -428,12 +428,12 @@ prose_slice() {
   # The file must be READABLE before its absence can be blamed on the
   # document's contents. awk writes "can't open file" to stderr and its status
   # is swallowed by the pipe below, so a renamed or moved SKILL.md yields an
-  # empty slice and all five pins announce that their opening boundary matched
+  # empty slice and every pin on it announces that its opening boundary matched
   # nothing — the true cause printed beside a guard message contradicting it.
   # That is the wrong-message class the arity and form guards were added for.
   # `-f` as well as `-r`: a directory is READABLE, so replacing SKILL.md with a
   # directory of the same name passed this guard, `tr` failed with "Is a
-  # directory", the slice came back empty, and all five pins blamed a missing
+  # directory", the slice came back empty, and every pin blamed a missing
   # opening boundary — the exact wrong-message failure this guard exists to
   # stop, surviving one substitution of the path.
   { [ -f "$file" ] && [ -r "$file" ]; } || {
@@ -447,12 +447,12 @@ prose_slice() {
   # below blames the document for a quoting bug in the caller. And `-v`, the
   # obvious alternative, processes backslash escapes in the value: it turns
   # `\.` into `.` and warns, silently loosening every pattern here. ENVIRON
-  # does neither. Verified byte-identical to the interpolated form on all five
-  # slices, with empty stderr.
+  # does neither. Verified byte-identical to the interpolated form on the five
+  # slices it served when it landed (feature 011), with empty stderr.
   # THE CR STRIP RUNS BEFORE awk, NOT AFTER. An earlier version piped awk's
   # output through `tr -d '\r'`, which is far too late to be the defence it
   # claimed to be: awk had already matched the boundaries against lines still
-  # carrying their CR, and three of the five closing patterns are `$`-anchored
+  # carrying their CR, and three of the closing patterns then in use were `$`-anchored
   # — '^## Resume$', '^## The twenty phases$', '^## When a phase fails$'. On a
   # CRLF checkout, under an awk that does not itself ignore a trailing CR (GNU
   # awk, which is what the Linux CI runner has), none of the three matches: the
@@ -478,11 +478,12 @@ prose_slice() {
   # warns that a surplus guard invites deletion.
   # awk's range operator RESTARTS on every later line matching the opener, so a
   # duplicated boundary silently concatenates two disjoint regions into one
-  # slice while the pin's name and message claim a single section. Today's five
-  # boundaries are heading-shaped, so a duplicate happens to trip the
-  # inner-heading guard below — by accident, with a message about a restructure.
-  # For a non-heading boundary (the probe lines this helper should absorb next)
-  # nothing would catch it at all.
+  # slice while the pin's name and message claim a single section. A duplicated
+  # heading-shaped boundary would also trip the inner-heading guard below, by
+  # accident and with a message about a restructure; a non-heading boundary —
+  # the probe block's `Project type : ` and `Will skip `, the walk's opening
+  # sentence, all of which go through this helper since feature 046 — trips
+  # nothing else, so this guard is the only thing that catches it.
   [ "$(tr -d '\r' < "$file" | grep -cE "$open")" -eq 1 ] || {
     printf 'prose_slice [%s]: the opening boundary /%s/ matches more than once, so the slice concatenates disjoint regions
 ' "$name" "$open" >&2
@@ -517,7 +518,7 @@ prose_slice() {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
       # ACCEPTED COST, named so nobody rediscovers it as a bug: this fires on
       # ANY line starting with `**`, not only a heading. A bold-led sentence
-      # inside one of these five regions — "**Note.** Under `--auto` the
+      # inside a sliced region — "**Note.** Under `--auto` the
       # analyzer runs first." — trips it, and these are prose sections where
       # that is an ordinary thing to write. The alternative is a rule that
       # distinguishes a heading from emphasis, which markdown does not let a

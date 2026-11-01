@@ -96,3 +96,7 @@ None in the code: every task edits `pipeline/tests/prose.bats`. In Phase 5, T018
 ## Implementation Strategy
 
 MVP is Phase 1 + Phase 2 (US1): it closes the silent hole the issue is about. US2 and US3 then harden it. Commit per phase (one piece each).
+
+## Phase 6: Convergence
+
+- [X] T021 In `pipeline/tests/prose.bats`, reword the present-tense counts in `prose_slice`'s comments ("all five pins", "these five regions", "Today's five boundaries", "three of the five closing patterns") so they carry no total, keep dated records of past measurements as records, and replace "the probe lines this helper should absorb next" with a line saying the probe and walk slices now go through the helper and this guard is what catches a duplicated non-heading boundary; no code change, prose.bats stays green per Constitution V (partial)
