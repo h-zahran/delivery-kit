@@ -849,17 +849,26 @@ prose_fixture() {
 }
 
 @test "prose_slice refuses a file it cannot read, and names it" {
-  # The `-r` half of the readable-file guard. Root reads a mode-000 file
-  # anyway, and on Windows chmod cannot take read permission away: either way
-  # there is no unreadable file to hand the guard, so the test says so.
+  # The `-r` half of the readable-file guard. It never skips — CI counts a
+  # skip as a failure. Where chmod 000 makes the file unreadable, the real
+  # file is handed over. Where it cannot (root reads a mode-000 file anyway,
+  # and on Windows chmod cannot take read permission away), a function named
+  # `[` answers "unreadable" for `-r` on this one file and hands every other
+  # test to the builtin, so the same guard branch is reached either way.
   local f
   f="$(prose_fixture)"
   chmod 000 "$f"
-  if [ "$(id -u)" = 0 ] || [ -r "$f" ]; then
-    chmod 644 "$f"
-    skip 'cannot make an unreadable file here: running as root, or chmod 000 leaves it readable (Windows)'
+  if [ "$(id -u)" != 0 ] && ! [ -r "$f" ]; then
+    run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  else
+    PS_UNREADABLE="$f"
+    [() {
+      if builtin [ "$#" -eq 3 ] && builtin [ "$1" = -r ] && builtin [ "$2" = "$PS_UNREADABLE" ]; then return 1; fi
+      builtin [ "$@"
+    }
+    run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+    unset -f [
   fi
-  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
   chmod 644 "$f"
   [ "$status" -eq 1 ] || { echo "status was $status"; false; }
   [[ $stderr == *"prose_slice [fixture]: cannot read the file at $f"* ]] \
