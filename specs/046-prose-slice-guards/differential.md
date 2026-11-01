@@ -180,3 +180,66 @@ Each mutation replaced text that matched exactly once in the worktree copy of `p
 | 7 | new | 0 | 20.336 | `1..79` | 6.72 11.93 15.09 |
 
 Median: old 12.884 s, new 15.546 s, growth 20.7%, within the 25% the spec allows. Part of it is the 11 new tests.
+
+## 5. After the phase I review round (2026-11-01)
+
+The review round (contract, security, tests, bugs and simplify lenses) found
+no CRITICAL finding; its HIGH findings were in the guards' reach — the refusing
+test matched one spelling only and could pass after a helper body that never
+closed, a declared line admitted every copy of itself and never noticed going
+stale, a grep error was read as "nothing found", and `prose_flat` accepted an
+argument it then ignored. The fixes added 14 tests (79 → 93) and moved the
+refusing walk into a helper, `prose_refuse_walk`, so it can be tested on
+fixtures. Each new test was given a positive control in a scratch worktree,
+the mutated line echoed before the result was believed:
+
+| Mutation | Test that went red |
+|---|---|
+| `prose_flat` arity `-eq 0` → `-ge 0` | prose_flat refuses an argument, because it reads stdin |
+| `-r` half of the readable guard dropped | prose_slice refuses a file it cannot read, and names it |
+| declared-line count `= 1` → `-le 1` | prose_slice refuses a declared line the slice does not hold |
+| declared-line count `= 1` → `-ge 1` | prose_slice refuses a declared line the slice holds twice |
+| declared-line count made case-blind (`grep -icxF`) | prose_slice compares a declared line with its letter case |
+| heading shape `#{1,6}` → `#{2,6}` | prose_slice refuses an h1 inside the slice |
+| range rule's comma requirement dropped | the refusing walk passes a clean file and says how much it walked |
+| range rule's comma → semicolon | the refusing walk names a planted bare range by its line |
+| flatten rule `(n\|012)` → `(x\|012)` | the refusing walk names a planted inline flatten by its line |
+| range rule narrowed to the old single spelling | the refusing walk catches other spellings of a bare range |
+| flatten rule narrowed to the old single spelling | the refusing walk catches other spellings of an inline flatten |
+| never-closed-at-definition rule removed | the refusing walk fails on a helper body whose closing brace is indented |
+| end-of-file check disabled | the same test, its end-of-file case |
+| helper-seen-once check disabled | the refusing walk fails when a helper body is missing |
+| walked-zero check disabled | the refusing walk fails on an empty file |
+| a flatten planted in a real test body | no bare awk range slice and no inline flatten outside the two helpers |
+| the walk's helper list cut to two names | the same test |
+
+Byte identity after the fixes: every distinct `prose_slice` call (42) under the
+old and the new helper, raw and flat, plus every converted site — 90
+comparisons, 0 different. The one-`tr` `prose_flat` was compared with the old
+three-step pipeline on ten documents under uutils and busybox `tr`; BSD `tr` is
+left to the macOS CI runner.
+
+Re-run independently with the section 1 script on the fixed file, extended
+to compare the new `pf_walk` wrapper, raw and flat, against the bare walk range
+it replaced: 66 rows — the 7 converted slices, the 2 `pf_walk` rows (6,265 and
+6,007 bytes) and 57 flatten inputs — 0 different. (A first re-run had left the
+walk out, because its five sites now call `pf_walk`; the last review pass
+caught that, and these two rows are the fix.)
+
+The last review pass (the bugs lens reading only the fixes) found a range
+split by a plain newline after its comma, the `$0 ~ …, $0 ~ …` range and a
+`tr '\r\n' '  '` flatten slipping past the walk; an empty declared line
+passing; the awk status check untested; and the widened heading shape flagging
+an indented `# comment` in a fenced shell block — so that widening was
+reverted to the original column-0 shape (plus `__`). The fixes, each with a
+positive control run in a scratch worktree (prose.bats 93 → 95 tests):
+
+| Mutation | Landed | Expected test | Result |
+|---|---|---|---|
+| range: newline-after-comma alternative removed | yes | the refusing walk catches other spellings of a bare range | RED |
+| range: $0 ~ expression rule removed | yes | the refusing walk catches other spellings of a bare range | RED |
+| flatten: first set back to \n alone | yes | the refusing walk catches other spellings of an inline flatten | RED |
+| empty declared line check removed | yes | prose_slice refuses an empty declared line | RED |
+| awk status check removed | yes | prose_slice says awk failed when a pattern is not a valid ERE | RED |
+
+5 mutations, 0 not caught.
