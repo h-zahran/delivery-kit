@@ -346,6 +346,26 @@ checks() {
   rmdir "$SF.lock"
 }
 
+# uutils coreutils 0.10.0, Ubuntu's mkdir, lets two racing mkdirs of one
+# folder both succeed: measured 75 of 200 (GNU mkdir: 0 of 200). That broke
+# "queued at the same moment" on this machine, with ids minted twice. The
+# worst case of it is a mkdir that always succeeds; the lock must still keep
+# a live holder alone.
+@test "a mkdir that succeeds on an existing folder cannot take a held lock" {
+  local real shim="$BATS_TEST_TMPDIR/racymkdir"
+  real="$(command -v mkdir)"
+  mkdir -p "$shim"
+  printf '#!/bin/sh\nexec "%s" -p "$@"\n' "$real" > "$shim/mkdir"
+  chmod +x "$shim/mkdir"
+  mkdir "$SF.lock"
+  printf '%s\n' 12345 > "$SF.lock/owner"
+  q a 'While held?'
+  PATH="$shim:$PATH" PROGRESS_LOCK_TRIES=3 refuses "is locked by another write" ask-later "$F" F "$BATS_TEST_TMPDIR/a"
+  [ "$(cat "$SF.lock/owner")" = 12345 ] || { echo "the waiting writer replaced the holder's owner file"; false; }
+  rm -f "$SF.lock/owner"
+  rmdir "$SF.lock"
+}
+
 # A held lock, a write started behind it, and the holder's own change made
 # before it lets go: the waiting write must judge the file AFTER that change.
 @test "a whole-gates write judges the queue under the lock, not before it" {
