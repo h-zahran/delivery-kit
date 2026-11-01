@@ -44,7 +44,9 @@ flat() {
     || { echo "the Windows gh row still warns that a phase calls plain gh, which no phase does now"; false; }
   local pr
   pr="$(flat pipeline/README.md)"
-  [ -n "${pr// /}" ] || { echo "pipeline/README.md read as empty: the absence check below would pass on nothing"; false; }
+  # A length test, not \${pr// /}: bash 3.2 (macOS) takes over 60 s to
+  # rewrite a text this size, measured in CI on PR #99.
+  [ "${#pr}" -gt 1000 ] || { echo "pipeline/README.md read as near-empty (${#pr} characters): the absence check below would pass on nothing"; false; }
   [[ $pr != *'calls plain `gh`'* ]] \
     || { echo "pipeline/README.md still says a phase calls plain gh, which no phase does now"; false; }
 }
