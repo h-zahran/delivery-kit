@@ -57,7 +57,7 @@ die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
 SK_SCRATCH='' TEXT_COPY='' TR_MSG='' TR_ERR='' SHOW_MSG='' STATE_LOCK=''
 on_exit() {
   rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}" "${TR_MSG:-}" "${TR_ERR:-}" "${SHOW_MSG:-}"
-  if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; fi
+  if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; fi
 }
 trap on_exit EXIT
 usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
@@ -526,7 +526,7 @@ not_abandoned() {
 # The repository lock is a file naming its holder, and every look at it and
 # every change to it — lock-take's staleness check, its removal of a stale
 # lock and its claim, lock-release's check and removal — happens while this
-# process holds <lock>.lock, the same mkdir lock every state write takes.
+# process holds <lock>.lock, the same lock every state write takes.
 # Without it two takers could both find one stale lock: the first removed it
 # and claimed the repository, then the second's removal deleted the FIRST
 # one's new lock, and both believed they held it. A guard left by a taker
@@ -1078,18 +1078,22 @@ commit_named() {
 # into a temp file, validated there, then moved over the state file. On any
 # failure the old file stands as it was.
 # state_lock <state file> — one writer at a time. Every write to a state file
-# happens while this process holds <file>.lock, a directory, because mkdir
-# either makes it or fails, on every system. A second call while this
-# process holds it does nothing, so a command can hold it across its own
-# read and write. A lock older than a minute belongs to a writer that died —
+# happens while this process holds <file>.lock: a directory, and inside it
+# a file `owner`. The directory is not enough on its own: uutils coreutils
+# 0.10.0 (Ubuntu's mkdir) lets two racing mkdirs of one folder both succeed,
+# measured 75 of 200. The owner file is made by bash itself under noclobber,
+# one open with O_EXCL, so exactly one writer makes it; a writer whose mkdir
+# succeeded but whose owner file did not waits like any other. A second call
+# while this process holds it does nothing, so a command can hold it across
+# its own read and write. A lock older than a minute belongs to a writer that died —
 # no write takes that long — so it is broken, and that is said.
 # PROGRESS_LOCK_TRIES bounds the wait, in tenths of a second (default 100).
 state_lock() {
   local l="$1.lock" n=0 max="${PROGRESS_LOCK_TRIES:-100}"
   [ "${STATE_LOCK:-}" != "$l" ] || return 0
   case "$max" in ''|*[!0-9]*) max=100 ;; esac
-  until mkdir "$l" 2>/dev/null; do
-    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$l" 2>/dev/null; then
+  until mkdir "$l" 2>/dev/null && lock_own "$l"; do
+    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && lock_remove "$l"; then
       warn "broke a stale lock on $1: its writer has not run for over a minute"
       continue
     fi
@@ -1103,7 +1107,22 @@ state_lock() {
   trap on_exit EXIT
 }
 state_unlock() {
-  if [ -n "${STATE_LOCK:-}" ]; then rmdir "$STATE_LOCK" 2>/dev/null || true; STATE_LOCK=''; fi
+  if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; STATE_LOCK=''; fi
+}
+# lock_own <lock dir> — makes <lock dir>/owner only if no file is there: set -C
+# makes bash open it with O_EXCL, which no coreutils build can weaken.
+lock_own() {
+  local rc=0
+  set -C
+  if ! { printf '%s\n' "$$" > "$1/owner"; } 2>/dev/null; then rc=1; fi
+  set +C
+  return "$rc"
+}
+# lock_remove <lock dir> — the owner file, then the directory; a directory a
+# writer of an older pipeline left has no owner file, and goes the same way.
+lock_remove() {
+  rm -f "$1/owner" 2>/dev/null || true
+  rmdir "$1" 2>/dev/null
 }
 
 # state_write <state file> <jq program> [jq args] — the program's output

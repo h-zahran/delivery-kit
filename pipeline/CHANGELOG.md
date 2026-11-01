@@ -2,6 +2,24 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Highlights
+
+- The state-file lock holds on Ubuntu's new `mkdir`. Two questions queued at
+  the same moment could get the same id, and one could be lost.
+
+### Fixed
+
+- **The state-file lock no longer trusts `mkdir` alone.** uutils coreutils
+  0.10.0, the `mkdir` recent Ubuntu ships, lets two racing `mkdir` calls of
+  one folder both succeed (75 of 200 tries; GNU `mkdir`: 0). Two writers
+  then held the lock together: `ask-later` minted one id twice and dropped
+  a question. A writer now also makes `<lock>/owner` under bash's
+  noclobber, which only one writer can do; the others wait as before. The
+  lock is still a directory, so a lock an older pipeline left is broken the
+  same way.
+
 ## [1.7.0] - 2026-11-01
 
 ### Highlights
