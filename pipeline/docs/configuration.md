@@ -84,9 +84,9 @@ before it spends it.
 | `commitTrailers` | Trailers on every commit the run makes, as a list of `<token>: <value>` lines. See "Commit trailers" below. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
 | `maxAnalyzeIters` | Analysis auto-fix loop cap; a breach stops and asks. |
-| `maxReviewRounds` | Pull-request review loop cap; a breach stops and asks. |
+| `maxReviewRounds` | Pull-request comment loop cap; a breach stops and asks. |
 | `maxParallelAgents` | Fan-out cap for dispatched agents, every phase. |
-| `agentModel` | The model dispatched agents run on, the review skill's own agents in phase M included, never the models that skill names. |
+| `agentModel` | The model dispatched agents run on, the code-review skill's own agents in phase I included, never the models that skill names. |
 | `verifyCommand` | The runtime check's fallback strategy; it must produce an artefact. |
 | `releaseCommand` | What the release gate runs, shown exactly before it runs. Unset means there is nothing to publish — the release gate records that and moves on; no command is ever detected or invented for this key. |
 | `devCommand` | The web runtime check's server command; without it the project manifest's script table is tried: `dev`, then `start`, then `serve`. |
