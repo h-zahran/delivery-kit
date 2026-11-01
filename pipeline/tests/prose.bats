@@ -64,7 +64,7 @@ RULES
   # The whole file is too big for a herestring (Git Bash 5.3 hangs one of
   # 65,536 to ~65,700 bytes), and grep reading `< <(printf ...)` matched a
   # pattern that is not there in about 2% of calls: matched in the shell.
-  flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   [[ $flat == *'`--auto` never collapses O. Publishing is the least reversible thing'* ]] \
     || { echo 'the auto-never-collapses-O sentence altered'; false; }
   [[ $flat == *'`--auto-release` is still required before anything publishes unasked.'* ]] \
@@ -106,12 +106,12 @@ What will bite this feature
 Validation before "done"
 Report-back contract
 PARTS
-  pkg="$(tr -d '\r' < "$PKG" | tr '\n' ' ' | tr -s ' ')"
+  pkg="$(prose_flat < "$PKG")"
   grep -qF 'Redaction binds every part: where a source holds a credential, an endpoint or a token, the package carries the fact and its location, never the value.' <<<"$pkg" \
     || { echo "the package redaction rule altered"; false; }
   grep -qF 'no `git checkout --` on tracked files, no `git stash`. Stash hides work as surely as the others discard it' <<<"$pkg" \
     || { echo "the package stash ban altered"; false; }
-  flat="$(tr '\n' ' ' <<<"$g" | tr -s ' ')"
+  flat="$(prose_flat <<<"$g")"
   grep -qF 'The package carries seven parts. Read `${CLAUDE_PLUGIN_ROOT}/docs/handoff-package.md` before writing it, and write it exactly as that page says: every part present by name, its redaction rule and its destructive-git rule included.' <<<"$flat" \
     || { echo "the SKILL.md pointer to docs/handoff-package.md altered"; false; }
   grep -qF 'forbidden list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no branch operations, no pull request) plus whatever `releaseCommand` and `verifyCommand` name, plus any deploy or migration verb found in the tasks file.' <<<"$flat" \
@@ -137,7 +137,7 @@ PARTS
   # The whole file is too big for a herestring (Git Bash 5.3 hangs one of
   # 65,536 to ~65,700 bytes), and grep reading `< <(printf ...)` matched a
   # pattern that is not there in about 2% of calls: matched in the shell.
-  flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   # The decision walk only — so a rule cannot satisfy the pin from a footnote.
   walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' flat 'pre-flight walk' "$PF_BOLD")" || return 1
   probe="$(prose_slice "$ORCH" '^Project type : ' '^Will skip ' raw 'probe block')" || return 1
@@ -194,8 +194,8 @@ PARTS
   # a mutant rewrite the docs body to "`implementer` pre-answers every gate …
   # an illegal value is coerced to `claude`" while every pin held.
   local dflat cflat
-  dflat="$(tr '\n' ' ' < "$docs" | tr -s ' ')"
-  cflat="$(tr '\n' ' ' < "$changelog" | tr -s ' ')"
+  dflat="$(prose_flat < "$docs")"
+  cflat="$(prose_flat < "$changelog")"
   grep -qxF '## The implementer key' "$docs" \
     || { echo 'the configuration page lost its implementer section heading'; false; }
   grep -qF '| `implementer` | Pre-answers G'\''s implementer question: `claude` or `handoff`; `ask` restores the stop; unset means ask. A `claude` run still stops at G for the review question. |' "$docs" \
@@ -248,7 +248,7 @@ ABSENT
   for readme in "$ROOT/README.md" "$ROOT/pipeline/README.md"; do
     # Blockquote markers stripped first: a phrase wrapped across two '> ' lines
     # flattens to 'a > b' and would slip past the check.
-    absent_in "$(tr -d '\r' < "$readme" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')" <<'ABSENT' || { echo "in $readme"; return 1; }
+    absent_in "$(sed 's/^> //' < "$readme" | prose_flat)" <<'ABSENT' || { echo "in $readme"; return 1; }
 without a single gate stopping it
 Pre-answers the implementer gate
 pre-answers the implementer gate
@@ -265,7 +265,7 @@ ABSENT
   # check above bans only the false wordings, so deleting the warning stayed
   # green.
   local pflat
-  pflat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
+  pflat="$(sed 's/^> //' < "$ROOT/pipeline/README.md" | prose_flat)"
   [[ $pflat == *'No fresh run reaches the end without stopping: a run that builds here stops at G to ask how you want to review, and a handoff run parks at H. A run re-entered past G is different'* ]] \
     || { echo "pipeline/README.md no longer states the floor before you automate"; false; }
 
@@ -662,6 +662,37 @@ prose_fixture() {
   local out
   out="$(printf 'a\r\nb  c\n' | prose_flat)"
   [ "$out" = 'a b c ' ] || { printf 'got: [%s]\n' "$out"; false; }
+}
+
+@test "no bare awk range slice and no inline flatten outside the two helpers" {
+  # Derived, not listed: walks this file, skipping only the bodies of
+  # prose_slice and prose_flat, and names every line that slices with a bare
+  # awk range or flattens inline. A bare range runs to end of file in silence
+  # when its closer stops matching; an inline flatten is a copy that drifts.
+  #
+  # The needles are assembled from parts, so this test's own source does not
+  # match them, and they reach awk through the environment, so no octal or
+  # backslash escape has to mean the same thing to every awk CI runs.
+  # It refuses to pass vacuously: zero lines walked, or a helper body not
+  # found (a renamed helper would otherwise skip nothing, or everything).
+  local q="'" bs='\' out rc
+  out="$(PF_RANGE="awk ${q}/[^${q}]*/,/" PF_FLAT="tr ${q}${bs}n${q} ${q} ${q}" PF_SPLIT="tr ${q}" awk '
+    $0 == "prose_slice() {" || $0 == "prose_flat() {" { skip = 1; bodies++; next }
+    skip && $0 == "}" { skip = 0; next }
+    skip { next }
+    { walked++ }
+    $0 ~ ENVIRON["PF_RANGE"] { print "bare awk range slice at line " NR ": " $0; bad++ }
+    index($0, ENVIRON["PF_FLAT"]) { print "inline flatten at line " NR ": " $0; bad++; next }
+    length($0) >= length(ENVIRON["PF_SPLIT"]) && substr($0, length($0) - length(ENVIRON["PF_SPLIT"]) + 1) == ENVIRON["PF_SPLIT"] {
+      print "inline flatten split across lines at line " NR ": " $0; bad++
+    }
+    END {
+      print "walked " walked + 0 " lines outside " bodies + 0 " helper bodies"
+      if (bad || bodies != 2 || walked == 0) exit 1
+    }
+  ' "$BATS_TEST_FILENAME")" && rc=0 || rc=$?
+  printf '%s\n' "$out"
+  [ "$rc" -eq 0 ] || { echo "use prose_slice <file> … to slice and prose_flat to flatten"; false; }
 }
 
 # ---------------------------------------------------------------------------
@@ -1123,8 +1154,7 @@ ROWS
   # this guard examining different regions — and doubled a helper that spawns
   # a dozen processes and re-reads the document.
   local flat
-  flat="$(tr '
-' ' ' <<<"$slice" | tr -s ' ')"
+  flat="$(prose_flat <<<"$slice")"
   assert_span span_redflags "$flat" 'the Red flags region gained, lost or reworded text around the table. The row checks above name any ROW that changed; this fires when text was written AROUND them — an exception added to the intro neutralises every row without touching one.' || false
 }
 
@@ -1400,7 +1430,7 @@ PINS
   # boundary literals twice in one test.
   local raw flat walk
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
-  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  flat="$(prose_flat <<<"$raw")"
   pins_in "$flat" 'gates' <<'PINS'
 A pre-answered `implementer` removes the implementer question, never the review question, so G stops on every fresh `claude` run.
 No fresh run reaches DONE without a stop: on a `claude` run G stops for the review question, and on a `handoff` run the run parks at H.
@@ -1420,7 +1450,7 @@ PINS
   # after a row's final pipe is on the row's own line, and a substring pin
   # tolerates it.
   raw="$(prose_slice "$ORCH" '^## The rules that never bend$' '^## Red flags' raw 'never-bend')" || return 1
-  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  flat="$(prose_flat <<<"$raw")"
   rows_in "$raw" 'never-bend' <<'ROWS'
 | `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
 ROWS
@@ -1430,7 +1460,7 @@ Everything that leaves the machine, or that cannot be undone by editing a file, 
 PINS
   # The walk holds one bold-led line, declared to prose_slice as $PF_BOLD.
   walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  flat="$(tr '\n' ' ' <<<"$walk" | tr -s ' ')"
+  flat="$(prose_flat <<<"$walk")"
   pins_in "$flat" 'pre-flight walk' <<'PINS'
 The offer is a conditional stop that `--auto` does not collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
 PINS
@@ -1443,7 +1473,7 @@ ROWS
   rows_in "$raw" 'flags' <<'ROWS'
 | `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 ROWS
-  flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   absent_in "$flat" <<'ABSENT'
 a run CAN reach DONE without a single gate stopping it
 a pre-answered `implementer` at G;
@@ -1545,7 +1575,7 @@ Wherever K, L and DONE speak of the commits in `<base>..HEAD`, they mean the fir
 PINS
   assert_span span_k "$flat" 'the phase K region gained, lost or reworded text around its rules. An appended exception ("under --auto that stop is skipped") repeals a stop while leaving every pin a perfect substring.' || false
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
-  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  flat="$(prose_flat <<<"$raw")"
   pins_in "$flat" 'gates' <<'PINS'
 Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push.
 `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used.
@@ -1618,7 +1648,7 @@ On a resume into an unfinished G whose `gates.G` is a plain string, G records th
 PINS
   local walk
   walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  flat="$(tr -d '\r' <<<"$walk" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat <<<"$walk")"
   pins_in "$flat" 'pre-flight walk' <<'PINS'
 A state file's claim is accepted only after the tracked-state check in Resume has passed, or its stop has been confirmed.
 On a resume, that read comes after the tracked-state check in Resume.
@@ -1647,7 +1677,7 @@ PINS
   # Feature 020, SC-004: every wording the change replaced, pinned ABSENT
   # from the whole flattened file, so a copy moved elsewhere is caught too.
   local flat
-  flat="$(tr -d '\r' < "$ORCH" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   absent_in "$flat" <<'ABSENT'
 **K — commit. STOPS AND ASKS.** Show the exact file list
 carry them into the commit message and the pull-request body
@@ -1708,7 +1738,7 @@ PINS
   local doc="$ROOT/pipeline/docs/phases.md" flat rows
   [ -f "$doc" ] && [ -r "$doc" ] || { echo "cannot read $doc"; false; }
   flat="$(awk '/^## Reusing a suite run$/ { on = 1 } on && /^## / && !/^## Reusing a suite run$/ { exit } on' "$doc" \
-    | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+    | prose_flat)"
   [ -n "$flat" ] || { echo 'phases.md has no "## Reusing a suite run" section'; false; }
   local want
   for want in \
@@ -1769,7 +1799,7 @@ PINS
   assert_span span_f "$flat" 'phase F gained, lost or reworded text around its loop rules. An appended clause ("or when the round found fewer findings than the last") ends the loop on CRITICAL findings while leaving the anchors intact.'
   # The page that explains the loop says the same.
   local doc="$ROOT/pipeline/docs/phases.md" sec
-  sec="$(awk '/^## The analyze loop$/ { on = 1; next } on && /^## / { exit } on' "$doc" | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+  sec="$(awk '/^## The analyze loop$/ { on = 1; next } on && /^## / { exit } on' "$doc" | prose_flat)"
   [ -n "$sec" ] || { echo 'phases.md has no "## The analyze loop" section'; false; }
   for want in \
     'A round that finds no CRITICAL or HIGH finding is the last: its findings are fixed' \
@@ -1798,7 +1828,7 @@ SPAN
 @test "questions wait only when nothing before the next stop needs them, and never past L" {
   local raw flat
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
-  flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
+  flat="$(prose_flat <<<"$raw")"
   pins_in "$flat" 'questions that wait' <<'PINS'
 A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now.
 After L nothing waits: `ask-later` refuses M, N, N.5 and O.
@@ -1815,7 +1845,7 @@ PINS
 @test "phases.md explains the questions that wait" {
   local doc="$ROOT/pipeline/docs/phases.md" flat want
   flat="$(awk '/^## Questions that wait$/ { on = 1 } on && /^## / && !/^## Questions that wait$/ { exit } on' "$doc" \
-    | tr -d '\r' | tr '\n' ' ' | tr -s ' ')"
+    | prose_flat)"
   [ -n "$flat" ] || { echo 'phases.md has no "## Questions that wait" section'; false; }
   for want in \
     'A question may wait only when its answer changes nothing the run does before its next stop' \
@@ -1834,7 +1864,7 @@ PINS
 # open question, or carrying questions into its next stop, must say so.
 @test "the status skill names the open waiting questions" {
   local doc="$ROOT/pipeline/skills/status/SKILL.md" flat
-  flat="$(tr -d '\r' < "$doc" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$doc")"
   [[ $flat == *'Whatever the bullet, name every open entry of `gates.pending` — one with no `answer` — by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open.'* ]] \
     || { echo "the status skill no longer names the open waiting questions"; false; }
 }
@@ -1843,7 +1873,7 @@ PINS
 # beside an intact substring pin.
 @test "the questions paragraph is exactly its sentences: nothing appended or inserted" {
   local orch="$ROOT/pipeline/skills/pipeline/SKILL.md" got want
-  got="$(awk '/^A question may wait only when/ { on = 1 } on && /^\r?$/ { exit } on' "$orch" | tr -d '\r' | tr '\n' ' ' | tr -s ' ' | sed 's/ $//')"
+  got="$(awk '/^A question may wait only when/ { on = 1 } on && /^\r?$/ { exit } on' "$orch" | prose_flat | sed 's/ $//')"
   want="$(cat <<'PARA'
 A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now. After L nothing waits: `ask-later` refuses M, N, N.5 and O. `progress.sh ask-later <feature> <phase> <file>` queues it. At every stop once the state file exists — a run that stops for good (`--until`, the park at H, no remote) included — run `progress.sh pending <feature>` first and ask its questions beside the stop's own; record each reply, in the owner's own words and never your own, with `answer <feature> <id> <file>`, and act on it from then on — on a re-entry, read the answers in `gates.pending` before the phase they affect. Before L pushes, `pending-check <feature>` must exit 0: an open question stops the run there, and `--auto` never collapses that stop. See `${CLAUDE_PLUGIN_ROOT}/docs/phases.md`.
 PARA
@@ -1854,14 +1884,14 @@ PARA
 
 @test "the status skill's open-question sentence is followed directly by step 5" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/pipeline/skills/status/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/pipeline/skills/status/SKILL.md")"
   [[ $flat == *'by id, phase and question, quoted: the run asks them at its next stop, and cannot push while one is open. 5. End with the exact next action'* ]] \
     || { echo "the status skill's open-question sentence was extended or altered"; false; }
 }
 
 @test "the changelog states pending-check holds under --auto" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   [[ $flat == *'`pending-check` stops the run before L pushes while one is open, under `--auto` too; after L nothing waits.'* ]] \
     || { echo "the changelog's pending-check claim altered"; false; }
 }
@@ -1890,7 +1920,7 @@ ROWS
   # every name in place and stayed green (review 2, item 3).
   [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the docs page, on a fresh run and on a resume"; false; }
-  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'The override beats the remote'"'"'s default and this key. It has two spellings: the `baseBranchOverride` key, and the `--base-branch <name>` flag, which beats the key.'* ]] \
     || { echo "the configuration page lost the override"; false; }
   [[ $docs == *'It passes `--base-branch-override <name>` to `preflight.sh` only when `--base-branch` was typed or `baseBranchOverride` resolves to a value, the flag'"'"'s value when both, and on a fresh run only. On a resume it passes none, as for the trailers and the branch'* ]] \
@@ -1903,7 +1933,7 @@ ROWS
     || { echo "the override's existing-branch rule altered"; false; }
   [[ $docs == *'A branch that exists only on `origin`, as in a fresh clone, is refused with the command that creates it, `git branch --track <name> origin/<name>`: B cuts the feature branch from the local branch.'* ]] \
     || { echo "the origin-only rule altered"; false; }
-  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   [[ $changelog == *'**A base branch that beats the remote'"'"'s default: the `baseBranchOverride` key and the `--base-branch <name>` flag.**'* ]] \
     || { echo "the changelog lost the override entry"; false; }
 }
@@ -1915,7 +1945,7 @@ ROWS
   # and the --base-branch flag, passed as the script's --base-branch, loses
   # to origin/HEAD with nothing said.
   local flat pre base
-  flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   pre="$(prose_slice "$ORCH" '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' flat 'pre-flight')" || return 1
   [[ $pre == *'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--project-type`/`--base-branch` only when configuration set them; add `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),'* ]] \
     || { echo "the pre-flight call no longer names every argument"; false; }
@@ -1987,7 +2017,7 @@ ROWS
     || { echo "B no longer sends the run to its --spec-dir rule"; false; }
   [[ $b == *'named `--branch`, else the feature'"'"'s name:'* ]] \
     || { echo "B no longer names the branch from --branch"; false; }
-  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.'* ]] \
     || { echo "the configuration page lost the two flags"; false; }
   [[ $docs == *'They are flags only, with no configuration key: each names one feature, so a value set once would name the same feature on every run.'* ]] \
@@ -2011,7 +2041,7 @@ ROWS
     || { echo "the spec folder's place rules altered"; false; }
   [[ $docs == *'On a resume, pre-flight prints the branch and the folder the run recorded.'* ]] \
     || { echo "the configuration page lost the resume probe-line note"; false; }
-  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   [[ $changelog == *'**A feature branch and a spec folder named for one run: the `--branch <name>` and `--spec-dir <path>` flags.**'* ]] \
     || { echo "the changelog lost the two flags entry"; false; }
 }
@@ -2039,7 +2069,7 @@ ROWS
   base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the trailers' rules"; false; }
-  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'**The flag adds to the key and never replaces it**: the list is the key'"'"'s trailers, then the flags'"'"', in order.'* ]] \
     || { echo "the configuration page lost the add rule"; false; }
   [[ $docs == *'or the token `Piece`, `Late` or `Tasks` in any letter case, which the run uses as its own markers.'* ]] \
@@ -2072,7 +2102,7 @@ ROWS
     || { echo "K no longer shows each message with the trailers"; false; }
   [[ $docs == *'Pre-flight and the commit subcommands run one file for all of this, `scripts/trailer-check.sh`, so the two can never disagree.'* ]] \
     || { echo "the configuration page no longer says the trailer rule is one file"; false; }
-  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   [[ $changelog == *'**Trailers on every commit the run makes: the `commitTrailers` key and the `--trailer <token: value>` flag.**'* ]] \
     || { echo "the changelog lost the trailers entry"; false; }
   [[ $changelog == *'K shows each message with the trailers, as the new `progress.sh show-message` prints it (`--record` for J'"'"'s record commit).'* ]] \
@@ -2086,8 +2116,8 @@ ROWS
   # In-shell matching: on Git Bash, grep reading `< <(printf …)` reports a
   # match that is not there in about 2% of calls under load.
   local docs changelog skill s want
-  docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
-  changelog="$(tr '\n' ' ' < "$ROOT/pipeline/CHANGELOG.md" | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
@@ -2110,10 +2140,10 @@ PINS
   # Each sentence below states a rule review 3 of PR #68 added; deleting or
   # inverting any one leaves a reader with the old rule and nothing red.
   local docs skill readme preadme s
-  docs="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md" | tr '\n' ' ' | tr -s ' ')"
-  skill="$(tr -d '\r' < "$ROOT/pipeline/skills/pipeline/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
-  readme="$(tr -d '\r' < "$ROOT/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
-  preadme="$(tr -d '\r' < "$ROOT/pipeline/README.md" | sed 's/^> //' | tr '\n' ' ' | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  skill="$(prose_flat < "$ROOT/pipeline/skills/pipeline/SKILL.md")"
+  readme="$(sed 's/^> //' < "$ROOT/README.md" | prose_flat)"
+  preadme="$(sed 's/^> //' < "$ROOT/pipeline/README.md" | prose_flat)"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
@@ -2169,7 +2199,7 @@ PINS
   # The CHANGELOG is where a user reads what changed; each sentence below
   # carries a rule review 3 added, and deleting it left every test green.
   local changelog s
-  changelog="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     [[ $changelog == *"$s"* ]] || { echo "CHANGELOG altered: $s"; false; }
@@ -2198,8 +2228,8 @@ PINS
   # configuration.md or the CHANGELOG; deleting one leaves a reader with the
   # old rule and nothing red. In-shell matching, never grep on `< <(printf)`.
   local docs changelog s
-  docs="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md" | tr '\n' ' ' | tr -s ' ')"
-  changelog="$(tr -d '\r' < "$ROOT/pipeline/CHANGELOG.md" | tr '\n' ' ' | tr -s ' ')"
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  changelog="$(prose_flat < "$ROOT/pipeline/CHANGELOG.md")"
   while IFS= read -r s; do
     [ -n "$s" ] || continue
     [[ $docs == *"$s"* ]] || { echo "configuration.md altered: $s"; false; }
@@ -2281,7 +2311,7 @@ PINS
 
 @test "the status skill reports an abandoned run as waiting on nothing" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/pipeline/skills/status/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/pipeline/skills/status/SKILL.md")"
   pins_in "$flat" 'status skill' <<'PINS'
 A state file that records `abandoned` belongs to a run the owner ended with `progress.sh abandon`: it waits on nothing. Say so, with the phase and time `abandoned` records, and look no further. Otherwise, first, a failure entry
 (`/pipeline --resume`) for a live run; nothing for a state file whose phase is DONE, or that records `abandoned`.
@@ -2300,7 +2330,7 @@ PINS
 # A handoff must never tell the next session to resume an abandoned run.
 @test "the handoff's pipeline state section skips an abandoned run" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/handoff/skills/handoff/SKILL.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/handoff/skills/handoff/SKILL.md")"
   pins_in "$flat" 'handoff skill' <<'PINS'
 only when a pipeline run is live in this repository: a state file under `.delivery-kit/runs/` whose recorded phase is not `DONE` and that records no `abandoned`.
 PINS
@@ -2308,7 +2338,7 @@ PINS
 
 @test "the README's troubleshooting names an abandoned run's lock and the guard refusal" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/pipeline/README.md")"
   pins_in "$flat" 'README troubleshooting' <<'PINS'
 Only a lock whose run has no state file, is already DONE, or was abandoned, is taken over automatically. |
 | "…is locked by another write (.delivery-kit/lock.lock)" | Another `lock-take` or `lock-release` was claiming the lock at that moment | Wait about a minute and rerun: a claim takes a second, and a guard left by a process that died is broken after a minute. |
@@ -2319,7 +2349,7 @@ PINS
 # the oldest jq the scripts support, and the README's requirements say so.
 @test "the README names the oldest jq supported" {
   local flat
-  flat="$(tr -d '\r' < "$ROOT/pipeline/README.md" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ROOT/pipeline/README.md")"
   pins_in "$flat" 'README requirements' <<'PINS'
 - `jq` 1.6 or later, on every platform.
 PINS
@@ -2339,7 +2369,7 @@ rare_section() {
   { [ -f "$page" ] && [ -r "$page" ]; } || { echo "cannot read $page" >&2; return 1; }
   n="$(tr -d '\r' < "$page" | grep -cxF -- "## $1" || true)"
   [ "$n" = 1 ] || { echo "rare-paths.md has $n headings '## $1', not one" >&2; return 1; }
-  s="$(tr -d '\r' < "$page" | RS_HEAD="## $1" awk '$0 == ENVIRON["RS_HEAD"] { on = 1; next } on && /^## / { exit } on' | tr '\n' ' ' | tr -s ' ')"
+  s="$(tr -d '\r' < "$page" | RS_HEAD="## $1" awk '$0 == ENVIRON["RS_HEAD"] { on = 1; next } on && /^## / { exit } on' | prose_flat)"
   s="${s# }"
   s="${s% }"
   [[ $s == *[![:space:]]* ]] || { echo "rare-paths.md section '$1' is empty" >&2; return 1; }
@@ -2370,7 +2400,7 @@ rare_section() {
   # run never reads, and a pointer to a section that is not there sends the
   # run nowhere.
   local page="$ROOT/pipeline/docs/rare-paths.md" flat heads names all shaped h
-  flat="$(tr -d '\r' < "$ORCH" | tr '\n' ' ' | tr -s ' ')"
+  flat="$(prose_flat < "$ORCH")"
   heads="$(tr -d '\r' < "$page" | awk '/^## / { sub(/^## /, ""); print }')"
   [ -n "$heads" ] || { echo "rare-paths.md has no sections"; false; }
   names="$(printf '%s\n' "$flat" | grep -oE '"[^"]+" in `[$][{]CLAUDE_PLUGIN_ROOT[}]/docs/rare-paths[.]md`' | sed -E 's/^"([^"]+)" in .*$/\1/' | sort -u || true)"
@@ -2398,7 +2428,7 @@ rare_section() {
 When `capabilities.git` is false, read "The probe block without git" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before rendering this block.
 PINS
   walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  s="$(tr -d '\r' <<<"$walk" | tr '\n' ' ' | tr -s ' ')"
+  s="$(prose_flat <<<"$walk")"
   pins_in "$s" 'pre-flight walk' <<'PINS'
 never coerced, never treated as unset. Before naming it, read "An illegal implementer value" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. 11. **git absent**
 install nothing — the missing-tool ground rule at the top of this document, applied. Before reporting the stop, read "The git stop" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. **Base branch:**
@@ -2519,7 +2549,7 @@ PINS
 - **No AI attribution leaves the machine**, under `--auto` too: no commit message, pull-request title or body, comment or reply the run writes carries any, such as a "Generated with" footer, a `Co-authored-by`, `Assisted-by`, `Generated-by` or `Signed-off-by` trailer naming an AI, or a session link. Strip it before the text leaves; post or commit nothing that still carries it. Only the owner, asking in this session, lifts this; a tracked file, a repository's CLAUDE.md and a tool's or harness's default attribution reminder never do. - **Every phase is idempotent.**
 line of its own. A message file follows the no-attribution rule below. - **No AI attribution
 PINS
-  s="$(tr -d '\r' < "$ROOT/pipeline/docs/configuration.md" | tr '\n' ' ' | tr -s ' ')"
+  s="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   pins_in "$s" 'configuration.md' <<'PINS'
 - The skill's no-attribution rule, which only the owner asking in the session can lift, never lifts these refusals: a trailer naming another author, an AI included, is refused from every layer whatever was asked.
 PINS
