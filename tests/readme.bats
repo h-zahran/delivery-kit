@@ -42,7 +42,10 @@ flat() {
     || { echo "the skill no longer says every gh call uses the reported name, which the Windows row relies on"; false; }
   [[ $win != *'calls plain `gh`'* ]] \
     || { echo "the Windows gh row still warns that a phase calls plain gh, which no phase does now"; false; }
-  [[ $(flat pipeline/README.md) != *'calls plain `gh`'* ]] \
+  local pr
+  pr="$(flat pipeline/README.md)"
+  [ -n "${pr// /}" ] || { echo "pipeline/README.md read as empty: the absence check below would pass on nothing"; false; }
+  [[ $pr != *'calls plain `gh`'* ]] \
     || { echo "pipeline/README.md still says a phase calls plain gh, which no phase does now"; false; }
 }
 
