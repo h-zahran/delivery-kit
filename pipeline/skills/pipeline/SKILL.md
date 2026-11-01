@@ -628,8 +628,17 @@ resolves empty; no other lens is ever skipped. Every finding becomes one
 CRITICAL for a crash, data loss or a security hole, HIGH for any other
 bug, MEDIUM for the rest; a `simplify` finding is MEDIUM or LOW. The
 code-review skill runs as a fork on the session's model and takes no
-model; every fix agent runs on `agentModel`. Fixes fan out once, for
-every lens's findings, and I ends with its late commit (see H.5).
+model; every fix agent runs on `agentModel`. Before the fixes, I runs
+`git stash create` and keeps what it prints, or `HEAD` when it prints
+nothing, as the round's mark, and lists the untracked files. Fixes fan
+out once, for every lens's findings. When the fixes changed a file, the
+`bugs` lens reads them once more: the code-review skill with the
+arguments `high --max-findings all <mark> — the change is only what the
+fixes made: the diff from <mark> to the working tree, and these
+untracked files the fixes added: <each path, or none>`, never `--fix` or
+`--comment`. Its findings are fixed or deferred with their reason; that
+is the last review pass, and J checks what it fixed. I ends with its
+late commit (see H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
 `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against

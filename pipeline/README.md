@@ -81,7 +81,7 @@ preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* �
 |---|---|---|
 | **Specify & plan** | A – F.5 | The seed becomes a specification, you answer the clarifying questions, then a plan, a task list, an analysis pass, and a recorded test baseline. |
 | **Build** | G – H.7 | You choose who implements and, for a build here, how to review it: commits or pauses. A build here goes one piece (one phase of the task list) at a time, one commit per piece, independent tasks in parallel; then a convergence pass, committing what it changed. A handoff run builds in one pass, and K makes its feature commit. |
-| **Review** | I – J | One review round, every lens at once — contract compliance, security, tests, the code-review skill's bug lens and a simplify lens — and one round of fixes; then the analyzer and the full suite, classified against the baseline. |
+| **Review** | I – J | One review round, every lens at once — contract compliance, security, tests, the code-review skill's bug lens and a simplify lens — and one round of fixes, which the code-review skill reads once more; then the analyzer and the full suite, classified against the baseline. |
 | **Ship** | K – O | Show what is already committed and what is left, commit the rest, push, open the pull request with its review guide, act on comments from people with write access, re-verify, prove it actually runs, release. |
 
 `pipeline:status` reads a run's state file and reports where it got to, which
