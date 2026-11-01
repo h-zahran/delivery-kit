@@ -48,8 +48,9 @@ this page exists:
   untestable.
 - **F.5** must run *before* any code changes, or there is nothing to classify
   against.
-- **H.5** and **H.7** follow implementation: one asks what is still missing, the
-  other asks what is now redundant.
+- **H.5** and **H.7** follow implementation: H.5 asks what is still missing.
+  H.7 used to ask what is now redundant; from pipeline 1.7.0 that question is
+  the `simplify` lens of I's one review round.
 - **N.5** follows re-verification, because a green suite is not the same claim
   as "it runs".
 

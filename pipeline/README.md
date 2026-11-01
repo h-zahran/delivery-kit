@@ -165,7 +165,7 @@ escaping rules.
 | `review` | I | The fixes from the deep review's one round, for every lens. |
 | `tests` | J (or K: its empty record commit, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. In a run without pieces, J's fixes ride in K's commit, and K makes that empty record commit only when nothing is left to commit. |
 | `constitution` | K | A constitution written by an accepted pre-flight offer, always on its own. |
-| `other` | K, M, N | What was left for K, and the fixes from the pull-request review and the re-verify pass. |
+| `other` | K, M, N | What was left for K, and the fixes for pull-request comments and from the re-verify pass. |
 
 Read the `spec` commit first: it says what the rest is meant to do. Then read
 each piece in order — [the phase reference](docs/phases.md) says what each
@@ -177,7 +177,7 @@ commit; the guide is still the map of the branch.
 A handoff run builds in one pass, so K makes its one feature commit, and the
 deep-review and test fixes ride in it. Its message carries any failure waved
 through at J — or, when K has nothing left to commit, an empty record commit
-of kind `tests` does. The fixes from the pull-request review and the re-verify
+of kind `tests` does. The fixes for pull-request comments and from the re-verify
 pass, and an accepted constitution, still get rows of their own.
 
 ## What it never does

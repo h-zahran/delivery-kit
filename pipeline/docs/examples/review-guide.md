@@ -36,8 +36,9 @@ Read this branch commit by commit, top to bottom: each row is one commit, oldest
   commit marked done, and `tasks.md` is among its files.
 - **The rest come from later phases**: `converge` from H.5, which appended its
   own phase to `tasks.md` (`Phase 4: Convergence`, with the two tasks it found
-  missing); `simplify` from H.7; `review` from I; and here `other` from M, a
-  fix the pull-request review asked for.
+  missing); `simplify` from H.7, which only a run begun before pipeline 1.7.0
+  makes (from 1.7.0 the simplify fixes ride in I's `review` commit); `review`
+  from I; and here `other` from M, a fix a pull-request comment asked for.
 - **Every file is listed.** No row is cut short.
 
 ## The escaping rules
