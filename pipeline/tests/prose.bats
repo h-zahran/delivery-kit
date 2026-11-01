@@ -71,7 +71,7 @@ RULES
   # review question on every fresh `claude` run. Pinned whole, inside the
   # Flags table: a copy moved elsewhere, or a cell appended, is not the row.
   local flags
-  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  flags="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
   rows_in "$flags" 'the --auto flags' <<'ROWS'
 | `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops, once the branch holds commits, for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, or the stop for a state file tracked in git. |
 ROWS
@@ -348,9 +348,23 @@ ABSENT
 # pre-flight item 10, pasted verbatim into an appendix headed "not
 # instructions", passed a file-wide pin.
 
-# prose_slice <open-ere> <close-ere> <raw|flat> <name>
+# prose_flat — stdin to stdout: carriage returns removed, every line feed
+# turned into a space, runs of spaces squeezed to one.
 #
-# Prints the region of $ORCH between the two patterns. Diagnostics go to
+# The ONE flatten in this file; a test below refuses an inline copy. It reads
+# stdin rather than taking a file so each caller keeps the input mode it had:
+# `prose_flat < "$file"` for a whole document — never a herestring, which hangs
+# Git Bash 5.3 at about 64 KB — `prose_flat <<<"$slice"` for a slice already
+# held, or a pipe after a step of the caller's own (`sed 's/^> //'`). The CR
+# strip changes nothing on today's LF documents; it means no caller can forget
+# it, which is how the copies had drifted apart.
+prose_flat() {
+  tr -d '\r' | tr '\n' ' ' | tr -s ' '
+}
+
+# prose_slice <file> <open-ere> <close-ere> <raw|flat> <name> [<declared-line>...]
+#
+# Prints the region of <file> between the two patterns. Diagnostics go to
 # STDERR, which is not fastidiousness — every caller reads this function
 # through $( ), so a message on stdout would be captured into the caller's
 # variable and never seen.
@@ -368,6 +382,14 @@ ABSENT
 # miscount is suspicious. (Arity and form are checked further up, before any of
 # this; they are about the CALL, not the slice.)
 #
+# A <declared-line> is a heading-shaped line the caller KNOWS sits inside its
+# slice — the pre-flight walk holds `**Read item 11 before item 1.** …`. It is
+# matched as a whole line and a fixed string, so it admits that one line and
+# nothing else: every other heading-shaped line still fails. A prefix or a
+# pattern would admit any line that starts the same way, which is exactly the
+# restructure the inner-heading guard exists to catch. A rewrapped paragraph
+# changes the line and fails loudly, printing it.
+#
 # The CLOSED-ON-ITS-BOUNDARY guard is the one that must never go. An awk
 # range whose closing pattern stops matching runs to end of file in silence:
 # the pin then searches the entire document while its name and its message
@@ -383,8 +405,9 @@ ABSENT
 # checkout that somehow did carry them fails over line endings NOWHERE rather
 # than failing all five pins at once with a message about missing prose.
 prose_slice() {
-  local open="$1" close="$2" form="$3" name="$4"
-  local s first last n inner
+  local file="${1-}" open="${2-}" close="${3-}" form="${4-}" name="${5-}"
+  local s first last n inner d
+  local -a declared=()
 
   # Arity and form are checked because getting either wrong fails with the
   # WRONG MESSAGE, which is the one outcome this helper's comments spend most
@@ -393,17 +416,19 @@ prose_slice() {
   # misses, and five tests report "the clause was altered" about a document
   # nobody touched. It fails loudly and points at the wrong thing, which is
   # worse than failing quietly — a maintainer acts on it.
-  [ "$#" -eq 4 ] || {
-    printf 'prose_slice: needs <open> <close> <raw|flat> <name>, got %s argument(s)\n' "$#" >&2
+  [ "$#" -ge 5 ] || {
+    printf 'prose_slice: needs <file> <open> <close> <raw|flat> <name> [<declared-line>...], got %s argument(s)\n' "$#" >&2
     return 1
   }
+  shift 5
+  declared=("$@")
   case "$form" in
     raw|flat) ;;
     *) printf 'prose_slice [%s]: form must be raw or flat, got: %s\n' "$name" "$form" >&2
        return 1 ;;
   esac
 
-  # The orchestrator must be READABLE before its absence can be blamed on the
+  # The file must be READABLE before its absence can be blamed on the
   # document's contents. awk writes "can't open file" to stderr and its status
   # is swallowed by the pipe below, so a renamed or moved SKILL.md yields an
   # empty slice and all five pins announce that their opening boundary matched
@@ -414,8 +439,8 @@ prose_slice() {
   # directory", the slice came back empty, and all five pins blamed a missing
   # opening boundary — the exact wrong-message failure this guard exists to
   # stop, surviving one substitution of the path.
-  { [ -f "$ORCH" ] && [ -r "$ORCH" ]; } || {
-    printf 'prose_slice [%s]: cannot read the orchestrator at %s — this is not a prose failure, the file is missing or unreadable\n' "$name" "$ORCH" >&2
+  { [ -f "$file" ] && [ -r "$file" ]; } || {
+    printf 'prose_slice [%s]: cannot read the file at %s — this is not a prose failure, the file is missing or unreadable\n' "$name" "$file" >&2
     return 1
   }
 
@@ -439,7 +464,7 @@ prose_slice() {
   # the strip was added to prevent, produced by the strip sitting in the wrong
   # place. It is invisible on this machine, where the Cygwin awk and grep both
   # ignore a trailing CR — which is why it survived the first round.
-  s="$(tr -d '\r' < "$ORCH" | PS_OPEN="$open" PS_CLOSE="$close" \
+  s="$(tr -d '\r' < "$file" | PS_OPEN="$open" PS_CLOSE="$close" \
        awk '$0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]')"
 
   [ -n "$s" ] || {
@@ -461,7 +486,7 @@ prose_slice() {
   # inner-heading guard below — by accident, with a message about a restructure.
   # For a non-heading boundary (the probe lines this helper should absorb next)
   # nothing would catch it at all.
-  [ "$(tr -d '\r' < "$ORCH" | grep -cE "$open")" -eq 1 ] || {
+  [ "$(tr -d '\r' < "$file" | grep -cE "$open")" -eq 1 ] || {
     printf 'prose_slice [%s]: the opening boundary /%s/ matches more than once, so the slice concatenates disjoint regions
 ' "$name" "$open" >&2
     return 1
@@ -482,7 +507,15 @@ prose_slice() {
 
   n="$(wc -l <<<"$s")"
   if [ "$n" -gt 2 ]; then
-    inner="$(sed -n "2,$((n - 1))p" <<<"$s" | grep -E '^\*\*|^#{1,6} ' || true)"
+    inner="$(sed -n "2,$((n - 1))p" <<<"$s")"
+    # Declared lines leave first, each as a whole fixed-string line (see the
+    # header): `grep -vxF -e <line>` drops only a line identical to it.
+    if [ "${#declared[@]}" -gt 0 ]; then
+      for d in "${declared[@]}"; do
+        inner="$(grep -vxF -e "$d" <<<"$inner" || true)"
+      done
+    fi
+    inner="$(grep -E '^\*\*|^#{1,6} ' <<<"$inner" || true)"
     [ -z "$inner" ] || {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
       # ACCEPTED COST, named so nobody rediscovers it as a bug: this fires on
@@ -506,7 +539,7 @@ prose_slice() {
   fi
 
   if [ "$form" = flat ]; then
-    tr '\n' ' ' <<<"$s" | tr -s ' '
+    prose_flat <<<"$s"
   else
     printf '%s\n' "$s"
   fi
@@ -675,7 +708,7 @@ SPAN
 
 @test "the seed-form rule never falls through to a verbatim description" {
   local flat
-  flat="$(prose_slice '^\*\*Seed forms\.\*\*' '^## The twenty phases$' flat 'seed forms')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*Seed forms\.\*\*' '^## The twenty phases$' flat 'seed forms')" || return 1
 
   grep -qF 'Needs a GitHub remote and `gh`; without them, fail with a message naming which is missing.' <<<"$flat" \
     || { echo 'the seed-form precondition altered: an issue reference with no remote or no gh must FAIL, naming which is missing'; false; }
@@ -691,7 +724,7 @@ SPAN
 
 @test "a failed phase rolls nothing back, keeps its place and drops the lock" {
   local flat
-  flat="$(prose_slice '^## When a phase fails$' '^## Resume$' flat 'when a phase fails')" || return 1
+  flat="$(prose_slice "$ORCH" '^## When a phase fails$' '^## Resume$' flat 'when a phase fails')" || return 1
 
   # The imperative WITH its reason. The imperative alone survives a mutant
   # that appends "unless the tree is dirty, in which case reset it" — the
@@ -715,7 +748,7 @@ SPAN
 
 @test "phase J carries a waved-through red into everything that leaves the machine" {
   local flat
-  flat="$(prose_slice '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
 
   # The duty itself, pinned with BOTH destinations. Either one alone survives a
   # mutant that drops the other, and dropping the pull-request body is the one
@@ -745,7 +778,7 @@ SPAN
 
 @test "phase N is degraded but never skipped, and never re-owns an accepted red" {
   local flat
-  flat="$(prose_slice '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
 
   # Pinned through what N still DOES without a pull request. The bare phrase
   # survives a mutant that keeps "DEGRADED, NEVER SKIPPED" as a heading and
@@ -766,7 +799,7 @@ SPAN
 
 @test "F.5, J and N reuse only a green suite result for identical files" {
   local flat
-  flat="$(prose_slice '^\*\*F\.5 — test baseline\.\*\*' '^\*\*G — implementer gate\.\*\*' flat 'phase F.5')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*F\.5 — test baseline\.\*\*' '^\*\*G — implementer gate\.\*\*' flat 'phase F.5')" || return 1
 
   # The reuse rule, pinned through its two conditions. A green result alone is
   # not enough: it must be these files, byte for byte, under this command.
@@ -834,7 +867,7 @@ ROWS
 
 @test "every red-flag row is pinned, and every pinned row is still there" {
   local slice known present
-  slice="$(prose_slice '^## Red flags' '^## When a phase fails$' raw 'red flags')" || return 1
+  slice="$(prose_slice "$ORCH" '^## Red flags' '^## When a phase fails$' raw 'red flags')" || return 1
 
   # FORWARD — every row this test names is still in the table, WHOLE-LINE.
   #
@@ -1145,7 +1178,7 @@ absent_in() {
   # FR-001 to FR-004, and the shape of gates.G. G7 (never migrated) is pinned
   # with the legacy rule further down.
   local flat
-  flat="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
   pins_in "$flat" 'G review-question' <<'PINS'
 When the implementer answer is `claude`, G then asks the review question below, which nothing pre-answers.
 Once the implementer answer is `claude`, asked or pre-answered, G asks the review question — commits or pauses — and records the answer as `gates.G.reviewMode`, `commits` or `pauses`.
@@ -1167,7 +1200,7 @@ PINS
   # FR-006 to FR-011 and FR-017. H22 is today's last_task sentence, kept
   # and now pinned: resume re-enters mid-piece by it.
   local flat
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$flat" 'phase H' <<'PINS'
 The single-commit flow: invoke `/speckit-implement`.
 Which flow H runs is read from `gates.G`: with `claude` recorded as G's answer and a review answer recorded beside it, H builds in pieces as below; otherwise H runs the single-commit flow, and says which flow it runs and why.
@@ -1227,15 +1260,15 @@ PINS
   # on the handoff path, is never migrated mid-run (ruling 24); a piece-flow
   # resume enters the piece piece-next names.
   local flat
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$flat" 'legacy (H)' <<'PINS'
 A run that enters H with implementer `claude` and no `gates.G.reviewMode` — it started on an older pipeline, or it began on the handoff path — keeps the single-commit flow and says so.
 PINS
-  flat="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^The package carries seven parts' flat 'phase G')" || return 1
   pins_in "$flat" 'legacy (G)' <<'PINS'
 A re-entry into G whose state file already lists G as completed without `gates.G.reviewMode` does not ask it: that run started before the review question existed, or on the handoff path, and it keeps the single-commit flow for its life — it is never migrated mid-run.
 PINS
-  flat="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
   pins_in "$flat" 'resume' <<'PINS'
 Re-entering H in the piece flow — `--resume` or `--from H` — enters the piece `piece-next` names, under H's rules: a recorded piece is never rebuilt, and a built piece not yet committed is handled first.
 PINS
@@ -1247,7 +1280,7 @@ PINS
   # is taken ONCE, raw, and flattened from that: two calls would put the
   # boundary literals twice in one test.
   local raw flat walk
-  raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   pins_in "$flat" 'gates' <<'PINS'
 A pre-answered `implementer` removes the implementer question, never the review question, so G stops on every fresh `claude` run.
@@ -1260,14 +1293,14 @@ PINS
   rows_in "$raw" 'gate table' <<'ROWS'
 | Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
 ROWS
-  flat="$(prose_slice '^## Parallel agents$' '^## The rules that never bend$' flat 'parallel')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Parallel agents$' '^## The rules that never bend$' flat 'parallel')" || return 1
   pins_in "$flat" 'parallel' <<'PINS'
 grouped by target artefact; H — independent tasks within one piece; fan-out never crosses a piece boundary; H.5
 PINS
   # Table rows are pinned WHOLE, raw, in their own section: a cell appended
   # after a row's final pipe is on the row's own line, and a substring pin
   # tolerates it.
-  raw="$(prose_slice '^## The rules that never bend$' '^## Red flags' raw 'never-bend')" || return 1
+  raw="$(prose_slice "$ORCH" '^## The rules that never bend$' '^## Red flags' raw 'never-bend')" || return 1
   flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   rows_in "$raw" 'never-bend' <<'ROWS'
 | `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
@@ -1289,12 +1322,12 @@ PINS
   pins_in "$flat" 'pre-flight walk' <<'PINS'
 The offer is a conditional stop that `--auto` does not collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
 PINS
-  raw="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
   rows_in "$raw" 'configuration' <<'ROWS'
 | `implementer` | unset | Pre-answers G's implementer question: `claude` or `handoff`; `ask` restores the stop. It never pre-answers the review question |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
 ROWS
-  raw="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
   rows_in "$raw" 'flags' <<'ROWS'
 | `--implementer <claude\|handoff\|ask>` | Pre-answers G's implementer question, or restores it with `ask`; beats the config key. On a fresh run that resolves to `claude`, the review question is still asked. |
 ROWS
@@ -1318,7 +1351,7 @@ ABSENT
   # Feature 020, FR-001 to FR-004 and FR-013: the late-commit rule is
   # written once, after H.5; H.7 and I read the run's whole change.
   local flat
-  flat="$(prose_slice '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
   pins_in "$flat" 'phase H.5' <<'PINS'
 In the piece flow, H.5, H.7, I and J each end with one commit of their own when they changed a file — a late commit — which `late-commit` records as kind `converge` (H.5), `simplify` (H.7), `review` (I) or `tests` (J).
 Piece commits stay exactly as built: no late phase rebases, fixes up, amends or rewrites a commit.
@@ -1339,17 +1372,17 @@ PINS
   pins_in "$flat" 'late hook stop' <<'PINS'
 A commit hook that rejects a late commit is a hard stop, as for a piece: the paths stay uncommitted, `gates` records a failure entry under the phase's letter, `gates.<letter>.failure` with the `paths` and the hook's `output`, redacted as J's carry is, and the run stops per "When a phase fails".
 PINS
-  flat="$(prose_slice '^\*\*H\.7 — simplify\.\*\*' '^\*\*I — deep review, one round\.\*\*' flat 'phase H.7')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H\.7 — simplify\.\*\*' '^\*\*I — deep review, one round\.\*\*' flat 'phase H.7')" || return 1
   pins_in "$flat" 'phase H.7' <<'PINS'
 The run's change is every commit in `<base>..HEAD` plus the working tree: one diff from `git merge-base <base> HEAD` to the working tree, plus each untracked file — never the working tree alone, which in the piece flow holds almost nothing.
 H.7 changes no file and makes no commit; a run begun on an older pipeline that already made H.7's late commit keeps it.
 PINS
   # Phase I is pinned whole: a phrase pin let an appended exception, a
   # dropped untracked-file clause or a lowered severity pass (final review).
-  flat="$(prose_slice '^\*\*I — deep review, one round\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*I — deep review, one round\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
   [ "${flat% }" = "$(span_i)" ] \
     || { echo 'the phase I region gained, lost or reworded text around its rules:'; echo "$flat"; false; }
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$flat" 'phase H' <<'PINS'
 `snapshot` and `piece-commit` record it from that commit — kind `converge` when it also carries `Late: H.5` as a whole line (see H.5), else kind `piece` — and print its id
 never from an empty path list (that would commit whatever is staged)
@@ -1361,7 +1394,7 @@ PINS
   # single-commit flow falls to K's commit; with nothing changed, an empty
   # commit carries the record.
   local flat
-  flat="$(prose_slice '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
   pins_in "$flat" 'phase J' <<'PINS'
 J makes its late commit (see H.5) once, when its loop ends — never once per iteration.
 In the single-commit flow J makes no commit, and K's commit message carries them instead.
@@ -1377,7 +1410,7 @@ PINS
   # flattened from that: two calls would put the boundary literals twice in
   # one test.
   local flat raw
-  flat="$(prose_slice '^\*\*K — commit\.' '^\*\*L — push and open a pull request\.' flat 'phase K')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*K — commit\.' '^\*\*L — push and open a pull request\.' flat 'phase K')" || return 1
   pins_in "$flat" 'phase K' <<'PINS'
 When `<base>..HEAD` holds no commit, K shows the exact file list (every path by name — no `git add -A`, no wildcards) and the exact commit message in `commitStyle`, and commits only what was shown, only after the answer.
 When `<base>..HEAD` holds a commit — the piece flow, or a run switched to the single-commit flow after commits were made — K shows the commit list: every commit in `<base>..HEAD`, oldest first, each with its full message and every file it touched, as `progress.sh commit-list <feature>` prints them, each path marked inside or outside the feature — and then every path still uncommitted, by name, with the exact commit message in `commitStyle` proposed for it.
@@ -1399,7 +1432,7 @@ A change to `.specify/memory/constitution.md` or `.gitignore` counts as inside t
 Wherever K, L and DONE speak of the commits in `<base>..HEAD`, they mean the first-parent list `commit-list` walks.
 PINS
   assert_span span_k "$flat" 'the phase K region gained, lost or reworded text around its rules. An appended exception ("under --auto that stop is skipped") repeals a stop while leaving every pin a perfect substring.' || false
-  raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   pins_in "$flat" 'gates' <<'PINS'
 Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push.
@@ -1409,7 +1442,7 @@ PINS
   rows_in "$raw" 'gate table' <<'ROWS'
 | Commit | K | The commit list, oldest first, each commit with its message and files; then every uncommitted path and the exact commit message |
 ROWS
-  raw="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
   rows_in "$raw" 'configuration' <<'ROWS'
 | `codeRoots` | from project type | Where implementation lives: the scope of I's `simplify` lens, where a late commit may add a new file, and the boundary K stops at under `--auto` |
 ROWS
@@ -1419,7 +1452,7 @@ ROWS
   # Feature 020, FR-011 and FR-012: the guide walks the branch, joins
   # each commit to its record, and is shown in full at L and again at DONE.
   local flat
-  flat="$(prose_slice '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
   pins_in "$flat" 'phase L' <<'PINS'
 Show the branch name, the PR title and the full body before anything leaves the machine.
 The body carries the review guide, shown in full with the rest of the body.
@@ -1439,14 +1472,14 @@ PINS
   pins_in "$flat" 'body over the limit' <<'PINS'
 When the body would pass GitHub's limit of 65,536 characters, the body's guide gives each commit's file count instead of its files, and the full guide is posted as pull-request comments, each under that limit, in order, and shown with the body at L — `guide <feature> --parts` prints the first and writes the second under `guide-parts/`, one file per comment; a later rebuild edits those comments rather than posting new ones; no row and no file is dropped.
 PINS
-  flat="$(prose_slice '^\*\*DONE\.\*\*' '^## Gates$' flat 'DONE')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*DONE\.\*\*' '^## Gates$' flat 'DONE')" || return 1
   pins_in "$flat" 'DONE' <<'PINS'
 The summary carries the review guide, rebuilt as at L, so M's and N's commits are in it.
 DONE rebuilds the guide first — before `phase-start <feature> DONE` and before the lock is released — so a stop the rebuild raises leaves a resumable run.
 A run resumed after that stop goes straight to DONE: O, already completed, never runs its command again.
 Then `phase-start <feature> DONE`, release the lock (`progress.sh lock-release <feature>`), close the board, and summarise: what shipped, what was skipped and why, where the artefacts are.
 PINS
-  flat="$(prose_slice '^\*\*O — release\.' '^\*\*DONE\.\*\*' flat 'phase O')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*O — release\.' '^\*\*DONE\.\*\*' flat 'phase O')" || return 1
   pins_in "$flat" 'phase O' <<'PINS'
 A re-entered O already listed in `completed_phases` goes straight to DONE and never runs its command again.
 PINS
@@ -1483,7 +1516,7 @@ On a resume, that read comes after the tracked-state check in Resume.
 The answer is recorded under `gates.gitignore`: on a fresh run it is held aside and written in B, as item 9's is.
 An accepted write, here or at item 9, is recorded in K's `{accepted, hash}` shape.
 PINS
-  flat="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   pins_in "$flat" 'phase B' <<'PINS'
 A state file `init` finds already there is checked first, as Resume says, before anything in it is used.
 than clobbering it). A state file `init` finds already there is checked first
@@ -1494,7 +1527,7 @@ PINS
 @test "a spec the owner already committed makes no spec commit" {
   # Feature 020, FR-019 (spec 019's item d).
   local flat
-  flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$flat" 'phase H' <<'PINS'
 A spec directory the owner committed already, with nothing in it uncommitted, gets no spec commit, said so, and the first piece follows; a spec artefact recorded in `artifacts` that git ignores is a hard failure that names it, while any other ignored file in that directory is left alone.
 Before the first piece, H commits the feature's spec directory alone, every path named, as `docs(spec): <feature>`, and records it as kind `spec`: `progress.sh spec-commit <feature>` does both.
@@ -1543,14 +1576,14 @@ ABSENT
   # orchestrator to them; the mechanics themselves are pinned by
   # progress-git.bats.
   local flat
-  flat="$(prose_slice '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
   pins_in "$flat" 'ground rules' <<'PINS'
 other keys go through `progress.sh state-set <feature> <key> [<sub-key>] <json>`, which refuses a key it does not own and validates before it writes.
 - **Commit mechanics are `progress.sh` subcommands** — `snapshot`, `spec-commit`, `piece-commit`, `late-commit`, `remainder-commit`, `record-branch`, `commit-list`, `guide`; every commit the run makes goes through one. Never re-create one as a script. Each prints its answer on stdout, its reasons on stderr; a refusal is the phase's stop, or a hard failure. A message file holds no CR and no `Piece:`, `Late:` or `Tasks:` line of its own.
 - **Metrics:** at each phase boundary run `progress.sh metrics <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json` from the state file and keeps keys you add with `jq` (findings fixed per severity, loop iterations, agents dispatched).
 NEVER pipe it into a `while read` loop; `read` keeps the trailing CR and every string comparison silently fails.
 PINS
-  flat="$(prose_slice '^## Configuration$' '^## Flags$' flat 'configuration')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' flat 'configuration')" || return 1
   pins_in "$flat" 'configuration' <<'PINS'
 Record the merged result in the state file's `config` key so resume does not re-resolve differently — `codeRoots` as resolved, never `null`, since `late-commit` and `commit-list` read it.
 PINS
@@ -1617,7 +1650,7 @@ PINS
 # loop runs, and the insertion guard catches a clause added beside them.
 @test "phase F ends after a round with no CRITICAL or HIGH finding, and narrows later rounds" {
   local flat
-  flat="$(prose_slice '^\*\*F — analyze, auto-fix loop\.\*\*' '^\*\*F\.5 — test baseline\.\*\*' flat 'phase F')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*F — analyze, auto-fix loop\.\*\*' '^\*\*F\.5 — test baseline\.\*\*' flat 'phase F')" || return 1
   [[ "$flat" == *'A round that finds no CRITICAL or HIGH finding is the last: fix its findings, then end the loop.'* ]] \
     || { echo 'the early stop altered — a round with no CRITICAL or HIGH finding ends the loop, after its findings are fixed'; false; }
   [[ "$flat" == *'A later round checks only the findings still open and the text the last fixes changed, never a fresh full pass.'* ]] \
@@ -1655,7 +1688,7 @@ SPAN
 # unanswered question ride into a pull request.
 @test "questions wait only when nothing before the next stop needs them, and never past L" {
   local raw flat
-  raw="$(prose_slice '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
+  raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(tr '\n' ' ' <<<"$raw" | tr -s ' ')"
   pins_in "$flat" 'questions that wait' <<'PINS'
 A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now.
@@ -1665,7 +1698,7 @@ See `${CLAUDE_PLUGIN_ROOT}/docs/phases.md`.
 Before L pushes, `pending-check <feature>` must exit 0: an open question stops the run there, and `--auto` never collapses that stop.
 and a waiting question still open when L would push.
 PINS
-  flat="$(prose_slice '^\*\*L — push and open a pull request\. STOPS AND ASKS\.\*\*' '^\*\*M — ' flat 'phase L')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*L — push and open a pull request\. STOPS AND ASKS\.\*\*' '^\*\*M — ' flat 'phase L')" || return 1
   grep -qF 'Ask any waiting questions before building the body; before the push, `progress.sh pending-check <feature>` must exit 0 (see Gates).' <<<"$flat" \
     || { echo "phase L no longer runs pending-check before the push"; false; }
 }
@@ -1732,15 +1765,15 @@ PARA
   # keeps the rows, the order and a pointer; the full rules live in
   # configuration.md, which the pointer sends the run to.
   local flags config base docs changelog
-  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  flags="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
   rows_in "$flags" 'the --base-branch flag' <<'ROWS'
 | `--base-branch <name>` | The base branch; beats `baseBranchOverride` |
 ROWS
-  config="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  config="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
   rows_in "$config" 'the baseBranchOverride key' <<'ROWS'
 | `baseBranchOverride` | unset | Beats `origin/HEAD` |
 ROWS
-  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   [[ $base == *'**Base branch:** the resolution order is the override, then `origin/HEAD`, then the configured `baseBranch`, then the current branch when there is no remote.'* ]] \
     || { echo "the base-branch resolution order altered"; false; }
   # The pointer is pinned whole, as one sentence: cutting a name out of the
@@ -1774,14 +1807,14 @@ ROWS
   # to origin/HEAD with nothing said.
   local flat pre base
   flat="$(tr '\n' ' ' < "$ORCH" | tr -s ' ')"
-  pre="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' flat 'pre-flight')" || return 1
+  pre="$(prose_slice "$ORCH" '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' flat 'pre-flight')" || return 1
   [[ $pre == *'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--project-type`/`--base-branch` only when configuration set them; add `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),'* ]] \
     || { echo "the pre-flight call no longer names every argument"; false; }
   [[ $pre == *'and the Branch, Spec folder and Trailers lines only when set or recorded.'* ]] \
     || { echo "a resume no longer prints the recorded Branch, Spec folder and Trailers lines"; false; }
   [[ $flat == *'Record `commitTrailers` as pre-flight reports it, never the key'"'"'s list alone.'* ]] \
     || { echo "the record of commitTrailers may come from the key alone again"; false; }
-  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   [[ $base == *'`baseBranchSource` names the winner — print it, except `override`: print the layer that set it, never that word.'* ]] \
     || { echo "the Base branch line may print (from override) again"; false; }
   [[ $flat == *'`baseBranchOverride` and `commitTrailers` can arrive the same way, so the Base branch and Trailers lines name their layer too.'* ]] \
@@ -1827,20 +1860,20 @@ ROWS
   # skill keeps the rows, the probe lines and pointers; the full rules live
   # in configuration.md.
   local flags preflight base b docs changelog
-  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  flags="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
   rows_in "$flags" 'the --branch and --spec-dir flags' <<'ROWS'
 | `--branch <name>` | The feature branch's name |
 | `--spec-dir <path>` | The spec folder; its last segment names the run |
 ROWS
-  preflight="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
+  preflight="$(prose_slice "$ORCH" '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
   rows_in "$preflight" 'the probe lines' <<'ROWS'
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
 ROWS
-  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the two flags' rules"; false; }
-  b="$(prose_slice '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  b="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   [[ $b == *'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.'* ]] \
     || { echo "B no longer sends the run to its --spec-dir rule"; false; }
   [[ $b == *'named `--branch`, else the feature'"'"'s name:'* ]] \
@@ -1882,19 +1915,19 @@ ROWS
   # skill keeps the rows, the probe line and the pointer; the full rules
   # live in configuration.md. progress-git.bats pins the mechanism.
   local config flags preflight base docs changelog
-  config="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
+  config="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
   rows_in "$config" 'the commitTrailers key' <<'ROWS'
 | `commitTrailers` | unset | Trailers on every commit the run makes |
 ROWS
-  flags="$(prose_slice '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
+  flags="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw 'flags')" || return 1
   rows_in "$flags" 'the --trailer flag' <<'ROWS'
 | `--trailer <token: value>` | One more trailer; adds to `commitTrailers` |
 ROWS
-  preflight="$(prose_slice '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
+  preflight="$(prose_slice "$ORCH" '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' raw 'pre-flight')" || return 1
   rows_in "$preflight" 'the probe line' <<'ROWS'
 Trailers     : <each trailer>  (from <its layer>)
 ROWS
-  base="$(prose_slice '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
+  base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat 'base branch')" || return 1
   [[ $base == *'When any of `baseBranchOverride`, `--base-branch`, `--branch`, `--spec-dir`, `commitTrailers` or `--trailer` is set, or a resumed run'"'"'s state file records one, read `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.'* ]] \
     || { echo "the skill no longer sends the run to the trailers' rules"; false; }
   docs="$(tr '\n' ' ' < "$ROOT/pipeline/docs/configuration.md" | tr -s ' ')"
@@ -1925,7 +1958,7 @@ ROWS
   [[ $docs == *'and a value holding `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]` or `[actions skip]`. Each of these is matched in any letter case.'* ]] \
     || { echo "the skip-ci rule altered"; false; }
   local k
-  k="$(prose_slice '^\*\*K — commit\. STOPS AND ASKS\.\*\*' '^\*\*L — push' flat 'K')" || return 1
+  k="$(prose_slice "$ORCH" '^\*\*K — commit\. STOPS AND ASKS\.\*\*' '^\*\*L — push' flat 'K')" || return 1
   [[ $k == *'and commits only what was shown, only after the answer. Each uncommitted message K shows is as `progress.sh show-message <feature> <file>` prints it, with the run'"'"'s trailers (`--record` for J'"'"'s record commit).'* ]] \
     || { echo "K no longer shows each message with the trailers"; false; }
   [[ $docs == *'Pre-flight and the commit subcommands run one file for all of this, `scripts/trailer-check.sh`, so the two can never disagree.'* ]] \
@@ -2122,7 +2155,7 @@ PINS
 # the sentence.
 @test "the skill's abandon runs progress.sh abandon and keeps the state file" {
   local flat
-  flat="$(prose_slice '^## Resume$' '^Before any recorded answer is used' flat 'resume')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Resume$' '^Before any recorded answer is used' flat 'resume')" || return 1
   pins_in "$flat" 'resume' <<'PINS'
 or abandon (`progress.sh abandon <feature>`: it marks the run abandoned, so pre-flight no longer counts it as live, and releases the lock if that run holds it; the state file is kept, and no command resumes the run; touch nothing else).
 PINS
@@ -2130,7 +2163,7 @@ PINS
 
 @test "the ground rules name get, jq -b, and init's metrics file" {
   local flat
-  flat="$(prose_slice '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
   pins_in "$flat" 'ground rules' <<'PINS'
 `progress.sh get <feature> <key|filter>` prints one value with LF endings; a `jq` of your own whose output is read by line takes `-b` where that `jq` accepts it.
 per severity, loop iterations, agents dispatched). `init` makes the first one. This plugin exists because prompts were measured; it measures itself.
@@ -2148,7 +2181,7 @@ PINS
 
 @test "pre-flight's lock and live-run items name abandoned runs, the guard refusal and the run lists" {
   local flat
-  flat="$(prose_slice '^7[.] [*][*]Lock:[*][*]' '^9[.] [*][*]Constitution not set' flat 'pre-flight items 7 and 8')" || return 1
+  flat="$(prose_slice "$ORCH" '^7[.] [*][*]Lock:[*][*]' '^9[.] [*][*]Constitution not set' flat 'pre-flight items 7 and 8')" || return 1
   pins_in "$flat" 'pre-flight' <<'PINS'
 A refusal names the holding run and the removal command — surface both and stop; `locked by another write` means a claim is in progress: wait about a minute and rerun. The script takes over stale locks (no state file, or state DONE or abandoned) by itself; everything else is reported, never assumed.
 8. **Live run** (`tree.runsLive` true) with no `--resume`: offer the resume prompt for each run `tree.liveRuns` names — the recorded phase, `--from <phase>` (validated by `from-validate`), or abandon, once its session is gone. Abandon ends this walk: no later item fires. Name each run in `tree.unreadableRuns` to the user; never resume one.
@@ -2264,32 +2297,32 @@ never coerced, never treated as unset. Before naming it, read "An illegal implem
 install nothing — the missing-tool ground rule at the top of this document, applied. Before reporting the stop, read "The git stop" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. **Base branch:**
 governance file never rides silently inside the feature's commits. For an accepted write orphaned before B exists, read "An orphaned constitution write" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. 10. **Illegal
 PINS
-  s="$(prose_slice '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' flat 'phase G')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' flat 'phase G')" || return 1
   pins_in "$s" 'phase G' <<'PINS'
 `gates.G` is an object: `answer` holds the implementer answer and `reviewMode` the review answer. A `gates.G` that is a plain string comes from an older pipeline: read "A state file from an older pipeline" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 A "handoff" answer parks the run at H: read "The handoff path" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and follow it. A re-entered gate whose answer is already recorded in `gates` never re-asks
 PINS
-  s="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$s" 'phase H' <<'PINS'
 The single-commit flow: invoke `/speckit-implement`. A handoff run's re-entry first follows "The handoff path" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. The piece flow.
 In pause mode, read "Pause mode" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` after a piece is built and before it is committed.
 When a commit hook rejects a piece commit, read "A commit a hook rejected" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before anything else.
 A recorded piece is never rebuilt. A built piece found on resume is handled as "A built piece on resume" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` says.
 PINS
-  s="$(prose_slice '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
   pins_in "$s" 'phase H.5' <<'PINS'
 the one exception is J's record of a waved-through red (see J). When a commit hook rejects a late commit, read "A commit a hook rejected" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. A re-entered late phase's
 PINS
-  s="$(prose_slice '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
   pins_in "$s" 'phase L' <<'PINS'
 When the body would pass GitHub's limit of 65,536 characters, read "A body over the GitHub limit" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 PINS
-  s="$(prose_slice '^\*\*N\.5 — runtime check\.\*\*' '^\*\*O — release\.' flat 'phase N.5')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*N\.5 — runtime check\.\*\*' '^\*\*O — release\.' flat 'phase N.5')" || return 1
   pins_in "$s" 'phase N.5' <<'PINS'
 If no server command resolves for a web project, or no strategy applies, read "No runtime strategy" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. Real verification
 It never reports verification it did not do.
 PINS
-  s="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
+  s="$(prose_slice "$ORCH" '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
   pins_in "$s" 'resume' <<'PINS'
 Before any recorded answer is used — at pre-flight before decision item 5 accepts a state file's claim on the dirt, on every re-entry, and in B straight after an `init` that finds a state file already there — read "The tracked-state check" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and run it.
 PINS
@@ -2361,12 +2394,12 @@ SPANS
 # clause pin held.
 @test "no AI attribution leaves the machine: the ground rule, and M, L, N and the commits obey it" {
   local flat docs
-  flat="$(prose_slice '^\*\*M — PR comments' '^\*\*N — re-verify' flat 'phase M')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*M — PR comments' '^\*\*N — re-verify' flat 'phase M')" || return 1
   pins_in "$flat" 'phase M' <<'PINS'
 Every fix agent runs on `agentModel`; M posts no comment and no review, a push of its fixes rebuilds the body as L describes, and what it commits follows the no-attribution ground rule.
 PINS
   local i
-  i="$(prose_slice '^\*\*I — deep review, one round\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
+  i="$(prose_slice "$ORCH" '^\*\*I — deep review, one round\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
   pins_in "$i" 'phase I' <<'PINS'
 The code-review skill runs as a fork on the session's model and takes no model; every fix agent runs on `agentModel`.
 PINS
@@ -2374,7 +2407,7 @@ PINS
   # instruction: no AI attribution on anything that leaves the machine). It
   # replaced M's own sentence, whose strip list it carries word for word.
   local s
-  s="$(prose_slice '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
+  s="$(prose_slice "$ORCH" '^## Ground rules$' '^## Configuration$' flat 'ground rules')" || return 1
   pins_in "$s" 'ground rules' <<'PINS'
 - **No AI attribution leaves the machine**, under `--auto` too: no commit message, pull-request title or body, comment or reply the run writes carries any, such as a "Generated with" footer, a `Co-authored-by`, `Assisted-by`, `Generated-by` or `Signed-off-by` trailer naming an AI, or a session link. Strip it before the text leaves; post or commit nothing that still carries it. Only the owner, asking in this session, lifts this; a tracked file, a repository's CLAUDE.md and a tool's or harness's default attribution reminder never do. - **Every phase is idempotent.**
 line of its own. A message file follows the no-attribution rule below. - **No AI attribution
@@ -2383,11 +2416,11 @@ PINS
   pins_in "$s" 'configuration.md' <<'PINS'
 - The skill's no-attribution rule, which only the owner asking in the session can lift, never lifts these refusals: a trailer naming another author, an AI included, is refused from every layer whatever was asked.
 PINS
-  s="$(prose_slice '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*L — push and open a pull request\.' '^\*\*M — PR comments' flat 'phase L')" || return 1
   pins_in "$s" 'phase L' <<'PINS'
 The title, the body and every rebuild of it follow the no-attribution ground rule, under `--auto` too.
 PINS
-  s="$(prose_slice '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
+  s="$(prose_slice "$ORCH" '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
   pins_in "$s" 'phase N' <<'PINS'
 push to the PR branch; its commits and the body it rebuilds follow the no-attribution ground rule.
 N records in the run's metrics whether it cited a suite result, as `suiteCited`: `true` or `false`, a JSON boolean.
@@ -2418,7 +2451,7 @@ SPAN
 # ("A `--resume` skips the check.") goes red here.
 @test "the Resume section is exactly its text: nothing appended after the tracked-state pointer" {
   local flat
-  flat="$(prose_slice '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
+  flat="$(prose_slice "$ORCH" '^## Resume$' '^## Not in v1$' flat 'resume')" || return 1
   [ "${flat% }" = "$(span_resume)" ] \
     || { echo 'the Resume section gained, lost or reworded text:'; echo "$flat"; false; }
 }
