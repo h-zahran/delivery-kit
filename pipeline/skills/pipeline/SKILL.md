@@ -169,7 +169,7 @@ Spec folder  : <specDir>  (from --spec-dir)
 Trailers     : <each trailer>  (from <its layer>)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
-Available    : <capabilities that are true, plus the handoff, code-review and simplify skills and the browser tools, probed here>
+Available    : <capabilities that are true, plus the handoff and code-review skills and the browser tools, probed here>
 Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```

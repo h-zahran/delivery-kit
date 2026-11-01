@@ -57,7 +57,7 @@ git          : present
 Base branch  : main  (from origin/HEAD)
 Implementer  : claude  (from ~/.delivery-kit.json)
 Remote       : github  (gh present)
-Available    : jq, git, gh, handoff, code-review, simplify, browser tools
+Available    : jq, git, gh, handoff, code-review, browser tools
 Missing      : adb
 Will skip    : N.5 — no adb on PATH — the device strategy cannot run
 ```
@@ -80,9 +80,9 @@ preflight → A  B  C* C.5 D  E  F  F.5 G* H  H.5 H.7 I  J  K* L* M  N  N.5 O* �
 | | Phases | What happens |
 |---|---|---|
 | **Specify & plan** | A – F.5 | The seed becomes a specification, you answer the clarifying questions, then a plan, a task list, an analysis pass, and a recorded test baseline. |
-| **Build** | G – H.7 | You choose who implements and, for a build here, how to review it: commits or pauses. A build here goes one piece (one phase of the task list) at a time, one commit per piece, independent tasks in parallel; then a convergence pass and a simplify pass, each committing what it changed. A handoff run builds in one pass, and K makes its feature commit. |
-| **Review** | I – J | Three independent reviewers — contract compliance, security, tests — then the analyzer and the full suite, classified against the baseline. |
-| **Ship** | K – O | Show what is already committed and what is left, commit the rest, push, open the pull request with its review guide, act on its review, re-verify, prove it actually runs, release. |
+| **Build** | G – H.7 | You choose who implements and, for a build here, how to review it: commits or pauses. A build here goes one piece (one phase of the task list) at a time, one commit per piece, independent tasks in parallel; then a convergence pass, committing what it changed. A handoff run builds in one pass, and K makes its feature commit. |
+| **Review** | I – J | One review round, every lens at once — contract compliance, security, tests, the code-review skill's bug lens and a simplify lens — and one round of fixes; then the analyzer and the full suite, classified against the baseline. |
+| **Ship** | K – O | Show what is already committed and what is left, commit the rest, push, open the pull request with its review guide, act on comments from people with write access, re-verify, prove it actually runs, release. |
 
 `pipeline:status` reads a run's state file and reports where it got to, which
 gate or pause it is waiting on, and the exact next thing to type.
@@ -161,8 +161,8 @@ escaping rules.
 | `spec` | H, before the first piece | The spec directory — specification, plan, task list and the rest — on its own. Absent when you committed the spec yourself. |
 | `piece` | H, once per piece | One phase of the task list: its work, and the task list with that phase's tasks marked done. |
 | `converge` | H.5 | The tasks the convergence pass found missing, appended as a phase of their own, and their work. |
-| `simplify` | H.7 | What the simplify pass changed. |
-| `review` | I | The fixes from the deep review. |
+| `simplify` | H.7 | What the simplify pass changed. Only a run begun before pipeline 1.7.0 makes one: from 1.7.0 the simplify lens's fixes ride in I's `review` commit. |
+| `review` | I | The fixes from the deep review's one round, for every lens. |
 | `tests` | J (or K: its empty record commit, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. In a run without pieces, J's fixes ride in K's commit, and K makes that empty record commit only when nothing is left to commit. |
 | `constitution` | K | A constitution written by an accepted pre-flight offer, always on its own. |
 | `other` | K, M, N | What was left for K, and the fixes from the pull-request review and the re-verify pass. |
@@ -249,10 +249,9 @@ you are happy to branch from.
   explicit `--script sh|ps` or the interactive picker fires. Tested against
   0.15.x through 0.16.x; other versions warn and continue.
 - `jq` 1.6 or later, on every platform. On Windows, check it from Git Bash: see
-  [the Windows notes](../README.md#windows). On Windows, `gh` must be found by
-  that name in Git Bash: the review phase M runs the code-review plugin, which
-  calls plain `gh`, and a `gh.cmd` alone (as Scoop installs it) is not enough
-  there.
+  [the Windows notes](../README.md#windows). On Windows, a `gh.cmd` alone (as
+  Scoop installs it) is enough: every `gh` call the run makes uses the name
+  pre-flight found.
 - `git`, on every platform. Unlike the optional tools below, an absent `git`
   does not degrade a phase — it stops the run at pre-flight, because branching,
   committing and opening a pull request are all git operations and pre-flight's
@@ -261,8 +260,8 @@ you are happy to branch from.
 - Optional, each degrading a *named* phase when absent, announced before any
   work starts: `gh` for the pull-request phases (without it the run pushes,
   prints a comparison link, and skips the review phase M); a browser or an attached
-  device for the runtime check; the code-review and simplify plugins for their
-  phases.
+  device for the runtime check; the code-review skill for the review round's
+  bug lens.
 - `gh` must also be logged in: run `gh auth login` once, and `gh auth status`
   to check. Pre-flight checks only that `gh` is on PATH, not that it is logged
   in, so a logged-out `gh` shows as present and fails at the first phase that
