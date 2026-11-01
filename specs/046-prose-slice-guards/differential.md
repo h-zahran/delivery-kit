@@ -243,3 +243,24 @@ positive control run in a scratch worktree (prose.bats 93 → 95 tests):
 | awk status check removed | yes | prose_slice says awk failed when a pattern is not a valid ERE | RED |
 
 5 mutations, 0 not caught.
+
+## 6. Wall time and full suite after the review fixes (2026-11-02)
+
+The review fixes took `pipeline/tests/prose.bats` from 79 to 95 tests, so SC-006 was measured again: five pairs, alternating, against `f72276c` (68 tests).
+
+| Round | Side | Exit | Seconds | Plan line / ok | Load (1, 5, 15 min) |
+|---|---|---|---|---|---|
+| 1 | old | 0 | 19.654 | `1..68/68` | 4.75 6.39 7.13 |
+| 1 | new | 0 | 22.046 | `1..95/95` | 4.70 6.23 7.06 |
+| 2 | new | 0 | 22.062 | `1..95/95` | 5.35 6.28 7.06 |
+| 2 | old | 0 | 17.707 | `1..68/68` | 6.01 6.37 7.07 |
+| 3 | old | 0 | 17.890 | `1..68/68` | 7.08 6.58 7.12 |
+| 3 | new | 0 | 24.165 | `1..95/95` | 9.16 7.10 7.28 |
+| 4 | new | 0 | 24.417 | `1..95/95` | 10.36 7.54 7.42 |
+| 4 | old | 0 | 19.566 | `1..68/68` | 9.89 7.62 7.45 |
+| 5 | old | 0 | 21.085 | `1..68/68` | 10.62 7.94 7.56 |
+| 5 | new | 0 | 24.078 | `1..95/95` | 9.87 7.99 7.59 |
+
+Median: old 19.566 s, new 24.078 s, growth 23.1%, within the 25% the spec allows but close to it; 27 of the file's tests are new.
+
+Phase J, full suite (`testCommand`, four roots): first run `1..897`, 895 ok. One failure was the baseline's known timeout in `tests/gate.bats` (test 22). The other, `pipeline/tests/preflight.bats` "a constitution saved in an unreadable encoding warns and reads as not set", is a race in `pipeline/scripts/preflight.sh` that this change does not touch: its NUL check runs `head -c 4096 | od -An -tx1 | grep -q ' 00'` under `set -o pipefail`, `grep -q` exits on the first match, and the writer can take SIGPIPE, so the check sometimes reads "no NUL". Measured with that exact pipeline: 0 misses in 300 runs on a quiet machine, 30 in 400 under extra CPU load. Second run: `1..897`, 897 ok.
