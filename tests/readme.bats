@@ -33,13 +33,17 @@ flat() {
   phrase="$(printf '%s\n' "$names" | awk '{ for (i = 1; i <= NF; i++) s = s (i == 1 ? "" : (i == NF ? " and " : ", ")) "`" $i "`"; print s }')"
   win="$(section README.md '## Windows' | tr '\n' ' ' | tr -s ' ')"
   [[ $win == *"looks for $phrase"* ]] || { echo "the root README's Windows section does not say pre-flight looks for $phrase"; false; }
-  # The row's two halves: the run's own calls use the found name, which the
-  # skill states; and the review phase's code-review plugin calls plain gh.
+  # The run's own calls use the found name, which the skill states. Phase M
+  # no longer runs the code-review plugin (which called plain gh): the
+  # code-review skill runs in phase I and calls only git, so the warning that
+  # M calls plain gh must be gone.
   [[ $win == *"the run's own calls use the one it finds"* ]] || { echo "the Windows gh row no longer says the run's own calls use the name found"; false; }
   [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'Every `gh` call this run makes uses the name `remote.ghCommand` reports'* ]] \
     || { echo "the skill no longer says every gh call uses the reported name, which the Windows row relies on"; false; }
-  [[ $win == *'the review phase (M) runs the separate code-review plugin, which calls plain `gh`'* ]] \
-    || { echo "the Windows gh row no longer warns that the review phase calls plain gh"; false; }
+  [[ $win != *'calls plain `gh`'* ]] \
+    || { echo "the Windows gh row still warns that a phase calls plain gh, which no phase does now"; false; }
+  [[ $(flat pipeline/README.md) != *'calls plain `gh`'* ]] \
+    || { echo "pipeline/README.md still says a phase calls plain gh, which no phase does now"; false; }
 }
 
 @test "the Windows jq install command is the one the install guide gives" {
