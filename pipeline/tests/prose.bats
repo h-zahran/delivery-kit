@@ -1339,15 +1339,20 @@ PINS
   pins_in "$flat" 'late hook stop' <<'PINS'
 A commit hook that rejects a late commit is a hard stop, as for a piece: the paths stay uncommitted, `gates` records a failure entry under the phase's letter, `gates.<letter>.failure` with the `paths` and the hook's `output`, redacted as J's carry is, and the run stops per "When a phase fails".
 PINS
-  flat="$(prose_slice '^\*\*H\.7 — simplify\.\*\*' '^\*\*I — deep review\.\*\*' flat 'phase H.7')" || return 1
+  flat="$(prose_slice '^\*\*H\.7 — simplify\.\*\*' '^\*\*I — deep review, one round\.\*\*' flat 'phase H.7')" || return 1
   pins_in "$flat" 'phase H.7' <<'PINS'
 The run's change is every commit in `<base>..HEAD` plus the working tree: one diff from `git merge-base <base> HEAD` to the working tree, plus each untracked file — never the working tree alone, which in the piece flow holds almost nothing.
-H.7 reads the run's change, within `codeRoots`, and ends with its late commit (see H.5).
+H.7 changes no file and makes no commit; a run begun on an older pipeline that already made H.7's late commit keeps it.
 PINS
-  flat="$(prose_slice '^\*\*I — deep review\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
+  flat="$(prose_slice '^\*\*I — deep review, one round\.\*\*' '^\*\*J — analyzer and full suite\.\*\*' flat 'phase I')" || return 1
   pins_in "$flat" 'phase I' <<'PINS'
-Invoke `pipeline:spec-review` with the spec, plan, tasks and the run's change, as H.7 defines it.
-Fixes fan out, and I ends with its late commit (see H.5).
+Every lens runs at once, in one message, and every lens is read-only until all have reported
+`pipeline:spec-review` with the spec, plan, tasks and the run's change, as H.7 defines it
+the built-in `code-review` skill at level `high` over the same change, as lens `bugs`
+one agent as lens `simplify`, briefed with the simplify skill's four kinds — reuse, simplification, efficiency, altitude — within `codeRoots`
+These reviewers are dispatched together whatever `maxParallelAgents` says; the cap binds the fixes.
+no other lens is ever skipped
+Fixes fan out once, for every lens's findings, and I ends with its late commit (see H.5).
 PINS
   flat="$(prose_slice '^\*\*H — implement\.\*\*' '^\*\*H\.5 — converge\.\*\*' flat 'phase H')" || return 1
   pins_in "$flat" 'phase H' <<'PINS'
@@ -1411,7 +1416,7 @@ PINS
 ROWS
   raw="$(prose_slice '^## Configuration$' '^## Flags$' raw 'configuration')" || return 1
   rows_in "$raw" 'configuration' <<'ROWS'
-| `codeRoots` | from project type | Where implementation lives: H.7's scope, where a late commit may add a new file, and the boundary K stops at under `--auto` |
+| `codeRoots` | from project type | Where implementation lives: the scope of I's `simplify` lens, where a late commit may add a new file, and the boundary K stops at under `--auto` |
 ROWS
 }
 
