@@ -2,6 +2,40 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Highlights
+
+- A run is shorter: every review lens runs in one round at phase I, before
+  the push, and the fixes are made once. No lens is dropped.
+- Phase M reviews nothing again. It reads the pull request's comments from
+  people with write access, and its check results, and fixes those.
+
+### Changed
+
+- **Phase I is one review round.** The three `pipeline:spec-review` lenses
+  (contract, security, tests), the built-in `code-review` skill at level
+  `high` as lens `bugs`, and a `simplify` lens all run at once, in one
+  message, and only read until every lens has reported. They are not held
+  back by `maxParallelAgents`; the fixes still are. Each finding becomes one
+  `SEVERITY | lens | file:line | finding` line, and the fixes fan out once.
+  The `bugs` lens names each untracked file by path: the skill does not
+  count an untracked file as part of the change.
+- **Phase H.7 runs no separate pass.** The simplify work is the `simplify`
+  lens in I. H.7 says so, changes no file and makes no commit. A run begun
+  on an older pipeline keeps a commit its H.7 already made.
+- **Phase M reads, and posts nothing.** A round reads the pull request's
+  comments, review comments and check results once. It never waits for a
+  pending check. Only a comment whose author has `admin`, `maintain` or
+  `write` permission is acted on; any other, a bot's included, is reported
+  and left alone, so a stranger's comment cannot steer the run. Each comment
+  acted on is recorded by id in `gates.M` and is never acted on twice.
+  `maxReviewRounds` still caps the loop.
+- **Phase N records `suiteCited`.** A JSON boolean in the run's metrics says
+  whether N cited a green suite result or ran the suite, so the time saved
+  can be measured.
+- On Windows, a `gh.cmd` alone is now enough: no phase calls plain `gh`.
+
 ## [1.6.2] - 2026-10-13
 
 ### Highlights
