@@ -47,10 +47,10 @@
 
 **Independent Test**: each new test passes; deleting its guard in a scratch worktree turns it red (T019).
 
-- [ ] T010 [US2] In `pipeline/tests/prose.bats`, add a fixture function (in the helpers region, below `prose_slice`) that writes a small document into `$BATS_TEST_TMPDIR` with known `## Open`, body, `## Close` lines and returns its path; then add tests, each using `run --separate-stderr prose_slice …` and asserting `[ "$status" -eq 1 ]` plus the guard's own message words on `$stderr`: (a) arity — 4 arguments; (b) form — `falt`; (c) unreadable — a missing path, message names the path; (d) unreadable — a directory, message names the path.
-- [ ] T011 [US2] In `pipeline/tests/prose.bats`, add tests, same shape: (e) empty — an opener matching nothing; (f) duplicate opener — a fixture with the opener twice; (g) unterminated — a closer matching nothing, message says UNTERMINATED; (h) undeclared inner heading — a fixture with `**Note.**` inside, message prints that line.
-- [ ] T012 [US2] In `pipeline/tests/prose.bats`, add a test that a declared inner line is admitted (status 0, slice printed) and that, with the same declaration, a second undeclared heading-shaped line in the slice still fails with status 1 and is named; add a test that `prose_flat` turns `"a\r\nb  c\n"` into exactly `a b c ` (bytes compared).
-- [ ] T013 [US2] Run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats`: green, plan line = ok count = 68 + the tests added.
+- [X] T010 [US2] In `pipeline/tests/prose.bats`, add a fixture function (in the helpers region, below `prose_slice`) that writes a small document into `$BATS_TEST_TMPDIR` with known `## Open`, body, `## Close` lines and returns its path; then add tests, each using `run --separate-stderr prose_slice …` and asserting `[ "$status" -eq 1 ]` plus the guard's own message words on `$stderr`: (a) arity — 4 arguments; (b) form — `falt`; (c) unreadable — a missing path, message names the path; (d) unreadable — a directory, message names the path.
+- [X] T011 [US2] In `pipeline/tests/prose.bats`, add tests, same shape: (e) empty — an opener matching nothing; (f) duplicate opener — a fixture with the opener twice; (g) unterminated — a closer matching nothing, message says UNTERMINATED; (h) undeclared inner heading — a fixture with `**Note.**` inside, message prints that line.
+- [X] T012 [US2] In `pipeline/tests/prose.bats`, add a test that a declared inner line is admitted (status 0, slice printed) and that, with the same declaration, a second undeclared heading-shaped line in the slice still fails with status 1 and is named; add a test that `prose_flat` turns `"a\r\nb  c\n"` into exactly `a b c ` (bytes compared).
+- [X] T013 [US2] Run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats`: green, plan line = ok count = 68 + the tests added.
 
 **Checkpoint**: US2 complete.
 
