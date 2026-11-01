@@ -22,7 +22,9 @@ All notable changes to the `pipeline` plugin.
   The `bugs` lens is told in words that each untracked file is part of the
   change: a bare path would narrow the skill's target to that one file. It
   runs as a fork on the session's model, and never with `--fix` or
-  `--comment`.
+  `--comment`. When the fixes changed a file, the code-review skill reads
+  only what they changed, once more, from a mark `git stash create` takes
+  before them; its findings are fixed or deferred, and J checks those fixes.
 - **Phase H.7 runs no separate pass.** The simplify work is the `simplify`
   lens in I. H.7 says so, changes no file and makes no commit. A run begun
   on an older pipeline keeps a commit its H.7 already made.
