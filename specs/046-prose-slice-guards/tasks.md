@@ -74,10 +74,10 @@
 
 **Purpose**: the measurements the constitution requires (FR-004, FR-009, SC-002, SC-006). Writes only `specs/046-prose-slice-guards/differential.md`; every mutation runs in a scratch git worktree, never the main checkout.
 
-- [ ] T017 Write the byte-identity differential (research R6) into `specs/046-prose-slice-guards/differential.md`: for every converted site, evaluate the old haystack expression (from `f72276c`) and the new one against the current documents, `cmp` them, and record site, byte count and result, with the date and both commits. Every row must say identical.
-- [ ] T018 Run the boundary-rename sweep (research R7) in a scratch worktree: derive each distinct boundary from the `prose_slice` calls in `pipeline/tests/prose.bats`, rewrite that line in its document, echo the mutated line, run prose.bats, record red/green, restore, confirm the restore; append the table to `specs/046-prose-slice-guards/differential.md`. Every boundary must go red.
-- [ ] T019 Run the positive controls (FR-009) in a scratch worktree: for each tested guard in `prose_slice`, remove its condition, echo the change, run prose.bats, confirm that guard's test goes red; add one inline flatten and one bare range and confirm the refusing test goes red naming each line; append the table to `specs/046-prose-slice-guards/differential.md`.
-- [ ] T020 Measure SC-006: run prose.bats three times at `f72276c` and three times on this branch, alternating, on this machine; append the wall times and the growth to `specs/046-prose-slice-guards/differential.md`. Growth must be ≤ 25%.
+- [X] T017 Write the byte-identity differential (research R6) into `specs/046-prose-slice-guards/differential.md`: for every converted site, evaluate the old haystack expression (from `f72276c`) and the new one against the current documents, `cmp` them, and record site, byte count and result, with the date and both commits. Every row must say identical.
+- [X] T018 Run the boundary-rename sweep (research R7) in a scratch worktree: derive each distinct boundary from the `prose_slice` calls in `pipeline/tests/prose.bats`, rewrite that line in its document, echo the mutated line, run prose.bats, record red/green, restore, confirm the restore; append the table to `specs/046-prose-slice-guards/differential.md`. Every boundary must go red.
+- [X] T019 Run the positive controls (FR-009) in a scratch worktree: for each tested guard in `prose_slice`, remove its condition, echo the change, run prose.bats, confirm that guard's test goes red; add one inline flatten and one bare range and confirm the refusing test goes red naming each line; append the table to `specs/046-prose-slice-guards/differential.md`.
+- [X] T020 Measure SC-006: run prose.bats three times at `f72276c` and three times on this branch, alternating, on this machine; append the wall times and the growth to `specs/046-prose-slice-guards/differential.md`. Growth must be ≤ 25%.
 
 ---
 
