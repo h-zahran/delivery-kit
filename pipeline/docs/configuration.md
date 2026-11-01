@@ -76,7 +76,7 @@ before it spends it.
 | `planFile` | Where `Phase <N>: <title>` seeds are read from. Claude reads the file and quotes the matching section; no script parses it. [How you start it](../README.md#how-you-start-it) gives the heading shape that keeps the section unambiguous. |
 | `testCommand` | The full test suite; phases F.5, J and N run it. |
 | `analyzeCommand` | Static analysis; phases J and N run it. |
-| `codeRoots` | Where implementation lives: the simplify phase's scope, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
+| `codeRoots` | Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
 | `projectType` | Overrides detection; the detector's source is reported either way. |

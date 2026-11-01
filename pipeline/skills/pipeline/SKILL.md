@@ -96,7 +96,7 @@ the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 | `planFile` | `main-plan.md` | Where `Phase <N>: <title>` seeds are read from |
 | `testCommand` | from project type | The full test suite |
 | `analyzeCommand` | from project type | Static analysis |
-| `codeRoots` | from project type | Where implementation lives: H.7's scope, where a late commit may add a new file, and the boundary K stops at under `--auto` |
+| `codeRoots` | from project type | Where implementation lives: the scope of I's `simplify` lens, where a late commit may add a new file, and the boundary K stops at under `--auto` |
 | `baseBranch` | worked out | See "Base branch" under Pre-flight |
 | `baseBranchOverride` | unset | Beats `origin/HEAD` |
 | `projectType` | detected | `web`, `mobile-android`, `other` |
@@ -598,18 +598,35 @@ it, so H's crash scan
 finds it too, and H records a commit carrying `Late: H.5` as kind
 `converge`.
 
-**H.7 — simplify.** Invoke the `simplify` skill scoped to `codeRoots`.
-Skip, and say so, when the skill is absent or `codeRoots` resolves
-empty. The run's change is every commit in `<base>..HEAD` plus the
-working tree: one diff from `git merge-base <base> HEAD` to the working
-tree, plus each untracked file — never the working tree alone, which in
-the piece flow holds almost nothing. H.7 reads the run's change, within
-`codeRoots`, and ends with its late commit (see H.5).
+**H.7 — simplify.** No separate pass: the simplify work is the
+`simplify` lens of I's round, so the `simplify` skill is not invoked
+here. Say so, and move on. The run's change is every commit in
+`<base>..HEAD` plus the working tree: one diff from `git merge-base
+<base> HEAD` to the working tree, plus each untracked file — never the
+working tree alone, which in the piece flow holds almost nothing. H.7
+changes no file and makes no commit; a run begun on an older pipeline
+that already made H.7's late commit keeps it.
 
-**I — deep review.** Invoke `pipeline:spec-review` with the spec, plan,
-tasks and the run's change, as H.7 defines it. Three reviewers in one
-message — contract compliance, security, tests — per that skill's
-contract. Fixes fan out, and I ends with its late commit (see H.5).
+**I — deep review, one round.** Every lens runs at once, in one message,
+and every lens is read-only until all have reported. Three of them are
+`pipeline:spec-review` with the spec, plan, tasks and the run's change,
+as H.7 defines it. Three reviewers in one message — contract
+compliance, security, tests — per that skill's contract. Beside them
+run the built-in `code-review` skill at level `high` over the same change, as lens
+`bugs`, its target naming the branch range and each untracked file by
+path; and one agent as lens `simplify`, briefed with the simplify
+skill's four kinds — reuse, simplification, efficiency, altitude —
+within `codeRoots`. These reviewers are dispatched together whatever
+`maxParallelAgents` says; the cap binds the fixes. Skip, and say so,
+the `bugs` lens when the code-review skill is absent, and the `simplify`
+lens when `codeRoots` resolves empty; no other lens is ever skipped.
+Every finding becomes one `SEVERITY | lens | file:line | finding` line:
+a `bugs` finding is CRITICAL for a crash, data loss or a security hole,
+HIGH for any other bug, MEDIUM for the rest; a `simplify` finding is
+MEDIUM or LOW. The code-review skill's agents and every fix agent run
+on `agentModel`, never on the models the skill names. Fixes fan out
+once, for every lens's findings, and I ends with its late commit (see
+H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
 `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against
@@ -911,8 +928,10 @@ Fan out wherever the work is independent, capped by
 `maxParallelAgents`. Units: F — one agent per finding, grouped by target
 artefact; H — independent tasks within one piece; fan-out never crosses
 a piece boundary; H.5 — independent gap
-tasks; I — the three reviewers in one message; J — independent test
-failures; M — independent review findings. Two agents never edit the
+tasks; I — the three reviewers in one message, with the `bugs` and
+`simplify` lenses beside them, uncapped because they only read; its
+fixes are capped; J — independent test failures; M — independent
+comment fixes. Two agents never edit the
 same file in the same batch; conflicting work is serialised. Agents run
 on `agentModel`.
 

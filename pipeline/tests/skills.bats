@@ -216,7 +216,7 @@ TEXT
   # phrase that no longer exists.
   pins_in "$(flat "$ORCH")" 'the orchestrator' <<'PINS'
 Three reviewers in one message — contract compliance, security, tests — per that skill's contract.
-I — the three reviewers in one message;
+I — the three reviewers in one message, with the `bugs` and `simplify` lenses beside them, uncapped because they only read; its fixes are capped;
 PINS
 }
 
