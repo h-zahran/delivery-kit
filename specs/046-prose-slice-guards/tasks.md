@@ -62,9 +62,9 @@
 
 **Independent Test**: `grep -n "tr '\\\\n' ' '" pipeline/tests/prose.bats` shows only `prose_flat`'s body; adding one inline copy or bare range to a scratch copy turns the refusing test red naming the line.
 
-- [ ] T014 [US3] In `pipeline/tests/prose.bats`, replace every remaining inline flatten with `prose_flat`, keeping each site's input mode (`< "$file"`, `<<<"$var"`, or a pipe after the site's own `sed 's/^> //'` or awk step) and any post-step (`sed 's/ $//'`), and dropping a now-redundant `tr -d '\r'` before it; include the split-line site whose `'\n'` is a literal newline. Do it with a script that counts sites before and after and refuses to write on a mismatch; echo both counts.
-- [ ] T015 [US3] In `pipeline/tests/prose.bats`, add the refusing test per contracts/prose-helpers.md: walk this file with awk, skip only the bodies of `prose_slice()` and `prose_flat()` (from the `name() {` line to the next line that is exactly `}`), fail naming each line holding a bare range with a named closer or an inline flatten (one-line or the split shape); print the number of lines walked; fail when it is zero or when either helper body was not found. Build its needles from parts so its own source does not match them.
-- [ ] T016 [US3] Run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats`: green, plan line = ok count.
+- [X] T014 [US3] In `pipeline/tests/prose.bats`, replace every remaining inline flatten with `prose_flat`, keeping each site's input mode (`< "$file"`, `<<<"$var"`, or a pipe after the site's own `sed 's/^> //'` or awk step) and any post-step (`sed 's/ $//'`), and dropping a now-redundant `tr -d '\r'` before it; include the split-line site whose `'\n'` is a literal newline. Do it with a script that counts sites before and after and refuses to write on a mismatch; echo both counts.
+- [X] T015 [US3] In `pipeline/tests/prose.bats`, add the refusing test per contracts/prose-helpers.md: walk this file with awk, skip only the bodies of `prose_slice()` and `prose_flat()` (from the `name() {` line to the next line that is exactly `}`), fail naming each line holding a bare range with a named closer or an inline flatten (one-line or the split shape); print the number of lines walked; fail when it is zero or when either helper body was not found. Build its needles from parts so its own source does not match them.
+- [X] T016 [US3] Run `bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats`: green, plan line = ok count.
 
 **Checkpoint**: all stories complete.
 
