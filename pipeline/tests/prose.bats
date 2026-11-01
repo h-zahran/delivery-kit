@@ -12,9 +12,15 @@ load ../../tests/helper
 setup() {
   ORCH="$ROOT/pipeline/skills/pipeline/SKILL.md"
   CMD="$ROOT/pipeline/commands/pipeline.md"
-  # The one bold-led line the pre-flight walk legitimately holds; every walk
-  # slice declares it to prose_slice, which admits only this exact line.
-  PF_BOLD='**Read item 11 before item 1.** It is the one decision that fires out of'
+}
+
+# pf_walk <raw|flat> — the pre-flight decision walk, sliced through prose_slice.
+# Held once, because five tests take it: the two boundaries, the name and the
+# one bold-led line the walk legitimately holds, declared so prose_slice admits
+# that exact line and nothing else.
+pf_walk() {
+  prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' "${1-}" 'pre-flight walk' \
+    '**Read item 11 before item 1.** It is the one decision that fires out of'
 }
 
 @test "the front door disables model invocation" {
@@ -91,7 +97,7 @@ ROWS
 }
 
 @test "the handoff package names its seven parts" {
-  g="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' raw 'phase G to H')" || return 1
+  flat="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' flat 'phase G to H')" || return 1
   PKG="$ROOT/pipeline/docs/handoff-package.md"
   [ -f "$PKG" ] && [ -r "$PKG" ] || { echo "cannot read $PKG"; false; }
   while IFS= read -r part; do
@@ -111,7 +117,6 @@ PARTS
     || { echo "the package redaction rule altered"; false; }
   grep -qF 'no `git checkout --` on tracked files, no `git stash`. Stash hides work as surely as the others discard it' <<<"$pkg" \
     || { echo "the package stash ban altered"; false; }
-  flat="$(prose_flat <<<"$g")"
   grep -qF 'The package carries seven parts. Read `${CLAUDE_PLUGIN_ROOT}/docs/handoff-package.md` before writing it, and write it exactly as that page says: every part present by name, its redaction rule and its destructive-git rule included.' <<<"$flat" \
     || { echo "the SKILL.md pointer to docs/handoff-package.md altered"; false; }
   grep -qF 'forbidden list is DERIVED, not hardcoded: the fixed rules (no commit, no push, no branch operations, no pull request) plus whatever `releaseCommand` and `verifyCommand` name, plus any deploy or migration verb found in the tasks file.' <<<"$flat" \
@@ -139,7 +144,7 @@ PARTS
   # pattern that is not there in about 2% of calls: matched in the shell.
   flat="$(prose_flat < "$ORCH")"
   # The decision walk only — so a rule cannot satisfy the pin from a footnote.
-  walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' flat 'pre-flight walk' "$PF_BOLD")" || return 1
+  walk="$(pf_walk flat)" || return 1
   probe="$(prose_slice "$ORCH" '^Project type : ' '^Will skip ' raw 'probe block')" || return 1
 
   # Item 10, pinned through the operative action. The carve-out alone was
@@ -283,9 +288,8 @@ ABSENT
   # keep a count frozen was the wrong trade. Whole sentences, against the
   # flattened G slice — fragment pins leave the words between them mutable,
   # and round-4 mutants proved every short pin here could be cut.
-  local g flat
-  g="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' raw 'phase G to H')" || return 1
-  flat="$(prose_flat <<<"$g")"
+  local flat
+  flat="$(prose_slice "$ORCH" '^\*\*G — implementer gate\.\*\*' '^\*\*H — implement\.\*\*' flat 'phase G to H')" || return 1
 
   grep -qF '**G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered it: implement with Claude here, or produce a handoff package for a cheaper model.' <<<"$flat" \
     || { echo "the G lead's pre-answer qualifier altered"; false; }
@@ -355,8 +359,20 @@ ABSENT
 # held, or a pipe after a step of the caller's own (`sed 's/^> //'`). The CR
 # strip changes nothing on today's LF documents; it means no caller can forget
 # it, which is how the copies had drifted apart.
+#
+# It refuses ARGUMENTS. `prose_flat "$file"` reads like a call that flattens
+# the file; it would flatten empty stdin instead, hand back nothing, and every
+# pin on it would report its prose missing from a document nobody touched.
+#
+# One tr translates and squeezes: with -s and two sets, POSIX squeezes runs of
+# the characters in the LAST set after translating, so line feeds become
+# spaces and every run of spaces, old or new, becomes one.
 prose_flat() {
-  tr -d '\r' | tr '\n' ' ' | tr -s ' '
+  [ "$#" -eq 0 ] || {
+    printf 'prose_flat: takes no arguments, it reads stdin — got %s argument(s), first: %s. Feed a file with < "$file"\n' "$#" "$1" >&2
+    return 1
+  }
+  tr -d '\r' | tr -s '\n' ' '
 }
 
 # prose_slice <file> <open-ere> <close-ere> <raw|flat> <name> [<declared-line>...]
@@ -366,18 +382,23 @@ prose_flat() {
 # through $( ), so a message on stdout would be captured into the caller's
 # variable and never seen.
 #
-# FIVE guards follow: the file is readable, the slice is non-empty, it opened
-# on its boundary, it closed on its boundary, and it holds no unexpected
-# heading. THREE of them are contract C2 (opened, closed, no heading); the
-# readable-file and non-empty checks come from FR-008 and from this function's
-# own reasoning, not from C2.
+# SEVEN guards follow: the file is readable, the slice is non-empty, its
+# opening boundary matches exactly one line, it opened on its boundary, it
+# closed on its boundary, each declared line sits inside it exactly once, and
+# it holds no unexpected heading. THREE of them are contract C2 (opened,
+# closed, no heading); the readable-file and non-empty checks come from FR-008
+# and from this function's own reasoning, the matches-once guard from feature
+# 046 (its spec, scenario 5), and the declared-line count from feature 046's
+# review — none of those four from C2.
 #
 # The split is spelled out because the first version of this comment cited C2
-# for all five — while the sentence below warns that a surplus guard invites
-# deletion. A maintainer reconciling code against the cited contract would have
-# found two guards the contract does not ask for, having just been told that a
-# miscount is suspicious. (Arity and form are checked further up, before any of
-# this; they are about the CALL, not the slice.)
+# for all of its guards — while the sentence below warns that a surplus guard
+# invites deletion. A maintainer reconciling code against the cited contract
+# would have found guards the contract does not ask for, having just been told
+# that a miscount is suspicious. (Arity and form are checked further up, before
+# any of this; they are about the CALL, not the slice. The awk and grep status
+# checks are about the TOOLS: a tool that failed is not a document that
+# changed, and each says so in its own words.)
 #
 # A <declared-line> is a heading-shaped line the caller KNOWS sits inside its
 # slice — the pre-flight walk holds `**Read item 11 before item 1.** …`. It is
@@ -403,7 +424,7 @@ prose_flat() {
 # than failing every sliced pin at once with a message about missing prose.
 prose_slice() {
   local file="${1-}" open="${2-}" close="${3-}" form="${4-}" name="${5-}"
-  local s first last n inner d
+  local s first last rest inner has_inner d c rc nl=$'\n'
   local -a declared=()
 
   # Arity and form are checked because getting either wrong fails with the
@@ -419,6 +440,15 @@ prose_slice() {
   }
   shift 5
   declared=("$@")
+  # An empty declaration is a caller bug — usually a variable that expanded to
+  # nothing — and an empty line inside the slice, or a slice with no inner
+  # lines at all, would satisfy it in silence.
+  for d in "$@"; do
+    [ -n "$d" ] || {
+      printf 'prose_slice [%s]: a declared line is empty — an unset variable in the call?\n' "$name" >&2
+      return 1
+    }
+  done
   case "$form" in
     raw|flat) ;;
     *) printf 'prose_slice [%s]: form must be raw or flat, got: %s\n' "$name" "$form" >&2
@@ -461,21 +491,32 @@ prose_slice() {
   # the strip was added to prevent, produced by the strip sitting in the wrong
   # place. It is invisible on this machine, where the Cygwin awk and grep both
   # ignore a trailing CR — which is why it survived the first round.
+  #
+  # ONE PASS takes the slice and counts the opener's matches over the whole
+  # file, ending with status 3 when that count is not one. Captured with
+  # `|| rc=$?`, because bats runs under errexit and a bare non-zero would end
+  # the function before any guard could speak.
+  rc=0
   s="$(tr -d '\r' < "$file" | PS_OPEN="$open" PS_CLOSE="$close" \
-       awk '$0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]')"
+       awk '$0 ~ ENVIRON["PS_OPEN"] { o++ }
+            $0 ~ ENVIRON["PS_OPEN"], $0 ~ ENVIRON["PS_CLOSE"]
+            END { exit (o == 1 ? 0 : 3) }')" || rc=$?
 
+  # Any other status is awk itself failing — a pattern it cannot compile —
+  # and must not reach the EMPTY guard, which would blame the document.
+  case "$rc" in
+    0|3) ;;
+    *) printf 'prose_slice [%s]: awk failed with status %s while taking the slice — this is not a prose failure, check the patterns /%s/ and /%s/\n' "$name" "$rc" "$open" "$close" >&2
+       return 1 ;;
+  esac
+
+  # EMPTY before the count: an opener that matches nothing also counts zero,
+  # not one, and this message is the one that names that cause.
   [ -n "$s" ] || {
     printf 'prose_slice [%s]: the slice is EMPTY — the opening boundary matched nothing: %s\n' "$name" "$open" >&2
     return 1
   }
 
-  # NEAR-UNREACHABLE, and labelled rather than left to look load-bearing.
-  # awk's range operator only starts emitting on a line matching PS_OPEN, so
-  # the first line always matches unless awk and grep disagree about the ERE —
-  # which they do not for the `\*`, `\.` and em dashes used here. Contract C2
-  # obligation 1 asks for it, so it stays; but a maintainer reconciling code
-  # against C2 should know its red is not producible, because the comment above
-  # warns that a surplus guard invites deletion.
   # awk's range operator RESTARTS on every later line matching the opener, so a
   # duplicated boundary silently concatenates two disjoint regions into one
   # slice while the pin's name and message claim a single section. A duplicated
@@ -484,36 +525,92 @@ prose_slice() {
   # the probe block's `Project type : ` and `Will skip `, the walk's opening
   # sentence, all of which go through this helper since feature 046 — trips
   # nothing else, so this guard is the only thing that catches it.
-  [ "$(tr -d '\r' < "$file" | grep -cE "$open")" -eq 1 ] || {
+  [ "$rc" -eq 0 ] || {
     printf 'prose_slice [%s]: the opening boundary /%s/ matches more than once, so the slice concatenates disjoint regions
 ' "$name" "$open" >&2
     return 1
   }
 
-  first="$(head -n 1 <<<"$s")"
-  grep -qE "$open" <<<"$first" || {
+  # The first and last lines, and the inner ones, by parameter expansion on the
+  # slice already held: no process per line. `$s` carries no trailing line
+  # feed — $( ) removed it — so the last line is everything after the last one.
+  first=${s%%"$nl"*}
+  last=${s##*"$nl"}
+
+  # NEAR-UNREACHABLE, and labelled rather than left to look load-bearing.
+  # awk's range operator only starts emitting on a line matching PS_OPEN, so
+  # the first line always matches unless awk and grep disagree about the ERE —
+  # which they do not for the `\*`, `\.` and em dashes used here. Contract C2
+  # obligation 1 asks for it, so it stays; but a maintainer reconciling code
+  # against C2 should know its red is not producible, because the comment above
+  # warns that a surplus guard invites deletion.
+  grep -qE -e "$open" <<<"$first" || {
     printf 'prose_slice [%s]: did not open on its boundary. Expected /%s/, got: %s\n' "$name" "$open" "$first" >&2
     return 1
   }
 
-  last="$(tail -n 1 <<<"$s")"
-  grep -qE "$close" <<<"$last" || {
+  grep -qE -e "$close" <<<"$last" || {
     printf 'prose_slice [%s]: UNTERMINATED — the closing boundary /%s/ was not found, so the slice ran to end of file and this pin would have searched the WHOLE DOCUMENT while claiming a section. Last line was: %s\n' "$name" "$close" "$last" >&2
     printf '  If you renamed that heading, this pin needs the new name — nothing is wrong with the prose it guards.\n' >&2
     return 1
   }
 
-  n="$(wc -l <<<"$s")"
-  if [ "$n" -gt 2 ]; then
-    inner="$(sed -n "2,$((n - 1))p" <<<"$s")"
-    # Declared lines leave first, each as a whole fixed-string line (see the
-    # header): `grep -vxF -e <line>` drops only a line identical to it.
-    if [ "${#declared[@]}" -gt 0 ]; then
-      for d in "${declared[@]}"; do
-        inner="$(grep -vxF -e "$d" <<<"$inner" || true)"
-      done
-    fi
-    inner="$(grep -E '^\*\*|^#{1,6} ' <<<"$inner" || true)"
+  # Inner lines exist only when the slice holds two line feeds or more.
+  has_inner=0
+  inner=
+  case "$s" in
+    *"$nl"*"$nl"*) rest=${s#*"$nl"}; inner=${rest%"$nl"*}; has_inner=1 ;;
+  esac
+
+  # The greps below run under LC_ALL=C, so no byte in a slice can make grep
+  # call it binary and print "Binary file matches" in place of the lines, and
+  # their status is read: 0 and 1 are answers, anything else is grep failing,
+  # which must not pass for "nothing left".
+  #
+  # Each declared line must sit among the inner lines EXACTLY ONCE before it
+  # leaves (see the header). None means the declaration went stale — the line
+  # was rewrapped or moved, and the caller is now declaring nothing. Two means
+  # a copy of it was added, and dropping every copy would admit the addition.
+  # Compared byte for byte, letter case included. A slice with no inner lines
+  # holds none of them, so a declaration on it is stale too.
+  if [ "${#declared[@]}" -gt 0 ]; then
+    for d in "${declared[@]}"; do
+      rc=0
+      c="$(LC_ALL=C grep -cxF -e "$d" <<<"$inner")" || rc=$?
+      case "$rc" in
+        0|1) ;;
+        *) printf 'prose_slice [%s]: grep failed with status %s counting a declared line — this is not a prose failure\n' "$name" "$rc" >&2
+           return 1 ;;
+      esac
+      [ "$c" = 1 ] || {
+        printf 'prose_slice [%s]: a declared line is found %s time(s) inside the slice, expected exactly once (0: the declaration is stale; more: the line was duplicated): %s\n' "$name" "$c" "$d" >&2
+        return 1
+      }
+      rc=0
+      inner="$(LC_ALL=C grep -vxF -e "$d" <<<"$inner")" || rc=$?
+      case "$rc" in
+        0|1) ;;
+        *) printf 'prose_slice [%s]: grep failed with status %s dropping a declared line — this is not a prose failure\n' "$name" "$rc" >&2
+           return 1 ;;
+      esac
+    done
+  fi
+
+  if [ "$has_inner" = 1 ]; then
+    # Heading-shaped: a line starting with bold (`**` or `__`) or with one to
+    # six `#` and a space, at column 0. NOT indented headings and not a bare
+    # `#`: a review round widened it to both and the next pass measured the
+    # cost — an indented `# comment` inside a fenced shell block, which these
+    # sections hold, then failed as a restructure. Setext headings (a line
+    # underlined with `===` or `---`) are not matched either: an underline is
+    # indistinguishable from a horizontal rule to a grep.
+    rc=0
+    inner="$(LC_ALL=C grep -E -e '^(\*\*|__|#{1,6} )' <<<"$inner")" || rc=$?
+    case "$rc" in
+      0|1) ;;
+      *) printf 'prose_slice [%s]: grep failed with status %s looking for heading-shaped lines — this is not a prose failure\n' "$name" "$rc" >&2
+         return 1 ;;
+    esac
     [ -z "$inner" ] || {
       printf 'prose_slice [%s]: unexpected heading-shaped line inside the slice — the document was restructured underneath it:\n%s\n' "$name" "$inner" >&2
       # ACCEPTED COST, named so nobody rediscovers it as a bug: this fires on
@@ -543,6 +640,78 @@ prose_slice() {
   fi
 }
 
+# prose_refuse_walk <file> — the refusing test's walk, held here so fixtures
+# can exercise it. Walks <file>, skipping the bodies of the helpers it names,
+# and fails naming each line that slices with a bare range or flattens inline.
+# Its own body is skipped too: it holds the shapes it looks for, as patterns.
+# The shapes are described in words here, never spelled, because this comment
+# is walked.
+#
+# The expected body count is DERIVED from the helper list below, not written
+# as a number: the list is three names now, because this walk joined the two
+# helpers it guards, and a count typed beside the list would be the next thing
+# to go stale when a helper is added. Each name must be found exactly once — a
+# duplicated helper and a missing one would otherwise balance to the right total.
+#
+# A body ends only at a `}` in column 0. One that never closes would skip the
+# rest of the file in silence, so while skipping, a line starting a test or a
+# column-0 function definition is reported as a body that never closed, and so
+# is end of file. It also fails when it walked zero lines.
+prose_refuse_walk() {
+  local q="'" dq='"' bs='\' sl='/' t w nw
+  [ "$#" -eq 1 ] && [ -f "${1-}" ] && [ -r "${1-}" ] || {
+    printf 'prose_refuse_walk: needs one readable file, got %s argument(s): %s\n' "$#" "${1-}" >&2
+    return 1
+  }
+  t="$(printf '\t')"
+  w="[ $t]"
+  # A word boundary before tr and paste, as a class: the line is tested with
+  # a space in front, so no awk has to agree on an anchor inside a group.
+  nw='[^A-Za-z0-9_]'
+  # Bare range: a slash-delimited pattern, a comma, then a second one, a line
+  # continuation or the end of the line (awk allows a newline after the
+  # comma) — in any quote style, after any awk options, sed -n included; and
+  # the expression form `$0 ~ …, $0 ~ …` that prose_slice itself uses.
+  # Flatten: tr with any options whose first set holds \n or \012 (alone or
+  # with other characters, either quote style) and whose second set is
+  # spaces; tr ending a line on an open quote (the split shape); paste -s.
+  # These are the spellings known when it was written, not every possible
+  # one: a new spelling that slips past belongs in the shape tests below.
+  PW_HELPERS='prose_slice prose_flat prose_refuse_walk' \
+  PW_RANGE="${sl}[^${sl}]+${sl}${w}*,${w}*(${sl}[^${sl}]*${sl}|${bs}${bs}\$|\$)" \
+  PW_RANGE_EXPR="${bs}\$0${w}*~[^,]*,${w}*${bs}\$0${w}*~" \
+  PW_FLAT="${nw}tr(${w}+-[A-Za-z]+)*${w}+[${q}${dq}][^${q}${dq}]*${bs}${bs}(n|012)[^${q}${dq}]*[${q}${dq}]${w}+[${q}${dq}] +[${q}${dq}]" \
+  PW_SPLIT="${nw}tr(${w}+-[A-Za-z]+)*${w}+[${q}${dq}]\$" \
+  PW_PASTE="${nw}paste${w}(.*${w})?-[A-Za-z]*s" \
+  awk '
+    BEGIN {
+      n = split(ENVIRON["PW_HELPERS"], h, " ")
+      for (i = 1; i <= n; i++) want[h[i] "() {"] = h[i]
+    }
+    skip {
+      if ($0 == "}") { skip = 0; next }
+      if (substr($0, 1, 6) != "@test " && $0 !~ /^[A-Za-z_][A-Za-z0-9_]*[(][)] [{]/) next
+      print "helper body " cur "() opened at line " start " never closed: line " NR " starts another definition: " $0
+      bad++; skip = 0
+    }
+    ($0 in want) { skip = 1; cur = want[$0]; start = NR; seen[cur]++; bodies++; next }
+    { walked++ }
+    $0 ~ ENVIRON["PW_RANGE"] || $0 ~ ENVIRON["PW_RANGE_EXPR"] { print "bare range slice at line " NR ": " $0; bad++; next }
+    { l = " " $0 }
+    l ~ ENVIRON["PW_FLAT"] || l ~ ENVIRON["PW_PASTE"] { print "inline flatten at line " NR ": " $0; bad++; next }
+    l ~ ENVIRON["PW_SPLIT"] { print "inline flatten split across lines at line " NR ": " $0; bad++ }
+    END {
+      if (skip) { print "helper body " cur "() opened at line " start " never closed: the file ended inside it"; bad++ }
+      for (i = 1; i <= n; i++) if (seen[h[i]] != 1) {
+        print "helper body " h[i] "() found " seen[h[i]] + 0 " time(s), expected once"; bad++
+      }
+      if (walked == 0) { print "walked zero lines: nothing was checked"; bad++ }
+      print "walked " walked + 0 " lines outside " bodies + 0 " of " n " helper bodies"
+      if (bad || bodies != n) exit 1
+    }
+  ' "$1"
+}
+
 # ---------------------------------------------------------------------------
 # THE HELPERS' OWN GUARDS, each made to fire.                       (feature 046)
 #
@@ -555,7 +724,9 @@ prose_slice() {
 # different guard catching the same fixture must not pass for this one.
 #
 # The "did not open on its boundary" guard has no test: its comment in the
-# helper explains why no fixture can reach it.
+# helper explains why no fixture can reach it. Nor do the grep status checks:
+# no portable fixture makes grep fail on demand. The awk status check does
+# have one — an opening pattern that is not a valid ERE makes every awk fail.
 
 # prose_fixture [<inner-line>...] — writes a small document whose `## Open` …
 # `## Close` region holds two body lines with the given lines between them,
@@ -665,35 +836,252 @@ prose_fixture() {
   [ "$out" = 'a b c ' ] || { printf 'got: [%s]\n' "$out"; false; }
 }
 
+@test "prose_flat refuses an argument, because it reads stdin" {
+  # `prose_flat "$file"` would otherwise flatten empty stdin and hand back
+  # nothing; stdin is /dev/null here so a missing guard cannot hang the test.
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_flat "$f" < /dev/null
+  [ "$status" -eq 1 ] || { echo "status was $status; output: [$output]"; false; }
+  [ -z "$output" ] || { echo "printed: [$output]"; false; }
+  [[ $stderr == *'prose_flat: takes no arguments, it reads stdin'*"$f"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a file it cannot read, and names it" {
+  # The `-r` half of the readable-file guard. Root reads a mode-000 file
+  # anyway, and on Windows chmod cannot take read permission away: either way
+  # there is no unreadable file to hand the guard, so the test says so.
+  local f
+  f="$(prose_fixture)"
+  chmod 000 "$f"
+  if [ "$(id -u)" = 0 ] || [ -r "$f" ]; then
+    chmod 644 "$f"
+    skip 'cannot make an unreadable file here: running as root, or chmod 000 leaves it readable (Windows)'
+  fi
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  chmod 644 "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *"prose_slice [fixture]: cannot read the file at $f"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a declared line the slice does not hold" {
+  # A stale declaration: the line was rewrapped or moved, and the caller is
+  # declaring nothing while believing it declares something.
+  local f line='**Note.** Under --auto the analyzer runs first.'
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' "$line"
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: a declared line is found 0 time(s) inside the slice'*"$line"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a declared line the slice holds twice" {
+  # Dropping every copy would admit the added one.
+  local f line='**Note.** Under --auto the analyzer runs first.'
+  f="$(prose_fixture "$line" "$line")"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' "$line"
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: a declared line is found 2 time(s) inside the slice'*"$line"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice compares a declared line with its letter case" {
+  local f line='**Note.** Under --auto the analyzer runs first.'
+  f="$(prose_fixture "$line")"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' '**NOTE.** Under --auto the analyzer runs first.'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: a declared line is found 0 time(s) inside the slice'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses an empty declared line" {
+  # An unset variable passed as a declaration must not pass on a blank line,
+  # nor on a slice with no inner lines.
+  local f
+  f="$(prose_fixture '')"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' ''
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: a declared line is empty'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice says awk failed when a pattern is not a valid ERE" {
+  # Without this guard a bad pattern yields an empty slice and the EMPTY
+  # message blames the document for a mistake in the call.
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '[' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: awk failed with status'* ]] \
+    || { echo "stderr: $stderr"; false; }
+  [[ $stderr != *'EMPTY'* ]] || { echo "the document was blamed: $stderr"; false; }
+}
+
+@test "prose_slice refuses an h1 inside the slice" {
+  # Pins the lower bound of the ATX run: one `#` is a heading too.
+  local f
+  f="$(prose_fixture '# Top')"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: unexpected heading-shaped line inside the slice'*'# Top'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+# walk_fixture [<line>...] — writes a file shaped like this one for
+# prose_refuse_walk: the three helper bodies, each closed in column 0, then a
+# test holding the given lines, the first of them at line 12. Prints its path.
+walk_fixture() {
+  local f="$BATS_TEST_TMPDIR/walk-fixture.bats" h
+  : > "$f"
+  for h in prose_slice prose_flat prose_refuse_walk; do
+    printf '%s() {\n  true\n}\n' "$h" >> "$f"
+  done
+  printf '%s\n' '@test "fixture" {' '  true' "$@" '}' >> "$f"
+  printf '%s\n' "$f"
+}
+
+# walk_line <template> — expands @S@ to a slash, @Q@ to a single quote, @D@ to
+# a double quote, @B@ to a backslash, @M@ to a dollar sign and @P@ to the name
+# of the join command.
+# The shapes the walk refuses are built here from parts, so this file's own
+# source never holds one and the real refusing test stays green. Expanded by
+# sed, not by bash pattern substitution: a backslash on the replacement side
+# of a bash substitution is the kind of thing bash 3.2 has handled differently
+# before, and sed's escaped backslash means one backslash in GNU and BSD alike.
+walk_line() {
+  printf '%s\n' "${1-}" | sed -e 's/@S@/\//g' -e "s/@Q@/'/g" -e 's/@D@/"/g' -e 's/@B@/\\/g' -e 's/@P@/paste/g' -e 's/@M@/$/g'
+}
+
+@test "the refusing walk passes a clean file and says how much it walked" {
+  # The lines must NOT be flagged: the on/exit section walk this file uses
+  # (two slash patterns, no comma between them), a CR strip, and a call of
+  # the flatten helper.
+  local f
+  f="$(walk_fixture \
+    "$(walk_line '  s="$(awk @Q@@S@^## A$@S@ { on = 1; next } on && @S@^## @S@ { exit } on@Q@ "$f")"')" \
+    "$(walk_line '  s="$(tr -d @Q@@B@r@Q@ < "$f")"')" \
+    '  s="$(prose_flat < "$f")"')"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 0 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'walked 6 lines outside 3 of 3 helper bodies'* ]] || { echo "output: $output"; false; }
+}
+
+@test "the refusing walk names a planted bare range by its line" {
+  local f
+  f="$(walk_fixture "$(walk_line '  s="$(awk @Q@@S@^## A$@S@,@S@^## B$@S@@Q@ "$f")"')")"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'bare range slice at line 12: '* ]] || { echo "output: $output"; false; }
+}
+
+@test "the refusing walk names a planted inline flatten by its line" {
+  local f
+  f="$(walk_fixture "$(walk_line '  s="$(tr @Q@@B@n@Q@ @Q@ @Q@ < "$f")"')")"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'inline flatten at line 12: '* ]] || { echo "output: $output"; false; }
+}
+
+@test "the refusing walk catches other spellings of a bare range" {
+  # Awk options, either quote style, spaces around the comma or before the
+  # first slash, a range alone on a line of a longer program, a range broken
+  # by a line continuation, and sed, which runs to end of file the same way.
+  local t f
+  while IFS= read -r t; do
+    f="$(walk_fixture "$(walk_line "$t")")"
+    run --separate-stderr prose_refuse_walk "$f"
+    { [ "$status" -eq 1 ] && [[ $output == *'bare range slice at line 12: '* ]]; } \
+      || { echo "not refused: $(walk_line "$t")"; echo "$output"; false; }
+  done <<'SHAPES'
+  awk -F: @Q@@S@a@S@,@S@b@S@@Q@ "$f"
+  awk @D@@S@a@S@,@S@b@S@@D@ "$f"
+  awk @Q@@S@a@S@ , @S@b@S@@Q@ "$f"
+  awk @Q@ @S@a@S@,@S@b@S@@Q@ "$f"
+    @S@^## A$@S@, @S@^## B$@S@ { print }
+  awk @Q@@S@^## A$@S@,@B@
+  awk @Q@@S@^## A$@S@,
+  awk @Q@@M@0 ~ @D@^## A@D@, @M@0 ~ @D@^## B@D@@Q@ "$f"
+  sed -n @Q@@S@a@S@,@S@b@S@p@Q@ "$f"
+SHAPES
+}
+
+@test "the refusing walk catches other spellings of an inline flatten" {
+  # Extra spaces, either quote style, the octal spelling, tr options, the
+  # split shape (tr ending a line on an open quote), and the join command.
+  local t f
+  while IFS= read -r t; do
+    f="$(walk_fixture "$(walk_line "$t")")"
+    run --separate-stderr prose_refuse_walk "$f"
+    { [ "$status" -eq 1 ] && [[ $output == *'inline flatten'*' at line 12: '* ]]; } \
+      || { echo "not refused: $(walk_line "$t")"; echo "$output"; false; }
+  done <<'SHAPES'
+  x="$(tr  @Q@@B@n@Q@ @Q@ @Q@ < "$f")"
+  x="$(tr @D@@B@n@D@ @D@ @D@ < "$f")"
+  x="$(tr @Q@@B@012@Q@ @Q@ @Q@ < "$f")"
+  x="$(tr -s @Q@@B@n@Q@ @Q@ @Q@ < "$f")"
+  x="$(tr @Q@@B@r@B@n@Q@ @Q@  @Q@ < "$f")"
+  x="$(cat "$f" | tr @Q@
+  x="$(cat "$f" | tr @D@
+  x="$(@P@ -s -d @Q@ @Q@ "$f")"
+SHAPES
+}
+
+@test "the refusing walk fails on a helper body whose closing brace is indented" {
+  # An indented brace does not close the body, so the walk would skip on to
+  # the next column-0 brace or to end of file, checking nothing on the way.
+  local f="$BATS_TEST_TMPDIR/walk-indented.bats"
+  # Followed by another definition: named at that line.
+  printf '%s\n' 'prose_slice() {' '  true' '  }' 'prose_flat() {' '  true' '}' \
+    'prose_refuse_walk() {' '  true' '}' '@test "fixture" {' '  true' '}' > "$f"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'helper body prose_slice() opened at line 1 never closed: line 4 starts another definition'* ]] \
+    || { echo "output: $output"; false; }
+  # Followed by nothing: named at end of file.
+  printf '%s\n' 'prose_slice() {' '  true' '}' 'prose_flat() {' '  true' '}' \
+    '@test "fixture" {' '  true' '}' 'prose_refuse_walk() {' '  true' '  }' > "$f"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'helper body prose_refuse_walk() opened at line 10 never closed: the file ended inside it'* ]] \
+    || { echo "output: $output"; false; }
+}
+
+@test "the refusing walk fails when a helper body is missing" {
+  local f="$BATS_TEST_TMPDIR/walk-missing.bats"
+  printf '%s\n' 'prose_slice() {' '  true' '}' 'prose_flat() {' '  true' '}' \
+    '@test "fixture" {' '  true' '}' > "$f"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'helper body prose_refuse_walk() found 0 time(s), expected once'* ]] \
+    || { echo "output: $output"; false; }
+}
+
+@test "the refusing walk fails on an empty file" {
+  local f="$BATS_TEST_TMPDIR/walk-empty.bats"
+  : > "$f"
+  run --separate-stderr prose_refuse_walk "$f"
+  [ "$status" -eq 1 ] || { echo "status was $status"; echo "$output"; false; }
+  [[ $output == *'walked zero lines: nothing was checked'* ]] || { echo "output: $output"; false; }
+}
+
 @test "no bare awk range slice and no inline flatten outside the two helpers" {
-  # Derived, not listed: walks this file, skipping only the bodies of
-  # prose_slice and prose_flat, and names every line that slices with a bare
-  # awk range or flattens inline. A bare range runs to end of file in silence
-  # when its closer stops matching; an inline flatten is a copy that drifts.
+  # Derived, not listed: prose_refuse_walk walks this file, skipping only the
+  # helper bodies, and names every line that slices with a bare range or
+  # flattens inline. A bare range runs to end of file in silence when its
+  # closer stops matching; an inline flatten is a copy that drifts. The tests
+  # above fire the walk on fixtures, one shape each.
   #
-  # The needles are assembled from parts, so this test's own source does not
-  # match them, and they reach awk through the environment, so no octal or
-  # backslash escape has to mean the same thing to every awk CI runs.
-  # It refuses to pass vacuously: zero lines walked, or a helper body not
-  # found (a renamed helper would otherwise skip nothing, or everything).
-  local q="'" bs='\' out rc
-  out="$(PF_RANGE="awk ${q}/[^${q}]*/,/" PF_FLAT="tr ${q}${bs}n${q} ${q} ${q}" PF_SPLIT="tr ${q}" awk '
-    $0 == "prose_slice() {" || $0 == "prose_flat() {" { skip = 1; bodies++; next }
-    skip && $0 == "}" { skip = 0; next }
-    skip { next }
-    { walked++ }
-    $0 ~ ENVIRON["PF_RANGE"] { print "bare awk range slice at line " NR ": " $0; bad++ }
-    index($0, ENVIRON["PF_FLAT"]) { print "inline flatten at line " NR ": " $0; bad++; next }
-    length($0) >= length(ENVIRON["PF_SPLIT"]) && substr($0, length($0) - length(ENVIRON["PF_SPLIT"]) + 1) == ENVIRON["PF_SPLIT"] {
-      print "inline flatten split across lines at line " NR ": " $0; bad++
-    }
-    END {
-      print "walked " walked + 0 " lines outside " bodies + 0 " helper bodies"
-      if (bad || bodies != 2 || walked == 0) exit 1
-    }
-  ' "$BATS_TEST_FILENAME")" && rc=0 || rc=$?
-  printf '%s\n' "$out"
-  [ "$rc" -eq 0 ] || { echo "use prose_slice <file> … to slice and prose_flat to flatten"; false; }
+  # The name still says two helpers because records outside this file cite it
+  # by name; the walk itself now skips three bodies — the two helpers and its
+  # own, which holds the shapes as patterns — and derives that count from the
+  # list it is given.
+  run --separate-stderr prose_refuse_walk "$BATS_TEST_FILENAME"
+  printf '%s\n' "$output"
+  [ -z "$stderr" ] || printf 'stderr: %s\n' "$stderr"
+  [ "$status" -eq 0 ] || { echo "use prose_slice <file> … to slice and prose_flat to flatten"; false; }
+  [[ $output == *'walked '*' lines outside 3 of 3 helper bodies'* ]] || false
 }
 
 # ---------------------------------------------------------------------------
@@ -1177,7 +1565,7 @@ ROWS
   # matched nothing and passed forever — a test that scans the wrong region and
   # a test that finds nothing wrong report the same green.
   local walk probe notread
-  walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
+  walk="$(pf_walk raw)" || return 1
   probe="$(prose_slice "$ORCH" '^Project type : ' '^Will skip ' raw 'probe block')" || return 1
 
   # The probe-block line. Pinned inside the BLOCK, so moving it to a footnote
@@ -1429,7 +1817,7 @@ PINS
   # orchestrator, rewritten, and the old wording pinned ABSENT. Each slice
   # is taken ONCE, raw, and flattened from that: two calls would put the
   # boundary literals twice in one test.
-  local raw flat walk
+  local raw flat
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(prose_flat <<<"$raw")"
   pins_in "$flat" 'gates' <<'PINS'
@@ -1459,9 +1847,7 @@ ROWS
 read as paralysis: create and check out the feature branch, make the local spec, piece and late commits the run makes once G's review question is answered, every path named and nothing pushed, write
 Everything that leaves the machine, or that cannot be undone by editing a file, is behind a gate — the spec, piece and late commits included: the review question at G is their consent, and in pause mode each pause is the yes for its piece; the late commits are made without a pause, and K shows each of them before anything leaves, waiting for the answer unless `--auto` collapsed K.
 PINS
-  # The walk holds one bold-led line, declared to prose_slice as $PF_BOLD.
-  walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  flat="$(prose_flat <<<"$walk")"
+  flat="$(pf_walk flat)" || return 1
   pins_in "$flat" 'pre-flight walk' <<'PINS'
 The offer is a conditional stop that `--auto` does not collapse — like C, and like G, which asks its review question on every fresh `claude` run and its implementer question whenever `implementer` is unset or `ask`, it needs an answer only the owner can give, and no answer is ever invented for it.
 PINS
@@ -1647,9 +2033,7 @@ PINS
   pins_in "$flat" 'older pipeline' <<'PINS'
 On a resume into an unfinished G whose `gates.G` is a plain string, G records the review answer by turning `gates.G` into an object: `answer` takes the string it held, and `reviewMode` the review answer.
 PINS
-  local walk
-  walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  flat="$(prose_flat <<<"$walk")"
+  flat="$(pf_walk flat)" || return 1
   pins_in "$flat" 'pre-flight walk' <<'PINS'
 A state file's claim is accepted only after the tracked-state check in Resume has passed, or its stop has been confirmed.
 On a resume, that read comes after the tracked-state check in Resume.
@@ -1827,9 +2211,8 @@ SPAN
 # mutant that drops "in doubt" or lets --auto skip the check lets an
 # unanswered question ride into a pull request.
 @test "questions wait only when nothing before the next stop needs them, and never past L" {
-  local raw flat
-  raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
-  flat="$(prose_flat <<<"$raw")"
+  local flat
+  flat="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' flat 'gates')" || return 1
   pins_in "$flat" 'questions that wait' <<'PINS'
 A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now.
 After L nothing waits: `ask-later` refuses M, N, N.5 and O.
@@ -1874,7 +2257,8 @@ PINS
 # beside an intact substring pin.
 @test "the questions paragraph is exactly its sentences: nothing appended or inserted" {
   local orch="$ROOT/pipeline/skills/pipeline/SKILL.md" got want
-  got="$(awk '/^A question may wait only when/ { on = 1 } on && /^\r?$/ { exit } on' "$orch" | prose_flat | sed 's/ $//')"
+  got="$(awk '/^A question may wait only when/ { on = 1 } on && /^\r?$/ { exit } on' "$orch" | prose_flat)"
+  got="${got% }"
   want="$(cat <<'PARA'
 A question may wait only when its answer changes nothing the run does before its next stop; in doubt, it stops the run now. After L nothing waits: `ask-later` refuses M, N, N.5 and O. `progress.sh ask-later <feature> <phase> <file>` queues it. At every stop once the state file exists — a run that stops for good (`--until`, the park at H, no remote) included — run `progress.sh pending <feature>` first and ask its questions beside the stop's own; record each reply, in the owner's own words and never your own, with `answer <feature> <id> <file>`, and act on it from then on — on a re-entry, read the answers in `gates.pending` before the phase they affect. Before L pushes, `pending-check <feature>` must exit 0: an open question stops the run there, and `--auto` never collapses that stop. See `${CLAUDE_PLUGIN_ROOT}/docs/phases.md`.
 PARA
@@ -2423,13 +2807,12 @@ rare_section() {
 @test "each rare path's old site still sends the run to its section" {
   # One pin per pointer, in the slice of the section the passage moved out of:
   # a pointer moved away from its site does not fire when that path happens.
-  local s walk
+  local s
   s="$(prose_slice "$ORCH" '^Will skip ' '^The script only reports; the decisions are yours' flat 'probe block to walk')" || return 1
   pins_in "$s" 'probe block' <<'PINS'
 When `capabilities.git` is false, read "The probe block without git" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before rendering this block.
 PINS
-  walk="$(prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' raw 'pre-flight walk' "$PF_BOLD")" || return 1
-  s="$(prose_flat <<<"$walk")"
+  s="$(pf_walk flat)" || return 1
   pins_in "$s" 'pre-flight walk' <<'PINS'
 never coerced, never treated as unset. Before naming it, read "An illegal implementer value" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. 11. **git absent**
 install nothing — the missing-tool ground rule at the top of this document, applied. Before reporting the stop, read "The git stop" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. **Base branch:**
