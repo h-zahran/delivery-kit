@@ -543,6 +543,128 @@ prose_slice() {
 }
 
 # ---------------------------------------------------------------------------
+# THE HELPERS' OWN GUARDS, each made to fire.                       (feature 046)
+#
+# Every slice in this file now leans on prose_slice, so a guard broken there
+# would quietly widen every pin at once. Until feature 046 these guards had
+# only been fired by throwaway probes; nothing committed went red if one
+# broke. One test per guard, so the first red does not hide the next. Each
+# asserts the EXACT status — 1, not "non-zero", because a crash (127, 2) is
+# not a guard speaking — and the guard's own words on stderr, because a
+# different guard catching the same fixture must not pass for this one.
+#
+# The "did not open on its boundary" guard has no test: its comment in the
+# helper explains why no fixture can reach it.
+
+# prose_fixture [<inner-line>...] — writes a small document whose `## Open` …
+# `## Close` region holds two body lines with the given lines between them,
+# and prints its path.
+prose_fixture() {
+  local f="$BATS_TEST_TMPDIR/prose-fixture.md"
+  printf '%s\n' '# Fixture' '' '## Open' 'body one' "$@" 'body two' '## Close' '' '## After' > "$f"
+  printf '%s\n' "$f"
+}
+
+@test "prose_slice refuses a call with too few arguments" {
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice: needs <file> <open> <close> <raw|flat> <name>'*'got 4 argument(s)'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a form that is neither raw nor flat" {
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' falt 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: form must be raw or flat, got: falt'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a file that does not exist, and names it" {
+  local f="$BATS_TEST_TMPDIR/no-such-file.md"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *"prose_slice [fixture]: cannot read the file at $f"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses a directory in place of the file, and names it" {
+  # A directory is READABLE, so `-r` alone passes it; the guard needs `-f`.
+  local d="$BATS_TEST_TMPDIR/a-directory.md"
+  mkdir "$d"
+  run --separate-stderr prose_slice "$d" '^## Open$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *"prose_slice [fixture]: cannot read the file at $d"* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice says EMPTY when the opening boundary matches nothing" {
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '^## Opening$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: the slice is EMPTY'*'^## Opening$'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses an opening boundary that matches twice" {
+  local f
+  f="$(prose_fixture '## Open')"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: the opening boundary /^## Open$/ matches more than once'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice says UNTERMINATED when the closing boundary is not found" {
+  local f
+  f="$(prose_fixture)"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Closing$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: UNTERMINATED — the closing boundary /^## Closing$/ was not found'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "prose_slice refuses an undeclared heading-shaped line inside the slice, and prints it" {
+  local f
+  f="$(prose_fixture '**Note.** Under --auto the analyzer runs first.')"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture'
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'prose_slice [fixture]: unexpected heading-shaped line inside the slice'*'**Note.** Under --auto the analyzer runs first.'* ]] \
+    || { echo "stderr: $stderr"; false; }
+}
+
+@test "a declared inner line is admitted, and admits nothing else" {
+  local f line='**Note.** Under --auto the analyzer runs first.'
+  # Declared: the slice comes back whole.
+  f="$(prose_fixture "$line")"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' "$line"
+  [ "$status" -eq 0 ] || { echo "status was $status; stderr: $stderr"; false; }
+  [ "$output" = "$(printf '%s\n' '## Open' 'body one' "$line" 'body two' '## Close')" ] \
+    || { echo "output: $output"; false; }
+  # The same declaration does not admit a second heading in the same slice.
+  f="$(prose_fixture "$line" '### Restructured')"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' "$line"
+  [ "$status" -eq 1 ] || { echo "status was $status"; false; }
+  [[ $stderr == *'unexpected heading-shaped line inside the slice'*'### Restructured'* ]] \
+    || { echo "stderr: $stderr"; false; }
+  [[ $stderr != *"$line"* ]] || { echo "the declared line was reported: $stderr"; false; }
+  # A declaration is a whole line, never a prefix.
+  f="$(prose_fixture "$line")"
+  run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw 'fixture' '**Note.**'
+  [ "$status" -eq 1 ] || { echo "a prefix declaration admitted the line: status $status"; false; }
+}
+
+@test "prose_flat strips CR, joins lines with a space and squeezes runs of spaces" {
+  local out
+  out="$(printf 'a\r\nb  c\n' | prose_flat)"
+  [ "$out" = 'a b c ' ] || { printf 'got: [%s]\n' "$out"; false; }
+}
+
+# ---------------------------------------------------------------------------
 # INSERTION GUARDS for all five pinned regions.                    (feature 011)
 #
 # Phase-M round 2 found the hole these close, and it is the SAME hole this
