@@ -297,7 +297,14 @@ async function refreshUsage($: EngineInterface): Promise<void> {
 // The engine's own list settles agents whose end no event of ours saw.
 // A helper whose turn ended can still run: it waits on its own background job
 // and starts a new turn when that ends. The engine's list says so; the pane follows.
+// A forked skill is the exception: the engine lists it `idle` once it has
+// returned (a message could wake it), but its one task is over, so its idle is
+// its end. Read as a spawned helper's idle, it was revived five seconds after
+// its turn.complete and then left "resting…" in RUNNING for good. An end
+// settled here raises no batch-end toast, as no end the list settles does; a
+// fork's turn.complete, when the engine fires one, has raised it already.
 const isLive = (s: RunStatus): boolean => s === 'running' || s === 'idle'
+const statusOf = (a: AgentRun, s: string): RunStatus => (a.forked && s === 'idle' ? 'done' : mapStatus(s))
 const REVIVE_AFTER_MS = 5_000
 const REVIVE_WITHIN_MS = 30 * 60_000
 const isRecentDone = (a: AgentRun, at: number): boolean =>
@@ -310,10 +317,10 @@ async function reconcile($: EngineInterface): Promise<void> {
   const live = await $.agent.list()
   const byId = new Map(live.map(a => [a.id, a.status]))
   const isRevived = (a: AgentRun, s: string | undefined) =>
-    s !== undefined && isRecentDone(a, at) && (s === 'running' || s === 'idle' || s === 'waiting' || s === 'pending')
+    s !== undefined && isRecentDone(a, at) && (s === 'running' || s === 'waiting' || s === 'pending' || (s === 'idle' && !a.forked))
   const changed = list.some(a => {
     const s = byId.get(a.id)
-    return (s !== undefined && mapStatus(s) !== a.status && isLive(a.status)) || isRevived(a, s)
+    return (s !== undefined && statusOf(a, s) !== a.status && isLive(a.status)) || isRevived(a, s)
   })
   if (!changed) return
   await update($, agents, all =>
@@ -321,7 +328,7 @@ async function reconcile($: EngineInterface): Promise<void> {
       const s = byId.get(a.id)
       if (isRevived(a, s)) return { ...a, status: 'running' as RunStatus, endedAt: undefined }
       if (s === undefined || !isLive(a.status)) return a
-      const status = mapStatus(s)
+      const status = statusOf(a, s)
       if (status === a.status) return a
       const isOver = status === 'done' || status === 'failed'
       return {
@@ -365,6 +372,7 @@ async function addRun(
     costUsd: 0,
     toolCount: 0,
     tools: [],
+    ...(s.isJoin ? { forked: true } : {}),
   }
   await update($, agents, list => {
     if (s.isJoin && list.some(a => a.id === run.id)) return list

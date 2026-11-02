@@ -229,3 +229,97 @@ test('forked: a spawned helper is still made by its spawn, and its calls ask for
   expect(agents().find(a => a.id === 'ag-1')?.toolCount).toBe(1)
   expect(calls()).toBe(0)
 })
+
+// --- a forked skill's idle is its end (feature 048) ---------------------------
+// The engine lists a forked skill that has returned as `idle`: between turns,
+// until a message wakes it. For a helper made by agent.spawn idle means "will
+// work again" (a teammate waiting for mail, a helper waiting on its own
+// background job), so it stays in RUNNING. A fork's one task is over, so its
+// idle is its end. Before 048 the fork's turn.complete set it done, the list's
+// idle revived it five seconds later, and the next pass left it "resting…" in
+// RUNNING for the rest of the session.
+
+const startArgs = { cwd: 'D:/w', surface: 'terminal', isInteractive: true } as never
+
+test('forked: a fork that ended stays done when the list then calls it idle', ENGINE, async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: 'D:/w' }))
+  const agents = agentWrites(on)
+  let status: AgentInfo['status'] = 'running'
+  agentList(on, () => [{ ...listed, status }])
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start(startArgs).catch(() => undefined)
+
+  await $.tool.call({ tool: 'Grep', pattern: 'login', ...inFork } as never)
+  await $.turn.complete({ answer: 'two findings', durationMs: 1000, isAborted: false, turnId: 't-1', agentId: 'ag-f', reason: 'answer' })
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('done')
+
+  // Past the 5 s revive point, and two list reads.
+  status = 'idle'
+  await clock.advance(12_000)
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('done')
+  const ui = await $.ui.mount(PANE)
+  expect(await ui.find({ text: /DONE/ })).toBeDefined()
+  expect(await ui.find({ text: /resting/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('forked: a fork whose end no turn.complete showed is done once the list calls it idle', ENGINE, async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: 'D:/w' }))
+  const agents = agentWrites(on)
+  let status: AgentInfo['status'] = 'running'
+  agentList(on, () => [{ ...listed, status }])
+  on('tool.call', () => ({ result: 'ok' }))
+  await $.session.start(startArgs).catch(() => undefined)
+
+  await $.tool.call({ tool: 'Grep', pattern: 'login', ...inFork } as never)
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('running')
+  status = 'idle'
+  await clock.advance(12_000)
+  const run = agents().find(a => a.id === 'ag-f') as (Run & { endedAt?: number }) | undefined
+  expect(run?.status).toBe('done')
+  expect(typeof run?.endedAt).toBe('number')
+})
+
+test('forked: a fork shown done goes back to RUNNING when the list says it runs again', ENGINE, async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: 'D:/w' }))
+  const agents = agentWrites(on)
+  let status: AgentInfo['status'] = 'running'
+  agentList(on, () => [{ ...listed, status }])
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start(startArgs).catch(() => undefined)
+
+  await $.tool.call({ tool: 'Grep', pattern: 'login', ...inFork } as never)
+  await $.turn.complete({ answer: 'done', durationMs: 1000, isAborted: false, turnId: 't-1', agentId: 'ag-f', reason: 'answer' })
+  status = 'idle'
+  await clock.advance(12_000)
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('done')
+  // A message woke it.
+  status = 'running'
+  await clock.advance(6_000)
+  expect(agents().find(a => a.id === 'ag-f')?.status).toBe('running')
+})
+
+test('forked: a helper made by agent.spawn that the list calls idle stays in RUNNING, resting', ENGINE, async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: 'D:/w' }))
+  const agents = agentWrites(on)
+  let status: AgentInfo['status'] = 'running'
+  agentList(on, () => [{ id: 'ag-1', description: 'look around', type: 'Explore', status }])
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'ag-1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  await $.session.start(startArgs).catch(() => undefined)
+
+  await $.agent.spawn({ tool_use_id: 'tu-s', prompt: 'look', description: 'look around', subagentType: 'Explore' } as never)
+  await $.tool.call({ tool: 'Grep', pattern: 'x', agentId: 'ag-1' } as never)
+  status = 'idle'
+  await clock.advance(12_000)
+  expect(agents().find(a => a.id === 'ag-1')?.status).toBe('idle')
+  const ui = await $.ui.mount(PANE)
+  expect(await ui.find({ text: /resting/ })).toBeDefined()
+  await ui.unmount()
+})
