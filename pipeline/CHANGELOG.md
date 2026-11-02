@@ -2,7 +2,12 @@
 
 All notable changes to the `pipeline` plugin.
 
-## [Unreleased]
+## [1.7.2] - 2026-11-02
+
+### Highlights
+
+- Pre-flight no longer reads a UTF-16 or UTF-32 constitution as set on a
+  busy machine.
 
 ### Fixed
 
