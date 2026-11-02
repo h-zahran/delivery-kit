@@ -1228,6 +1228,10 @@ hidden_refused() {
   # test in this suite went red. A consumer writing `.capabilities.git | not`
   # then gets the wrong answer, because the string "false" is truthy.
   jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
+  # Feature 049: found AND usable, here, since the probed folder is inside
+  # this checkout.
+  jq -e '.capabilities.gitUsable | type == "boolean" and . == true' <<<"$output" > /dev/null
+  [ "$(jq -r '.gitReason' <<<"$output")" = "usable" ]
 }
 
 @test "the capability report names git absent, and the report survives it" {
@@ -1270,6 +1274,9 @@ hidden_refused() {
   # tell the boolean false from the string "false", and a consumer writing
   # `.capabilities.git | not` reads the string as truthy.
   jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
+  # Feature 049: absent is also unusable, with its own reason.
+  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null
+  [ "$(jq -r '.gitReason' <<<"$output")" = "absent" ]
 
   # The report is COMPLETE, not truncated. Absence sets a field to false; it
   # never drops a key, and no consumer should have to read a short document as
@@ -1302,6 +1309,131 @@ hidden_refused() {
       = "no git remote — the run stops after the commit gate and says so" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
       = "no pull request without a remote" ]
+}
+
+# --- a git that is found but will not work here ------------------------------
+# Feature 049. capabilities.git still says only "found". gitUsable and
+# gitReason say whether git opens a repository at the probed folder, and if
+# not, why. Each reason gets a fixture that produces it FOR REAL, and each
+# fixture first proves its own precondition with plain git: a git that
+# ignored the fixture's trigger would otherwise give a green for nothing.
+
+# git_isolate — no global or system git configuration. A runner whose global
+# config holds safe.directory=* (or entries a checkout step added) would make
+# the ownership fixture open the repository and pass for the wrong reason.
+# An empty FILE, never /dev/null, which is not a path to git on Windows.
+git_isolate() {
+  : > "$BATS_TEST_TMPDIR/gitconfig"
+  export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig" GIT_CONFIG_NOSYSTEM=1
+}
+
+# refused_repo <dir> — a repository git refuses for ownership once the
+# caller exports GIT_TEST_ASSUME_DIFFERENT_OWNER=1: git's own test switch,
+# read in its common setup code, so it acts the same on every runner.
+refused_repo() {
+  mkdir -p "$1"
+  ( cd "$1" && git init -q . )
+}
+
+@test "the capability report names a git that refuses the repository for ownership" {
+  local r="$BATS_TEST_TMPDIR/owned"
+  git_isolate
+  refused_repo "$r"
+  cp "$r/.git/config" "$BATS_TEST_TMPDIR/config.before"
+  export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
+  # The precondition, with plain git. If this git ignores the switch, the
+  # test says so here instead of passing for a repository git opened.
+  if git -C "$r" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "precondition: git opened the repository despite GIT_TEST_ASSUME_DIFFERENT_OWNER"; false
+  fi
+  git -C "$r" -c safe.directory='*' rev-parse --git-dir > /dev/null 2>&1 \
+    || { echo "precondition: git did not open the repository with the ownership check lifted"; false; }
+
+  probe --dir "$r" --base-branch main
+  [ "$status" -eq 0 ]
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+  # The type, not only the value: `jq -r` prints the string "false" and the
+  # boolean false alike, and `.capabilities.gitUsable | not` reads the string
+  # as truthy.
+  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
+    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
+  [ "$(jq -r '.gitReason' <<<"$output")" = "refused-ownership" ]
+  # Nothing was configured (FR-005): the check was lifted for one command,
+  # never written down.
+  [ ! -s "$BATS_TEST_TMPDIR/gitconfig" ] || { echo "the probe wrote global git configuration"; false; }
+  cmp -s "$r/.git/config" "$BATS_TEST_TMPDIR/config.before" \
+    || { echo "the probe changed the repository's git configuration"; false; }
+}
+
+@test "an unusable git reports names unchecked, as an absent one does" {
+  # With the old probe, a found git ran the override check against a
+  # repository it could not read, and died naming a wrong cause.
+  local r="$BATS_TEST_TMPDIR/owned"
+  git_isolate
+  refused_repo "$r"
+  ( cd "$r" && seed && git branch integration )
+  export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
+  if git -C "$r" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "precondition: git opened the repository despite GIT_TEST_ASSUME_DIFFERENT_OWNER"; false
+  fi
+
+  probe --dir "$r" --base-branch-override integration --feature-branch new-work
+  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.gitReason' <<<"$output")" = "refused-ownership" ]
+  [[ "$stderr" != *"is not a branch here or on origin"* ]] \
+    || { echo "the override was checked against a repository git refused: $stderr"; false; }
+}
+
+@test "the capability report names a git that opens no repository here" {
+  local d="$BATS_TEST_TMPDIR/plain"
+  mkdir -p "$d"
+  git_isolate
+  # git climbs no higher than the temp folder, so the checkout that may
+  # hold it is never found.
+  export GIT_CEILING_DIRECTORIES="$BATS_TEST_TMPDIR"
+  if git -C "$d" rev-parse --git-dir > /dev/null 2>&1 \
+     || git -C "$d" -c safe.directory='*' rev-parse --git-dir > /dev/null 2>&1; then
+    echo "precondition: git found a repository at $d"; false
+  fi
+
+  probe --dir "$d" --base-branch main
+  [ "$status" -eq 0 ]
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
+    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
+  [ "$(jq -r '.gitReason' <<<"$output")" = "no-repository" ]
+}
+
+@test "the capability report names a git that is found but cannot run" {
+  local d="$BATS_TEST_TMPDIR/broken-git" tools="" t
+  # Derived from PROBE_TOOLS, as the absent test derives its list.
+  for t in $PROBE_TOOLS; do [ "$t" = git ] || tools="$tools $t"; done
+  # shellcheck disable=SC2086
+  shimdir "$d" $tools
+  printf '#!/bin/sh\nexit 1\n' > "$d/git"
+  chmod +x "$d/git"
+  if PATH="$d" git --version > /dev/null 2>&1; then
+    echo "precondition: the broken git ran"; false
+  fi
+
+  probe --path "$d" --dir "$FIX/other" --base-branch main
+  [ "$status" -eq 0 ]
+  jq -e . <<<"$output" > /dev/null
+  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
+  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
+    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
+  [ "$(jq -r '.gitReason' <<<"$output")" = "broken" ]
+}
+
+@test "the script probes git for its presence in one place" {
+  # Two probes answered "found" in two places, and one of them gated the
+  # name checks: one classifier now feeds both. A second copy would drift.
+  local n
+  n="$(grep -v '^[[:space:]]*#' "$PROBE" | grep -c 'command -v git' || true)"
+  [ "$n" = 1 ] || { echo "'command -v git' appears $n times outside comments"; false; }
 }
 
 # --- a constitution at the size a herestring hangs on -------------------------
