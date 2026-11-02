@@ -36,8 +36,8 @@
 
 **Goal**: installed copies get the fix (FR-007).
 
-- [ ] T007 Release: in `pipeline/CHANGELOG.md` turn `## [Unreleased]` into `## [1.7.2] - 2026-11-02` (add a short `### Highlights` line in the style of 1.7.1); set `"version": "1.7.2"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.2` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (check `git diff --stat` shows a one-line change there). Do not open a new `## [Unreleased]`.
-- [ ] T008 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.2) and any tests that pin versions (`bash "$HOME/bats/bin/bats" tests`): green.
+- [X] T007 Release: in `pipeline/CHANGELOG.md` turn `## [Unreleased]` into `## [1.7.2] - 2026-11-02` (add a short `### Highlights` line in the style of 1.7.1); set `"version": "1.7.2"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.2` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (check `git diff --stat` shows a one-line change there). Do not open a new `## [Unreleased]`.
+- [X] T008 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.2) and any tests that pin versions (`bash "$HOME/bats/bin/bats" tests`): green.
 
 ---
 
