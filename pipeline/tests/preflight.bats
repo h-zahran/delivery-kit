@@ -16,6 +16,8 @@ setup() {
   FIX="$ROOT/pipeline/tests/fixtures"
   # PREFLIGHT_UNDER_TEST points the suite at another copy of the script, for
   # mutation runs: mutate a copy, point the suite at it, watch a test go red.
+  # The copy needs its siblings beside it: trailer-check.sh, and the
+  # hidden-chars.sh it sources, or the trailer tests go red for that alone.
   PROBE="${PREFLIGHT_UNDER_TEST:-$PROBE}"
   [ -f "$PROBE" ] || { echo "no script at $PROBE"; return 1; }
 }
@@ -145,12 +147,15 @@ stub() {
   mkdir -p "$T"; cd "$T"; git init -q .
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "none" ]
+  not_read_is '[]'
   git remote add origin https://github.com/example/thing.git
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "github" ]
+  not_read_is '[]'
   git remote set-url origin https://gitlab.example.com/x/y.git
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
+  not_read_is '[]'
 }
 
 @test "base branch: origin/HEAD first, then the override, each with its source" {
@@ -817,6 +822,7 @@ hidden_refused() {
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.tree.dirty' <<<"$output")" = "true" ]
   [ "$(jq -r '.tree.runsLive' <<<"$output")" = "true" ]
+  not_read_is '[]'
 }
 
 # A DONE run and an abandoned one are not live. Both are made by the real
@@ -1275,7 +1281,7 @@ hidden_refused() {
   jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
   # Feature 049: absent is also unusable, with its own reason.
   git_report_is false absent
-  not_read_is "$NOT_READ_NO_BASE"
+  not_read_is "$NOT_READ_ALL"
 
   # The report is COMPLETE, not truncated. Absence sets a field to false; it
   # never drops a key, and no consumer should have to read a short document as
@@ -1308,6 +1314,14 @@ hidden_refused() {
       = "no git remote — the run stops after the commit gate and says so" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
       = "no pull request without a remote" ]
+
+  # Feature 050: with no base flag either, the base falls through to
+  # "current branch", which nothing read, and notRead names it.
+  probe --path "$d" --dir "$FIX/other"
+  [ "$status" -eq 0 ]
+  git_report_is false absent
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
+  not_read_is "$NOT_READ_ALL"
 }
 
 # --- a git that is found but will not work here ------------------------------
@@ -1332,18 +1346,21 @@ git_report_is() {
 
 # Feature 050. notRead names each field of the report whose git read did not
 # run, or ran and failed. The two lists a test expects are written ONCE,
-# here: NOT_READ_ALL when the base branch came from git (or from nothing),
-# NOT_READ_NO_BASE when it came from configuration or an override, which are
-# established without git (specs/050-preflight-unread-git-fields/data-model.md).
+# here: NOT_READ_OVERRIDE when the base branch came from an override, the one
+# source that outranks origin/HEAD and so is established without git;
+# NOT_READ_ALL for every other source, configuration included: a configured
+# base is the fallback for a repository with no origin/HEAD, and without git
+# nobody looked (specs/050-preflight-unread-git-fields/data-model.md).
 NOT_READ_ALL='["baseBranch","baseBranchSource","remote.kind","tree.dirty","willSkip.L","willSkip.M"]'
-NOT_READ_NO_BASE='["remote.kind","tree.dirty","willSkip.L","willSkip.M"]'
+NOT_READ_OVERRIDE='["remote.kind","tree.dirty","willSkip.L","willSkip.M"]'
 
-# not_read_is <json-list> — .notRead of the report in $output is a LIST equal
-# to <json-list>, order included. The type is asserted with the value: a
-# string or a null would read as "nothing unread" to a careless consumer.
+# not_read_is <json-list> — .notRead of the report in $output equals
+# <json-list>, order included. A string or a null fails the equality too.
+# On failure it names what is missing and what is extra, not only the lists.
 not_read_is() {
-  jq -e --argjson want "$1" '(.notRead | type) == "array" and .notRead == $want' <<<"$output" > /dev/null \
-    || { echo "want notRead=$1; got $(jq -c '.notRead' <<<"$output")"; false; }
+  jq -e --argjson want "$1" '.notRead == $want' <<<"$output" > /dev/null \
+    || { echo "want notRead=$1; got $(jq -c '.notRead' <<<"$output"); $(jq -rc --argjson want "$1" \
+           'if (.notRead | type) == "array" then "missing \($want - .notRead), extra \(.notRead - $want)" else "not a list" end' <<<"$output")"; false; }
 }
 
 # git_isolate — no system git configuration, and a global one that is an
@@ -1399,7 +1416,7 @@ refuse_for_ownership() {
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
   git_report_is true refused-ownership
-  not_read_is "$NOT_READ_NO_BASE"
+  not_read_is "$NOT_READ_ALL"
   [ ! -e "$m" ] || { echo "the probe ran a program the refused repository names: $(cat "$m")"; false; }
   # Nothing was configured: the check was lifted for one command, never
   # written down.
@@ -1426,7 +1443,7 @@ refuse_for_ownership() {
   probe --path "$d" --dir "$r" --base-branch main
   [ "$status" -eq 0 ]
   git_report_is true refused-ownership
-  not_read_is "$NOT_READ_NO_BASE"
+  not_read_is "$NOT_READ_ALL"
 }
 
 @test "an unusable git reports names unchecked, as an absent one does" {
@@ -1447,6 +1464,8 @@ refuse_for_ownership() {
   [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
   [ "$(jq -r '.featureBranch' <<<"$output")" = "new-work" ]
+  # Feature 050: the override is the one base source notRead never names.
+  not_read_is "$NOT_READ_OVERRIDE"
 
   # The feature-branch checks, on their own: @{-1} is a name git must READ
   # the repository to refuse, so a feature-branch check that still ran on a
@@ -1473,7 +1492,7 @@ refuse_for_ownership() {
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
   git_report_is true no-repository
-  not_read_is "$NOT_READ_NO_BASE"
+  not_read_is "$NOT_READ_ALL"
 }
 
 @test "the capability report names a git that is found but cannot run" {
@@ -1491,16 +1510,14 @@ refuse_for_ownership() {
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
   git_report_is true broken
-  not_read_is "$NOT_READ_NO_BASE"
+  not_read_is "$NOT_READ_ALL"
 }
 
-@test "an unusable git with no base flag names the base fields as not read" {
-  # No base flag, so the base could only come from git, and git read nothing:
-  # baseBranchSource says "current branch" for a checkout nobody consulted.
-  # Two reasons, not four: the base rule reads the base source only, never
-  # gitReason, and the other two reasons reach it through the --base-branch
-  # assertions above.
-  local r="$BATS_TEST_TMPDIR/owned" d="$BATS_TEST_TMPDIR/without-git" tools=""
+@test "an unusable git with no base flag names the base fields, and never a device skip" {
+  # No base flag, so baseBranchSource says "current branch" for a checkout
+  # nobody consulted. The four reason tests above reach the base rule
+  # through --base-branch; this one reaches it through the other source.
+  local r="$BATS_TEST_TMPDIR/owned" d="$BATS_TEST_TMPDIR/no-device"
   git_isolate
   mkdir -p "$r"; ( cd "$r" && git init -q . )
   refuse_for_ownership "$r"
@@ -1510,35 +1527,26 @@ refuse_for_ownership() {
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
   not_read_is "$NOT_READ_ALL"
 
-  # git off the search path, derived from PROBE_TOOLS as the absent test does.
-  for t in $PROBE_TOOLS; do [ "$t" = git ] || tools="$tools $t"; done
-  shimdir "$d" $tools
-  probe --path "$d" --dir "$FIX/other"
+  # The N.5 skip comes from looking for adb, not from git: it is announced
+  # and never named, while the git-derived skips beside it are.
+  shimdir "$d" $PROBE_TOOLS
+  probe --path "$d" --dir "$r" --project-type mobile-android
   [ "$status" -eq 0 ]
-  git_report_is false absent
-  not_read_is "$NOT_READ_ALL"
-}
-
-@test "an override is established without git, so an unusable git does not name it" {
-  local r="$BATS_TEST_TMPDIR/owned"
-  git_isolate
-  mkdir -p "$r"; ( cd "$r" && git init -q . && seed && git branch integration )
-  refuse_for_ownership "$r"
-  probe --dir "$r" --base-branch-override integration
-  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
   git_report_is true refused-ownership
-  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
-  [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
-  not_read_is "$NOT_READ_NO_BASE"
+  jq -e '[.willSkip[].phase] | index("N.5") != null' <<<"$output" > /dev/null \
+    || { echo "precondition: no N.5 skip in $(jq -c .willSkip <<<"$output")"; false; }
+  not_read_is "$NOT_READ_ALL"
 }
 
 @test "a usable git names nothing, even with no remote" {
   # The other direction. With git usable and no remote, the L and M skips ARE
   # announced, and they are true: a remote was looked for. The list must stay
   # empty, or it would mark a read that ran as one that did not.
+  # One commit, so every read succeeds: on an unborn branch the base read
+  # fails under a usable git, which is outside what notRead covers.
   local r="$BATS_TEST_TMPDIR/noremote"
   git_isolate
-  mkdir -p "$r"; ( cd "$r" && git init -q . )
+  mkdir -p "$r"; ( cd "$r" && git init -q . && seed )
   probe --dir "$r"
   [ "$status" -eq 0 ]
   git_report_is true usable

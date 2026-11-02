@@ -21,14 +21,20 @@ placeholder, not a fact: `baseBranch` `""`, `baseBranchSource`
 ## What the probe promises
 
 - `notRead` is present in every report and is always a list.
-- It is `[]` exactly when `capabilities.gitUsable` is `true`.
+- It is `[]` exactly when `capabilities.gitUsable` is `true`. It covers
+  placeholders written because git is not usable here; a read that fails
+  under a usable git (an unborn branch, a damaged index) is outside it.
 - With `capabilities.gitUsable` `false`, it names `remote.kind`, `tree.dirty`
   and each `willSkip.<phase>` entry added because of `remote.kind`; and it
   names `baseBranch` and `baseBranchSource` unless the base came from an
-  override or from configuration, which are established without git.
+  override, which outranks `origin/HEAD` and so is established without
+  git. A configured base is named: it wins only where no `origin/HEAD` is
+  published, and nobody looked.
 - It names nothing else: `remote.ghPresent`, `remote.ghCommand`, every
-  `capabilities` key, `gitReason`, the `tree` run keys and every other
-  `willSkip` entry come from reads that do not need git.
+  `capabilities` key, `gitReason`, the `tree` run keys and the `N.5` skip
+  come from reads that do not need git. Every skip of the remote branch,
+  the `gh`-absent `M` included, is reached only through `remote.kind`, so
+  each is named when `remote.kind` is.
 - Names are dotted paths from the report's root. A `willSkip` entry is
   named by its phase, `willSkip.<phase>`, never by its index.
 - The order is the order the script produces the fields. A consumer should
@@ -37,8 +43,8 @@ placeholder, not a fact: `baseBranch` `""`, `baseBranchSource`
 ## What it does not promise
 
 - A field `notRead` does not name is not thereby checked against the
-  repository: a base branch from configuration is reported as given, and
-  with git not usable it was not compared with any branch.
+  repository: an override is reported as given, and with git not usable it
+  was not compared with any branch, nor checked as a legal branch name.
 - `notRead` does not cover `capabilities.jq`, which is hardcoded `true`
   because the report could not be written without jq.
 

@@ -30,9 +30,12 @@ and `true`.
 The `L` and `M` entries in `willSkip` follow from `remote.kind` and carry the
 same false claim: "no git remote".
 
-With a base branch given by configuration, `baseBranch` and
-`baseBranchSource` (`configured`, or `override`) are real; only the other
-fields are unread.
+With a base branch given by an override, `baseBranch` and
+`baseBranchSource` (`override`) are real; only the other fields are unread.
+A base branch given by configuration is not: the resolution order is the
+override, then `origin/HEAD`, then the configured base, so `configured`
+claims that no `origin/HEAD` was published, and with git not usable nobody
+looked (decided at phase I, Session 2026-11-02).
 
 The issue predates feature 049 (`specs/049-preflight-git-usable/`). 049 added
 `capabilities.gitUsable` (a boolean) and `gitReason` (why git cannot be used).
@@ -58,6 +61,7 @@ exactly that reason ("Known gaps, deferred with cause", third bullet).
 
 - Q: How should the report say which fields were not read? → A: An additive marker list: one new key that names the unread fields; an empty list when git works; no existing key changes (FR-001).
 - Q: Should this run also release the change as pipeline 1.7.4? → A: Yes, release 1.7.4 in this run (FR-010).
+- Q (phase I review): `origin/HEAD` ranks above a configured base and is not read when git is not usable; should `notRead` name a configured base too? → A: Name it; only an override is exempt (FR-001a, FR-003).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -83,10 +87,10 @@ git-derived field is shown, by the report alone, as not read.
 2. **Given** git is found but broken, refuses the repository for ownership,
    or opens no repository, **When** pre-flight runs, **Then** the report marks the
    same fields the same way.
-3. **Given** git cannot be used and a base branch comes from configuration
-   or an override, **When** pre-flight runs, **Then** `baseBranch` and
-   `baseBranchSource` are reported as today, not marked, and the other
-   fields are marked.
+3. **Given** git cannot be used and a base branch comes from an override,
+   **When** pre-flight runs, **Then** `baseBranch` and `baseBranchSource`
+   are reported as today, not marked, and the other fields are marked. A
+   base branch from configuration is marked like one from git.
 
 ---
 
@@ -127,9 +131,11 @@ documentation sentence. Each mutation turns at least one test red.
 
 ### Edge Cases
 
-- **A base branch from configuration or an override.** It was not read
-  from git, so it is real, and it must not be marked as not read. It was
-  also not checked against the repository; the probe block already says so.
+- **A base branch from an override.** It outranks `origin/HEAD`, so it is
+  real without git, and it must not be marked as not read. It was also not
+  checked against the repository; the probe block already says so. A base
+  branch from configuration ranks below `origin/HEAD`, which was not read,
+  so it is marked.
 - **`ghPresent` and `ghCommand`.** They sit inside `remote` but come from
   looking for `gh`, not from git. They stay as they are.
 - **`willSkip` entries `L` and `M`.** They are derived from `remote.kind`.
@@ -149,19 +155,22 @@ documentation sentence. Each mutation turns at least one test red.
 ### Functional Requirements
 
 - **FR-001**: The report MUST carry one new key, a list that names every
-  git-derived field that was not read. The list is empty when
-  `capabilities.gitUsable` is `true`, and its type is a list in every case.
+  git-derived field that holds a placeholder because git is not usable
+  here. The list is empty when `capabilities.gitUsable` is `true`, and its
+  type is a list in every case. A read that fails under a usable git (an
+  unborn branch, a damaged index) is outside this list, as it was outside
+  049's contract.
   It is additive: no existing key changes its name, its type or its
   meaning, so the 013 stdout contract still holds unchanged.
 - **FR-001a**: When `capabilities.gitUsable` is `false`, the list MUST name
   `remote.kind`, `tree.dirty`, and each `willSkip` entry derived from
   `remote.kind`; and it MUST name `baseBranch` and `baseBranchSource` exactly
-  when the base branch did not come from configuration or an override. It
-  names nothing else.
+  when the base branch did not come from an override. It names nothing
+  else.
 - **FR-002**: When `capabilities.gitUsable` is `true`, every key the report
   carries today MUST keep its value and its type.
-- **FR-003**: A base branch that came from configuration or an override
-  MUST NOT be reported as unread.
+- **FR-003**: A base branch that came from an override MUST NOT be
+  reported as unread; one that came from configuration MUST be.
 - **FR-004**: `remote.ghPresent`, `remote.ghCommand`, every `capabilities`
   key, `gitReason` and `tree.runsLive`, `tree.liveRuns` and
   `tree.unreadableRuns` MUST NOT change for this feature.
@@ -193,8 +202,8 @@ documentation sentence. Each mutation turns at least one test red.
 
 - **The pre-flight report**: the JSON document `preflight.sh` prints.
 - **A git-derived field**: a field whose value comes from a git read:
-  `baseBranch` and `baseBranchSource` when their source is neither
-  `override` nor `configured`, `remote.kind`, `tree.dirty`, and the `willSkip`
+  `baseBranch` and `baseBranchSource` when their source is not
+  `override`, `remote.kind`, `tree.dirty`, and the `willSkip`
   entries derived from `remote.kind`.
 
 ## Success Criteria *(mandatory)*

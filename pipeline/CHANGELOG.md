@@ -18,15 +18,19 @@ All notable changes to the `pipeline` plugin.
   nobody examined, and `baseBranch` was empty. The report now carries
   `notRead`, a list naming each such field, plus the `willSkip` entries
   that follow from the remote (`willSkip.L`, `willSkip.M`). It is `[]`
-  whenever `capabilities.gitUsable` is `true`. A base branch from
-  configuration or an override is never named, since it is established
-  without git. No existing key changes its name, type or meaning.
+  whenever `capabilities.gitUsable` is `true`; a read that fails under a
+  usable git is not covered. A base branch from configuration is named
+  too, since `origin/HEAD` ranks above it and was not read; only an
+  override is never named. No existing key changes its name, type or
+  meaning.
   Documented in `docs/configuration.md`, "Fields the report did not read".
 - **The probe block marks exactly what `notRead` names.** The rule in
   `docs/rare-paths.md`, "The probe block without git", reads the list
   instead of working out from `baseBranchSource` which lines are unread,
-  so that rule now lives in `preflight.sh` alone. This closes the gap
-  feature 013 deferred and issue #36 named.
+  so that rule now lives in `preflight.sh` alone. A configured base is
+  still printed, marked not confirmed; before, it was printed as
+  established. A report without `notRead` is printed as not read. This
+  closes the gap feature 013 deferred and issue #36 named.
 
 ## [1.7.3] - 2026-11-02
 

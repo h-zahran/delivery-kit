@@ -99,3 +99,70 @@ The tree before the change times out as well, so the timeout is the
 test's own margin under load, not this release: the test plants about
 600 KB into the changelog copy, and this entry adds 26 lines. Not fixed
 here; the full suite in phase J is the verdict.
+
+## Phase I: the review round's fixes, and their mutants
+
+The owner answered the round's one question: a configured base is named
+too, since `origin/HEAD` ranks above it and was not read; only an override
+is exempt. With that and the round's other fixes — the guard moved inside
+`mark_not_read`, the list kept as a string and split once by the final jq
+(no process per name), every remote-branch skip through `add_git_skip` —
+`preflight.bats` is plan `1..111`, 111 ok (the separate override test was
+folded into "an unusable git reports names unchecked") and `prose.bats`
+plan `1..96`, 96 ok. Quickstart steps 1-3 print `[]`, the six-name list
+(no base flag), and the four-name list (`--base-branch-override`).
+
+Script mutants, in the worktree as before (mutants a, b, d, e and f of the
+first table target code that no longer exists in that form):
+
+| Mutant | Change | ok of 111 | Tests that went red |
+|---|---|---|---|
+| a2 | `mark_not_read` loses its guard | 108 | remote classification; tree reports dirty; usable git names nothing |
+| e2 | the final jq emits the string, not the split list | 101 | every test that reads `notRead` |
+| c2 | `configured` exempt again | 106 | the five `--base-branch` reason tests |
+| m8 | `remote.kind` marked under a usable git when a remote exists | 110 | remote classification |
+| m11 | `tree.dirty` marked under a usable git when the tree is dirty | 110 | tree reports dirty |
+| m9 | the base marked except for `broken` and `no-repository` | 109 | no repository; found but cannot run |
+| n5 | the `N.5` skip routed through `add_git_skip` | 110 | no base flag, and never a device skip |
+
+m8, m11, m9 and n5 are the tests lens's survivors (its M8, M11, M9 and the
+N.5 gap the contract lens named); each now goes red.
+
+Prose mutants, in a second worktree; each edit is checked to match once,
+and both pages are restored and compared byte for byte afterwards:
+
+| Mutant | Change | Red, with its message |
+|---|---|---|
+| P1b | configuration.md: a reversal appended to a sentence | the notRead list is documented ("section changed") |
+| P5 | configuration.md: "holds a placeholder, not a fact" reworded | the same |
+| P7 | configuration.md: `willSkip.<phase>` to `willSkip[<n>]` | the same |
+| P8 | rare-paths: the configured "not confirmed" sentence deleted | the git stop is pinned ("no longer marks a configured base as not confirmed"); the rare-paths section span |
+| P9 | rare-paths: the no-`notRead` sentence deleted | the git stop is pinned ("no longer fails closed"); the span |
+| P10 | rare-paths: a reworded `baseBranchSource` rule added | the git stop is pinned ("derives unread fields from baseBranchSource again") |
+| P11 | rare-paths: "IS established" weakened for the override | the git stop is pinned ("override carve-out was removed"); the trailer rules pin |
+
+Each pin was shown red on its own: the message names the pin that failed.
+
+## Phase I: the recheck of the fixes
+
+The `bugs` lens read the diff from `1078930` to the tree once more and
+named eight things. Fixed: the configured-base rule in rare-paths gave two
+instructions at once (it now keys on whether this run passed `--base-branch`,
+which the orchestrator knows without reading a placeholder); the
+configuration.md opening still said "ran and failed" before narrowing it;
+the absent reason had lost its no-base-flag probe; the contract did not
+say why the `gh`-absent skip is named; two over-long lines. Deferred: an
+unborn branch under a usable git reports `baseBranch: "HEAD"` with an empty
+`notRead` — the base read prints `HEAD` and fails, and `|| true` keeps the
+output. It predates this feature and is outside a list scoped to an
+unusable git; configuration.md now names it, and it goes to the pull
+request as a follow-up. Declined: copying the configuration.md section into
+the test whole costs an edit per wording change; that is the price of
+catching an appended reversal, which the tests lens showed the phrase pins
+missed (P4).
+
+After the fixes: `preflight.bats` and `prose.bats` together, plan
+`1..207`, 207 ok. The new absent probe, under a mutant that marks the base
+for `configured` only (`  configured) mark_not_read baseBranch; …`), went
+red at its own `not_read_is`, printing `missing ["baseBranch",
+"baseBranchSource"], extra []`.
