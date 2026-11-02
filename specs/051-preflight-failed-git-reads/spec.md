@@ -53,6 +53,8 @@ is published, which the resolution order already treats as an answer.
 
 - Q: When pre-flight cannot read the base branch or the tree status under a usable git, what should it do? → A: Stop, naming the read: no commit yet, a detached `HEAD`, or a status read that failed; `notRead` stays as feature 050 made it (FR-001 to FR-003).
 - Q: Should this run also release the change as pipeline 1.7.5? → A: Yes, release 1.7.5 in this run (FR-009).
+- Q (phase I review): a base branch name read from the repository is never checked before B types it into commands; how far should this run go? → A: Check every source: `origin/HEAD`, the `baseBranch` key and the current branch get the override's check (FR-010). Whether such a base exists with a commit is left to a follow-up issue.
+- Phase I review: "pass a base branch" fixes a branch with no commit only when another branch has a commit (an orphan branch in a repository with history); in a repository with no commit an override is refused, since it must already be a local branch. So that stop asks for a first commit, or a base branch that has one (FR-001). A `HEAD` naming a branch git cannot read is not a detached `HEAD`, and stops with its own message (FR-002).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -75,8 +77,8 @@ It exits non-zero, prints no report, and its message names the case.
 
 1. **Given** a repository with no commit yet, no `origin` and no base flag,
    **When** pre-flight runs, **Then** it stops, and its message says the
-   branch has no commit yet and names the fix (make a first commit, or pass
-   a base branch).
+   branch has no commit yet and names the fix: make a first commit, or
+   pass a base branch that has one.
 2. **Given** a detached `HEAD` with no `origin` and no base flag, **When**
    pre-flight runs, **Then** it stops, and its message says `HEAD` is
    detached and names the fix (check out a branch, or pass a base branch).
@@ -177,8 +179,8 @@ documentation sentence. Each mutation turns at least one test red.
 - **FR-001**: With a usable git, when the base branch comes from the
   current checkout and that checkout is on a branch with no commit yet,
   pre-flight MUST stop: a message on stderr that says so and names the fix
-  (make a first commit, or pass a base branch), a non-zero exit, and no
-  report on stdout. "Pass a base branch" means the run's `--base-branch`
+  (make a first commit, or pass a base branch that has one), a non-zero
+  exit, and no report on stdout. "Pass a base branch" means the run's `--base-branch`
   flag or the `baseBranch` configuration key, which reach the script as
   `--base-branch-override` and `--base-branch`.
 - **FR-002**: With a usable git, when the base branch comes from the
@@ -186,14 +188,19 @@ documentation sentence. Each mutation turns at least one test red.
   way, with a message that says `HEAD` is detached and names the fix
   (check out a branch, or pass a base branch). The read that tells these
   states apart MUST NOT be an exit-status check of `git rev-parse
-  --abbrev-ref HEAD`, which exits 0 on a detached `HEAD`.
+  --abbrev-ref HEAD`, which exits 0 on a detached `HEAD`. A `HEAD` that
+  names a branch git cannot read MUST stop with its own message, not the
+  detached one. (Phase I.)
 - **FR-002a**: With a usable git, when the working tree's status read
   fails, pre-flight MUST stop the same way, with a message that says the
   working tree's status could not be read. It MUST NOT report
   `tree.dirty: false` for it.
-- **FR-002b**: No stop message MAY print git's own error text, a path
-  outside the repository, or a value from the repository's configuration:
-  it names the case and the fix.
+- **FR-002b**: No message of the stops in FR-001, FR-002 and FR-002a MAY
+  print git's own error text, a path outside the repository, or a value
+  from the repository's configuration: it names the case and the fix. (The
+  FR-010 stop prints the refused name as the override's refusal does: cut
+  at 200 bytes, each byte that is not printable ASCII shown as `?`. The
+  report printed that name in full before, so nothing is widened.)
 - **FR-002c**: `notRead` MUST keep feature 050's contract unchanged: it is
   `[]` whenever `capabilities.gitUsable` is `true`.
 - **FR-003**: A failed `git remote get-url origin` and a missing
@@ -221,6 +228,12 @@ documentation sentence. Each mutation turns at least one test red.
   pipeline entry's version in `.claude-plugin/marketplace.json`, with
   `scripts/check-versions.sh` passing. The release is its own piece, after
   the change and its tests.
+- **FR-010**: With a usable git, a base branch from `origin/HEAD`, the
+  `baseBranch` key or the current branch MUST pass the check an override
+  passes (git's legal-name rule, the name printed back unchanged, and only
+  letters, digits, `.`, `_`, `-` and `/`); a name that fails it MUST stop
+  pre-flight, naming the source. With git not usable nothing is checked,
+  as for an override. (Phase I.)
 
 ### Key Entities
 

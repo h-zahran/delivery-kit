@@ -72,7 +72,7 @@ at each copy with `PREFLIGHT_UNDER_TEST`.
 | a. drop the detached stop | `\|\| : "HEAD is detached, …"` | `a detached HEAD stops pre-flight` |
 | b. drop the no-commit stop | `\|\| : "the current branch has no commit yet, …"` | `a branch with no commit yet stops pre-flight` |
 | c. drop the status stop | `: "the working tree's status could not be read, …"` | `a working tree whose status cannot be read stops pre-flight` |
-| d. the old read put back | `base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"` | both base-branch stop tests |
+| d. the old read put back (without its `\|\| true`; the phase I review ran the exact old line, with the same reds) | `base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"` | both base-branch stop tests |
 | e. the base read without its `gitUsable` guard | `if true; then` | `the capability report names git absent, …`; `an unusable git with no base flag names the base fields, …` |
 | f. the status stop without its `gitUsable` guard | `elif true; then` | eight: the seven unusable-git report tests, from `the capability report names git absent, …` to `an unusable git with no base flag names the base fields, …`, and `without git, the override and the feature branch are reported unchecked` |
 
@@ -88,3 +88,56 @@ sentence deleted from `configuration.md` (the line after the cut shown to
 read `whenever \`capabilities.gitUsable\` is \`true\`. The placeholders
 are …`): `the report's notRead list is documented where a reader of the
 report finds it` went red.
+
+## Phase I: the review round's fixes
+
+Same machine and versions, base `18c4cd6`, the fixes uncommitted. What
+changed, from the first pass and from the bugs lens's re-read of the fixes:
+
+- the no-commit stop asks for a first commit, or a base branch that has
+  one (an override works there only when another branch has a commit);
+- a `HEAD` naming a branch git cannot read (`symbolic-ref` exits 128, not
+  1) stops with its own message, not the detached one;
+- the status stop says `git status` failed and no longer guesses at work
+  in the tree, and its read runs only with a usable git;
+- a base from `origin/HEAD`, the `baseBranch` key or the current branch
+  (any source but the override, by a `*)` arm) gets the override's name
+  check, and the refusal names the source and the fix (FR-010);
+- the stop tests compare the whole message; the detached test gains a
+  base-flag probe, `not_read_is '[]'` and the unreadable-branch case; a
+  test pins FR-010; a prose test pins the "Base branch" sentences.
+
+Results: `pipeline/tests/preflight.bats` plan `1..115`, 115 ok, in the
+main checkout and in a detached worktree; `pipeline/tests/prose.bats` plan
+`1..97`, 97 ok.
+
+Mutants on the final shape, in a detached worktree (`mutate3.py`: one
+site each, NO-OP refused, exits non-zero if any mutant cannot be made,
+mutated line printed, every copy checked to exist and pass `bash -n`
+before the suite runs). An earlier rig run is not counted: its edit
+failed, no mutant file existed, and every test went red for that reason
+alone ("no script at"); this run's outputs hold no such line.
+
+| Mutant | Mutated line | Red |
+|---|---|---|
+| a. drop the detached stop | `1) : "HEAD is detached, …"` | the detached test |
+| b. drop the no-commit stop | `\|\| : "the current branch has no commit yet, …"` | the no-commit test |
+| c. drop the status stop | `\|\| : "the working tree's status could not be read: …"` | the status test |
+| d. the exact old read put back | `base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null \|\| true)"` | the detached test (on a branch with no commit the `rev-parse --verify` stop still fires, with its own message) |
+| e. the base read without its `gitUsable` guard | `if true; then` | `the capability report names git absent, …`; `an unusable git with no base flag …` |
+| f. the status read without its `gitUsable` guard | `if true; then` | the seven unusable-git report tests and `without git, the override and the feature branch are reported unchecked` |
+| g. no name check for `origin/HEAD` | `origin/HEAD) : "$base" …` | `a name from the repository gets the override's check, from every source` |
+| h. no name check for the `baseBranch` key | `configured) : "$base" …` | the same test |
+| i. no name check for the current branch (the `*)` arm) | `*) : "$base" …` | the same test |
+| j. the name check without its `gitUsable` guard | `if true; then` | `the capability report names git absent, …`; `… a git that is found but cannot run`; `an unusable git with no base flag …` |
+| k. git's text let out of the detached read | `base="$(git symbolic-ref --short HEAD)"` | the detached test |
+| l. git's text let out of the no-commit read | `git rev-parse --verify HEAD >/dev/null` | the no-commit test |
+| m. drop the unreadable-branch stop | `*) : "HEAD names a branch git cannot read, …"` | the detached test |
+
+k and l survived the T009 tests; the whole-message compares now kill them.
+No mutant was NO-OP.
+
+Prose, in a detached worktree with the final page and suite: the "Base
+branch" test passed unmutated; deleting the "A base branch read from the
+repository …" sentence, and dropping ", or a base branch that has one",
+each turned it red.

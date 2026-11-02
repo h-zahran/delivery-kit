@@ -1670,17 +1670,29 @@ ROWS
 
 @test "the report's notRead list is documented where a reader of the report finds it" {
   # Feature 050, FR-006. configuration.md ships with the plugin; the
-  # contract in specs/ does not. Feature 051, FR-006: a read that fails
-  # under a usable git stops pre-flight, and the section says so. The section is compared WHOLE, as the
+  # contract in specs/ does not. The section is compared WHOLE, as the
   # rare-paths sections are: a sentence appended, dropped or reworded goes
   # red, so a reversal cannot be added beside a pinned phrase.
+  # Feature 051, FR-006: a read that fails under a usable git stops
+  # pre-flight, and the section says so.
   local sec want
   sec="$(doc_section "$ROOT/pipeline/docs/configuration.md" 'Fields the report did not read')" || return 1
   want="$(cat <<'SECTION'
-`preflight.sh`'s report carries `notRead`, a list naming each field that holds a placeholder, not a fact, because git is not usable here, so its git read did not run or could not succeed. The list is therefore `[]` whenever `capabilities.gitUsable` is `true`. A read that fails under a usable git is never a placeholder in the list: pre-flight stops instead and says why, when the base branch comes from the current checkout and that checkout is a detached `HEAD` or a branch with no commit yet, and whenever the working tree's status cannot be read. The placeholders are `baseBranch` (empty, or a configured name nobody confirmed), `baseBranchSource` (`current branch` for a checkout nobody read), `remote.kind` (`none` for a remote nobody looked for), `tree.dirty` (`false` for a tree nobody examined), and the `willSkip` entries that follow from the remote. A base branch from configuration is named too: it is the fallback for a repository that publishes no `origin/HEAD`, and without git nobody looked. Only an override, which outranks `origin/HEAD`, is never named; with git not usable it is still not checked against the repository, nor whether git would take it as a branch name. Names are dotted paths from the report's root, and a skip is named by its phase, as `willSkip.<phase>`. The order is the order the script produces the fields: a consumer tests membership, not position.
+`preflight.sh`'s report carries `notRead`, a list naming each field that holds a placeholder, not a fact, because git is not usable here, so its git read did not run or could not succeed. The list is therefore `[]` whenever `capabilities.gitUsable` is `true`. A read that fails under a usable git is never a placeholder in the list: pre-flight stops instead and says why, when the base branch comes from the current checkout and that checkout is a detached `HEAD` or a branch with no commit yet, and whenever `git status` fails. The placeholders are `baseBranch` (empty, or a configured name nobody confirmed), `baseBranchSource` (`current branch` for a checkout nobody read), `remote.kind` (`none` for a remote nobody looked for), `tree.dirty` (`false` for a tree nobody examined), and the `willSkip` entries that follow from the remote. A base branch from configuration is named too: it is the fallback for a repository that publishes no `origin/HEAD`, and without git nobody looked. Only an override, which outranks `origin/HEAD`, is never named; with git not usable it is still not checked against the repository, nor whether git would take it as a branch name. Names are dotted paths from the report's root, and a skip is named by its phase, as `willSkip.<phase>`. The order is the order the script produces the fields: a consumer tests membership, not position.
 SECTION
 )"
   [ "$sec" = "$want" ] || { echo "configuration.md section \"Fields the report did not read\" changed:"; echo "$sec"; false; }
+}
+
+@test "configuration.md's Base branch section says when the current branch serves, and that every repository name is checked" {
+  # Feature 051, FR-006 and FR-010. A reader choosing a base reads this
+  # section, not the notRead one, so its two sentences are pinned here.
+  local sec
+  sec="$(doc_section "$ROOT/pipeline/docs/configuration.md" 'Base branch')" || return 1
+  [[ $sec == *'The current branch serves only when it names a branch with a commit: on a detached `HEAD` pre-flight stops and asks for a branch to be checked out or a base branch to be passed, and on a branch with no commit yet it stops and asks for a first commit, or a base branch that has one'* ]] \
+    || { echo 'Base branch no longer says when the current branch serves'; false; }
+  [[ $sec == *'A base branch read from the repository, from `origin/HEAD`, this key or the current branch, gets the override'"'"'s name check below, and a name that fails it stops pre-flight.'* ]] \
+    || { echo 'Base branch no longer says a name read from the repository is checked'; false; }
 }
 
 # ---------------------------------------------------------------------------

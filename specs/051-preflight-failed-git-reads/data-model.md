@@ -10,7 +10,9 @@ paths.
 | override, `origin/HEAD` or configured | any | succeeds | report, as today |
 | current branch | a branch with a commit | succeeds | report, as today |
 | current branch | detached `HEAD` | (not reached) | stop: detached |
+| current branch | `HEAD` names a branch git cannot read | (not reached) | stop: unreadable branch |
 | current branch | a branch with no commit yet | (not reached) | stop: no commit yet |
+| origin/HEAD, configured or current branch | the name fails the override's check | (not reached) | stop: the override's refusal, naming the source |
 | any that reached the status read | — | fails | stop: status not read |
 
 A stop prints one `preflight: …` line on stderr, exits 1, and prints
