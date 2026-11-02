@@ -2,6 +2,32 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.7.4] - 2026-11-02
+
+### Highlights
+
+- The pre-flight report says which of its fields git never read, instead
+  of stating them as fact when git cannot be used.
+
+### Added
+
+- **The report names the fields it did not read.** With git absent or not
+  usable, four fields still read as established: `baseBranchSource` said
+  `current branch` for a checkout nobody read, `remote.kind` said `none`
+  for a remote nobody looked for, `tree.dirty` said `false` for a tree
+  nobody examined, and `baseBranch` was empty. The report now carries
+  `notRead`, a list naming each such field, plus the `willSkip` entries
+  that follow from the remote (`willSkip.L`, `willSkip.M`). It is `[]`
+  whenever `capabilities.gitUsable` is `true`. A base branch from
+  configuration or an override is never named, since it is established
+  without git. No existing key changes its name, type or meaning.
+  Documented in `docs/configuration.md`, "Fields the report did not read".
+- **The probe block marks exactly what `notRead` names.** The rule in
+  `docs/rare-paths.md`, "The probe block without git", reads the list
+  instead of working out from `baseBranchSource` which lines are unread,
+  so that rule now lives in `preflight.sh` alone. This closes the gap
+  feature 013 deferred and issue #36 named.
+
 ## [1.7.3] - 2026-11-02
 
 ### Highlights

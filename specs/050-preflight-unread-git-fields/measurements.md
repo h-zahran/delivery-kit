@@ -77,3 +77,25 @@ count shows it landed, and the copy is restored and compared byte for byte.
 
 A first P2 run passed `--filter` patterns that matched no test and printed
 `1..0`: zero tests, not a pass. It was rerun with the tests' real names.
+
+## T015: the root suite, and one timeout
+
+`bash scripts/check-versions.sh`: rc 0, `pipeline: plugin=1.7.4
+marketplace=1.7.4 changelog=1.7.4 state=released`.
+
+`bash "$HOME/bats/bin/bats" tests`: plan `1..140`, 139 ok. The one red was
+"--released refuses a byte or a line it cannot judge" in `tests/gate.bats`,
+`# timeout after 60s`. Run alone it passed in 53 s. Timed alternately, the
+tree before this piece (the worktree, CHANGELOG unchanged) and this tree:
+
+| Run | Tree | rc | Seconds |
+|---|---|---|---|
+| 1 | before | 1 (timeout) | 62.3 |
+| 2 | this | 0 | 61.1 |
+| 3 | before | 0 | 59.5 |
+| 4 | this | 0 | 50.5 |
+
+The tree before the change times out as well, so the timeout is the
+test's own margin under load, not this release: the test plants about
+600 KB into the changelog copy, and this entry adds 26 lines. Not fixed
+here; the full suite in phase J is the verdict.
