@@ -1652,6 +1652,30 @@ ROWS
     || { echo 'the not-read rule lost its precision carve-out and may over-mark again'; false; }
   [[ $notread == *'the name came from a configuration file and IS established'* ]] \
     || { echo 'the configured-base-branch carve-out was removed from the not-read rule'; false; }
+  # Feature 050: the block marks what the report's notRead list names, so
+  # the rule of which fields are unread lives in preflight.sh alone. A
+  # mutant that brings back a rule keyed on baseBranchSource, or that lets
+  # the block mark more than the list, goes red here.
+  [[ $notread == *'The report'"'"'s `notRead` list names them: mark what it names and nothing else.'* ]] \
+    || { echo 'the not-read rule no longer marks exactly what notRead names'; false; }
+  [[ $notread != *'when `baseBranchSource` is'* ]] \
+    || { echo 'the not-read rule derives unread fields from baseBranchSource again, beside the script'; false; }
+}
+
+@test "the report's notRead list is documented where a reader of the report finds it" {
+  # Feature 050, FR-006. configuration.md ships with the plugin; the
+  # contract in specs/ does not. Pinned through the two clauses a consumer
+  # acts on: the empty list with a usable git, and the base-branch carve-out.
+  local docs sec
+  docs="$ROOT/pipeline/docs/configuration.md"
+  sec="$(tr -d '\r' < "$docs" | awk '$0 == "## Fields the report did not read" { on = 1; next } on && /^## / { exit } on' | prose_flat)"
+  [[ $sec == *[![:space:]]* ]] || { echo 'configuration.md has no section "Fields the report did not read"'; false; }
+  [[ $sec == *'The list is `[]` whenever `capabilities.gitUsable` is `true`.'* ]] \
+    || { echo 'configuration.md no longer says notRead is empty with a usable git'; false; }
+  [[ $sec == *'A base branch from configuration or an override is never named, since it is established without git;'* ]] \
+    || { echo 'configuration.md lost the base-branch carve-out for notRead'; false; }
+  [[ $sec == *'a consumer tests membership, not position.'* ]] \
+    || { echo 'configuration.md no longer tells a consumer not to rely on the order'; false; }
 }
 
 # ---------------------------------------------------------------------------
@@ -2892,7 +2916,7 @@ PINS
 rare_spans() {
   cat <<'SPANS'
 ## The probe block without git
-When `capabilities.gitUsable` is false, mark the parts of that block that came from git reads which did not run, or ran and failed — and only those parts. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or `current branch` — print `— not read: git is not usable here (<gitReason>)`. When the source is `configured` the name came from a configuration file and IS established: print it, and add that it was not checked against the repository. The same for `override`, with its layer named. - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: print the entries that do not depend on git — an `N.5` entry comes from looking for a device tool and stands. Mark the `L` and `M` entries as not established: `no git remote` reads as though a remote had been looked for and not found, and no git that works here ever looked.
+When `capabilities.gitUsable` is false, mark the parts of that block that came from git reads which did not run, or ran and failed — and only those parts. The report's `notRead` list names them: mark what it names and nothing else. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: when `notRead` names `baseBranch`, print `— not read: git is not usable here (<gitReason>)`. When it does not, the name came from a configuration file and IS established: print it, and add that it was not checked against the repository. The same for `override`, with its layer named. - `Remote`: when `notRead` names `remote.kind`, print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: mark as not established each entry `notRead` names as `willSkip.<phase>`: `no git remote` reads as though a remote had been looked for and not found, and no git that works here ever looked. Print every other entry as it stands — an `N.5` entry comes from looking for a device tool.
 ## An orphaned constitution write
 An accepted write orphaned before B exists (the session dies at pre-flight) leaves dirt no artefact claims; the next run's item 5 rightly stops there, and clearing it is the owner's call — the offer buys no exception to the dirty-tree gate.
 ## An illegal implementer value

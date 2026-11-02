@@ -16,23 +16,24 @@ that never bend and the red flags stay in the skill.
 
 When `capabilities.gitUsable` is false, mark the parts of that block that
 came from git reads which did not run, or ran and failed — and only those
-parts. This block is the FIRST
-thing the operator reads, so suppressing a wrong cause lower down is not enough;
-it has to not be printed here. But over-marking is its own lie, so be exact:
+parts. The report's `notRead` list names them: mark what it names and
+nothing else. This block is the FIRST thing the operator reads, so
+suppressing a wrong cause lower down is not enough; it has to not be
+printed here. But over-marking is its own lie, so be exact:
 
-- `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
-  `current branch` — print
-  `— not read: git is not usable here (<gitReason>)`. When the source is
-  `configured` the name came from a configuration file and IS established:
-  print it, and add that it was not checked against the repository. The same
-  for `override`, with its layer named.
-- `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent`
-  on the same line is not: it comes from looking for `gh` and is unaffected.
-  Keep it.
-- `Will skip`: print the entries that do not depend on git — an `N.5` entry
-  comes from looking for a device tool and stands. Mark the `L` and `M`
-  entries as not established: `no git remote` reads as though a remote had
-  been looked for and not found, and no git that works here ever looked.
+- `Base branch`: when `notRead` names `baseBranch`, print
+  `— not read: git is not usable here (<gitReason>)`. When it does not,
+  the name came from a configuration file and IS established: print it,
+  and add that it was not checked against the repository. The same for
+  `override`, with its layer named.
+- `Remote`: when `notRead` names `remote.kind`, print it as not read.
+  `ghPresent` on the same line is not: it comes from looking for `gh` and
+  is unaffected. Keep it.
+- `Will skip`: mark as not established each entry `notRead` names as
+  `willSkip.<phase>`: `no git remote` reads as though a remote had been
+  looked for and not found, and no git that works here ever looked. Print
+  every other entry as it stands — an `N.5` entry comes from looking for a
+  device tool.
 
 ## An orphaned constitution write
 

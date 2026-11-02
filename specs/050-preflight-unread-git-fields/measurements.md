@@ -57,3 +57,23 @@ Every new or extended test went red under at least one mutant. Mutant d,
 the over-marking direction, is caught only by "a usable git names nothing,
 even with no remote": that test is the one positive control for the
 direction a red-only sweep would miss.
+
+## T012: the doc pins, and their mutants
+
+`bash "$HOME/bats/bin/bats" pipeline/tests/prose.bats`: plan `1..96`, 96 ok.
+The first draft of the rare-paths rewrite merged the override clause into
+the configuration clause; "the trailer rules the operator reads are pinned
+whole" went red on it, since it pins that clause verbatim. The old wording
+of that clause was kept, and the existing carve-out pin is unchanged.
+
+Run in the same worktree; each mutant edits the worktree's copy, the line
+count shows it landed, and the copy is restored and compared byte for byte.
+
+| Mutant | Change | Tests that went red |
+|---|---|---|
+| P1 | delete `## Fields the report did not read` from configuration.md | the report's notRead list is documented where a reader of the report finds it |
+| P2 | rare-paths: drop the `notRead` sentence and restore the `baseBranchSource`-keyed base rule | the git stop is pinned in both surfaces a reader meets it in ("no longer marks exactly what notRead names"); each rare-paths section is exactly the skill's text, moved word for word |
+| P3 | rare-paths: restore only the `baseBranchSource`-keyed base rule | the git stop is pinned in both surfaces a reader meets it in ("derives unread fields from baseBranchSource again") |
+
+A first P2 run passed `--filter` patterns that matched no test and printed
+`1..0`: zero tests, not a pass. It was rerun with the tests' real names.
