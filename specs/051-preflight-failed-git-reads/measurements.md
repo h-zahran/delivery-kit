@@ -79,3 +79,12 @@ at each copy with `PREFLIGHT_UNDER_TEST`.
 Every new test went red under at least one mutant: the no-commit test
 under b and d, the detached test under a and d, the status test under c.
 No mutant was NO-OP.
+
+## T011: the documentation pin
+
+`pipeline/tests/prose.bats` with T010's text: plan `1..96`, 96 ok. In a
+detached worktree with the changed page and suite copied in, T010's
+sentence deleted from `configuration.md` (the line after the cut shown to
+read `whenever \`capabilities.gitUsable\` is \`true\`. The placeholders
+are …`): `the report's notRead list is documented where a reader of the
+report finds it` went red.
