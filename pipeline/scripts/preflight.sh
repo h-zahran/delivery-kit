@@ -433,25 +433,25 @@ elif [ -n "$base_configured" ]; then
 else
   base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"; base_source="current branch"
 fi
-# notRead names each field of this report whose value came from a git read
-# that did not run, or ran and failed: such a field holds a placeholder, not
-# a fact (specs/050-preflight-unread-git-fields/contracts/not-read.md). It is
-# built here, where each field is produced, and never from a second list of
-# field names, so no list can drift from the fields (Principles IV and V).
-# The base fields are unread unless their source is one the flags set
-# without git: a base source added later from a git read is unread by
-# default, which is the direction that cannot lie. With a usable git the
-# list stays [].
-not_read='[]'
+# notRead names each field of this report that holds a placeholder, not a
+# fact, because git is not usable here: its git read did not run, or ran and
+# failed (docs/configuration.md, "Fields the report did not read"). Each
+# field marks itself where it is produced, so no second list of field names
+# exists to drift from the fields (Principles IV and V). The guard lives in
+# mark_not_read alone, so with a usable git the list is [] by construction.
+# Names are fixed words without spaces, kept as one space-separated string:
+# the final jq splits it, and no name costs a process.
+not_read=''
 mark_not_read() {
-  not_read="$(jq -n --argjson a "$not_read" --arg n "$1" '$a + [$n]')"
+  [ "$git_usable" = true ] || not_read="$not_read $1"
 }
-if [ "$git_usable" != true ]; then
-  case "$base_source" in
-    override|configured) ;;
-    *) mark_not_read baseBranch; mark_not_read baseBranchSource ;;
-  esac
-fi
+# Only an override outranks origin/HEAD. A configured base is the fallback
+# for a repository that publishes no origin/HEAD, and without git nobody
+# looked, so it is a placeholder too; so is any base source added later.
+case "$base_source" in
+  override) ;;
+  *) mark_not_read baseBranch; mark_not_read baseBranchSource ;;
+esac
 # B cuts the feature branch FROM the base. A feature branch with the base's
 # own name is a run that commits straight onto its integration branch, and
 # so is one that names it in another letter case, or as origin/<base>,
@@ -475,7 +475,7 @@ remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
   case "$url" in *github.com*) remote="github" ;; *) remote="other" ;; esac
 fi
-[ "$git_usable" = true ] || mark_not_read remote.kind
+mark_not_read remote.kind
 # gh is probed under three names, first found wins, and the name is reported:
 # a Windows package manager can install it as gh.cmd alone, which a bare `gh`
 # lookup never finds, so probing one name read a working gh as absent.
@@ -487,7 +487,7 @@ adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 
 dirty=false
 [ -n "$(git status --porcelain 2>/dev/null || true)" ] && dirty=true
-[ "$git_usable" = true ] || mark_not_read tree.dirty
+mark_not_read tree.dirty
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it
 # (an abandoned value other than null or false): the rule progress.sh's
 # RUN_END_JQ states, copied below because this script cannot source that
@@ -523,10 +523,12 @@ add_skip() {
   skips="$(jq -n --argjson s "$skips" --arg p "$1" --arg r "$2" '$s + [{phase: $p, reason: $r}]')"
 }
 # add_git_skip — a skip that follows from remote.kind, a git read: when that
-# read did not run, the skip's reason is not established either.
+# read is a placeholder, so is the skip's reason. Every skip of the remote
+# branch takes it, the gh one included, since that branch is reached only
+# through remote.kind.
 add_git_skip() {
   add_skip "$1" "$2"
-  [ "$git_usable" = true ] || mark_not_read "willSkip.$1"
+  mark_not_read "willSkip.$1"
 }
 if [ "$ptype" = "mobile-android" ] && [ "$adb_present" = false ]; then
   add_skip "N.5" "no adb on PATH — the device strategy cannot run"
@@ -537,7 +539,7 @@ if [ "$remote" = "none" ]; then
 elif [ "$remote" != "github" ]; then
   add_git_skip "M" "the remote is not GitHub — review needs a GitHub pull request"
 elif [ "$gh_present" = false ]; then
-  add_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
+  add_git_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
 fi
 
 jq -n \
@@ -552,7 +554,7 @@ jq -n \
   --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
   --argjson adb "$adb_present" \
   --argjson git "$git_present" --argjson git_usable "$git_usable" \
-  --arg git_reason "$git_reason" --argjson not_read "$not_read" \
+  --arg git_reason "$git_reason" --arg not_read "$not_read" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
   --argjson live_runs "$live_runs" --argjson unreadable_runs "$unreadable_runs" \
   --argjson skips "$skips" '{
@@ -568,7 +570,7 @@ jq -n \
   remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
   capabilities: { jq: true, git: $git, gitUsable: $git_usable, gh: $gh, adb: $adb },
   gitReason: $git_reason,
-  notRead: $not_read,
+  notRead: ($not_read | split(" ") | map(select(length > 0))),
   willSkip: $skips,
   tree: { dirty: $dirty, runsLive: $runs_live, liveRuns: $live_runs, unreadableRuns: $unreadable_runs }
 }'

@@ -20,12 +20,12 @@ GIT_CONFIG_GLOBAL="$q/gitconfig" GIT_CONFIG_NOSYSTEM=1 GIT_TEST_ASSUME_DIFFERENT
 
 Expect: `["baseBranch","baseBranchSource","remote.kind","tree.dirty","willSkip.L","willSkip.M"]`.
 
-## 3. Refused for ownership, base from configuration
+## 3. Refused for ownership, base from an override
 
 ```bash
 q=$(mktemp -d); git init -q "$q/repo"; : > "$q/gitconfig"
 GIT_CONFIG_GLOBAL="$q/gitconfig" GIT_CONFIG_NOSYSTEM=1 GIT_TEST_ASSUME_DIFFERENT_OWNER=1 \
-  bash pipeline/scripts/preflight.sh --dir "$q/repo" --base-branch main | jq -c '.notRead'
+  bash pipeline/scripts/preflight.sh --dir "$q/repo" --base-branch-override main | jq -c '.notRead'
 ```
 
 Expect: `["remote.kind","tree.dirty","willSkip.L","willSkip.M"]`.

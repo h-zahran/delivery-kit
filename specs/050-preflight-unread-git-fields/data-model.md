@@ -10,7 +10,7 @@
 
 | Name | Named when |
 |---|---|
-| `baseBranch` | git not usable, and `baseBranchSource` is neither `override` nor `configured` |
+| `baseBranch` | git not usable, and `baseBranchSource` is not `override` |
 | `baseBranchSource` | the same condition |
 | `remote.kind` | git not usable |
 | `tree.dirty` | git not usable |
@@ -21,8 +21,8 @@
 | Case | `notRead` |
 |---|---|
 | git usable (any remote) | `[]` |
-| git not usable, no base flag | `["baseBranch","baseBranchSource","remote.kind","tree.dirty","willSkip.L","willSkip.M"]` |
-| git not usable, `--base-branch` or `--base-branch-override` | `["remote.kind","tree.dirty","willSkip.L","willSkip.M"]` |
+| git not usable, no base flag or `--base-branch` | `["baseBranch","baseBranchSource","remote.kind","tree.dirty","willSkip.L","willSkip.M"]` |
+| git not usable, `--base-branch-override` | `["remote.kind","tree.dirty","willSkip.L","willSkip.M"]` |
 
 The second and third rows hold for every unusable `gitReason`: `absent`,
 `broken`, `refused-ownership`, `no-repository`.

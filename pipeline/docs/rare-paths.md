@@ -16,16 +16,21 @@ that never bend and the red flags stay in the skill.
 
 When `capabilities.gitUsable` is false, mark the parts of that block that
 came from git reads which did not run, or ran and failed — and only those
-parts. The report's `notRead` list names them: mark what it names and
-nothing else. This block is the FIRST thing the operator reads, so
-suppressing a wrong cause lower down is not enough; it has to not be
-printed here. But over-marking is its own lie, so be exact:
+parts. The report's `notRead` list names them: mark as not read what it
+names, and nothing else. A report with no `notRead` comes from a script
+older than this page: say so, and print none of the three lines below as
+fact. This block is the FIRST thing the operator reads, so suppressing a
+wrong cause lower down is not enough; it has to not be printed here. But
+over-marking is its own lie, so be exact:
 
-- `Base branch`: when `notRead` names `baseBranch`, print
-  `— not read: git is not usable here (<gitReason>)`. When it does not,
-  the name came from a configuration file and IS established: print it,
-  and add that it was not checked against the repository. The same for
-  `override`, with its layer named.
+- `Base branch`: when `notRead` names `baseBranch`, the line is not a
+  fact. If this run passed pre-flight a configured base with
+  `--base-branch`, print that name, marked not confirmed: `origin/HEAD`,
+  which ranks above it, was not read. Otherwise print
+  `— not read: git is not usable here (<gitReason>)`. When `notRead` does
+  not name it, the name came from an override and IS established: print
+  it with its layer named, and add that it was not checked against the
+  repository.
 - `Remote`: when `notRead` names `remote.kind`, print it as not read.
   `ghPresent` on the same line is not: it comes from looking for `gh` and
   is unaffected. Keep it.

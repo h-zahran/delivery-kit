@@ -15,7 +15,9 @@ The list is built where each field is produced, never from a second
 hand-written list of field names (Principles IV and V):
 
 - `baseBranch` and `baseBranchSource`: named when git is not usable and the
-  base did not come from `override` or `configured`.
+  base did not come from `override` (phase I narrowed this from "neither
+  `override` nor `configured`": a configured base ranks below
+  `origin/HEAD`, which was not read).
 - `remote.kind`: named when git is not usable.
 - `tree.dirty`: named when git is not usable.
 - `willSkip.L`, `willSkip.M`: the skips added in the remote branch are added

@@ -416,15 +416,21 @@ needs an explicit `--script sh|ps` or the interactive picker fires.
 
 ## Fields the report did not read
 
-`preflight.sh`'s report carries `notRead`, a list naming each field whose
-value came from a git read that did not run, or ran and failed. The list
-is `[]` whenever `capabilities.gitUsable` is `true`. A field it names
-holds a placeholder, not a fact: `baseBranchSource` reads
-`current branch` for a checkout nobody read, `remote.kind` reads `none`
-for a remote nobody looked for, and `tree.dirty` reads `false` for a tree
-nobody examined. A base branch from configuration or an override is never
-named, since it is established without git; with git not usable it is
-still not checked against the repository. Names are dotted paths from the
-report's root, and a skip is named by its phase, as `willSkip.<phase>`.
-The order is the order the script produces the fields: a consumer tests
-membership, not position. No other key of the report changes for this.
+`preflight.sh`'s report carries `notRead`, a list naming each field that
+holds a placeholder, not a fact, because git is not usable here, so its
+git read did not run or could not succeed. The list is therefore `[]`
+whenever `capabilities.gitUsable` is `true`. It does not cover a read that
+fails under a usable git: on a branch with no commit yet, `baseBranch`
+reads `HEAD`, and that is not in the list. The placeholders are `baseBranch` (empty, or a
+configured name nobody confirmed), `baseBranchSource` (`current branch`
+for a checkout nobody read), `remote.kind` (`none` for a remote nobody
+looked for), `tree.dirty` (`false` for a tree nobody examined), and the
+`willSkip` entries that follow from the remote. A base branch from
+configuration is named too: it is the fallback for a repository that
+publishes no `origin/HEAD`, and without git nobody looked. Only an
+override, which outranks `origin/HEAD`, is never named; with git not
+usable it is still not checked against the repository, nor whether git
+would take it as a branch name. Names are dotted paths from the report's
+root, and a skip is named by its phase, as `willSkip.<phase>`. The order
+is the order the script produces the fields: a consumer tests
+membership, not position.

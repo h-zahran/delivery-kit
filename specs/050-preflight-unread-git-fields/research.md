@@ -31,24 +31,31 @@
 
 ## R4. Which base sources are unread
 
-- **Decision**: `baseBranch` and `baseBranchSource` are named when git is not
-  usable and the source is neither `override` nor `configured`.
-- **Rationale**: those two come from the flags, not from git. With git not
-  usable, `git symbolic-ref` fails, so the source falls to `current branch`
-  whenever no override or configured base exists (measured, spec Context).
-  The rule is written as "not override or configured", not as "is
-  origin/HEAD or current branch", so a later source added from git is
-  unread by default — the fail-closed direction.
+- **Decision** (revised at phase I, by the owner): `baseBranch` and
+  `baseBranchSource` are named when git is not usable and the source is
+  not `override`.
+- **Rationale**: the resolution order is override, `origin/HEAD`,
+  configured, current branch. Only the override outranks `origin/HEAD`, so
+  only it is established without git; a configured base is what wins when
+  no `origin/HEAD` is published, and with git not usable nobody looked.
+  The first decision exempted `configured` too, and phase I's `bugs` lens
+  found the gap. The rule is written as "not override", not as a list of
+  git sources, so a later source added from git is unread by default — the
+  fail-closed direction.
 
 ## R5. The skip entries
 
-- **Decision**: the `L` and `M` skips of the no-remote branch, and the `M`
-  skip of the non-GitHub branch, are added through `add_git_skip`, which
-  calls `add_skip` and, when git is not usable, appends `willSkip.<phase>`.
-  The `gh`-absent `M` skip and the `N.5` skip use `add_skip` directly.
+- **Decision**: every skip of the remote branch — the no-remote `L` and
+  `M`, the non-GitHub `M`, and (since phase I) the `gh`-absent `M` — is
+  added through `add_git_skip`, which calls `add_skip` and then
+  `mark_not_read "willSkip.<phase>"`; `mark_not_read` does nothing with a
+  usable git. The `N.5` skip uses `add_skip` directly.
 - **Rationale**: the marking happens where the dependency on git is
-  visible: in the remote branch. An unusable git always reads `none`, so in
-  practice the two marked entries are `L` and `M`.
+  visible: in the remote branch, every arm of which is reached only through
+  `remote.kind`. An unusable git always reads `none`, so in practice the two
+  marked entries are `L` and `M`, and the other two arms cannot be reached
+  with git not usable; routing them through the helper is the fail-closed
+  choice should a later change read the remote another way.
 
 ## R6. Whether to stop running the git reads when git is unusable
 
