@@ -17,8 +17,13 @@ All notable changes to the `mission-control` plugin.
   helper, `idle` means it waits for a message, so 0.9.6 brought the finished
   fork back to the pane as idle 5 seconds after it was done. Now a run that
   joined the pane from the agent list is marked as a fork, and a fork's
-  `idle` counts as done. A spawned helper's `idle` is unchanged. A fork
-  stored by 0.9.6 has no mark, so it keeps its old state after a reload.
+  `idle` counts as done. A spawned helper's `idle` is unchanged. A teammate
+  is never marked as a fork, even when it joins the pane with no spawn record,
+  so its `idle` still shows it resting. A fork stored by 0.9.6 has no mark, so
+  it keeps its old state after a reload.
+- **A resting helper keeps its place in a full pane.** Past 60 runs, the pane
+  dropped the oldest runs that were not running, resting helpers too. Now it
+  drops only runs that are over.
 
 ## [0.9.6] - 2026-10-28
 

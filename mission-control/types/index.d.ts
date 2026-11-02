@@ -60,10 +60,11 @@ export type AgentRun = {
   role?: string
   status: RunStatus
   /**
-   * Joined from the engine's agent list with no agent.spawn: a forked skill
-   * such as /code-review. Its idle is its end (its one task is over), where a
-   * spawned helper's idle means it will work again. Absent on a run an older
-   * version stored, which keeps the spawned reading.
+   * Joined from the engine's agent list with no agent.spawn, and no teammate:
+   * a forked skill such as /code-review. Its idle is its end (its one task is
+   * over), where a spawned helper's or a teammate's idle means a message will
+   * start its next turn. Absent on a run an older version stored, which keeps
+   * the spawned reading.
    */
   forked?: boolean
   /** Why it ended when that was not a plain answer: error, stopped, refused, ctx full, killed. */
