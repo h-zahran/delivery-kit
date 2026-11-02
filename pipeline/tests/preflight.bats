@@ -984,20 +984,68 @@ hidden_refused() {
   # The check once piped od into `grep -q` under pipefail. grep -q leaves at
   # its first match, od can then die of SIGPIPE writing into the closed pipe,
   # and the failed pipeline sent the check down the "no NUL" branch: the
-  # constitution read as SET. That needed a loaded machine to show (30 of 400
-  # runs). This fake od removes the luck: a NUL line, then about 1 MB more,
-  # far past what a pipe holds after its reader has gone.
+  # constitution read as SET. That needed a loaded machine to show. This fake
+  # od removes the luck: a NUL line, then about 200 KB more, far past what a
+  # pipe holds after its reader has gone. Its last command is `yes | head`,
+  # so a write into a closed pipe fails the stub: head dies of SIGPIPE, and
+  # GNU head also exits non-zero on EPIPE where SIGPIPE is ignored. A head
+  # that does not check its writes could let this test pass on the old line
+  # there; the late-failure test below pins the same rule on every system.
   local d="$BATS_TEST_TMPDIR/od-stub"
   mkdir -p "$d"
   printf '%s\n' '#!/usr/bin/env bash' \
     'cat > /dev/null' \
     "printf ' ff fe 23 00\\n'" \
-    'i=0; while [ "$i" -lt 20000 ]; do printf " 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41\n"; i=$((i + 1)); done' \
+    "yes ' 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41' | head -n 4000" \
     > "$d/od"
   chmod +x "$d/od"
   PATH="$d:$PATH" probe --dir "$FIX/constitution-nul" --base-branch main
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
   [[ "$stderr" == *"NUL bytes"* ]] || { echo "no NUL warning: $stderr"; false; }
+  jq -e '.speckit.constitutionSet == false' <<<"$output" > /dev/null \
+    || { echo "read as: $(jq -c '.speckit.constitutionSet' <<<"$output")"; false; }
+}
+
+@test "a NUL captured before the reading pipeline fails still reads as not set" {
+  # A late failure: od has written the NUL line, then exits non-zero. The
+  # check must keep what it captured, not throw it away and fail toward
+  # set. Whatever awk would make of the UTF-16 bytes, only the NUL branch
+  # gives the warning, so the warning is the deterministic observable.
+  local d="$BATS_TEST_TMPDIR/od-late-fail"
+  mkdir -p "$d"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'cat > /dev/null' \
+    "printf ' ff fe 23 00\\n'" \
+    'exit 1' \
+    > "$d/od"
+  chmod +x "$d/od"
+  PATH="$d:$PATH" probe --dir "$FIX/constitution-nul" --base-branch main
+  [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
+  [[ "$stderr" == *"NUL bytes"* ]] || { echo "no NUL warning: $stderr"; false; }
+  jq -e '.speckit.constitutionSet == false' <<<"$output" > /dev/null \
+    || { echo "read as: $(jq -c '.speckit.constitutionSet' <<<"$output")"; false; }
+}
+
+@test "a failed read of the constitution's head still reaches the parse and exits 0" {
+  # The NUL check captures `head -c 4096 | od`; when that pipeline fails, the
+  # check must keep what it captured and fall through to the parse, not abort
+  # pre-flight under errexit. This fake head fails with no output. The
+  # fixture is the placeholder template: the parse finds its tokens, so not
+  # set is defined by the token rule alone. (On the NUL fixture the UTF-16
+  # bytes would reach awk, whose answer is not defined.) The probe calls
+  # head nowhere else, so the stub can fail unconditionally; the marker file
+  # proves it ran.
+  local d="$BATS_TEST_TMPDIR/head-stub"
+  mkdir -p "$d"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    ": > \"$d/called\"" \
+    'exit 1' \
+    > "$d/head"
+  chmod +x "$d/head"
+  PATH="$d:$PATH" probe --dir "$FIX/constitution-unset" --base-branch main
+  [ -f "$d/called" ] || { echo "the fake head never ran"; false; }
+  [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
+  [[ "$stderr" != *"NUL bytes"* ]] || { echo "NUL warning on no NUL: $stderr"; false; }
   jq -e '.speckit.constitutionSet == false' <<<"$output" > /dev/null \
     || { echo "read as: $(jq -c '.speckit.constitutionSet' <<<"$output")"; false; }
 }

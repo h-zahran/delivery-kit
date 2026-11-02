@@ -319,15 +319,13 @@ sk_const=false
 const_file=".specify/memory/constitution.md"
 const_tokens='\[(PROJECT_NAME|PRINCIPLE_[0-9]+_(NAME|DESCRIPTION)|SECTION_[0-9]+_(NAME|CONTENT)|GOVERNANCE_RULES|GUIDANCE_FILE|CONSTITUTION_VERSION|RATIFICATION_DATE|LAST_AMENDED_DATE)\]'
 if [ -f "$const_file" ]; then
-  # od's whole output is captured, then matched. Piped into `grep -q` under
-  # pipefail it raced: grep -q leaves at its first match, od can die of
-  # SIGPIPE writing into the closed pipe, and the failed pipeline sent this
-  # check down the "no NUL" branch, reading the constitution as set (30 of
-  # 400 runs on a loaded machine). `|| hex=''` keeps an unreadable file on
-  # the parse below, as before; od writes every byte as a space-led pair, so
-  # a NUL is always " 00".
-  hex="$(head -c 4096 "$const_file" 2>/dev/null | od -An -tx1)" || hex=''
-  if case "$hex" in *' 00'*) true ;; *) false ;; esac; then
+  # od's output is captured whole, then matched. Under pipefail a reader
+  # that leaves early (grep -q) can kill od with SIGPIPE and fail the
+  # pipeline; tests/pipefail.bats refuses that shape. `|| true` keeps what
+  # was captured, and keeps an unreadable file on the parse below. od writes
+  # every byte as a space-led pair, so a NUL is always " 00".
+  hex="$(head -c 4096 "$const_file" 2>/dev/null | od -An -tx1)" || true
+  if [[ $hex == *' 00'* ]]; then
     warn "constitution carries NUL bytes (a UTF-16/32 save?) — read as not set"
   else
     if ! const_body="$(awk '

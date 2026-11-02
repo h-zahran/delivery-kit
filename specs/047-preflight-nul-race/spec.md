@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-02
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: Seed kept verbatim in the run directory as `seed.md`: a race in `pipeline/scripts/preflight.sh`'s constitution NUL check, found during feature 046.
 
@@ -57,7 +57,7 @@ fails on the old code every time, not only under load.
 
 1. **Given** the `constitution-nul` fixture, **When** pre-flight runs, **Then** it warns about NUL bytes and reports `constitutionSet: false`, every time.
 2. **Given** a test that makes the NUL check's reader exit at its first match while the writer still has output, **When** the old check runs, **Then** it answers wrongly; **When** the new check runs, **Then** it answers "NUL found".
-3. **Given** every other constitution fixture (set, unset, BOM, unclosed comment, fresh-init shape), **When** pre-flight runs, **Then** its output is byte-identical to before.
+3. **Given** every other constitution fixture (`constitution-set`, `constitution-unset` — the fresh-init shape — `constitution-bom` and `constitution-unclosed`), **When** pre-flight runs, **Then** its output is byte-identical to before.
 
 ---
 
@@ -108,8 +108,8 @@ the test fails and names the file and line.
   MUST be shown able to go red.
 - **FR-005**: The fix MUST work on bash 3.2 with BSD tools (macOS CI), on
   Git Bash (Windows CI) and on Linux, with no new dependency.
-- **FR-006**: `pipeline/CHANGELOG.md` MUST describe the fix under its
-  unreleased section.
+- **FR-006**: `pipeline/CHANGELOG.md` MUST describe the fix (first under its
+  unreleased section; FR-007 then dates that section as 1.7.2).
 - **FR-007**: This run MUST release the fix as pipeline 1.7.2: the version in
   `pipeline/.claude-plugin/plugin.json` and the `pipeline` entry of
   `.claude-plugin/marketplace.json` both read `1.7.2`, the changelog's
