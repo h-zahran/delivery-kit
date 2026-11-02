@@ -45,8 +45,8 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" pipeline/tests/preflight.b
 
 **Goal**: installed copies get the change (FR-010).
 
-- [ ] T014 In `pipeline/CHANGELOG.md`, add `## [1.7.4] - 2026-11-02` above `## [1.7.3]` with `### Highlights` (one line) and `### Added` (the `notRead` list: what it names, `[]` with a usable git, no existing key changed; the probe block now marks exactly what it names; closes the gap 013 deferred), in the file's style; set `"version": "1.7.4"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.4` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
-- [ ] T015 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.4) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
+- [X] T014 In `pipeline/CHANGELOG.md`, add `## [1.7.4] - 2026-11-02` above `## [1.7.3]` with `### Highlights` (one line) and `### Added` (the `notRead` list: what it names, `[]` with a usable git, no existing key changed; the probe block now marks exactly what it names; closes the gap 013 deferred), in the file's style; set `"version": "1.7.4"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.4` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
+- [X] T015 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.4) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
 
 ---
 
