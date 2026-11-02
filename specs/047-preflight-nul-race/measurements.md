@@ -116,7 +116,7 @@ source finder first), and the walk missing a grouped grep (`{ grep -q; }`,
 a trailing pipe followed by a comment, and a library sourced through
 `$(dirname "$0")`; its basename-only matching could also pull in a same-named
 script from another directory. Fixed: the finder now joins the sourced name to
-the caller's directory, and two tests were added (prose: 14 tests in
+the caller's directory, and two tests were added (14 tests in
 `tests/pipefail.bats`). Controls, each in a scratch worktree:
 
 | Mutation | Landed | Expected test | Result |
@@ -129,3 +129,7 @@ the caller's directory, and two tests were added (prose: 14 tests in
 | scan awk status ignored | yes | the walk fails when awk fails | RED |
 
 6 mutations, 0 not caught.
+
+## Full suite after the fixes (phase J)
+
+`1..914`, 914 ok, 0 skipped, 0 not ok, at `66cf2f8` (the phase I commit); shellcheck clean.
