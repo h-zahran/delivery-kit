@@ -197,16 +197,18 @@ stub() {
   # Feature 051. The old read, git rev-parse --abbrev-ref HEAD, printed HEAD
   # and exited 128 here, and the report kept HEAD as the base branch. Phase B
   # cannot branch from a branch with no commit, so pre-flight stops instead.
+  # The whole message is compared: no git text, no other case's words.
   T="$BATS_TEST_TMPDIR/unborn"
   mkdir -p "$T"; cd "$T"; git init -q -b work .
   probe --dir "$T"
   [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
   [ -z "$output" ] || { echo "a report was printed: $output"; false; }
-  [[ "$stderr" == *"no commit yet"* ]] || { echo "the stop does not name the case: $stderr"; false; }
-  [[ "$stderr" == *"make a first commit"* ]] || { echo "the stop does not name the fix: $stderr"; false; }
-  [[ "$stderr" == *"--base-branch"* ]] || { echo "the stop does not name the flag: $stderr"; false; }
+  [ "$stderr" = "preflight: the current branch has no commit yet, so there is nothing to cut the feature branch from; make a first commit, or pass a base branch that has one (the run's --base-branch flag, or the baseBranch key)" ] \
+    || { echo "wrong stop: $stderr"; false; }
   # The stop is for the current-checkout source only: a base from a flag
-  # reads no checkout, and the same repository reports.
+  # reads no checkout, so the same repository reports. That a configured
+  # base names a branch with a commit is not checked here; this pins only
+  # that the stop does not fire for another source.
   probe --dir "$T" --base-branch main
   [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
   [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
@@ -223,15 +225,60 @@ stub() {
   probe --dir "$T"
   [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
   [ -z "$output" ] || { echo "a report was printed: $output"; false; }
-  [[ "$stderr" == *"HEAD is detached"* ]] || { echo "the stop does not name the case: $stderr"; false; }
-  [[ "$stderr" == *"check out a branch"* ]] || { echo "the stop does not name the fix: $stderr"; false; }
-  [[ "$stderr" == *"--base-branch"* ]] || { echo "the stop does not name the flag: $stderr"; false; }
+  [ "$stderr" = "preflight: HEAD is detached, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)" ] \
+    || { echo "wrong stop: $stderr"; false; }
+  # The stop is for the current-checkout source only: still detached, a
+  # base from a flag reports.
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "a base flag on a detached HEAD: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
   # The positive control: the same repository, back on its branch, reports.
   git checkout -q work
   probe --dir "$T"
   [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
   [ "$(jq -r '.baseBranch' <<<"$output")" = "work" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
+  not_read_is '[]'
+  # symbolic-ref exits 128, not 1, when HEAD names a branch git cannot read:
+  # that is not a detached HEAD, and the stop says so.
+  printf 'garbage\n' > .git/refs/heads/work
+  probe --dir "$T"
+  [ "$status" -eq 1 ] || { echo "a broken branch ref: exit $status: $output"; false; }
+  [ "$stderr" = "preflight: HEAD names a branch git cannot read, so the current checkout names no base branch; run git status to see why" ] \
+    || { echo "a broken branch ref: $stderr"; false; }
+}
+
+@test "base branch: a name from the repository gets the override's check, from every source" {
+  # Feature 051, phase I. B types the base into commands, and git accepts
+  # names the override is refused for, so a name read from the repository is
+  # checked too: origin/HEAD (a cloned remote names its own default), the
+  # baseBranch key, and the current branch. git branch refuses a leading
+  # dash, so update-ref plants it. Each source is probed on its own.
+  T="$BATS_TEST_TMPDIR/base-names"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git update-ref refs/heads/-dash HEAD
+  git symbolic-ref HEAD refs/heads/-dash
+  probe --dir "$T"
+  [ "$status" -eq 1 ] || { echo "current branch -dash: exit $status: $output"; false; }
+  [ "$stderr" = "preflight: '-dash' is not a legal branch name (the current branch; check out another branch, or pass a base branch)" ] \
+    || { echo "current branch -dash: $stderr"; false; }
+  git symbolic-ref HEAD refs/heads/work
+  probe --dir "$T" --base-branch 'a$b'
+  [ "$status" -eq 1 ] || { echo "configured a\$b: exit $status: $output"; false; }
+  [ "$stderr" = "preflight: 'a\$b' holds a character other than a letter, a digit, '.', '_', '-' or '/' (the baseBranch key)" ] \
+    || { echo "configured a\$b: $stderr"; false; }
+  git update-ref refs/remotes/origin/-dash HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/-dash
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 1 ] || { echo "origin/HEAD -dash: exit $status: $output"; false; }
+  [ "$stderr" = "preflight: '-dash' is not a legal branch name (origin/HEAD; pass a base branch with the run's --base-branch flag)" ] \
+    || { echo "origin/HEAD -dash: $stderr"; false; }
+  # The positive control: origin/HEAD naming a legal branch reports it.
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "origin/HEAD main: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "origin/HEAD" ]
 }
 
 @test "base branch: an override git would not accept as a branch name is refused, naming it" {
@@ -871,7 +918,6 @@ hidden_refused() {
   # 128 and prints nothing, which the old script read as a clean tree.
   T="$BATS_TEST_TMPDIR/badindex"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
-  printf 'x' > untracked.txt
   printf 'garbage' > .git/index
   # The precondition: git still opens the repository, so gitUsable is true
   # and this is a read that fails under a usable git.
@@ -879,9 +925,9 @@ hidden_refused() {
   probe --dir "$T" --base-branch main
   [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
   [ -z "$output" ] || { echo "a report was printed: $output"; false; }
-  [[ "$stderr" == *"status could not be read"* ]] || { echo "the stop does not name the case: $stderr"; false; }
-  # git's own text never reaches the message: it names .git/index.
-  [[ "$stderr" != *"index"* ]] || { echo "the stop prints git's own text: $stderr"; false; }
+  # The whole message is compared, so none of git's own text rides along.
+  [ "$stderr" = "preflight: the working tree's status could not be read: git status failed, so pre-flight cannot tell whether the tree is clean; run git status to see why" ] \
+    || { echo "wrong stop: $stderr"; false; }
 }
 
 # A DONE run and an abandoned one are not live. Both are made by the real

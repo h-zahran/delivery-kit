@@ -102,9 +102,13 @@ pre-flight report names which source won. Note the consequence plainly:
 **in a repository whose remote publishes a default branch, that default
 wins over this key.** Set the key for repositories without a remote
 default; everywhere else it is documentation of intent, not an override.
-The current branch serves only when it names a branch with a commit: on a
-detached `HEAD`, or a branch with no commit yet, pre-flight stops and
-names the fix (see [Fields the report did not read](#fields-the-report-did-not-read)).
+The current branch serves only when it names a branch with a commit:
+on a detached `HEAD` pre-flight stops and asks for a branch to be checked
+out or a base branch to be passed, and on a branch with no commit yet it
+stops and asks for a first commit, or a base branch that has one (see
+[Fields the report did not read](#fields-the-report-did-not-read)). A base branch read from the
+repository, from `origin/HEAD`, this key or the current branch, gets the
+override's name check below, and a name that fails it stops pre-flight.
 
 The override beats the remote's default and this key. It has two
 spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
@@ -426,7 +430,7 @@ whenever `capabilities.gitUsable` is `true`. A read that fails under a
 usable git is never a placeholder in the list: pre-flight stops instead and
 says why, when the base branch comes from the current checkout and that
 checkout is a detached `HEAD` or a branch with no commit yet, and whenever
-the working tree's status cannot be read. The placeholders are `baseBranch` (empty, or a
+`git status` fails. The placeholders are `baseBranch` (empty, or a
 configured name nobody confirmed), `baseBranchSource` (`current branch`
 for a checkout nobody read), `remote.kind` (`none` for a remote nobody
 looked for), `tree.dirty` (`false` for a tree nobody examined), and the

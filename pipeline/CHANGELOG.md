@@ -6,31 +6,41 @@ All notable changes to the `pipeline` plugin.
 
 ### Highlights
 
-- Pre-flight stops when a git read fails under a usable git, instead of
-  stating its output as fact.
+- Pre-flight stops, instead of reporting a guess as fact, when the base
+  branch comes from a checkout that names no branch with a commit, or when
+  `git status` fails; and a base branch read from the repository gets the
+  same name check as an override.
 
 ### Fixed
 
 - **A branch with no commit yet, or a detached `HEAD`, no longer reads as
   a base branch called `HEAD`.** With no override, no published
   `origin/HEAD` and no configured base, the base comes from the current
-  checkout. The old read, `git rev-parse --abbrev-ref HEAD`, printed
-  `HEAD` in both states (exiting 128 for the first, 0 for the second), and
-  the report kept it, so the probe block printed `Base branch : HEAD (from
-  current branch)` and phase B would have cut the feature branch from it.
-  The name now comes from `git symbolic-ref`, and pre-flight stops in both
-  states, naming the case and the fix: make a first commit or check out a
-  branch, or pass a base branch.
+  checkout. The old read, `git rev-parse --abbrev-ref HEAD`, printed `HEAD`
+  in both states, and the report kept it, so the probe block printed
+  `Base branch : HEAD (from current branch)` and phase B would have cut the
+  feature branch from it. The name now comes from `git symbolic-ref`, and
+  pre-flight stops: on a detached `HEAD` it asks for a branch to be checked
+  out or a base branch to be passed, and on a branch with no commit it
+  asks for a first commit, or a base branch that has one.
 - **A working tree whose status cannot be read is no longer reported
   clean.** With the index damaged, `git status --porcelain` failed, the
   empty output read as `tree.dirty: false`, and decision 5 passed a tree
-  nobody examined. Pre-flight now stops and says the status could not be
-  read.
-- Each stop fires only with a usable git, prints no report and none of
-  git's own text, and exits 1, as the flag refusals do. With git not
-  usable the report is unchanged, and `notRead` keeps its contract.
-  Documented in `docs/configuration.md`, "Fields the report did not read"
-  and "Base branch". Closes issue #106.
+  nobody examined. Pre-flight now stops and says `git status` failed.
+- **A base branch read from the repository is checked like an override.**
+  A name from `origin/HEAD`, which a cloned remote chooses, from the
+  `baseBranch` key or from the current branch was never checked, though B
+  types it into commands; a name such as `-dash` or one holding `$(`
+  reached the report as it was. It now gets the override's name check, and
+  a name that fails it stops pre-flight, naming its source. This refuses
+  names that ran before: a base whose name git accepts but that holds a
+  character other than a letter, a digit, `.`, `_`, `-` or `/` (a `+`, an
+  `@`, a non-ASCII letter) now stops pre-flight, as such an override
+  already did.
+- Each stop needs a usable git, prints no report and none of git's own
+  text, and exits 1, as the flag refusals do. With git not usable the
+  report is unchanged. Documented in `docs/configuration.md`, "Base
+  branch" and "Fields the report did not read". Closes issue #106.
 
 ## [1.7.4] - 2026-11-02
 
