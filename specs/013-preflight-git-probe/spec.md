@@ -225,7 +225,9 @@ was specified against, not by effort.
   SC-004 forbids in this change. It is a one-line addition to each, and the
   measurement that proves it is needed is recorded in `data-model.md`.
 
-- **Several reported fields still speak confidently from reads that never
+- **CLOSED by feature 050 (`specs/050-preflight-unread-git-fields/`), as an
+  additive `notRead` list.**
+  **Several reported fields still speak confidently from reads that never
   happened.** Named, not counted, because a count here would drift the way this
   repository has been bitten by before. With git absent: `baseBranch` reads
   empty, `baseBranchSource` still claims the branch was read from the current

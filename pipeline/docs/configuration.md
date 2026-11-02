@@ -413,3 +413,18 @@ When scripting an initialisation, pin the version —
 `uv tool install "specify-cli==<version>"` — and note that
 `--non-interactive` exists only from 0.16.x: a 0.15.x scripted init
 needs an explicit `--script sh|ps` or the interactive picker fires.
+
+## Fields the report did not read
+
+`preflight.sh`'s report carries `notRead`, a list naming each field whose
+value came from a git read that did not run, or ran and failed. The list
+is `[]` whenever `capabilities.gitUsable` is `true`. A field it names
+holds a placeholder, not a fact: `baseBranchSource` reads
+`current branch` for a checkout nobody read, `remote.kind` reads `none`
+for a remote nobody looked for, and `tree.dirty` reads `false` for a tree
+nobody examined. A base branch from configuration or an override is never
+named, since it is established without git; with git not usable it is
+still not checked against the repository. Names are dotted paths from the
+report's root, and a skip is named by its phase, as `willSkip.<phase>`.
+The order is the order the script produces the fields: a consumer tests
+membership, not position. No other key of the report changes for this.
