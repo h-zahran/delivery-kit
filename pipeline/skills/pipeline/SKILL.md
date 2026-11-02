@@ -162,14 +162,14 @@ read the state file; the recorded lines come from it.
 Project type : <projectType>  (<projectTypeSource>)
 spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <speckit.script> scripts — <in range?>
 Constitution : <set / not set — plan gates run against an empty document>
-git          : <usable / ABSENT / BROKEN / REFUSED (ownership) / NO REPOSITORY — the run stops, see decision 11>
+git          : <usable / NOT USABLE: <gitReason> — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
 Trailers     : <each trailer>  (from <its layer>)
 Implementer  : <claude|handoff|ask>  (from <implementerSource>)
 Remote       : <remote.kind>  (gh <present/absent>)
-Available    : <capabilities that are true, plus the handoff and code-review skills and the browser tools, probed here>
+Available    : <capabilities that are true — git only when gitUsable is true too, and gitUsable itself is no tool — plus the handoff and code-review skills and the browser tools, probed here>
 Missing      : <the rest>
 Will skip    : <each willSkip entry as "Phase X — reason">
 ```
@@ -277,10 +277,9 @@ through 10 keep the numbers they have always had.
     FIRST — before item 1 and before every other decision on this list.
     It is numbered eleventh only so items 1 to 10 keep their numbers,
     as item 10 is. Name the tool and why it cannot be used, as
-    `gitReason` says — absent, broken, refused for ownership, or no
-    repository opened here — print what "The git stop" gives for that
-    reason (the link `https://git-scm.com/downloads` when git is absent
-    or broken), record the answer, and install or configure
+    `gitReason` names it, and print what "The git stop" gives for that
+    reason — the link `https://git-scm.com/downloads` only when git is
+    absent or broken — record the answer, and install or configure
     nothing — the missing-tool ground rule at the top of this document,
     applied. Before reporting the stop, read "The git stop" in
     `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.

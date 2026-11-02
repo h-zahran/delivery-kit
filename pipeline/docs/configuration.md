@@ -190,7 +190,8 @@ What the run does with the two flags:
   were typed.
 - The probe block prints a `Branch` line and a `Spec folder` line, each
   only when its value (`featureBranch`, `specDir`) is not empty. When
-  git is absent, the `Branch` line is typed and IS established, but git
+  git is absent or not usable here (`capabilities.gitUsable` false), the
+  `Branch` line is typed and IS established, but git
   did not check that it is a legal branch name: print it, and add that
   it was not checked. `Spec folder` needs no mark: its checks never ask
   git.

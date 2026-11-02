@@ -1230,8 +1230,7 @@ hidden_refused() {
   jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
   # Feature 049: found AND usable, here, since the probed folder is inside
   # this checkout.
-  jq -e '.capabilities.gitUsable | type == "boolean" and . == true' <<<"$output" > /dev/null
-  [ "$(jq -r '.gitReason' <<<"$output")" = "usable" ]
+  git_report_is true usable
 }
 
 @test "the capability report names git absent, and the report survives it" {
@@ -1275,8 +1274,7 @@ hidden_refused() {
   # `.capabilities.git | not` reads the string as truthy.
   jq -e '.capabilities.git | type == "boolean"' <<<"$output" > /dev/null
   # Feature 049: absent is also unusable, with its own reason.
-  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null
-  [ "$(jq -r '.gitReason' <<<"$output")" = "absent" ]
+  git_report_is false absent
 
   # The report is COMPLETE, not truncated. Absence sets a field to false; it
   # never drops a key, and no consumer should have to read a short document as
@@ -1318,72 +1316,126 @@ hidden_refused() {
 # fixture first proves its own precondition with plain git: a git that
 # ignored the fixture's trigger would otherwise give a green for nothing.
 
-# git_isolate — no global or system git configuration. A runner whose global
-# config holds safe.directory=* (or entries a checkout step added) would make
-# the ownership fixture open the repository and pass for the wrong reason.
-# An empty FILE, never /dev/null, which is not a path to git on Windows.
+# git_report_is <found> <reason> — the three git keys of the report in
+# $output, in one check: capabilities.git is <found>, gitReason is <reason>,
+# and gitUsable is the BOOLEAN true exactly when <reason> is usable. The type
+# matters: `jq -r` prints the string "false" and the boolean false alike, and
+# `.capabilities.gitUsable | not` reads the string as truthy.
+git_report_is() {
+  jq -e --argjson f "$1" --arg r "$2" '
+      .capabilities.git == $f and .gitReason == $r
+      and (.capabilities.gitUsable | type) == "boolean"
+      and .capabilities.gitUsable == ($r == "usable")' <<<"$output" > /dev/null \
+    || { echo "want git=$1 gitReason=$2; got $(jq -c '{git: .capabilities.git, gitUsable: .capabilities.gitUsable, gitReason}' <<<"$output")"; false; }
+}
+
+# git_isolate — no system git configuration, and a global one that is an
+# empty FILE (never /dev/null, which is not a path to git on Windows). HOME
+# is already fresh per test (tests/helper.bash), which covers ~/.gitconfig;
+# what this adds is GIT_CONFIG_NOSYSTEM, a global that XDG_CONFIG_HOME cannot
+# redirect, and a file the ownership test reads afterwards to prove the
+# probe wrote no configuration.
 git_isolate() {
   : > "$BATS_TEST_TMPDIR/gitconfig"
   export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig" GIT_CONFIG_NOSYSTEM=1
 }
 
-# refused_repo <dir> — a repository git refuses for ownership once the
-# caller exports GIT_TEST_ASSUME_DIFFERENT_OWNER=1: git's own test switch,
-# read in its common setup code, so it acts the same on every runner.
-refused_repo() {
-  mkdir -p "$1"
-  ( cd "$1" && git init -q . )
+# refuse_for_ownership <repo> — make git refuse <repo> for ownership from
+# here on, and prove it does. GIT_TEST_ASSUME_DIFFERENT_OWNER is git's own
+# test switch, read in its common setup code, so it acts the same on every
+# runner. Call it AFTER building the repository: seeding needs a git that
+# opens it. If this git ignores the switch, the test fails here, by name.
+refuse_for_ownership() {
+  export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
+  if git -C "$1" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "precondition: git opened the repository despite GIT_TEST_ASSUME_DIFFERENT_OWNER"; return 1
+  fi
+  git -C "$1" -c safe.directory='*' rev-parse --git-dir > /dev/null 2>&1 \
+    || { echo "precondition: git did not open the repository with the ownership check lifted"; return 1; }
 }
 
 @test "the capability report names a git that refuses the repository for ownership" {
-  local r="$BATS_TEST_TMPDIR/owned"
+  local r="$BATS_TEST_TMPDIR/owned" m="$BATS_TEST_TMPDIR/ran"
   git_isolate
-  refused_repo "$r"
+  mkdir -p "$r"; ( cd "$r" && git init -q . )
+  # The repository's owner is the party the check guards against, so its
+  # configuration names a program that leaves a mark if it ever runs. The
+  # lifted call must parse this configuration and run none of it (FR-005).
+  # One plant, the fsmonitor, because the control below can prove it live:
+  # a hook or a pager planted here could never fire under bats (no commit,
+  # no terminal), and its absence would prove nothing. The wider sweep (28
+  # planted programs, none fired) was a one-off measurement at review,
+  # recorded in specs/049-preflight-git-usable/measurements.md, not this test.
+  printf '#!/bin/sh\necho "$0" >> "%s"\n' "$m" > "$r/.git/mark"
+  chmod +x "$r/.git/mark"
+  git -C "$r" config core.fsmonitor "$r/.git/mark"
   cp "$r/.git/config" "$BATS_TEST_TMPDIR/config.before"
-  export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
-  # The precondition, with plain git. If this git ignores the switch, the
-  # test says so here instead of passing for a repository git opened.
-  if git -C "$r" rev-parse --git-dir > /dev/null 2>&1; then
-    echo "precondition: git opened the repository despite GIT_TEST_ASSUME_DIFFERENT_OWNER"; false
-  fi
-  git -C "$r" -c safe.directory='*' rev-parse --git-dir > /dev/null 2>&1 \
-    || { echo "precondition: git did not open the repository with the ownership check lifted"; false; }
+  refuse_for_ownership "$r"
+  # A positive control for the marks: with the check lifted, a command that
+  # reads the index does run the planted fsmonitor. Without this, "no mark"
+  # could mean the plant was broken, not that the probe ran nothing.
+  git -C "$r" -c safe.directory='*' status --porcelain > /dev/null 2>&1 || true
+  [ -s "$m" ] || { echo "control: the planted fsmonitor never ran, so its absence below would prove nothing"; false; }
+  rm -f "$m"
 
   probe --dir "$r" --base-branch main
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
-  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
-  # The type, not only the value: `jq -r` prints the string "false" and the
-  # boolean false alike, and `.capabilities.gitUsable | not` reads the string
-  # as truthy.
-  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
-    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
-  [ "$(jq -r '.gitReason' <<<"$output")" = "refused-ownership" ]
-  # Nothing was configured (FR-005): the check was lifted for one command,
-  # never written down.
+  git_report_is true refused-ownership
+  [ ! -e "$m" ] || { echo "the probe ran a program the refused repository names: $(cat "$m")"; false; }
+  # Nothing was configured: the check was lifted for one command, never
+  # written down.
   [ ! -s "$BATS_TEST_TMPDIR/gitconfig" ] || { echo "the probe wrote global git configuration"; false; }
   cmp -s "$r/.git/config" "$BATS_TEST_TMPDIR/config.before" \
     || { echo "the probe changed the repository's git configuration"; false; }
 }
 
+@test "the ownership refusal is found from exit codes, with git's messages gone" {
+  # FR-004. A shim that runs the real git with its stderr thrown away: a
+  # classifier that matched git's message ("dubious ownership") would find
+  # nothing to match and misfile the refusal. Exit codes are all that is left.
+  local r="$BATS_TEST_TMPDIR/owned" d="$BATS_TEST_TMPDIR/quiet-git" real
+  git_isolate
+  mkdir -p "$r"; ( cd "$r" && git init -q . )
+  refuse_for_ownership "$r"
+  real="$(command -v git)"
+  shimdir "$d" $PROBE_TOOLS
+  printf '#!/bin/sh\nexec "%s" "$@" 2>/dev/null\n' "$real" > "$d/git"
+  chmod +x "$d/git"
+  [ -z "$(PATH="$d" git -C "$r" rev-parse --git-dir 2>&1)" ] \
+    || { echo "precondition: the shim still lets git's message through"; false; }
+
+  probe --path "$d" --dir "$r" --base-branch main
+  [ "$status" -eq 0 ]
+  git_report_is true refused-ownership
+}
+
 @test "an unusable git reports names unchecked, as an absent one does" {
-  # With the old probe, a found git ran the override check against a
-  # repository it could not read, and died naming a wrong cause.
+  # With the old probe, a found git ran the name checks against a repository
+  # it could not read, and died naming a wrong cause.
   local r="$BATS_TEST_TMPDIR/owned"
   git_isolate
-  refused_repo "$r"
-  ( cd "$r" && seed && git branch integration )
-  export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
-  if git -C "$r" rev-parse --git-dir > /dev/null 2>&1; then
-    echo "precondition: git opened the repository despite GIT_TEST_ASSUME_DIFFERENT_OWNER"; false
-  fi
+  mkdir -p "$r"; ( cd "$r" && git init -q . && seed && git branch integration )
+  refuse_for_ownership "$r"
 
+  # The override check, which runs first.
   probe --dir "$r" --base-branch-override integration --feature-branch new-work
   [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
-  jq -e . <<<"$output" > /dev/null
-  [ "$(jq -r '.gitReason' <<<"$output")" = "refused-ownership" ]
+  git_report_is true refused-ownership
   [[ "$stderr" != *"is not a branch here or on origin"* ]] \
     || { echo "the override was checked against a repository git refused: $stderr"; false; }
+  # Reported, unchecked: the names arrive as typed.
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "integration" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
+  [ "$(jq -r '.featureBranch' <<<"$output")" = "new-work" ]
+
+  # The feature-branch checks, on their own: @{-1} is a name git must READ
+  # the repository to refuse, so a feature-branch check that still ran on a
+  # found git dies here with "not a legal branch name".
+  probe --dir "$r" --base-branch main --feature-branch '@{-1}'
+  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
+  git_report_is true refused-ownership
+  [ "$(jq -r '.featureBranch' <<<"$output")" = '@{-1}' ]
 }
 
 @test "the capability report names a git that opens no repository here" {
@@ -1401,18 +1453,14 @@ refused_repo() {
   probe --dir "$d" --base-branch main
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
-  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
-  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
-    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
-  [ "$(jq -r '.gitReason' <<<"$output")" = "no-repository" ]
+  git_report_is true no-repository
 }
 
 @test "the capability report names a git that is found but cannot run" {
-  local d="$BATS_TEST_TMPDIR/broken-git" tools="" t
-  # Derived from PROBE_TOOLS, as the absent test derives its list.
-  for t in $PROBE_TOOLS; do [ "$t" = git ] || tools="$tools $t"; done
-  # shellcheck disable=SC2086
-  shimdir "$d" $tools
+  local d="$BATS_TEST_TMPDIR/broken-git"
+  # Every probe tool, then a git that fails every command written over the
+  # git shim.
+  shimdir "$d" $PROBE_TOOLS
   printf '#!/bin/sh\nexit 1\n' > "$d/git"
   chmod +x "$d/git"
   if PATH="$d" git --version > /dev/null 2>&1; then
@@ -1422,10 +1470,7 @@ refused_repo() {
   probe --path "$d" --dir "$FIX/other" --base-branch main
   [ "$status" -eq 0 ]
   jq -e . <<<"$output" > /dev/null
-  [ "$(jq -r '.capabilities.git' <<<"$output")" = "true" ]
-  jq -e '.capabilities.gitUsable | type == "boolean" and . == false' <<<"$output" > /dev/null \
-    || { echo "gitUsable is not the boolean false: $(jq -c '.capabilities.gitUsable' <<<"$output")"; false; }
-  [ "$(jq -r '.gitReason' <<<"$output")" = "broken" ]
+  git_report_is true broken
 }
 
 @test "the git reasons the script assigns are the ones the git stop instructs" {
@@ -1446,9 +1491,14 @@ refused_repo() {
 @test "the script probes git for its presence in one place" {
   # Two probes answered "found" in two places, and one of them gated the
   # name checks: one classifier now feeds both. A second copy would drift.
+  # The common spellings of a presence probe count, not only the one in use:
+  # command -v, type -p or -P, hash and which. Not every spelling: a probe
+  # written another way would pass, and this is a structural guard only;
+  # the behaviour itself is held by the per-reason tests above.
   local n
-  n="$(grep -v '^[[:space:]]*#' "$PROBE" | grep -c 'command -v git' || true)"
-  [ "$n" = 1 ] || { echo "'command -v git' appears $n times outside comments"; false; }
+  n="$(grep -v '^[[:space:]]*#' "$PROBE" \
+    | grep -cE '(command -v|type -[pP]|hash|which)[[:space:]]+["'"'"']?git(["'"'"'[:space:]>;|&)]|$)' || true)"
+  [ "$n" = 1 ] || { echo "a presence probe for git appears $n times outside comments"; false; }
 }
 
 # --- a constitution at the size a herestring hangs on -------------------------
