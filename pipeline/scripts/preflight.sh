@@ -115,9 +115,42 @@ if [ -n "$spec_dir" ]; then
 fi
 cd "$dir" 2>/dev/null || { shown dir_s "$dir"; die "cannot enter '$dir_s'"; }
 # Every check that asks git runs here, inside the repository, so a name
-# like @{-1} is never read from the caller's. Without git the run stops at
-# decision 11 anyway, and the names are reported unchecked.
-have_git=false; command -v git >/dev/null 2>&1 && have_git=true
+# like @{-1} is never read from the caller's.
+#
+# Is git USABLE here, not only found? Decided once, from exit codes alone:
+# git's messages are translated, so their text is never read. Each step
+# runs only when the one before it passed:
+#   absent             git cannot be found on the search path
+#   broken             git is found, but `git --version` fails
+#   usable             `git rev-parse --git-dir` opens a repository here
+#   refused-ownership  it opens one only with git's ownership check lifted
+#   no-repository      it opens none here, for any other cause
+# A refusal for a cause other than ownership reads no-repository, which is
+# why that reason never claims there is no repository. The ownership check
+# is lifted for that ONE command, on its own command line, and never
+# written down: the check exists so an untrusted repository's configuration
+# cannot make git run a program, and `rev-parse --git-dir` runs none — no
+# hook, no fsmonitor, no pager, no filter. Measured on git 2.53.0.
+#
+# git_present feeds capabilities.git ("found"), git_usable and git_reason
+# the new keys, and have_git the name checks below: with git found but not
+# usable they would read a repository git refuses and die naming a wrong
+# cause, so they skip, and the names are reported unchecked, as without
+# git. The run stops at decision 11 either way.
+git_present=false; git_usable=false; git_reason=absent
+if command -v git >/dev/null 2>&1; then
+  git_present=true
+  if ! git --version >/dev/null 2>&1; then
+    git_reason=broken
+  elif git rev-parse --git-dir >/dev/null 2>&1; then
+    git_usable=true; git_reason=usable
+  elif git -c safe.directory='*' rev-parse --git-dir >/dev/null 2>&1; then
+    git_reason=refused-ownership
+  else
+    git_reason=no-repository
+  fi
+fi
+have_git="$git_usable"
 # branch_ok <name> <argument> — git decides what a legal branch name is, and
 # it must print the name back unchanged: @{-1} expands to another name, and
 # a name it expands is not the name that was typed. A lone @ passes both
@@ -413,14 +446,14 @@ remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
   case "$url" in *github.com*) remote="github" ;; *) remote="other" ;; esac
 fi
-# git sits beside gh and adb because the probe is the same, but its absence
-# means something different in KIND. gh and adb each degrade one named phase.
+# git was probed once, above the name checks (git_present, git_usable,
+# git_reason). It is reported beside gh and adb, but its absence means
+# something different in KIND. gh and adb each degrade one named phase.
 # git degrades nothing, because phases B, K and L are git operations and this
 # block's git reads — three above this line, and the working-tree read below it
-# — quietly report an empty base branch and a clean tree without it. That
-# silence is what this line exists to end. Reporting is still all this script
-# does; the stop is the orchestrator's decision 11.
-git_present=false; command -v git >/dev/null 2>&1 && git_present=true
+# — quietly report an empty base branch and a clean tree without a git that
+# works here. That silence is what the probe exists to end. Reporting is still
+# all this script does; the stop is the orchestrator's decision 11.
 # gh is probed under three names, first found wins, and the name is reported:
 # a Windows package manager can install it as gh.cmd alone, which a bare `gh`
 # lookup never finds, so probing one name read a working gh as absent.
@@ -489,7 +522,8 @@ jq -n \
   --argjson trailers "$trailers" \
   --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
   --argjson adb "$adb_present" \
-  --argjson git "$git_present" \
+  --argjson git "$git_present" --argjson git_usable "$git_usable" \
+  --arg git_reason "$git_reason" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
   --argjson live_runs "$live_runs" --argjson unreadable_runs "$unreadable_runs" \
   --argjson skips "$skips" '{
@@ -503,7 +537,8 @@ jq -n \
   featureBranch: $feature_branch, specDir: $spec_dir,
   commitTrailers: $trailers,
   remote: { kind: $remote, ghPresent: $gh, ghCommand: $gh_command },
-  capabilities: { jq: true, git: $git, gh: $gh, adb: $adb },
+  capabilities: { jq: true, git: $git, gitUsable: $git_usable, gh: $gh, adb: $adb },
+  gitReason: $git_reason,
   willSkip: $skips,
   tree: { dirty: $dirty, runsLive: $runs_live, liveRuns: $live_runs, unreadableRuns: $unreadable_runs }
 }'
