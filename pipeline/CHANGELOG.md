@@ -2,6 +2,37 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.7.3] - 2026-11-02
+
+### Highlights
+
+- Pre-flight stops when git is found but will not work on the repository,
+  and says why, instead of reporting git as fine and failing in phase B.
+
+### Fixed
+
+- **Pre-flight asks whether git works here, not only whether it is found.**
+  A git that refused the repository — most often git's ownership check,
+  `detected dubious ownership`, on a checkout another user or process
+  owns — reported `capabilities.git: true`, every git read then failed
+  silently, and the run died in phase B. Pre-flight now classifies git
+  once, from exit codes alone (git's messages are translated, so their
+  text is never read), and reports two new keys:
+  `capabilities.gitUsable` (a boolean) and `gitReason` — `usable`,
+  `absent`, `broken`, `refused-ownership` or `no-repository`.
+  `capabilities.git` keeps its meaning: git can be found. The ownership
+  check is lifted for one read-only `git rev-parse --git-dir` and never
+  written down. With git found but not usable, the branch and spec-folder
+  checks are skipped and the names reported unchecked, as with git absent,
+  instead of dying with a wrong cause.
+- **Decision 11 stops for every git that cannot be used.** It fires on
+  `capabilities.gitUsable` false and names the reason: the download link
+  for an absent or broken git; for a refused repository, the
+  `git config --global --add safe.directory` command for the owner to run,
+  which the pipeline never runs; for no repository, where to look. This
+  retires the limit 1.2.0 stated, that a git which is present but errors
+  was out of scope.
+
 ## [1.7.2] - 2026-11-02
 
 ### Highlights

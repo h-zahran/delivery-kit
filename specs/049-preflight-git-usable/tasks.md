@@ -47,8 +47,8 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" pipeline/tests/preflight.b
 
 **Goal**: installed copies get the fix (FR-014).
 
-- [ ] T016 In `pipeline/CHANGELOG.md`, add `## [1.7.3] - 2026-11-02` above `## [1.7.2]` with `### Highlights` (one line) and `### Fixed` (the probe now asks whether git works here; the two new keys; decision 11 names the reason; this retires 1.x's stated limit that a found-but-broken git was not covered), in the file's style; set `"version": "1.7.3"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.3` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
-- [ ] T017 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.3) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
+- [X] T016 In `pipeline/CHANGELOG.md`, add `## [1.7.3] - 2026-11-02` above `## [1.7.2]` with `### Highlights` (one line) and `### Fixed` (the probe now asks whether git works here; the two new keys; decision 11 names the reason; this retires 1.x's stated limit that a found-but-broken git was not covered), in the file's style; set `"version": "1.7.3"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.3` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
+- [X] T017 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.3) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
 
 ---
 
