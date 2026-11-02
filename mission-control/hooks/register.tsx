@@ -242,12 +242,14 @@ const settleTool = (list: ToolRow[], id: string, isError: boolean, at: number, e
 const settleAll = (list: ToolRow[], at: number): ToolRow[] =>
   list.map(r => (r.status === 'run' ? { ...r, status: 'err', endedAt: at, error: 'stopped' } : r))
 
-// Running agents stay; the oldest finished ones go first.
+// Live agents stay, resting ones too; the oldest finished ones go first. A
+// resting helper trimmed away would rejoin at its next call with no spawn
+// record, and be taken for a forked skill.
 const trimAgents = (list: AgentRun[]): AgentRun[] => {
   let extra = list.length - KEEP_AGENTS
   if (extra <= 0) return list
   return list.filter(a => {
-    if (extra > 0 && a.status !== 'running') {
+    if (extra > 0 && !isLive(a.status)) {
       extra--
       return false
     }
@@ -295,14 +297,13 @@ async function refreshUsage($: EngineInterface): Promise<void> {
 }
 
 // The engine's own list settles agents whose end no event of ours saw.
-// A helper whose turn ended can still run: it waits on its own background job
-// and starts a new turn when that ends. The engine's list says so; the pane follows.
-// A forked skill is the exception: the engine lists it `idle` once it has
-// returned (a message could wake it), but its one task is over, so its idle is
-// its end. Read as a spawned helper's idle, it was revived five seconds after
-// its turn.complete and then left "resting…" in RUNNING for good. An end
-// settled here raises no batch-end toast, as no end the list settles does; a
-// fork's turn.complete, when the engine fires one, has raised it already.
+// A helper whose turn ended can still run: `waiting` on its own background
+// work, or `idle` until a message starts its next turn. The engine's list says
+// so; the pane follows. A forked skill is the exception: the engine lists it
+// `idle` once it has returned, but its one task is over, so its idle is its
+// end. An end settled here raises no batch-end toast, as no end the list
+// settles does; a fork's turn.complete, when the engine fires one, has raised
+// it already.
 const isLive = (s: RunStatus): boolean => s === 'running' || s === 'idle'
 const statusOf = (a: AgentRun, s: string): RunStatus => (a.forked && s === 'idle' ? 'done' : mapStatus(s))
 const REVIVE_AFTER_MS = 5_000
@@ -317,7 +318,7 @@ async function reconcile($: EngineInterface): Promise<void> {
   const live = await $.agent.list()
   const byId = new Map(live.map(a => [a.id, a.status]))
   const isRevived = (a: AgentRun, s: string | undefined) =>
-    s !== undefined && isRecentDone(a, at) && (s === 'running' || s === 'waiting' || s === 'pending' || (s === 'idle' && !a.forked))
+    s !== undefined && isRecentDone(a, at) && isLive(statusOf(a, s))
   const changed = list.some(a => {
     const s = byId.get(a.id)
     return (s !== undefined && statusOf(a, s) !== a.status && isLive(a.status)) || isRevived(a, s)
@@ -349,7 +350,7 @@ async function reconcile($: EngineInterface): Promise<void> {
 // already holds is replaced by a spawn and kept by a late join.
 async function addRun(
   $: EngineInterface,
-  s: { id: string; parentId?: string; type: string; description: string; prompt: string; model: string; isJoin?: boolean },
+  s: { id: string; parentId?: string; type: string; description: string; prompt: string; model: string; isJoin?: boolean; forked?: boolean },
 ): Promise<void> {
   const at = await $.clock.now()
   // Spawns raised together each get their own number and count their mates
@@ -372,7 +373,7 @@ async function addRun(
     costUsd: 0,
     toolCount: 0,
     tools: [],
-    ...(s.isJoin ? { forked: true } : {}),
+    ...(s.forked ? { forked: true } : {}),
   }
   await update($, agents, list => {
     if (s.isJoin && list.some(a => a.id === run.id)) return list
@@ -404,7 +405,10 @@ async function join($: EngineInterface, owner: string, model?: string): Promise<
     }
     unlisted.delete(owner)
     const known = model ?? (await read($, main)).model ?? ''
-    await addRun($, { id: owner, parentId: info.parentId, type: info.type, description: info.description, prompt: '', model: known, isJoin: true })
+    // A teammate is never a forked skill, even when its spawn record is gone
+    // (lost with the pane's state, or trimmed): its idle waits for mail.
+    const forked = info.teammateId === undefined
+    await addRun($, { id: owner, parentId: info.parentId, type: info.type, description: info.description, prompt: '', model: known, isJoin: true, forked })
   })()
   const settled = safe(() => work).finally(() => joining.delete(owner))
   joining.set(owner, settled)
