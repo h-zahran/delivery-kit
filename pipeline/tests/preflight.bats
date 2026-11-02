@@ -193,6 +193,47 @@ stub() {
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "override" ]
 }
 
+@test "base branch: a branch with no commit yet stops pre-flight, naming the fix" {
+  # Feature 051. The old read, git rev-parse --abbrev-ref HEAD, printed HEAD
+  # and exited 128 here, and the report kept HEAD as the base branch. Phase B
+  # cannot branch from a branch with no commit, so pre-flight stops instead.
+  T="$BATS_TEST_TMPDIR/unborn"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  probe --dir "$T"
+  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
+  [ -z "$output" ] || { echo "a report was printed: $output"; false; }
+  [[ "$stderr" == *"no commit yet"* ]] || { echo "the stop does not name the case: $stderr"; false; }
+  [[ "$stderr" == *"make a first commit"* ]] || { echo "the stop does not name the fix: $stderr"; false; }
+  [[ "$stderr" == *"--base-branch"* ]] || { echo "the stop does not name the flag: $stderr"; false; }
+  # The stop is for the current-checkout source only: a base from a flag
+  # reads no checkout, and the same repository reports.
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
+  not_read_is '[]'
+}
+
+@test "base branch: a detached HEAD stops pre-flight, naming the fix" {
+  # Feature 051. The old read printed HEAD and exited 0 here, so no exit
+  # check on it could see the case.
+  T="$BATS_TEST_TMPDIR/detached"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git checkout -q --detach
+  probe --dir "$T"
+  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
+  [ -z "$output" ] || { echo "a report was printed: $output"; false; }
+  [[ "$stderr" == *"HEAD is detached"* ]] || { echo "the stop does not name the case: $stderr"; false; }
+  [[ "$stderr" == *"check out a branch"* ]] || { echo "the stop does not name the fix: $stderr"; false; }
+  [[ "$stderr" == *"--base-branch"* ]] || { echo "the stop does not name the flag: $stderr"; false; }
+  # The positive control: the same repository, back on its branch, reports.
+  git checkout -q work
+  probe --dir "$T"
+  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "work" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
+}
+
 @test "base branch: an override git would not accept as a branch name is refused, naming it" {
   # git check-ref-format decides what is legal, so the rule is git's and is
   # not restated here. The message names the value and the argument both.
@@ -208,7 +249,7 @@ stub() {
   # The default path is unchanged: the spec tool names the feature, and the
   # branch and the folder follow that name. An empty value is that default.
   T="$BATS_TEST_TMPDIR/names-absent"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T"
   [ "$status" -eq 0 ]
   [ "$(jq -r '.featureBranch' <<<"$output")" = "" ]
@@ -217,7 +258,7 @@ stub() {
 
 @test "feature branch: a typed name is reported, slashes and all" {
   T="$BATS_TEST_TMPDIR/branch-named"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T" --feature-branch 'team/one/003-thing'
   [ "$status" -eq 0 ]
   [ "$(jq -r '.featureBranch' <<<"$output")" = "team/one/003-thing" ]
@@ -246,7 +287,7 @@ stub() {
 
 @test "spec folder: a nested folder relative to the repository is reported" {
   T="$BATS_TEST_TMPDIR/specdir-named"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T" --spec-dir 'specs/team/one/003-thing'
   [ "$status" -eq 0 ]
   [ "$(jq -r '.specDir' <<<"$output")" = "specs/team/one/003-thing" ]
@@ -594,7 +635,7 @@ link_fallback_refused() {
 
 @test "trailers: without the argument the list is reported empty" {
   T="$BATS_TEST_TMPDIR/trailers-absent"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T"
   [ "$status" -eq 0 ]
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '[]' ]
@@ -604,7 +645,7 @@ link_fallback_refused() {
   # The orchestrator passes the key's trailers first, then the flags'. The
   # script keeps that order, so the probe line and the commits match it.
   T="$BATS_TEST_TMPDIR/trailers-named"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T" --trailer 'Team: one' --trailer 'Task: T-12 (second part)'
   [ "$status" -eq 0 ]
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: one","Task: T-12 (second part)"]' ]
@@ -642,7 +683,7 @@ link_fallback_refused() {
   # A reserved-token match by prefix or substring would refuse these, and no
   # other test passes a dashed token.
   T="$BATS_TEST_TMPDIR/trailers-dashed"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T" --trailer 'Plan-Item: a' --trailer 'Pieces: b' --trailer 'XPiece: c' --trailer 'Related: d'
   [ "$status" -eq 0 ]
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Plan-Item: a","Pieces: b","XPiece: c","Related: d"]' ]
@@ -652,7 +693,7 @@ link_fallback_refused() {
   # The token ends at the FIRST colon; taking it up to the last would cut
   # the URL.
   T="$BATS_TEST_TMPDIR/trailers-url"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   probe --dir "$T" --trailer 'Ref: https://example.invalid/a'
   [ "$status" -eq 0 ]
   [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Ref: https://example.invalid/a"]' ]
@@ -823,6 +864,24 @@ hidden_refused() {
   [ "$(jq -r '.tree.dirty' <<<"$output")" = "true" ]
   [ "$(jq -r '.tree.runsLive' <<<"$output")" = "true" ]
   not_read_is '[]'
+}
+
+@test "a working tree whose status cannot be read stops pre-flight" {
+  # Feature 051. With .git/index overwritten, git status --porcelain exits
+  # 128 and prints nothing, which the old script read as a clean tree.
+  T="$BATS_TEST_TMPDIR/badindex"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  printf 'x' > untracked.txt
+  printf 'garbage' > .git/index
+  # The precondition: git still opens the repository, so gitUsable is true
+  # and this is a read that fails under a usable git.
+  git rev-parse --git-dir > /dev/null || { echo "precondition: git no longer opens the repository"; false; }
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
+  [ -z "$output" ] || { echo "a report was printed: $output"; false; }
+  [[ "$stderr" == *"status could not be read"* ]] || { echo "the stop does not name the case: $stderr"; false; }
+  # git's own text never reaches the message: it names .git/index.
+  [[ "$stderr" != *"index"* ]] || { echo "the stop prints git's own text: $stderr"; false; }
 }
 
 # A DONE run and an abandoned one are not live. Both are made by the real
@@ -1525,6 +1584,7 @@ refuse_for_ownership() {
   [ "$status" -eq 0 ]
   git_report_is true refused-ownership
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "" ]
   not_read_is "$NOT_READ_ALL"
 
   # The N.5 skip comes from looking for adb, not from git: it is announced
@@ -1904,7 +1964,7 @@ judge_big() {
   # preflight.sh --trailer and records the list with state-set inside single
   # quotes, so the shell read Ref: x'$(id)' before any check ran, and an
   # honest O'Brien broke the command. A double quote stays accepted.
-  T="$BATS_TEST_TMPDIR/trailers-shell"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  T="$BATS_TEST_TMPDIR/trailers-shell"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   local bad
   for bad in "Reviewed-by: O'Brien <o@example.invalid>" "Ref: x'\$(id)'" 'Note: $HOME' 'Note: `id`'; do
     probe --dir "$T" --trailer "$bad"
@@ -1920,7 +1980,7 @@ judge_big() {
 @test "trailers: ##[ anywhere is refused, since a workflow log reads it as a command" {
   # Review 4, minor 1: a workflow that prints commit messages may act on
   # ##[ anywhere in a line. Only that exact sequence is refused.
-  T="$BATS_TEST_TMPDIR/trailers-log"; mkdir -p "$T"; cd "$T"; git init -q -b work .
+  T="$BATS_TEST_TMPDIR/trailers-log"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   local bad
   for bad in 'Note: ##[error]injected' 'Ref: a##[add-mask]b'; do
     probe --dir "$T" --trailer "$bad"
