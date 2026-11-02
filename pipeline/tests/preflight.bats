@@ -980,6 +980,28 @@ hidden_refused() {
   [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ]
 }
 
+@test "a NUL in the constitution is found even when the reader stops at its first match" {
+  # The check once piped od into `grep -q` under pipefail. grep -q leaves at
+  # its first match, od can then die of SIGPIPE writing into the closed pipe,
+  # and the failed pipeline sent the check down the "no NUL" branch: the
+  # constitution read as SET. That needed a loaded machine to show (30 of 400
+  # runs). This fake od removes the luck: a NUL line, then about 1 MB more,
+  # far past what a pipe holds after its reader has gone.
+  local d="$BATS_TEST_TMPDIR/od-stub"
+  mkdir -p "$d"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'cat > /dev/null' \
+    "printf ' ff fe 23 00\\n'" \
+    'i=0; while [ "$i" -lt 20000 ]; do printf " 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41\n"; i=$((i + 1)); done' \
+    > "$d/od"
+  chmod +x "$d/od"
+  PATH="$d:$PATH" probe --dir "$FIX/constitution-nul" --base-branch main
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [[ "$stderr" == *"NUL bytes"* ]] || { echo "no NUL warning: $stderr"; false; }
+  jq -e '.speckit.constitutionSet == false' <<<"$output" > /dev/null \
+    || { echo "read as: $(jq -c '.speckit.constitutionSet' <<<"$output")"; false; }
+}
+
 # --- the governance parser's remaining edges ----------------------------------
 
 @test "a byte-order mark is stripped before the constitution is judged" {
