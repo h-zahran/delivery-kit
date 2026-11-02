@@ -23,7 +23,7 @@
 
 ## Phase 2: A reload keeps the fix (FR-005)
 
-- [ ] T007 In `mission-control/hooks/forked.test.tsx`, add a test that seeds `$.state` `agents` with a run as this version stores it (`forked: true`, status `running`) and one as 0.9.6 stored it (no `forked`), lists both `idle`, ticks reconcile, and checks the first is `done` and the second `idle` (today's behaviour). Run the suite: 0 fail.
+- [X] T007 In `mission-control/hooks/forked.test.tsx`, add a test that seeds `$.state` `agents` with a run as this version stores it (`forked: true`, status `running`) and one as 0.9.6 stored it (no `forked`), lists both `idle`, ticks reconcile, and checks the first is `done` and the second `idle` (today's behaviour). Run the suite: 0 fail.
 
 ---
 
