@@ -25,8 +25,8 @@
 
 **Independent Test**: `bash "$HOME/bats/bin/bats" tests/pipefail.bats` passes; a planted line turns it red, naming file and line.
 
-- [ ] T005 [US2] Create `tests/pipefail.bats` (load `helper` like the other root tests): a helper `pipefail_walk` that reads paths on stdin, keeps files whose text holds `pipefail`, prints each line that pipes into `grep` with `-q` in any flag group or `--quiet` as `<path>:<line>: <text>`, prints `walked N files`, and returns 1 on any hit or on zero files kept; a test that feeds it `git ls-files '*.sh' '*.bash'` from the repository root minus `.specify/` and test directories and expects success; and fixture tests in `$BATS_TEST_TMPDIR` for: a planted `| grep -q`, a planted `| grep -qE`, a planted `| grep --quiet` (each red, naming the line), a script WITHOUT `pipefail` holding the same line (not flagged), and an empty path list (red). Build any planted text from parts if the repository's own walk would otherwise flag this test file (it does not walk `.bats` files, but keep the fixtures readable).
-- [ ] T006 [US2] Run `bash "$HOME/bats/bin/bats" tests/pipefail.bats`: green, no skip.
+- [X] T005 [US2] Create `tests/pipefail.bats` (load `helper` like the other root tests): a helper `pipefail_walk` that reads paths on stdin, keeps files whose text holds `pipefail`, prints each line that pipes into `grep` with `-q` in any flag group or `--quiet` as `<path>:<line>: <text>`, prints `walked N files`, and returns 1 on any hit or on zero files kept; a test that feeds it `git ls-files '*.sh' '*.bash'` from the repository root minus `.specify/` and test directories and expects success; and fixture tests in `$BATS_TEST_TMPDIR` for: a planted `| grep -q`, a planted `| grep -qE`, a planted `| grep --quiet` (each red, naming the line), a script WITHOUT `pipefail` holding the same line (not flagged), and an empty path list (red). Build any planted text from parts if the repository's own walk would otherwise flag this test file (it does not walk `.bats` files, but keep the fixtures readable).
+- [X] T006 [US2] Run `bash "$HOME/bats/bin/bats" tests/pipefail.bats`: green, no skip.
 
 **Checkpoint**: both stories complete.
 
