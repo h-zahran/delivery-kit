@@ -256,7 +256,12 @@ you are happy to branch from.
   does not degrade a phase — it stops the run at pre-flight, because branching,
   committing and opening a pull request are all git operations and pre-flight's
   own branch and working-tree reads are git commands. Pre-flight names it and
-  points at <https://git-scm.com/downloads>; nothing is installed for you.
+  points at <https://git-scm.com/downloads>; nothing is installed for you. It
+  stops the same way when git is found but will not work on the repository —
+  git refuses it because another user owns it, git itself fails to run, or no
+  repository opens at the folder — and says which, with the fix for you to run
+  (for the ownership case, the `git config --global --add safe.directory`
+  command); nothing is configured for you.
 - Optional, each degrading a *named* phase when absent, announced before any
   work starts: `gh` for the pull-request phases (without it the run pushes,
   prints a comparison link, and skips the review phase M); a browser or an attached

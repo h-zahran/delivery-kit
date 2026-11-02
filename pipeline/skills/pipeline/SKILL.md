@@ -162,7 +162,7 @@ read the state file; the recorded lines come from it.
 Project type : <projectType>  (<projectTypeSource>)
 spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <speckit.script> scripts — <in range?>
 Constitution : <set / not set — plan gates run against an empty document>
-git          : <present / ABSENT — the run stops, see decision 11>
+git          : <usable / ABSENT / BROKEN / REFUSED (ownership) / NO REPOSITORY — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
@@ -177,13 +177,13 @@ Will skip    : <each willSkip entry as "Phase X — reason">
 Every `gh` call this run makes uses the name `remote.ghCommand` reports:
 on Windows it can be `gh.cmd`, which a bare `gh` does not reach.
 
-When `capabilities.git` is false, read "The probe block without git" in
+When `capabilities.gitUsable` is false, read "The probe block without git" in
 `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` before rendering this block.
 
 The script only reports; the decisions are yours, in this order:
 
 **Read item 11 before item 1.** It is the one decision that fires out of
-its written position: with `capabilities.git` false the run stops there,
+its written position: with `capabilities.gitUsable` false the run stops there,
 and nothing below it runs. It is numbered last only so that items 1
 through 10 keep the numbers they have always had.
 
@@ -273,11 +273,14 @@ through 10 keep the numbers they have always had.
     and never stops anything): stop and name the value — never coerced,
     never treated as unset. Before naming it, read "An illegal
     implementer value" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
-11. **git absent** (`capabilities.git` false): stop. This item FIRES
+11. **git absent or unusable** (`capabilities.gitUsable` false): stop. This item FIRES
     FIRST — before item 1 and before every other decision on this list.
     It is numbered eleventh only so items 1 to 10 keep their numbers,
-    as item 10 is. Name the tool, print the link
-    `https://git-scm.com/downloads`, record the answer, and install
+    as item 10 is. Name the tool and why it cannot be used, as
+    `gitReason` says — absent, broken, refused for ownership, or no
+    repository opened here — print what "The git stop" gives for that
+    reason (the link `https://git-scm.com/downloads` when git is absent
+    or broken), record the answer, and install or configure
     nothing — the missing-tool ground rule at the top of this document,
     applied. Before reporting the stop, read "The git stop" in
     `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.

@@ -50,3 +50,20 @@ Filter: `capability report|unusable git|probes git|without git` (8 tests).
 | f | a second `command -v git` probe | probes git in one place |
 
 Every new test went red under at least one mutant.
+
+## T014: the prose piece
+
+`bats pipeline/tests/prose.bats`: `1..95`, 95 ok after the pins and the two
+rare-paths spans were updated (the spans regenerated with a verbatim copy of
+`rare_section`'s pipeline). The reason-set test, moved here from the probe
+piece, passed in `preflight.bats`.
+
+Prose mutations, each in a detached worktree (removed afterwards), each
+mutated line printed to prove it landed:
+
+| Mutant | Change | Red |
+|---|---|---|
+| trigger-back | decision 11's trigger back to `capabilities.git` | the git stop is pinned in both surfaces |
+| pipeline-runs-it | "It is never run by the pipeline" to "It is run by the pipeline" | the git stop is pinned in both surfaces |
+| no-safe-dir | the `safe.directory` command replaced by "the fix" | the git stop is pinned in both surfaces |
+| drop-reason-item | the `broken` item loses its backticks | the git reasons the script assigns are the ones the git stop instructs |

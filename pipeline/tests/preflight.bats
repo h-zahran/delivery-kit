@@ -1428,6 +1428,21 @@ refused_repo() {
   [ "$(jq -r '.gitReason' <<<"$output")" = "broken" ]
 }
 
+@test "the git reasons the script assigns are the ones the git stop instructs" {
+  # Both sides derived, never listed: the reasons the script can assign, and
+  # the reasons "The git stop" gives an instruction for, as list items that
+  # open with the reason in backticks. A reason added to one side alone has
+  # no instruction, or an instruction for a state that never happens.
+  local script page
+  script="$(grep -oE 'git_reason=[a-z-]+' "$PROBE" | sed 's/^git_reason=//' | grep -vx usable | sort -u)"
+  page="$(tr -d '\r' < "$ROOT/pipeline/docs/rare-paths.md" \
+    | awk '/^## / { on = ($0 == "## The git stop") ; next } on' \
+    | sed -nE 's/^- `([a-z-]+)`.*$/\1/p' | sort -u)"
+  [ -n "$script" ] || { echo "the script assigns no git reason"; false; }
+  [ -n "$page" ] || { echo "\"The git stop\" names no git reason"; false; }
+  [ "$script" = "$page" ] || { printf 'script assigns:\n%s\nthe git stop names:\n%s\n' "$script" "$page"; false; }
+}
+
 @test "the script probes git for its presence in one place" {
   # Two probes answered "found" in two places, and one of them gated the
   # name checks: one classifier now feeds both. A second copy would drift.

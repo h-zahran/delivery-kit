@@ -14,13 +14,15 @@ that never bend and the red flags stay in the skill.
 
 ## The probe block without git
 
-When `capabilities.git` is false, mark the parts of that block that came from
+When `capabilities.gitUsable` is false, mark the parts of that block that came from
 commands which did not run — and only those parts. This block is the FIRST
 thing the operator reads, so suppressing a wrong cause lower down is not enough;
 it has to not be printed here. But over-marking is its own lie, so be exact:
 
 - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
-  `current branch` — print `— not read, git is absent`. When the source is
+  `current branch` — print `— not read, git is <reason>`, the reason as
+  `gitReason` names it: absent, broken, refused (ownership), or opening no
+  repository here. When the source is
   `configured` the name came from a configuration file and IS established:
   print it, and add that it was not checked against the repository. The same
   for `override`, with its layer named.
@@ -50,16 +52,32 @@ instruction to follow.
 
 ## The git stop
 
-That rule asks for an install command; across the three
+What to print depends on `gitReason`, and nothing is run for the owner:
+
+- `absent`: git is not on the search path. Print the link.
+- `broken`: git was found, but `git --version` failed. Say so; repairing
+  or reinstalling it is the owner's. Print the link.
+- `refused-ownership`: git found the repository but refuses it, because
+  another user owns it (git's `safe.directory` check). Print, for the
+  owner to run, `git config --global --add safe.directory <the repository's path>`.
+  It is never run by the pipeline: trusting a repository is the owner's
+  decision. The path is shown on the owner's screen only, never written
+  into a commit, a pull request or the state file.
+- `no-repository`: git runs, but opened no repository at the probed
+  folder. That is not a claim that there is none: a refusal for another
+  cause reads the same. Say to start the run inside the repository, or to
+  run `git rev-parse --git-dir` there to read git's own reason.
+
+For `absent` and `broken`, that rule asks for an install command; across the three
 supported systems there is no single one, so the page listing them
 all stands in its place, and the link is what to print.
 Why it cannot wait: items 5 and 6 call git themselves, and without
-it would read a clean, unignored tree nothing looked at; and phases
+a git that works here they would read a clean, unignored tree nothing looked at; and phases
 B, K and L are git operations, so no part of the run survives.
 git is a CAPABILITY,
 never a `willSkip` entry: a degradation names a phase the run can
 do without, and there is no such phase here. Do not repeat the
-`Will skip` lines as findings when this item fires: without git the
+`Will skip` lines as findings when this item fires: without a usable git the
 remote could not be READ, so a "no git remote" reason names a cause
 nobody established. Report that the run stops for git, and say
 nothing about a remote. The recording follows the timing every state
