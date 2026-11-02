@@ -431,7 +431,23 @@ elif b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
 elif [ -n "$base_configured" ]; then
   base="$base_configured"; base_source="configured"
 else
-  base="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"; base_source="current branch"
+  base_source="current branch"
+  # The base is the current checkout, and with a usable git it must name a
+  # branch that has a commit, or B has nothing to cut the feature branch
+  # from. Measured on git 2.53.0 (specs/051-preflight-failed-git-reads/
+  # research.md, R1): `rev-parse --abbrev-ref HEAD` printed HEAD for a
+  # detached HEAD and exited 0, and printed HEAD for a branch with no commit
+  # and exited 128, and the old read kept that HEAD as the base. symbolic-ref
+  # names the branch, with or without a commit, and exits 1 when HEAD is
+  # detached; `rev-parse --verify` exits 1 when HEAD has no commit. Exit
+  # statuses alone decide, and git's own text is never printed. With git not
+  # usable no read runs here: the base stays empty and notRead names it.
+  if [ "$git_usable" = true ]; then
+    base="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" \
+      || die "HEAD is detached, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)"
+    git rev-parse --verify --quiet HEAD >/dev/null 2>&1 \
+      || die "the current branch has no commit yet, so there is nothing to cut the feature branch from; make a first commit, or pass a base branch (the run's --base-branch flag, or the baseBranch key)"
+  fi
 fi
 # notRead names each field of this report that holds a placeholder, not a
 # fact, because git is not usable here: its git read did not run, or ran and
@@ -485,8 +501,18 @@ for c in gh gh.exe gh.cmd; do
 done
 adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 
+# A status read that fails is no answer about the tree. Measured on git
+# 2.53.0 (research.md, R4): with .git/index overwritten, git still opens the
+# repository, so git is usable, and `git status --porcelain` exits 128 and
+# prints nothing, which the old read took for a clean tree, and decision 5
+# then passed a tree nobody examined. With a usable git that stops here;
+# with git not usable the read could not succeed, and notRead names it.
 dirty=false
-[ -n "$(git status --porcelain 2>/dev/null || true)" ] && dirty=true
+if st="$(git status --porcelain 2>/dev/null)"; then
+  [ -z "$st" ] || dirty=true
+elif [ "$git_usable" = true ]; then
+  die "the working tree's status could not be read, so it was not examined and could hold work a run would commit over; run git status to see why"
+fi
 mark_not_read tree.dirty
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it
 # (an abandoned value other than null or false): the rule progress.sh's
