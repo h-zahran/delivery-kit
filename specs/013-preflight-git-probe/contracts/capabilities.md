@@ -1,5 +1,7 @@
 # Contract: the pre-flight probe's stdout
 
+> Superseded in part (2026-11-02) by `specs/049-preflight-git-usable/contracts/capabilities.md`: the section "What the probe does NOT promise about git" below no longer holds.
+
 `pipeline/scripts/preflight.sh` is a command-line program whose stdout is a
 machine contract. This document states the part of that contract this feature
 changes, and the parts it must not.
