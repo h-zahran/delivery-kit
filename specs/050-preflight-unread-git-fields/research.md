@@ -1,0 +1,66 @@
+# Research: 050-preflight-unread-git-fields
+
+## R1. The key's name and place
+
+- **Decision**: a top-level `notRead`, a list of strings.
+- **Rationale**: it sits beside `gitReason`, which explains it. A name for
+  what it covers (fields not read), not for git, so a later probe that skips
+  a read for another cause can name its field in the same list.
+- **Alternatives**: `gitRead: false` (the issue's example) — redundant with
+  `capabilities.gitUsable` since 049, and it does not say which fields.
+  A `notRead: true` inside each affected object — `baseBranch` is a string,
+  not an object, so it has no place to carry one.
+
+## R2. How a field is named
+
+- **Decision**: a dotted path from the report's root: `baseBranch`,
+  `baseBranchSource`, `remote.kind`, `tree.dirty`. A `willSkip` entry is
+  named `willSkip.<phase>`, e.g. `willSkip.L`.
+- **Rationale**: dotted paths are what the issue, the spec and the probe
+  block already use. `willSkip` is a list, so an index would change when an
+  entry is added before it; the phase is the entry's identity.
+- **Alternatives**: jq paths (`.willSkip[0]`) — index-fragile, as above.
+
+## R3. Order
+
+- **Decision**: the order the script produces the fields: `baseBranch`,
+  `baseBranchSource`, `remote.kind`, `tree.dirty`, then the skips in the
+  order they are added.
+- **Rationale**: deterministic without a sort, and tests can compare the
+  whole list exactly.
+
+## R4. Which base sources are unread
+
+- **Decision**: `baseBranch` and `baseBranchSource` are named when git is not
+  usable and the source is neither `override` nor `configured`.
+- **Rationale**: those two come from the flags, not from git. With git not
+  usable, `git symbolic-ref` fails, so the source falls to `current branch`
+  whenever no override or configured base exists (measured, spec Context).
+  The rule is written as "not override or configured", not as "is
+  origin/HEAD or current branch", so a later source added from git is
+  unread by default — the fail-closed direction.
+
+## R5. The skip entries
+
+- **Decision**: the `L` and `M` skips of the no-remote branch, and the `M`
+  skip of the non-GitHub branch, are added through `add_git_skip`, which
+  calls `add_skip` and, when git is not usable, appends `willSkip.<phase>`.
+  The `gh`-absent `M` skip and the `N.5` skip use `add_skip` directly.
+- **Rationale**: the marking happens where the dependency on git is
+  visible: in the remote branch. An unusable git always reads `none`, so in
+  practice the two marked entries are `L` and `M`.
+
+## R6. Whether to stop running the git reads when git is unusable
+
+- **Decision**: no change. Out of scope; the spec's edge case says why.
+
+## R7. The probe block rule
+
+- **Decision**: rewrite "The probe block without git" to mark exactly what
+  `notRead` names, keeping its explanations (why the block must be exact,
+  why `ghPresent` stands, why `no git remote` is unestablished).
+- **Rationale**: Principle IV. Today the rule that `origin/HEAD` and
+  `current branch` are git-derived is written in the prose and implied in
+  the script; after this change the script is the one place.
+- **Cost**: `rare_spans` in `pipeline/tests/prose.bats` holds that section
+  verbatim and must be updated in the same piece.
