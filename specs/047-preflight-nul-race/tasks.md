@@ -43,8 +43,8 @@
 
 ## Phase 4: Polish — prove it (records only)
 
-- [ ] T009 Write `specs/047-preflight-nul-race/measurements.md`: SC-001 — the T001 test run 10 times against the old line (in a scratch worktree at `e255029` with the test copied in) and 10 times against the new: 0/10 and 10/10 passes; SC-002 — the 400-run load reproduction from the spec (8 busy loops) on the old pipeline and on the new capture: wrong answers counted; SC-003 — pre-flight stdout and stderr on every `pipeline/tests/fixtures/constitution-*` fixture, old script against new, compared byte for byte.
-- [ ] T010 In the same file, record the positive controls: the T001 test's red output on the old line (from T001), and for `tests/pipefail.bats` the fixture tests going red when the walk's `-q` rule is narrowed (e.g. to `-q` only, dropping flag groups) and when the zero-file check is removed (run in a scratch worktree).
+- [X] T009 Write `specs/047-preflight-nul-race/measurements.md`: SC-001 — the T001 test run 10 times against the old line (in a scratch worktree at `e255029` with the test copied in) and 10 times against the new: 0/10 and 10/10 passes; SC-002 — the 400-run load reproduction from the spec (8 busy loops) on the old pipeline and on the new capture: wrong answers counted; SC-003 — pre-flight stdout and stderr on every `pipeline/tests/fixtures/constitution-*` fixture, old script against new, compared byte for byte.
+- [X] T010 In the same file, record the positive controls: the T001 test's red output on the old line (from T001), and for `tests/pipefail.bats` the fixture tests going red when the walk's `-q` rule is narrowed (e.g. to `-q` only, dropping flag groups) and when the zero-file check is removed (run in a scratch worktree).
 
 ---
 
