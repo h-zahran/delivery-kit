@@ -67,3 +67,42 @@ mutated line printed to prove it landed:
 | pipeline-runs-it | "It is never run by the pipeline" to "It is run by the pipeline" | the git stop is pinned in both surfaces |
 | no-safe-dir | the `safe.directory` command replaced by "the fix" | the git stop is pinned in both surfaces |
 | drop-reason-item | the `broken` item loses its backticks | the git reasons the script assigns are the ones the git stop instructs |
+
+## Phase I: the review round, and its fixes
+
+Five lenses, one round: contract (COMPLIANT; 4 MEDIUM, 5 LOW), security
+(1 MEDIUM, 4 LOW), tests (3 HIGH, 2 MEDIUM, 2 LOW), bugs (12 findings),
+simplify (2 MEDIUM, 8 LOW). No CRITICAL. The findings and what became of
+each are in the run's state file (`gates.I`).
+
+The security lens measured the central claim on git 2.53.0: a hostile
+repository planting 28 programs ran none under the lifted
+`rev-parse --git-dir` (one `execve`, traced), while the same plants fired
+under `status` and `commit`. git's own `Documentation/config/safe.txt`
+says, at v2.35.2 to v2.37.0, that `-c safe.directory` is not respected; at
+v2.38.0 it moves to protected configuration. So before 2.38 every
+ownership refusal reads `no-repository` (the contract now says so).
+
+After the fixes: `prose.bats`, `preflight.bats` and `skills.bats`,
+`1..216`, 216 ok. Mutations re-run against the fixed code (classifier now
+runs `rev-parse` first, `--version` only after it fails):
+
+| Mutant | Change | Red |
+|---|---|---|
+| a | drop the one-command lift | refuses for ownership; exit codes only; names unchecked |
+| b | swap `refused-ownership` and `no-repository` | refuses; exit codes only; names unchecked; no repository here |
+| c | skip the `--version` step | found but cannot run |
+| d | the override gate back to `git_present` | names unchecked |
+| i | the feature-branch gate back to `git_present` (missed before the fixes) | names unchecked |
+| e | `--argjson git_usable` to `--arg` | all five per-reason tests and both extended ones |
+| f | a second presence probe spelled `type -P git` | probes git in one place |
+| g | the lifted call becomes `status --porcelain` (missed before the fixes) | refuses for ownership: the planted program ran |
+| h | the classifier matches git's message text (missed before the fixes) | exit codes only |
+| P1 | decision 11's action back to "print the link" (missed before) | the git stop is pinned |
+| P2 | the link "for every reason" (missed before) | the git stop is pinned |
+| P5 | decision 11 told to run the trust command (missed before) | the git stop is pinned; each rare path's old site |
+| P6 | decision 11's trigger back to `capabilities.git` | the git stop is pinned |
+| P7 | "they must not trust it" to "they may trust it" | the git stop is pinned; each rare-paths section is exactly |
+
+The tracked script's checksum was unchanged after the script mutants; the
+prose mutants ran in a detached worktree, removed afterwards.

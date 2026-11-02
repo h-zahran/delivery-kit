@@ -14,15 +14,15 @@ that never bend and the red flags stay in the skill.
 
 ## The probe block without git
 
-When `capabilities.gitUsable` is false, mark the parts of that block that came from
-commands which did not run — and only those parts. This block is the FIRST
+When `capabilities.gitUsable` is false, mark the parts of that block that
+came from git reads which did not run, or ran and failed — and only those
+parts. This block is the FIRST
 thing the operator reads, so suppressing a wrong cause lower down is not enough;
 it has to not be printed here. But over-marking is its own lie, so be exact:
 
 - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or
-  `current branch` — print `— not read, git is <reason>`, the reason as
-  `gitReason` names it: absent, broken, refused (ownership), or opening no
-  repository here. When the source is
+  `current branch` — print
+  `— not read: git is not usable here (<gitReason>)`. When the source is
   `configured` the name came from a configuration file and IS established:
   print it, and add that it was not checked against the repository. The same
   for `override`, with its layer named.
@@ -32,7 +32,7 @@ it has to not be printed here. But over-marking is its own lie, so be exact:
 - `Will skip`: print the entries that do not depend on git — an `N.5` entry
   comes from looking for a device tool and stands. Mark the `L` and `M`
   entries as not established: `no git remote` reads as though a remote had
-  been looked for and not found, and it was never looked for at all.
+  been looked for and not found, and no git that works here ever looked.
 
 ## An orphaned constitution write
 
@@ -55,24 +55,44 @@ instruction to follow.
 What to print depends on `gitReason`, and nothing is run for the owner:
 
 - `absent`: git is not on the search path. Print the link.
-- `broken`: git was found, but `git --version` failed. Say so; repairing
-  or reinstalling it is the owner's. Print the link.
-- `refused-ownership`: git found the repository but refuses it, because
-  another user owns it (git's `safe.directory` check). Print, for the
-  owner to run, `git config --global --add safe.directory <the repository's path>`.
-  It is never run by the pipeline: trusting a repository is the owner's
-  decision. The path is shown on the owner's screen only, never written
-  into a commit, a pull request or the state file.
+- `broken`: git was found, but it opened no repository and `git --version`
+  failed too. Say so; repairing or reinstalling it is the owner's. Print
+  the link.
+- `refused-ownership`: git found a repository but refuses it, because
+  another user owns it (git's ownership check). The pipeline names no
+  path and runs no fix: it cannot tell which repository git found, and
+  the owner must look before trusting one. Tell the owner to run
+  `git rev-parse --git-dir` in that folder: git's own message names the
+  repository's top folder and the command that trusts it. If that path
+  holds a space or another shell character and git printed it without
+  quotes, as older gits do, it goes in single quotes before it is pasted.
+  Before running that command, the owner checks that the named
+  repository is the checkout they meant to run in. If it is a folder
+  ABOVE it that they do not own, such as a shared temporary folder or
+  another user's home, they must not trust it: a repository planted
+  above a working folder is exactly what the check exists to stop, and
+  the run belongs inside their own checkout. Trusting a repository lets
+  its configuration run programs as the owner. When the files are the
+  owner's own but another account made them (`sudo`, a container), giving
+  the files back to the owner fixes it without trusting anyone. The fix
+  is never run by the pipeline: trusting a repository is the owner's
+  decision.
 - `no-repository`: git runs, but opened no repository at the probed
   folder. That is not a claim that there is none: a refusal for another
-  cause reads the same. Say to start the run inside the repository, or to
-  run `git rev-parse --git-dir` there to read git's own reason.
+  cause reads the same, and so does an ownership refusal on a git older
+  than 2.38, which ignores the one-command lift. Say to start the run
+  inside the repository, or to run `git rev-parse --git-dir` there to
+  read git's own reason; if git says the repository has dubious
+  ownership, it is the `refused-ownership` case above, and its advice
+  applies.
 
-For `absent` and `broken`, that rule asks for an install command; across the three
+For `absent` and `broken`, the missing-tool ground rule asks for an
+install command; across the three
 supported systems there is no single one, so the page listing them
 all stands in its place, and the link is what to print.
 Why it cannot wait: items 5 and 6 call git themselves, and without
-a git that works here they would read a clean, unignored tree nothing looked at; and phases
+a git that works here they would read a clean, unignored tree nothing
+looked at; and phases
 B, K and L are git operations, so no part of the run survives.
 git is a CAPABILITY,
 never a `willSkip` entry: a degradation names a phase the run can

@@ -22,16 +22,19 @@ All notable changes to the `pipeline` plugin.
   `absent`, `broken`, `refused-ownership` or `no-repository`.
   `capabilities.git` keeps its meaning: git can be found. The ownership
   check is lifted for one read-only `git rev-parse --git-dir` and never
-  written down. With git found but not usable, the branch and spec-folder
-  checks are skipped and the names reported unchecked, as with git absent,
-  instead of dying with a wrong cause.
+  written down. With git found but not usable, the name checks that read
+  the repository are skipped and the names reported unchecked, as with git
+  absent, instead of dying with a wrong cause. A git older than 2.38
+  ignores the one-command lift, so there an ownership refusal reads
+  `no-repository`, whose advice leads to git's own message.
 - **Decision 11 stops for every git that cannot be used.** It fires on
   `capabilities.gitUsable` false and names the reason: the download link
-  for an absent or broken git; for a refused repository, the
-  `git config --global --add safe.directory` command for the owner to run,
-  which the pipeline never runs; for no repository, where to look. This
-  retires the limit 1.2.0 stated, that a git which is present but errors
-  was out of scope.
+  for an absent or broken git; for a refused repository, how to read
+  git's own message and check that the repository it names is the owner's
+  checkout, not one planted in a folder above it, before trusting it —
+  the pipeline names no path and runs no fix; for no repository, where to
+  look. This retires the limit 1.2.0 stated, that a git which is present
+  but errors was out of scope.
 
 ## [1.7.2] - 2026-11-02
 

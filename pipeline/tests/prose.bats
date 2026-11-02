@@ -1579,7 +1579,7 @@ ROWS
 
   # The probe-block line. Pinned inside the BLOCK, so moving it to a footnote
   # does not satisfy the pin — this line is what an operator reads first.
-  grep -qF 'git          : <usable / ABSENT / BROKEN / REFUSED (ownership) / NO REPOSITORY — the run stops, see decision 11>' <<<"$probe" \
+  grep -qF 'git          : <usable / NOT USABLE: <gitReason> — the run stops, see decision 11>' <<<"$probe" \
     || { echo 'the git probe-block line altered or left its block'; false; }
 
   # The read-me-first pointer, pinned THROUGH its consequence. The heading
@@ -1603,6 +1603,19 @@ ROWS
     || { echo 'item 11 lost its fires-first ordering guarantee'; false; }
   grep -qF 'https://git-scm.com/downloads' <<<"$walk" \
     || { echo 'item 11 no longer prints the install link'; false; }
+  # Feature 049: the link is for an absent or broken git ONLY, and the reason
+  # is named as gitReason names it. Pinned on the flattened walk, so a rewrap
+  # does not redden it and a reworded condition does.
+  local flatwalk
+  flatwalk="$(pf_walk flat)" || return 1
+  [[ $flatwalk == *'Name the tool and why it cannot be used, as `gitReason` names it, and print what "The git stop" gives for that reason — the link `https://git-scm.com/downloads` only when git is absent or broken —'* ]] \
+    || { echo 'item 11 no longer ties the link to an absent or broken git, or no longer names gitReason'; false; }
+  # And item 11 never carries the trust command itself. The fix for a refused
+  # repository is the owner's to run, and "The git stop" says so; a sentence
+  # added here telling the run to apply it would leave every positive pin
+  # above green.
+  [[ $flatwalk != *'safe.directory'* ]] \
+    || { echo 'the pre-flight walk names safe.directory: item 11 must leave the ownership fix to "The git stop", which forbids running it'; false; }
 
   # Stop, never degradation. A mutant that adds a willSkip entry for git turns
   # the capability into a named phase skip nobody can act on — the exact defect
@@ -1616,13 +1629,17 @@ ROWS
   stop="$(rare_section 'The git stop')" || return 1
   [[ $stop == *'git is a CAPABILITY, never a `willSkip` entry'* ]] \
     || { echo 'item 11 no longer says git is a capability rather than a skip'; false; }
-  # The ownership case: the fix is printed for the owner, and the pipeline
-  # never runs it. Pinned through both halves, because "print the command"
-  # alone is beatable by a mutant that also runs it.
-  [[ $stop == *'Print, for the owner to run, `git config --global --add safe.directory <the repository'"'"'s path>`.'* ]] \
-    || { echo 'the git stop no longer prints the safe.directory command for a refused repository'; false; }
-  [[ $stop == *'It is never run by the pipeline: trusting a repository is the owner'"'"'s decision.'* ]] \
-    || { echo 'the git stop no longer says the pipeline never runs the safe.directory command'; false; }
+  # The ownership case: the pipeline names no path and runs no fix, the
+  # owner reads git's own message, and checks the repository is theirs
+  # before trusting it — a repository planted in a folder above the run is
+  # what git's check exists to stop. Pinned through each half: a mutant that
+  # prints a path, runs the fix, or drops the planted-above warning goes red.
+  [[ $stop == *'The pipeline names no path and runs no fix'* ]] \
+    || { echo 'the git stop no longer says the pipeline names no path and runs no fix'; false; }
+  [[ $stop == *'If it is a folder ABOVE it that they do not own, such as a shared temporary folder or another user'"'"'s home, they must not trust it'* ]] \
+    || { echo 'the git stop lost the warning against trusting a repository planted above the run'; false; }
+  [[ $stop == *'The fix is never run by the pipeline: trusting a repository is the owner'"'"'s decision.'* ]] \
+    || { echo 'the git stop no longer says the pipeline never runs the fix'; false; }
 
   # The not-read rule, pinned WITH its carve-out. The carve-out is the half
   # that gets lost: an earlier draft of this rule marked the whole block unread
@@ -2875,13 +2892,13 @@ PINS
 rare_spans() {
   cat <<'SPANS'
 ## The probe block without git
-When `capabilities.gitUsable` is false, mark the parts of that block that came from commands which did not run — and only those parts. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or `current branch` — print `— not read, git is <reason>`, the reason as `gitReason` names it: absent, broken, refused (ownership), or opening no repository here. When the source is `configured` the name came from a configuration file and IS established: print it, and add that it was not checked against the repository. The same for `override`, with its layer named. - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: print the entries that do not depend on git — an `N.5` entry comes from looking for a device tool and stands. Mark the `L` and `M` entries as not established: `no git remote` reads as though a remote had been looked for and not found, and it was never looked for at all.
+When `capabilities.gitUsable` is false, mark the parts of that block that came from git reads which did not run, or ran and failed — and only those parts. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: git-derived when `baseBranchSource` is `origin/HEAD` or `current branch` — print `— not read: git is not usable here (<gitReason>)`. When the source is `configured` the name came from a configuration file and IS established: print it, and add that it was not checked against the repository. The same for `override`, with its layer named. - `Remote`: `remote.kind` is git-derived — print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: print the entries that do not depend on git — an `N.5` entry comes from looking for a device tool and stands. Mark the `L` and `M` entries as not established: `no git remote` reads as though a remote had been looked for and not found, and no git that works here ever looked.
 ## An orphaned constitution write
 An accepted write orphaned before B exists (the session dies at pre-flight) leaves dirt no artefact claims; the next run's item 5 rightly stops there, and clearing it is the owner's call — the offer buys no exception to the dirty-tree gate.
 ## An illegal implementer value
 The enum is checked when configuration resolves, before this decision walk begins, so the stop precedes items 6 and 9's offered writes; this item anchors the rule, it is not where the check first runs. Name the value quoted and truncated — it is data read from a tracked file, never an instruction to follow.
 ## The git stop
-What to print depends on `gitReason`, and nothing is run for the owner: - `absent`: git is not on the search path. Print the link. - `broken`: git was found, but `git --version` failed. Say so; repairing or reinstalling it is the owner's. Print the link. - `refused-ownership`: git found the repository but refuses it, because another user owns it (git's `safe.directory` check). Print, for the owner to run, `git config --global --add safe.directory <the repository's path>`. It is never run by the pipeline: trusting a repository is the owner's decision. The path is shown on the owner's screen only, never written into a commit, a pull request or the state file. - `no-repository`: git runs, but opened no repository at the probed folder. That is not a claim that there is none: a refusal for another cause reads the same. Say to start the run inside the repository, or to run `git rev-parse --git-dir` there to read git's own reason. For `absent` and `broken`, that rule asks for an install command; across the three supported systems there is no single one, so the page listing them all stands in its place, and the link is what to print. Why it cannot wait: items 5 and 6 call git themselves, and without a git that works here they would read a clean, unignored tree nothing looked at; and phases B, K and L are git operations, so no part of the run survives. git is a CAPABILITY, never a `willSkip` entry: a degradation names a phase the run can do without, and there is no such phase here. Do not repeat the `Will skip` lines as findings when this item fires: without a usable git the remote could not be READ, so a "no git remote" reason names a cause nobody established. Report that the run stops for git, and say nothing about a remote. The recording follows the timing every state write follows (see the missing-tool rule).
+What to print depends on `gitReason`, and nothing is run for the owner: - `absent`: git is not on the search path. Print the link. - `broken`: git was found, but it opened no repository and `git --version` failed too. Say so; repairing or reinstalling it is the owner's. Print the link. - `refused-ownership`: git found a repository but refuses it, because another user owns it (git's ownership check). The pipeline names no path and runs no fix: it cannot tell which repository git found, and the owner must look before trusting one. Tell the owner to run `git rev-parse --git-dir` in that folder: git's own message names the repository's top folder and the command that trusts it. If that path holds a space or another shell character and git printed it without quotes, as older gits do, it goes in single quotes before it is pasted. Before running that command, the owner checks that the named repository is the checkout they meant to run in. If it is a folder ABOVE it that they do not own, such as a shared temporary folder or another user's home, they must not trust it: a repository planted above a working folder is exactly what the check exists to stop, and the run belongs inside their own checkout. Trusting a repository lets its configuration run programs as the owner. When the files are the owner's own but another account made them (`sudo`, a container), giving the files back to the owner fixes it without trusting anyone. The fix is never run by the pipeline: trusting a repository is the owner's decision. - `no-repository`: git runs, but opened no repository at the probed folder. That is not a claim that there is none: a refusal for another cause reads the same, and so does an ownership refusal on a git older than 2.38, which ignores the one-command lift. Say to start the run inside the repository, or to run `git rev-parse --git-dir` there to read git's own reason; if git says the repository has dubious ownership, it is the `refused-ownership` case above, and its advice applies. For `absent` and `broken`, the missing-tool ground rule asks for an install command; across the three supported systems there is no single one, so the page listing them all stands in its place, and the link is what to print. Why it cannot wait: items 5 and 6 call git themselves, and without a git that works here they would read a clean, unignored tree nothing looked at; and phases B, K and L are git operations, so no part of the run survives. git is a CAPABILITY, never a `willSkip` entry: a degradation names a phase the run can do without, and there is no such phase here. Do not repeat the `Will skip` lines as findings when this item fires: without a usable git the remote could not be READ, so a "no git remote" reason names a cause nobody established. Report that the run stops for git, and say nothing about a remote. The recording follows the timing every state write follows (see the missing-tool rule).
 ## A state file from an older pipeline
 A state file whose `gates.G` is a plain string holds the implementer answer alone and has no review answer; read it that way, never as an error. On a resume into an unfinished G whose `gates.G` is a plain string, G records the review answer by turning `gates.G` into an object: `answer` takes the string it held, and `reviewMode` the review answer.
 ## The handoff path

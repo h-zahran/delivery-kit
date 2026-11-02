@@ -36,14 +36,28 @@ translated (FR-004).
 
 **Limits, stated in the contract**:
 - Any refusal other than ownership reads `no-repository`.
-- A git with the ownership check but without `*` support (2.35.2 to 2.35.x)
-  reads a refusal as `no-repository`.
+- A git older than 2.38 reads every ownership refusal as `no-repository`:
+  until then `safe.directory` given with `-c` was ignored (git's
+  `Documentation/config/safe.txt` at v2.35.2 to v2.37.0 says so in words;
+  v2.38.0 moves it to protected configuration, which includes the command
+  line). Found at review, 2026-11-02; the first draft said only 2.35.x.
 - A git that runs `--version` but fails every other command reads
   `no-repository`.
+- The classifier runs `rev-parse` first and `--version` only after it
+  fails, so a working git costs one process (review, 2026-11-02).
+- git's messages are not read because their wording changes between
+  versions. The script runs under `LC_ALL=C`, so translation is not the
+  reason inside it.
 
 ## R2. Does lifting the check for one command reopen what it protects?
 
-**Decision**: no, for `rev-parse --git-dir`.
+**Decision**: no, for `rev-parse --git-dir`. Confirmed at review
+(2026-11-02, git 2.53.0): a hostile repository planting 28 programs
+(hooks, `core.hooksPath`, fsmonitor directly and through includes and
+worktree config, pagers, aliases, filters, helpers, editors, proxies) ran
+none under the lifted call, traced to one `execve`; the same plants fired
+under `status` and `commit`. The lifted call does parse the configuration
+and its includes: an include pointing at a FIFO stalls it.
 
 **Rationale**: the ownership check exists so an untrusted repository's
 configuration cannot make git run a program (`core.fsmonitor`, `core.pager`,
@@ -106,9 +120,15 @@ established for every unusable reason, as it does for absent.
 ## R6. Decision 11's text per reason
 
 - `absent`: today's text and link.
-- `refused-ownership`: name the refusal and print, for the owner to run,
-  `git config --global --add safe.directory <the repository's path>`. Run
-  nothing. The path is shown on the owner's screen only.
+- `refused-ownership`: name the refusal, name no path, run nothing. The
+  first draft printed `safe.directory <the repository's path>`; review
+  found four faults in it, two of them measured: the script cannot say which
+  repository git found, a `safe.directory` entry for a subfolder does not
+  lift the check (only the top folder does), a folder name can hold shell
+  characters, and git may have climbed to a repository another user
+  planted above the run. The owner is sent to git's own message instead,
+  which names the top folder and quotes the command, with a warning to
+  trust only their own checkout.
 - `broken`: git was found but did not run; repair or reinstall it; the link.
 - `no-repository`: git runs but opened no repository at the probed folder;
   start the run inside the repository, or run `git rev-parse --git-dir`

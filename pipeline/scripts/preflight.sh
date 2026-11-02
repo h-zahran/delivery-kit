@@ -117,40 +117,50 @@ cd "$dir" 2>/dev/null || { shown dir_s "$dir"; die "cannot enter '$dir_s'"; }
 # Every check that asks git runs here, inside the repository, so a name
 # like @{-1} is never read from the caller's.
 #
-# Is git USABLE here, not only found? Decided once, from exit codes alone:
-# git's messages are translated, so their text is never read. Each step
-# runs only when the one before it passed:
+# Is git USABLE here, not only found? Decided once, from exit codes alone.
+# git's message text is never read: its wording changes between versions
+# (this script runs under LC_ALL=C, so translation is not the reason). Each
+# step runs only when the steps before it did not decide:
 #   absent             git cannot be found on the search path
-#   broken             git is found, but `git --version` fails
 #   usable             `git rev-parse --git-dir` opens a repository here
+#   broken             git is found, but `git --version` fails too
 #   refused-ownership  it opens one only with git's ownership check lifted
 #   no-repository      it opens none here, for any other cause
-# A refusal for a cause other than ownership reads no-repository, which is
-# why that reason never claims there is no repository. The ownership check
-# is lifted for that ONE command, on its own command line, and never
-# written down: the check exists so an untrusted repository's configuration
-# cannot make git run a program, and `rev-parse --git-dir` runs none — no
-# hook, no fsmonitor, no pager, no filter. Measured on git 2.53.0.
+# rev-parse comes first so a working git costs one process. A refusal for a
+# cause other than ownership reads no-repository, and so does every refusal
+# on a git older than 2.38, which ignores safe.directory given with -c (its
+# own documentation says so); that is why no-repository never claims there
+# is no repository. The ownership check is lifted for that ONE command, on
+# its own command line, and never written down. The check exists so an
+# untrusted repository's configuration cannot make git run a program; the
+# lifted `rev-parse --git-dir` does parse that configuration and its
+# includes, but runs none of it — no hook, fsmonitor, pager, filter, alias
+# or helper (measured on git 2.53.0 against 28 planted programs, none
+# fired). An include pointing at a FIFO can stall it; there is no portable
+# timeout to bound it with, and the stall runs nothing.
 #
-# git_present feeds capabilities.git ("found"), git_usable and git_reason
-# the new keys, and have_git the name checks below: with git found but not
-# usable they would read a repository git refuses and die naming a wrong
-# cause, so they skip, and the names are reported unchecked, as without
-# git. The run stops at decision 11 either way.
+# git_present feeds capabilities.git ("found"); git_usable and git_reason
+# feed gitUsable and gitReason. The name checks below run only when git_usable
+# is true: with git found but not usable they would read a repository git
+# refuses and die naming a wrong cause, so they skip and the names are
+# reported unchecked, as without git. The run stops at decision 11 either
+# way. git differs from gh and adb in KIND: they each degrade one named
+# phase, git degrades none, because phases B, K and L are git operations
+# and this script's own git reads — the base branch, the remote and the
+# working tree — go quiet without a git that works here.
 git_present=false; git_usable=false; git_reason=absent
 if command -v git >/dev/null 2>&1; then
   git_present=true
-  if ! git --version >/dev/null 2>&1; then
-    git_reason=broken
-  elif git rev-parse --git-dir >/dev/null 2>&1; then
+  if git rev-parse --git-dir >/dev/null 2>&1; then
     git_usable=true; git_reason=usable
+  elif ! git --version >/dev/null 2>&1; then
+    git_reason=broken
   elif git -c safe.directory='*' rev-parse --git-dir >/dev/null 2>&1; then
     git_reason=refused-ownership
   else
     git_reason=no-repository
   fi
 fi
-have_git="$git_usable"
 # branch_ok <name> <argument> — git decides what a legal branch name is, and
 # it must print the name back unchanged: @{-1} expands to another name, and
 # a name it expands is not the name that was typed. A lone @ passes both
@@ -192,7 +202,7 @@ branch_like() {
 # (measured, git 2.43.0: rc 128), which is a fresh clone's usual state, so
 # that case names the one command that fixes it. A tag, a commit id,
 # origin/main or refs/heads/main is not a branch's name.
-if [ -n "$base_override" ] && [ "$have_git" = true ]; then
+if [ -n "$base_override" ] && [ "$git_usable" = true ]; then
   branch_ok "$base_override" --base-branch-override
   shown ov_s "$base_override"
   if ! git show-ref --verify --quiet "refs/heads/$base_override"; then
@@ -215,7 +225,7 @@ fi
 fb=""; fb_arg=""
 if [ -n "$feature_branch" ]; then fb="$feature_branch"; fb_arg="--feature-branch"
 elif [ -n "$spec_dir" ]; then fb="${spec_dir##*/}"; fb_arg="--spec-dir"; fi
-if [ -n "$fb" ] && [ "$have_git" = true ]; then
+if [ -n "$fb" ] && [ "$git_usable" = true ]; then
   branch_ok "$fb" "$fb_arg"
   # A name that is a tag too, refused as the override is: B's
   # `git checkout -b` makes the branch beside the tag, and every later
@@ -242,7 +252,7 @@ if [ -n "$spec_dir" ]; then
   # --show-toplevel spells a path its own way (C:/Users/...).
   real="$(cd -P -- "$p" && pwd -P)" || die "cannot enter '$p_s' (--spec-dir)"
   top="$(pwd -P)"
-  if [ "$have_git" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
+  if [ "$git_usable" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
     top="$(cd -P -- "./$t" && pwd -P)" || top="$(pwd -P)"
   fi
   # Inside or outside is decided by identity, never by spelling. Git Bash
@@ -436,7 +446,7 @@ if [ -n "$fb" ] && [ -n "$base" ]; then
     die "'$fb_s' is the base branch '$base_s'; the feature branch needs its own name ($fb_arg)"
   fi
 fi
-if [ -n "$fb" ] && [ "$have_git" = true ]; then
+if [ -n "$fb" ] && [ "$git_usable" = true ]; then
   hit="$(branch_like "$fb")"
   shown fb_s "$fb"; shown hit_s "$hit"
   [ -z "$hit" ] || die "'$fb_s' already exists as the branch '$hit_s', or collides with it as a folder; the feature branch needs a new name ($fb_arg)"
@@ -446,14 +456,6 @@ remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
   case "$url" in *github.com*) remote="github" ;; *) remote="other" ;; esac
 fi
-# git was probed once, above the name checks (git_present, git_usable,
-# git_reason). It is reported beside gh and adb, but its absence means
-# something different in KIND. gh and adb each degrade one named phase.
-# git degrades nothing, because phases B, K and L are git operations and this
-# block's git reads — three above this line, and the working-tree read below it
-# — quietly report an empty base branch and a clean tree without a git that
-# works here. That silence is what the probe exists to end. Reporting is still
-# all this script does; the stop is the orchestrator's decision 11.
 # gh is probed under three names, first found wins, and the name is reported:
 # a Windows package manager can install it as gh.cmd alone, which a bare `gh`
 # lookup never finds, so probing one name read a working gh as absent.
