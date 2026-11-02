@@ -43,8 +43,8 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" pipeline/tests/preflight.b
 
 **Goal**: installed copies get the change (FR-009).
 
-- [ ] T012 In `pipeline/CHANGELOG.md`, add `## [1.7.5] - 2026-11-02` above `## [1.7.4]` with `### Highlights` (one line) and `### Fixed` (the three stops, each with the case it closes; `notRead` unchanged; closes issue #106), in the file's style; set `"version": "1.7.5"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.5` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
-- [ ] T013 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.5) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
+- [X] T012 In `pipeline/CHANGELOG.md`, add `## [1.7.5] - 2026-11-02` above `## [1.7.4]` with `### Highlights` (one line) and `### Fixed` (the three stops, each with the case it closes; `notRead` unchanged; closes issue #106), in the file's style; set `"version": "1.7.5"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.5` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
+- [X] T013 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.5) and `bash "$HOME/bats/bin/bats" tests` in the FOREGROUND: green.
 
 ---
 
