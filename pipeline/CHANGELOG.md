@@ -15,10 +15,12 @@ All notable changes to the `pipeline` plugin.
   saved as UTF-16 or UTF-32 must read as not set, with a warning. The check
   piped `od` into `grep -q` under `pipefail`: `grep -q` leaves at its first
   match, `od` could then die of SIGPIPE, and the failed pipeline read the
-  constitution as set — 30 of 400 runs on a loaded machine, none on a quiet
+  constitution as set — 33 of 400 runs on a loaded machine, none on a quiet
   one. The check now captures `od`'s output and then matches it. A test
-  forces the early exit with a fake `od`, and a new test refuses a pipe into
-  `grep -q` in any shipped script that sets `pipefail`.
+  forces the early exit with a fake `od`; two more fake a failed read, one
+  after the NUL is seen (still not set) and one before anything is read
+  (pre-flight still reaches the parse and exits 0); and a new test
+  refuses a pipe into `grep -q` in any shipped script that sets `pipefail`.
 
 ## [1.7.1] - 2026-11-01
 
