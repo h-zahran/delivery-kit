@@ -36,8 +36,8 @@
 
 ## Phase 4: Polish — prove it (records only)
 
-- [ ] T010 Write `specs/048-mc-fork-done/measurements.md`: the T001 red output on the old code; the suite count before (133) and after; `claude plugin validate` result.
-- [ ] T011 In the same file, record positive controls run in a scratch copy of the mod: the forked-idle → done rule removed (T001 a/b red); the revive exclusion removed (T001 a red); `forked` not stored by `addRun` (T001 a/b and T007 red); the spawned-helper guard broken by treating every idle as done (T002 red).
+- [X] T010 Write `specs/048-mc-fork-done/measurements.md`: the T001 red output on the old code; the suite count before (133) and after; `claude plugin validate` result.
+- [X] T011 In the same file, record positive controls run in a scratch copy of the mod: the forked-idle → done rule removed (T001 a/b red); the revive exclusion removed (T001 a red); `forked` not stored by `addRun` (T001 a/b and T007 red); the spawned-helper guard broken by treating every idle as done (T002 red).
 
 ## Dependencies & Execution Order
 
