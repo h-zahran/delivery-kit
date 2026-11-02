@@ -323,3 +323,24 @@ test('forked: a helper made by agent.spawn that the list calls idle stays in RUN
   expect(await ui.find({ text: /resting/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('forked: a fork stored before a reload is still a fork; a run 0.9.6 stored keeps idle', ENGINE, async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.start', () => ({ cwd: 'D:/w' }))
+  const agents = agentWrites(on)
+  const run = (id: string) => ({
+    id, type: 'code-review', description: id, model: 'claude-opus-5-5', color: 'cyan', status: 'running',
+    startedAt: 0, ctxTokens: 0, ctxMax: 200_000, ctxHist: [], costUsd: 0, toolCount: 1, tools: [],
+  })
+  // This version's record of a fork, and 0.9.6's (no `forked`), as $.state kept them over a reload.
+  on('state.get', (_, e: { key?: string }, next: (e: unknown) => unknown) =>
+    e.key === 'agents' ? { value: { value: [{ ...run('ag-new'), forked: true }, run('ag-old')], version: 1 } } : next(e))
+  agentList(on, () => [
+    { id: 'ag-new', description: 'ag-new', type: 'code-review', status: 'idle' },
+    { id: 'ag-old', description: 'ag-old', type: 'code-review', status: 'idle' },
+  ])
+  await $.session.start(startArgs).catch(() => undefined)
+  await clock.advance(12_000)
+  expect(agents().find(a => a.id === 'ag-new')?.status).toBe('done')
+  expect(agents().find(a => a.id === 'ag-old')?.status).toBe('idle')
+})
