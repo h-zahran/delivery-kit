@@ -29,8 +29,8 @@
 
 ## Phase 3: Release mission-control 0.9.7
 
-- [ ] T008 In `mission-control/CHANGELOG.md`, add `## [0.9.7] - 2026-11-02` with `### Highlights` and `### Fixed` entries in the file's style (a finished forked skill moves to DONE; why: the engine reports it idle). Set `"version": "0.9.7"` in `mission-control/.claude-plugin/plugin.json` and in the mission-control entry of `.claude-plugin/marketplace.json` (with `sed` on that one line, never `jq`).
-- [ ] T009 Run `bash scripts/check-versions.sh` (rc 0, mission-control 0.9.7 released) and `bash "$HOME/bats/bin/bats" -r tests` (green).
+- [X] T008 In `mission-control/CHANGELOG.md`, add `## [0.9.7] - 2026-11-02` with `### Highlights` and `### Fixed` entries in the file's style (a finished forked skill moves to DONE; why: the engine reports it idle). Set `"version": "0.9.7"` in `mission-control/.claude-plugin/plugin.json` and in the mission-control entry of `.claude-plugin/marketplace.json` (with `sed` on that one line, never `jq`).
+- [X] T009 Run `bash scripts/check-versions.sh` (rc 0, mission-control 0.9.7 released) and `bash "$HOME/bats/bin/bats" -r tests` (green).
 
 ---
 

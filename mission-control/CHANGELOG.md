@@ -2,6 +2,24 @@
 
 All notable changes to the `mission-control` plugin.
 
+## [0.9.7] - 2026-11-02
+
+### Highlights
+
+- A skill that runs forked, such as `/code-review`, now moves to DONE when
+  its work is over. Before, its robot stayed RUNNING as "resting…" for the
+  rest of the session.
+
+### Fixed
+
+- **A finished fork no longer rests forever.** When a forked skill ends, the
+  engine's agent list keeps it as `idle`, not as completed. For a spawned
+  helper, `idle` means it waits for a message, so 0.9.6 brought the finished
+  fork back to the pane as idle 5 seconds after it was done. Now a run that
+  joined the pane from the agent list is marked as a fork, and a fork's
+  `idle` counts as done. A spawned helper's `idle` is unchanged. A fork
+  stored by 0.9.6 has no mark, so it keeps its old state after a reload.
+
 ## [0.9.6] - 2026-10-28
 
 ### Fixed
