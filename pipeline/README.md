@@ -119,6 +119,9 @@ stop a run are listed under the table.
 | Push & PR | L | Branch name, PR title, the full body with its review guide | `--auto`, except for the stops L names itself, such as a commit it cannot show |
 | Release | O | The exact command, and where it publishes | `--auto-release` only |
 
+When the branch holds commits and nothing is left to commit, the commit and
+push gates are one stop: one question shows both, and one answer covers both.
+
 `--auto` collapses only the commit and push gates. Publishing is the least
 reversible thing this tool does, so it needs its own flag, typed on purpose —
 one flag must not mean both "commit for me" and "publish for me".
