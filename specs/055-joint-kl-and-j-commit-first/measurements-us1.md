@@ -66,3 +66,26 @@ were compared with `cmp` against copies taken before it: both equal.
 
 Every mutation landed, every mutated run was red for the pin it targeted,
 and every restored run was green.
+
+## Integration, 2026-11-03
+
+US1 (`37b490e`) and US2 (`c4ee0ad`) were cherry-picked onto the feature
+branch. The merged SKILL.md was 66,176 bytes, over the 65,536-byte limit the
+size test holds (both helpers predicted it). The joint-stop rule moved, word
+for word, to a new section "K and L as one stop" in
+`pipeline/docs/rare-paths.md`; K and L keep a one-sentence pointer each.
+SKILL.md is now 65,477 bytes: **59 bytes** under the limit, so the next
+addition to SKILL.md must free room first.
+
+- `span_k` and `span_l` were regenerated with the test file's own
+  `prose_slice`, cut after the next heading's bold title. Control: the same
+  method on the committed SKILL.md reproduced the old spans byte for byte.
+- The joint test now pins the two pointers and compares the rare-paths
+  section WHOLE; `rare_spans` lists the new section.
+- m1, drop "A no pushes nothing … as a no at K does." from the rare-paths
+  section: the joint test red (1 not ok). Restored, `cmp` identical.
+- m2, replace K's pointer with "K and L stop apart.": the joint test red
+  (1 not ok). Restored, `cmp` identical.
+- Control after both: 0 not ok. prose.bats + skills.bats: 1..113, 113 ok.
+- The conflict in `pipeline/docs/phases.md` (J, K and L rows) was resolved
+  by taking US2's J row and US1's K and L rows, in table order J, K, L.
