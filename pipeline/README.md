@@ -170,7 +170,7 @@ escaping rules.
 | `converge` | H.5 | The tasks the convergence pass found missing, appended as a phase of their own, and their work. |
 | `simplify` | H.7 | What the simplify pass changed. Only a run begun before pipeline 1.7.0 makes one: from 1.7.0 the simplify lens's fixes ride in I's `review` commit. |
 | `review` | I | The fixes from the deep review's one round, for every lens. |
-| `tests` | J (or K: its empty record commit, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing, an empty commit that records it. In a run without pieces, J's fixes ride in K's commit, and K makes that empty record commit only when nothing is left to commit. |
+| `tests` | J (or K: its empty record commit, in a run without pieces) | The fixes for new test failures — or, when a failure was waved through and J changed nothing since its last late commit, an empty commit that records it. In a run without pieces, J's fixes ride in K's commit, and K makes that empty record commit only when nothing is left to commit. |
 | `constitution` | K | A constitution written by an accepted pre-flight offer, always on its own. |
 | `other` | K, M, N | What was left for K, and the fixes for pull-request comments and from the re-verify pass. |
 
