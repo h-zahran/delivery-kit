@@ -1363,6 +1363,14 @@ SPAN
   # while the suite ran is refused at the record.
   grep -qF '`progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after' <<<"$flat" \
     || { echo 'the suite record bracket altered — the key before the run, the record after it, the output inside the run directory'; false; }
+  # Feature 053: F.5 waits for the base suite run B started, then looks up as
+  # before; the wait never decides reuse. Dropped, F.5 runs the suite while
+  # the base run is a minute from done; "never decides reuse" dropped, a
+  # wait's "ended: green" could be read as leave to cite.
+  pins_in "$flat" 'phase F.5' <<'PINS'
+F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`.
+F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`.
+PINS
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
   # still present; only this proves nothing was added beside it.
   assert_span span_f5 "$flat" 'phase F.5 gained, lost or reworded text around the reuse rule. An appended exception ("or any green result on this branch") reuses a result for a tree it never ran on while leaving the anchors intact.'
@@ -1370,7 +1378,7 @@ SPAN
 
 span_f5() {
   cat <<'SPAN'
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`. F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 SPAN
 }
 
@@ -2220,6 +2228,21 @@ PINS
 # "similar", or drops the untracked files from the key, tells the reader a
 # result stands for code it never ran on. Matched with [[ == ]], never grep
 # through a process substitution, which was measured to false-match.
+# Feature 053: B starts the base suite run once the state file and the
+# branch exist, and its one line is shown. A start that failed must not stop
+# the run: the base run only saves time, and F.5 still runs the suite.
+@test "B starts the base suite run once the branch is cut" {
+  local flat docs
+  flat="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  pins_in "$flat" 'phase B' <<'PINS'
+Record `artifacts.spec`. Then run `progress.sh suite-base <feature> start` and print the one line it prints: on a fresh run whose base commit has no green suite result, it starts the full suite on that commit in the background, in a separate checkout, for F.5 to cite.
+An exit 1 is printed too and does not stop the run: F.5 then runs the suite.
+PINS
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  [[ $docs == *'`off`: nothing is kept or reused, and no base suite run starts.'* ]] \
+    || { echo "configuration.md no longer says suiteReuse off starts no base suite run"; false; }
+}
+
 @test "phases.md states the suite reuse rules the state helper enforces" {
   local doc="$ROOT/pipeline/docs/phases.md" flat rows
   [ -f "$doc" ] && [ -r "$doc" ] || { echo "cannot read $doc"; false; }
@@ -2252,7 +2275,12 @@ PINS
     'F.5 asks with `suite-lookup <feature> --base`; J and N never do.' \
     'A phase that cites quotes those two lines verbatim; at F.5 they are the `test_baseline`.' \
     'Only the untracked spec directory is left out: any other change, and a spec directory already tracked, still counts. A result is never recorded under that narrower key;' \
-    '`progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule to any TAP file, keyed or not'
+    '`progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule to any TAP file, keyed or not' \
+    'on a detached `git worktree` of HEAD'"'"'s commit — the base commit, since the branch has no commit yet — in a temporary folder outside the working tree.' \
+    'It starts nothing when a green record for the base files already exists, and nothing under `suiteReuse: off`.' \
+    'the limit is 900 seconds, counted from F.5'"'"'s first wait, and at the limit the runner is stopped.' \
+    'A runner whose heartbeat is more than 60 seconds old is never signalled: its process id may belong to another program by then.' \
+    'The wait never decides reuse; `suite-lookup <feature> --base` does, as above.'
   do
     [[ "$flat" == *"$want"* ]] || { echo "phases.md's reuse section no longer says: $want"; false; }
   done
@@ -2260,6 +2288,7 @@ PINS
   rows="$(tr -d '\r' < "$doc")"
   for want in \
     '| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature'"'"'s, and phase J classifies against this record. May reuse a green result on identical files instead, or on the files as they were before the feature' \
+    'or a result the run'"'"'s own background run recorded on the base commit' \
     '| J | analyzer and full suite | Runs both commands (or reuses a green suite result on identical files) and classifies' \
     '| N | re-verify | Runs the analyzer and the suite again (or reuses a green suite result on identical files), classifies'
   do
