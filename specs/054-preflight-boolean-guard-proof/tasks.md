@@ -25,7 +25,7 @@
 
 **Independent Test**: `measurements.md` holds the base table, dated, with commit `86b1973888e053ce903b8d45b3114be73f30bf8d`.
 
-- [ ] T003 [US1] Run `bash specs/054-preflight-boolean-guard-proof/mutate.sh 86b1973888e053ce903b8d45b3114be73f30bf8d`; write its control line and every row into `specs/054-preflight-boolean-guard-proof/measurements.md` under "Base table", with the date, the commit and the command. Below the table, name for each `CAUGHT` row the red test whose failing line reads that field (FR-003), and list the `HOLE` vars. If any var other than `sk_present` and `sk_in_range` is `HOLE`, or either of those two is not, say so in the file: the next phase adds an assertion for exactly the `HOLE` vars.
+- [X] T003 [US1] Run `bash specs/054-preflight-boolean-guard-proof/mutate.sh 86b1973888e053ce903b8d45b3114be73f30bf8d`; write its control line and every row into `specs/054-preflight-boolean-guard-proof/measurements.md` under "Base table", with the date, the commit and the command. Below the table, name for each `CAUGHT` row the red test whose failing line reads that field (FR-003), and list the `HOLE` vars. If any var other than `sk_present` and `sk_in_range` is `HOLE`, or either of those two is not, say so in the file: the next phase adds an assertion for exactly the `HOLE` vars.
 
 ---
 
