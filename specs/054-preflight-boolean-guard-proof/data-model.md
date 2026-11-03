@@ -17,7 +17,10 @@ Verdicts, decided from `red` alone, with no hand-written map of guards:
 - `HOLE`: no test is red.
 - `WALK-ONLY`: only the FR-012 walk is red (finished branch): the field has no
   guard of its own.
-- `NO-OP`: the file did not change. `BAD`: the mutant fails `bash -n`.
+- `NO-WALK`: tests other than the walk are red, but the walk is not
+  (finished branch): the walk missed a string boolean.
+- `NO-OP`: the file did not change. `BAD`: the mutant fails `bash -n`, or its
+  `--argjson <var> "` text does not occur exactly once.
 
 The record then names, for each row, which red test is the field's guard: a
 test whose red line reads that field (FR-003).
