@@ -112,7 +112,9 @@ branch, stops pre-flight too: the current checkout is then no local
 branch. A base branch read from the repository, from `origin/HEAD`, this
 key or the current branch, gets the override's checks below: a legal
 name, a local branch with a commit, and no tag of the same name. A base
-that fails one stops pre-flight, naming where the base came from.
+that fails one stops pre-flight, naming where the base came from. So does
+an `origin/HEAD` that points outside `refs/remotes/origin/`, at another
+remote's branch.
 
 The override beats the remote's default and this key. It has two
 spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
@@ -127,8 +129,13 @@ silently. A name git would not accept as a branch name stops pre-flight,
 naming it, and so does a name git expands to another, such as `@{-1}`, a
 lone `@`, which git reads as `HEAD`, and a name that is not a local
 branch: a tag, a commit id, `origin/main` or `refs/heads/main` is not
-one. A local branch that is a tag as well is refused too: git would read
-the tag. So is a name holding a character other than a letter, a digit,
+one. So is a branch with no commit: the current branch before its first
+commit, or a branch ref that names no commit. A local branch that is a tag
+as well is refused too: git would read the tag. So is a branch whose name
+git reads as anything else, such as `refs/<name>`, a remote's branch or
+`ORIG_HEAD`, as `git rev-parse --symbolic-full-name` tells: git cannot tell
+the two apart. So is a branch named as a full commit id, which git reads
+as the commit. So is a name holding a character other than a letter, a digit,
 `.`, `_`, `-` or `/`, though git would accept it: pre-flight prints the
 name in a command a person may run. A refused name is printed masked,
 as the next section says. A branch that exists only on `origin`, as in
@@ -434,7 +441,8 @@ whenever `capabilities.gitUsable` is `true`. A read that fails under a
 usable git is never a placeholder in the list: pre-flight stops instead and
 says why, when the base branch comes from the current checkout and that
 checkout is a detached `HEAD` or a branch with no commit yet, and whenever
-`git status` fails. The placeholders are `baseBranch` (empty, or a
+`git status`, or the index listing the clean-tree check makes, fails. The
+placeholders are `baseBranch` (empty, or a
 configured name nobody confirmed), `baseBranchSource` (`current branch`
 for a checkout nobody read), `remote.kind` (`none` for a remote nobody
 looked for), `tree.dirty` (`false` for a tree nobody examined), and the
@@ -448,16 +456,26 @@ root, and a skip is named by its phase, as `willSkip.<phase>`. The order
 is the order the script produces the fields: a consumer tests
 membership, not position.
 
+## The clean-tree check
+
 `tree.dirty` reads the working tree as git sees it, with two flags on the
 command line that beat the repository's configuration:
 `--untracked-files=normal`, so `status.showUntrackedFiles` cannot hide an
 untracked file, and `--ignore-submodules=none`, so
 `submodule.<name>.ignore` and `diff.ignoreSubmodules` cannot hide a changed
-submodule. A tracked file marked `assume-unchanged` counts as a change: git
-does not look at it, so nobody can say it is clean. Two cases are not
-seen: a file marked `skip-worktree`, because a sparse checkout marks its
-clean files so, and a folder git cannot open, because git only warns about
-it. Pre-flight's status read, like every later phase of the run, runs the
-programs the repository's own configuration names, such as an fsmonitor,
-hooks and filters, as git does in a repository the user owns; git's
-ownership check is the guard against a repository the user does not own.
+submodule. In a repository that sets `status.showUntrackedFiles=no` to save
+time, the check walks the untracked files anyway. When `git status` shows
+nothing, pre-flight lists the index too, and a tracked file marked
+`assume-unchanged` counts as a change: git does not look at it, so nobody
+can say it is clean. A repository that sets `core.ignoreStat` marks every
+file git writes so, and always reads as dirty. Pre-flight says on stderr how
+many such files it found, since `git status` shows nothing; `git ls-files
+-v` shows each with a lowercase tag. When that listing fails, pre-flight
+stops, as it does when `git status` fails. Two cases are not seen: a file
+marked `skip-worktree`, because a sparse checkout marks its clean files so,
+and a folder git cannot open, because git only warns about it. Pre-flight's
+tree reads, `git status` and `git ls-files`, like every later phase of the
+run, run the programs the repository's own configuration names, such as an
+fsmonitor, hooks and filters, as git does in a repository the user owns;
+git's ownership check is the guard against a repository the user does not
+own.

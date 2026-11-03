@@ -70,6 +70,7 @@ Candidate hardening, measured the same day:
 - Q: Should pre-flight's own `git status` turn off programs the repository names (item 3)? → A: Document the limit only: change no git call; say that pre-flight and the run trust the repository's own configuration, as git does for a repository the user owns (FR-007).
 - Q: Should this run also release the change as pipeline 1.7.6? → A: Yes, release 1.7.6 as the run's last piece (FR-012).
 - Q: Should the status read also pass `--ignore-submodules=none`, as the issue proposed? → A: Yes, add it: a changed submodule counts as dirty whatever the repository's configuration says (FR-006).
+- Phase I review: a base can pass every check and still be read by git as another ref (`.git/ORIG_HEAD`, `refs/<name>`, `refs/remotes/<name>`, `refs/remotes/<name>/HEAD`), and a remote can supply one through `origin/HEAD`; the tag rule is widened to every such collision by asking git how it reads the name, after a hand-made list of git's rules was found to miss reftable, `main-worktree/` and a full commit id, and to refuse a branch named after a git file that is no ref (FR-013). `origin/HEAD` was still read with `--short`, so a ref named `origin/main` gave `remotes/origin/main`; it is read as a full ref (FR-014). `GIT_LITERAL_PATHSPECS` made the index listing list nothing; the listing turns it off, runs only on a clean status, and a dirty answer from it is explained on stderr (FR-015). A repository with `core.ignoreStat` always reads dirty under the owner's assume-unchanged rule; that is the rule applied, and the documentation names it.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -100,8 +101,9 @@ names the base, its source and the reason.
    **When** pre-flight runs, **Then** it stops and says git would read
    the tag.
 3. **Given** a repository with no commit and a base from the key or a
-   flag, **When** pre-flight runs, **Then** it stops and says the base
-   has no commit.
+   flag that names the current branch, **When** pre-flight runs, **Then**
+   it stops and says the base has no commit yet; a base naming any other
+   branch there stops as "not a branch here or on origin".
 4. **Given** a base that is a local branch with a commit and no tag of
    that name, from any source, **When** pre-flight runs, **Then** the
    report is as today.
@@ -232,8 +234,10 @@ alone, turns at least one test red.
   MUST name the command that creates the local branch (`git branch
   --track <base> origin/<base>`), as the override's refusal does today.
 - **FR-002**: With a usable git, pre-flight MUST stop when
-  `refs/tags/<base>` exists, whatever the base's source, saying git would
-  read the tag.
+  `refs/tags/<base>` exists beside `refs/heads/<base>`, whatever the base's
+  source, saying git would read the tag. A name that is only a tag, with no
+  branch, gets FR-001's "is not a branch here or on origin", the
+  override's text today (phase I wording).
 - **FR-003**: Each FR-001 and FR-002 message MUST name the base's source:
   `origin/HEAD`, the `baseBranch` key, the current branch, or the
   override (whose existing messages stand unchanged, FR-011). It MUST
@@ -281,7 +285,9 @@ alone, turns at least one test red.
   with one named exception (phase D): an override that names the current
   branch before its first commit now gets FR-001's "no commit yet"
   message instead of "is not a branch here or on origin", because one
-  check serves every source (Principle IV).
+  check serves every source (Principle IV). The commit check also refuses
+  an override the old check accepted: a branch ref written by hand to
+  name a tree (phase I wording).
   An existing test whose fixture names a base that FR-001 or FR-002 now
   refuses, and that expects a report, MUST be given a fixture that has
   that base, so it still tests what it tested; its assertions do not
@@ -295,6 +301,19 @@ alone, turns at least one test red.
   and the pipeline entry's version in `.claude-plugin/marketplace.json`,
   with `scripts/check-versions.sh` passing. The release is its own piece,
   after the change, its tests and its documentation.
+
+- **FR-013** (phase I): With a usable git, pre-flight MUST stop when git
+  reads the base as anything but `refs/heads/<base>`, as `git rev-parse
+  --symbolic-full-name <base>` tells (it agreed with `git checkout -b` on
+  every case measured, both ref formats), and when the base is spelled as
+  a full commit id. The message names the source and no other ref.
+- **FR-014** (phase I): `origin/HEAD` MUST be read as a full ref; one
+  outside `refs/remotes/origin/` MUST stop pre-flight, naming no ref.
+- **FR-015** (phase I): The index listing MUST run only when the status
+  read is clean, MUST NOT be changed by `GIT_LITERAL_PATHSPECS`, and an
+  `assume-unchanged` count above zero MUST be explained by one line on
+  stderr naming the count and `git ls-files -v`. A failed listing's stop
+  MUST name `git ls-files -v`.
 
 ### Key Entities
 

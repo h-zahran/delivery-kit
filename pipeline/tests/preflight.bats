@@ -4,23 +4,25 @@ bats_require_minimum_version 1.5.0
 
 # Suite for pipeline/scripts/preflight.sh — detection and probe. The fixture
 # directories are copied, once per file, into a scratch repository on branch
-# main with one commit, and every fixture test probes that copy. They used to
-# be probed where they sit, inside this checkout, so their git facts were the
-# checkout's. Since feature 052 pre-flight checks that the base branch exists
-# as a local branch with a commit, and a CI pull-request checkout is detached
-# with no main at all, so every fixture probe would have stopped in CI alone
-# (research R6). No fixture test asserts baseBranch or remote; those
-# assertions get their own scratch repositories below.
+# main with one commit, a GitHub origin and origin/HEAD naming main, and
+# every fixture test probes that copy. Pre-flight checks that the base branch
+# is a local branch with a commit, and a CI pull-request checkout is detached
+# with no main at all, so a fixture probed where it sits, inside this
+# checkout, would stop in CI alone (feature 052, research R6). The copy keeps
+# the git facts the fixture tests were written against: a GitHub remote, and
+# origin/HEAD resolving to a local main. No fixture test asserts baseBranch
+# or remote; those assertions get their own scratch repositories below.
 
 load ../../tests/helper
 
 setup_file() {
   local copy="$BATS_FILE_TMPDIR/fixtures"
   cp -R "$ROOT/pipeline/tests/fixtures" "$copy"
-  git -C "$copy" init -q -b main
-  git -C "$copy" add .
-  git -C "$copy" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
-    commit -q -m fixtures
+  # add -f: a global excludes file must not leave a fixture file untracked.
+  ( cd "$copy" && git init -q -b main && git add -f . && commit_staged fixtures \
+    && git remote add origin https://github.com/example/thing.git \
+    && git update-ref refs/remotes/origin/main HEAD \
+    && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main )
   export FIX_REPO="$copy"
 }
 
@@ -58,11 +60,28 @@ shimdir() {
   done
 }
 
-# seed — one empty commit in the current repository, so branches can exist.
-# The identity is given on the command line: these repositories have none.
-seed() {
+# commit_staged <message> [git commit arguments...] — commit what is staged in
+# the current repository. The identity is given on the command line: these
+# repositories have none.
+commit_staged() {
+  local m=$1; shift
   git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
-    commit -q --allow-empty -m seed
+    commit -q -m "$m" "$@"
+}
+
+# seed — one empty commit in the current repository, so branches can exist.
+seed() {
+  commit_staged seed --allow-empty
+}
+
+# refused <message> <probe arguments...> — the probe stops: exit 1, no report,
+# and exactly `preflight: <message>` on stderr.
+refused() {
+  local want="preflight: $1"; shift
+  probe "$@"
+  [ "$status" -eq 1 ] || { echo "exit $status for: $want"; false; }
+  [ -z "$output" ] || { echo "a report was printed for: $want"; false; }
+  [ "$stderr" = "$want" ] || { echo "want: $want"; echo "got:  $stderr"; false; }
 }
 
 # main_base — seed, and a local branch main beside the checked-out one, for a
@@ -233,10 +252,7 @@ stub() {
   # the same repository then reported the configured name unchecked; now
   # the usable-base check refuses it, since a repository with no commit has
   # no branch at all, and it names the key, not the current checkout.
-  probe --dir "$T" --base-branch main
-  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
-  [ "$stderr" = "preflight: 'main' is not a branch here or on origin (the baseBranch key)" ] \
-    || { echo "wrong stop: $stderr"; false; }
+  refused "'main' is not a branch here or on origin (the baseBranch key)" --dir "$T" --base-branch main
 }
 
 @test "base branch: a detached HEAD stops pre-flight, naming the fix" {
@@ -487,16 +503,6 @@ stub() {
 # it, a base from origin/HEAD, the baseBranch key or the current branch was
 # checked by name only, and phase B's `git checkout -b <feature> <base>`
 # failed, or <base>..HEAD read a tag (spec Context, cases 1a to 1f and 5a).
-# usable_base_refused <want> <probe args...> — the probe stops with exactly
-# that line on stderr and prints no report.
-usable_base_refused() {
-  local want="preflight: $1"; shift
-  probe "$@"
-  [ "$status" -eq 1 ] || { echo "exit $status for: $want"; false; }
-  [ -z "$output" ] || { echo "a report was printed for: $want"; false; }
-  [ "$stderr" = "$want" ] || { echo "want: $want"; echo "got:  $stderr"; false; }
-}
-
 @test "base branch: a usable base is checked from every source" {
   local key='the baseBranch key'
   local oh="origin/HEAD; pass a base branch with the run's --base-branch flag"
@@ -505,20 +511,20 @@ usable_base_refused() {
 
   # 1a: no commit at all; the key names the unborn current branch.
   mkdir -p "$B/1a"; cd "$B/1a"; git init -q -b main .
-  usable_base_refused "'main' has no commit yet; make a first commit, or pass a base branch that has one ($key)" \
+  refused "'main' has no commit yet; make a first commit, or pass a base branch that has one ($key)" \
     --dir "$B/1a" --base-branch main
 
   # 1b: the key names a branch that is nowhere.
   mkdir -p "$B/1b"; cd "$B/1b"; git init -q -b work .; seed
-  usable_base_refused "'main' is not a branch here or on origin ($key)" --dir "$B/1b" --base-branch main
+  refused "'main' is not a branch here or on origin ($key)" --dir "$B/1b" --base-branch main
 
   # 1c: the key names a tag, and no branch.
   mkdir -p "$B/1c"; cd "$B/1c"; git init -q -b work .; seed; git tag main
-  usable_base_refused "'main' is not a branch here or on origin ($key)" --dir "$B/1c" --base-branch main
+  refused "'main' is not a branch here or on origin ($key)" --dir "$B/1c" --base-branch main
 
   # 1d: the key names a branch that is a tag too.
   mkdir -p "$B/1d"; cd "$B/1d"; git init -q -b work .; seed; git branch main; git tag main
-  usable_base_refused "'main' is a tag as well as a branch; git would read the tag ($key)" \
+  refused "'main' is a tag as well as a branch; git would read the tag ($key)" \
     --dir "$B/1d" --base-branch main
   # The positive control: with the tag gone the same base is reported.
   git tag -d main >/dev/null
@@ -532,7 +538,7 @@ usable_base_refused() {
   git remote add origin https://github.com/example/thing.git
   git update-ref refs/remotes/origin/main HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-  usable_base_refused "'main' exists only on origin; create the local branch first: git branch --track main origin/main ($oh)" \
+  refused "'main' exists only on origin; create the local branch first: git branch --track main origin/main ($oh)" \
     --dir "$B/1e" --base-branch main
   # The positive control: after the command the message names, it reports.
   git branch -q --track main origin/main
@@ -543,19 +549,97 @@ usable_base_refused() {
 
   # 1f: as 1e with the local main, which is a tag too.
   git tag main
-  usable_base_refused "'main' is a tag as well as a branch; git would read the tag ($oh)" \
+  refused "'main' is a tag as well as a branch; git would read the tag ($oh)" \
     --dir "$B/1e" --base-branch main
 
   # 5a: the current branch is a tag too; no remote, no base flag.
   mkdir -p "$B/5a"; cd "$B/5a"; git init -q -b work .; seed; git tag work
-  usable_base_refused "'work' is a tag as well as a branch; git would read the tag ($cur)" --dir "$B/5a"
+  refused "'work' is a tag as well as a branch; git would read the tag ($cur)" --dir "$B/5a"
 
   # A branch ref that names no commit. `git update-ref` refuses to write a
   # tree to a branch, and a ref file written by hand does not (measured,
-  # git 2.53.0); `git checkout -b` from it exits 128.
+  # git 2.53.0); `git checkout -b` from it exits 128. Only the files backend
+  # stores a branch as a file; under reftable .git/refs/heads is a file, and
+  # the case cannot be built, which the else branch asserts.
   mkdir -p "$B/tree"; cd "$B/tree"; git init -q -b work .; seed; git branch main
-  git rev-parse 'HEAD^{tree}' > .git/refs/heads/main
-  usable_base_refused "'main' does not name a commit ($key)" --dir "$B/tree" --base-branch main
+  if [ -d .git/refs/heads ]; then
+    git rev-parse 'HEAD^{tree}' > .git/refs/heads/main
+    refused "'main' does not name a commit ($key)" --dir "$B/tree" --base-branch main
+  else
+    [ -f .git/refs/heads ] || { echo "refs/heads is neither a folder nor a file"; false; }
+  fi
+
+  # The override gets the same check, and the one message new for it: the
+  # current branch before its first commit (spec FR-011).
+  mkdir -p "$B/ov-unborn"; cd "$B/ov-unborn"; git init -q -b main .
+  refused "'main' has no commit yet; make a first commit, or pass a base branch that has one (--base-branch-override)" \
+    --dir "$B/ov-unborn" --base-branch-override main
+
+  # A base only origin has, named by the key: origin fetched, no origin/HEAD.
+  mkdir -p "$B/key-origin"; cd "$B/key-origin"; git init -q -b work .; seed
+  git update-ref refs/remotes/origin/main HEAD
+  refused "'main' exists only on origin; create the local branch first: git branch --track main origin/main ($key)" \
+    --dir "$B/key-origin" --base-branch main
+
+  # A refused name is printed through the masking copy: a 250-letter name
+  # is cut at 200 bytes.
+  local long
+  long="$(printf 'a%.0s' $(seq 250))"
+  refused "'${long:0:200} [cut]' is not a branch here or on origin ($key)" --dir "$B/key-origin" --base-branch "$long"
+
+  # A name git reads as something other than the branch. Each makes
+  # `git checkout -b` exit 128 (measured, git 2.53.0, files and reftable);
+  # each is refused, then reported once the other ref is gone.
+  local amb="is the name of another ref as well as a branch; git cannot tell them apart ($key)"
+  mkdir -p "$B/amb"; cd "$B/amb"; git init -q -b work .; seed
+  # base_reports <name> — the positive control: the same name now reports.
+  base_reports() {
+    probe --dir "$B/amb" --base-branch "$1"
+    [ "$status" -eq 0 ] || { echo "$1 once the other ref is gone: exit $status: $stderr"; false; }
+    [ "$(jq -r '.baseBranch' <<<"$output")" = "$1" ]
+  }
+  git branch x/y; git update-ref refs/x/y HEAD
+  refused "'x/y' $amb" --dir "$B/amb" --base-branch x/y
+  git update-ref -d refs/x/y; base_reports x/y
+  git branch origin/main; git update-ref refs/remotes/origin/main HEAD
+  refused "'origin/main' $amb" --dir "$B/amb" --base-branch origin/main
+  git update-ref -d refs/remotes/origin/main; base_reports origin/main
+  git branch up; git update-ref refs/remotes/up/main HEAD
+  git symbolic-ref refs/remotes/up/HEAD refs/remotes/up/main
+  refused "'up' $amb" --dir "$B/amb" --base-branch up
+  git symbolic-ref --delete refs/remotes/up/HEAD; base_reports up
+  # ORIG_HEAD through update-ref, so the ref is real in either ref format.
+  git branch ORIG_HEAD; git update-ref ORIG_HEAD HEAD
+  refused "'ORIG_HEAD' $amb" --dir "$B/amb" --base-branch ORIG_HEAD
+  git update-ref -d ORIG_HEAD; base_reports ORIG_HEAD
+  git branch main-worktree/HEAD
+  refused "'main-worktree/HEAD' $amb" --dir "$B/amb" --base-branch main-worktree/HEAD
+  # A branch named after a git file that is no ref reports: COMMIT_EDITMSG.
+  git branch COMMIT_EDITMSG; echo message > .git/COMMIT_EDITMSG
+  base_reports COMMIT_EDITMSG
+  # A name spelled as a full commit id: checkout -b takes the branch, while
+  # rev-parse and <base>..HEAD take the commit.
+  local id
+  id="$(git rev-parse HEAD)"
+  git branch "$id"
+  refused "'$id' is spelled as a full commit id; git would read the commit, not the branch ($key)" \
+    --dir "$B/amb" --base-branch "$id"
+
+  # origin/HEAD is read as a full ref: one that names another remote's branch
+  # stops pre-flight, and one beside a branch named origin/main still gives
+  # main (--short gave remotes/origin/main).
+  mkdir -p "$B/oh"; cd "$B/oh"; git init -q -b work .; seed; git branch main
+  git update-ref refs/remotes/upstream/dev HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/upstream/dev
+  refused "origin/HEAD points to a ref that is not one of origin's branches, so the remote names no base branch; pass a base branch with the run's --base-branch flag" \
+    --dir "$B/oh"
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  git update-ref refs/heads/origin/main HEAD
+  probe --dir "$B/oh"
+  [ "$status" -eq 0 ] || { echo "origin/HEAD beside a branch origin/main: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "origin/HEAD" ]
 }
 
 # Feature 052, item 4 of issue #107: the current checkout used to be read
@@ -565,6 +649,8 @@ usable_base_refused() {
 # stops pre-flight. The message names no ref: the ref comes from the
 # repository.
 @test "base branch: HEAD outside refs/heads/ stops pre-flight, naming the fix" {
+  # The whole line is compared, and it names no ref: v1 and origin/main come
+  # from the repository.
   local want="HEAD points to a ref that is not a local branch, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)"
   T="$BATS_TEST_TMPDIR/head-outside"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
@@ -573,8 +659,7 @@ usable_base_refused() {
   local ref
   for ref in refs/tags/v1 refs/remotes/origin/main; do
     git symbolic-ref HEAD "$ref"
-    usable_base_refused "$want" --dir "$T"
-    [[ "$stderr" != *v1* && "$stderr" != *origin/main* ]] || { echo "the ref was printed: $stderr"; false; }
+    refused "$want" --dir "$T"
   done
   # The positive control: HEAD back on the branch reports it.
   git symbolic-ref HEAD refs/heads/work
@@ -1067,12 +1152,8 @@ dirty_is() {
   local want=$1 dir=$2; shift 2
   probe --dir "$dir" --base-branch main "$@"
   [ "$status" -eq 0 ] || { echo "$dir: exit $status: $stderr"; false; }
-  [ "$(jq -r '.tree.dirty' <<<"$output")" = "$want" ] \
-    || { echo "$dir: tree.dirty is $(jq -r '.tree.dirty' <<<"$output"), want $want"; false; }
-}
-# commit_all — commit what is staged, with the identity on the command line.
-commit_all() {
-  git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "$1"
+  jq -e --argjson w "$want" '.tree.dirty == $w' <<<"$output" >/dev/null \
+    || { echo "$dir: tree.dirty is $(jq -c '.tree.dirty' <<<"$output"), want $want"; false; }
 }
 
 @test "tree: work the repository's configuration hides from git status is dirty" {
@@ -1080,7 +1161,7 @@ commit_all() {
 
   # 2b: status.showUntrackedFiles=no hides an untracked file.
   mkdir -p "$B/2b"; cd "$B/2b"; git init -q -b main .
-  echo x > f; git add f; commit_all f
+  echo x > f; git add f; commit_staged f
   git config status.showUntrackedFiles no
   dirty_is false "$B/2b"
   echo new > u
@@ -1088,26 +1169,42 @@ commit_all() {
 
   # 2d: an assume-unchanged file, not even changed, counts as a change.
   mkdir -p "$B/2d"; cd "$B/2d"; git init -q -b main .
-  echo x > f; git add f; commit_all f
+  echo x > f; git add f; commit_staged f
   dirty_is false "$B/2d"
   git update-index --assume-unchanged f
   dirty_is true "$B/2d"
+  # git status shows nothing here, so pre-flight says why on stderr.
+  [ "$stderr" = "preflight: tracked files marked assume-unchanged: 1; git does not look at them, so the tree is read as dirty (git ls-files -v shows each with a lowercase tag; core.ignoreStat marks every file so)" ] \
+    || { echo "no reason given: $stderr"; false; }
   # From a subfolder too: the listing covers the whole tree, as the status
   # read does, so an assume-unchanged file above the folder still counts.
-  mkdir sub; echo y > sub/g; git add sub/g; commit_all g
+  mkdir sub; echo y > sub/g; git add sub/g; commit_staged g
   dirty_is true "$B/2d/sub"
+  # GIT_LITERAL_PATHSPECS in the environment reads `:/` as a file name, which
+  # listed nothing; the listing turns it off for itself.
+  export GIT_LITERAL_PATHSPECS=1
+  dirty_is true "$B/2d/sub"
+  unset GIT_LITERAL_PATHSPECS
   git update-index --no-assume-unchanged f
   dirty_is false "$B/2d/sub"
 
   # A submodule with a new commit checked out, hidden by either setting.
   mkdir -p "$B/sub-src"; cd "$B/sub-src"; git init -q -b main .
-  echo a > a; git add a; commit_all a
+  echo a > a; git add a; commit_staged a
   mkdir -p "$B/super"; cd "$B/super"; git init -q -b main .
-  echo x > f; git add f; commit_all f
+  echo x > f; git add f; commit_staged f
   git -c protocol.file.allow=always submodule add -q "$B/sub-src" s
-  commit_all sub
+  commit_staged sub
   dirty_is false "$B/super"
-  ( cd s && echo b > b && git add b && commit_all b )
+  # A change inside the submodule, not committed: --ignore-submodules=dirty
+  # or =untracked would still hide it; only =none reports it.
+  echo changed > s/a
+  git config submodule.s.ignore all
+  dirty_is true "$B/super"
+  echo a > s/a
+  git config --unset submodule.s.ignore
+  dirty_is false "$B/super"
+  ( cd s && echo b > b && git add b && commit_staged b )
   git config submodule.s.ignore all
   dirty_is true "$B/super"
   git config --unset submodule.s.ignore
@@ -1124,14 +1221,14 @@ commit_all() {
 
   # 2c: a skip-worktree file, changed, is not seen (a documented limit).
   mkdir -p "$B/2c"; cd "$B/2c"; git init -q -b main .
-  echo x > f; git add f; commit_all f
+  echo x > f; git add f; commit_staged f
   git update-index --skip-worktree f
   echo changed > f
   dirty_is false "$B/2c"
 
   # A clean sparse checkout.
   mkdir -p "$B/sparse/a" "$B/sparse/b"; cd "$B/sparse"; git init -q -b main .
-  echo 1 > a/1; echo 2 > b/2; git add a b; commit_all ab
+  echo 1 > a/1; echo 2 > b/2; git add a b; commit_staged ab
   git sparse-checkout set a
   [ ! -e b/2 ] || { echo "the sparse checkout did not apply"; false; }
   dirty_is false "$B/sparse"
@@ -1142,11 +1239,15 @@ commit_all() {
   shimdir "$d" awk grep head jq od
   printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 1; done\nexec "%s" "$@"\n' "$real" > "$d/git"
   chmod +x "$d/git"
+  refused "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git ls-files -v to see why" \
+    --path "$d" --dir "$B/2c" --base-branch main
+  # The listing runs only on a clean status: with an untracked file the tree
+  # is already dirty, and the same refusing git is never asked.
+  echo new > "$B/2c/u"
   probe --path "$d" --dir "$B/2c" --base-branch main
-  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
-  [ -z "$output" ] || { echo "a report was printed: $output"; false; }
-  [ "$stderr" = "preflight: the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git status to see why" ] \
-    || { echo "wrong stop: $stderr"; false; }
+  [ "$status" -eq 0 ] || { echo "a dirty status still listed the index: exit $status: $stderr"; false; }
+  jq -e '.tree.dirty == true' <<<"$output" >/dev/null || { echo "not dirty: $output"; false; }
+  rm "$B/2c/u"
   # The positive control: the same search path with a git that answers
   # ls-files reports.
   printf '#!/bin/sh\nexec "%s" "$@"\n' "$real" > "$d/git"
@@ -1435,7 +1536,7 @@ commit_all() {
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.adb' <<<"$output")" = "false" ]
   # Select by PHASE, never by index. This run also announces a review skip,
-  # because the fixture sits inside this checkout and inherits its remote while
+  # because the fixture repository has a GitHub remote while
   # the client is off the shim path — so reading willSkip[0] would pass or fail
   # on ordering rather than on the property.
   [ "$(jq -r '[.willSkip[] | select(.phase=="N.5")] | length' <<<"$output")" = "1" ]
@@ -1618,7 +1719,8 @@ commit_all() {
   [ "$(jq -r '.projectType' <<<"$output")" = "other" ]
   [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
   # THE TRIPWIRE for the exception declared above, and it is the SOURCE, not
-  # the value. Measured: this checkout publishes origin/HEAD -> origin/main, so
+  # the value. The fixture repository publishes origin/HEAD -> origin/main
+  # (setup_file), as this checkout did when the test was written, so
   # with git restored to the search path baseBranch resolves to "main" from
   # origin/HEAD — the same string the line above asserts, arriving by a route
   # this test does not intend. The value alone therefore proves nothing. The

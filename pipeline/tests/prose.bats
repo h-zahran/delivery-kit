@@ -1675,12 +1675,12 @@ ROWS
   # red, so a reversal cannot be added beside a pinned phrase.
   # Feature 051, FR-006: a read that fails under a usable git stops
   # pre-flight, and the section says so.
-  # Feature 052, FR-007 and FR-009: what tree.dirty sees, the two cases it
-  # does not, and that the repository's own programs run.
+  # Feature 052, FR-009: the index listing's stop. What tree.dirty sees has
+  # its own section, pinned in the next test.
   local sec want
   sec="$(doc_section "$ROOT/pipeline/docs/configuration.md" 'Fields the report did not read')" || return 1
   want="$(cat <<'SECTION'
-`preflight.sh`'s report carries `notRead`, a list naming each field that holds a placeholder, not a fact, because git is not usable here, so its git read did not run or could not succeed. The list is therefore `[]` whenever `capabilities.gitUsable` is `true`. A read that fails under a usable git is never a placeholder in the list: pre-flight stops instead and says why, when the base branch comes from the current checkout and that checkout is a detached `HEAD` or a branch with no commit yet, and whenever `git status` fails. The placeholders are `baseBranch` (empty, or a configured name nobody confirmed), `baseBranchSource` (`current branch` for a checkout nobody read), `remote.kind` (`none` for a remote nobody looked for), `tree.dirty` (`false` for a tree nobody examined), and the `willSkip` entries that follow from the remote. A base branch from configuration is named too: it is the fallback for a repository that publishes no `origin/HEAD`, and without git nobody looked. Only an override, which outranks `origin/HEAD`, is never named; with git not usable it is still not checked against the repository, nor whether git would take it as a branch name. Names are dotted paths from the report's root, and a skip is named by its phase, as `willSkip.<phase>`. The order is the order the script produces the fields: a consumer tests membership, not position. `tree.dirty` reads the working tree as git sees it, with two flags on the command line that beat the repository's configuration: `--untracked-files=normal`, so `status.showUntrackedFiles` cannot hide an untracked file, and `--ignore-submodules=none`, so `submodule.<name>.ignore` and `diff.ignoreSubmodules` cannot hide a changed submodule. A tracked file marked `assume-unchanged` counts as a change: git does not look at it, so nobody can say it is clean. Two cases are not seen: a file marked `skip-worktree`, because a sparse checkout marks its clean files so, and a folder git cannot open, because git only warns about it. Pre-flight's status read, like every later phase of the run, runs the programs the repository's own configuration names, such as an fsmonitor, hooks and filters, as git does in a repository the user owns; git's ownership check is the guard against a repository the user does not own.
+`preflight.sh`'s report carries `notRead`, a list naming each field that holds a placeholder, not a fact, because git is not usable here, so its git read did not run or could not succeed. The list is therefore `[]` whenever `capabilities.gitUsable` is `true`. A read that fails under a usable git is never a placeholder in the list: pre-flight stops instead and says why, when the base branch comes from the current checkout and that checkout is a detached `HEAD` or a branch with no commit yet, and whenever `git status`, or the index listing the clean-tree check makes, fails. The placeholders are `baseBranch` (empty, or a configured name nobody confirmed), `baseBranchSource` (`current branch` for a checkout nobody read), `remote.kind` (`none` for a remote nobody looked for), `tree.dirty` (`false` for a tree nobody examined), and the `willSkip` entries that follow from the remote. A base branch from configuration is named too: it is the fallback for a repository that publishes no `origin/HEAD`, and without git nobody looked. Only an override, which outranks `origin/HEAD`, is never named; with git not usable it is still not checked against the repository, nor whether git would take it as a branch name. Names are dotted paths from the report's root, and a skip is named by its phase, as `willSkip.<phase>`. The order is the order the script produces the fields: a consumer tests membership, not position.
 SECTION
 )"
   [ "$sec" = "$want" ] || { echo "configuration.md section \"Fields the report did not read\" changed:"; echo "$sec"; false; }
@@ -1699,6 +1699,24 @@ SECTION
     || { echo 'Base branch no longer says a HEAD outside refs/heads/ stops pre-flight'; false; }
   [[ $sec == *'A base branch read from the repository, from `origin/HEAD`, this key or the current branch, gets the override'"'"'s checks below: a legal name, a local branch with a commit, and no tag of the same name. A base that fails one stops pre-flight, naming where the base came from.'* ]] \
     || { echo 'Base branch no longer says a base read from the repository is checked'; false; }
+  [[ $sec == *'So does an `origin/HEAD` that points outside `refs/remotes/origin/`, at another remote'"'"'s branch.'* ]] \
+    || { echo 'Base branch no longer says an origin/HEAD outside origin stops pre-flight'; false; }
+  [[ $sec == *'So is a branch whose name git reads as anything else, such as `refs/<name>`, a remote'"'"'s branch or `ORIG_HEAD`, as `git rev-parse --symbolic-full-name` tells: git cannot tell the two apart. So is a branch named as a full commit id, which git reads as the commit.'* ]] \
+    || { echo 'Base branch no longer says a name git reads as another ref is refused'; false; }
+}
+
+@test "configuration.md's clean-tree check section says what tree.dirty sees and what it does not" {
+  # Feature 052, FR-006, FR-007 and FR-009. Compared WHOLE, as the section
+  # above is: the flags that beat the configuration, assume-unchanged and
+  # core.ignoreStat, the two cases not seen, and that the repository's own
+  # programs run.
+  local sec want
+  sec="$(doc_section "$ROOT/pipeline/docs/configuration.md" 'The clean-tree check')" || return 1
+  want="$(cat <<'SECTION'
+`tree.dirty` reads the working tree as git sees it, with two flags on the command line that beat the repository's configuration: `--untracked-files=normal`, so `status.showUntrackedFiles` cannot hide an untracked file, and `--ignore-submodules=none`, so `submodule.<name>.ignore` and `diff.ignoreSubmodules` cannot hide a changed submodule. In a repository that sets `status.showUntrackedFiles=no` to save time, the check walks the untracked files anyway. When `git status` shows nothing, pre-flight lists the index too, and a tracked file marked `assume-unchanged` counts as a change: git does not look at it, so nobody can say it is clean. A repository that sets `core.ignoreStat` marks every file git writes so, and always reads as dirty. Pre-flight says on stderr how many such files it found, since `git status` shows nothing; `git ls-files -v` shows each with a lowercase tag. When that listing fails, pre-flight stops, as it does when `git status` fails. Two cases are not seen: a file marked `skip-worktree`, because a sparse checkout marks its clean files so, and a folder git cannot open, because git only warns about it. Pre-flight's tree reads, `git status` and `git ls-files`, like every later phase of the run, run the programs the repository's own configuration names, such as an fsmonitor, hooks and filters, as git does in a repository the user owns; git's ownership check is the guard against a repository the user does not own.
+SECTION
+)"
+  [ "$sec" = "$want" ] || { echo "configuration.md section \"The clean-tree check\" changed:"; echo "$sec"; false; }
 }
 
 # ---------------------------------------------------------------------------
