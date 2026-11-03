@@ -462,7 +462,11 @@ reuse() {
   verdict_is green 0 '1..2' 'ok 1 one' 'ok 2 two'
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = ".delivery-kit/suite-results/$K.json" ]
-  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F" ]] || false
+  # The cited line names the commit and the command the record stands for
+  # (feature 053, the issue's rule: a cited result names its commit, its
+  # command and its counts).
+  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F on commit $(git rev-parse HEAD), command \"run-the-suite\"" ]] \
+    || { echo "the summary does not name the commit and command: $(cat "$OUT")"; false; }
   # A later run on the same tree, with the same command, reuses it.
   state 002-later
   runs suite-lookup 002-later
@@ -599,6 +603,21 @@ reuse() {
   refuses "records other files, another command, platform or mode" suite-lookup "$F"
 }
 
+@test "the summary names the tree under files mode, and a command with a quote and a line break stays one line" {
+  repo
+  local cmd
+  cmd="$(printf 'run "the" suite\nsecond line')"
+  state "$F" "$cmd"
+  reuse files
+  verdict_is green 0 '1..1' 'ok 1 one'
+  runs suite-lookup "$F"
+  [ "$(wc -l < "$OUT" | tr -d ' ')" = 2 ] || { echo "the cited block is not two lines: $(cat "$OUT")"; false; }
+  local want
+  want="on tree $(git rev-parse 'HEAD^{tree}'), command $(jq -cn --arg c "$cmd" '$c')"
+  [[ "$(sed -n 2p "$OUT")" == *"by run $F $want" ]] || { echo "want '$want' in: $(cat "$OUT")"; false; }
+  [[ "$(sed -n 2p "$OUT")" != *"on commit"* ]] || { echo "files mode keys no commit, yet the summary names one"; false; }
+}
+
 @test "a fresh run reuses a green result an earlier run recorded on the same uncommitted files" {
   repo
   mkdir -p work
@@ -608,7 +627,7 @@ reuse() {
   state 002-fresh
   runs suite-lookup 002-fresh
   [ "$(sed -n 1p "$OUT")" = ".delivery-kit/suite-results/$K.json" ]
-  [[ "$(sed -n 2p "$OUT")" == *"by run $F" ]] || { echo "the summary does not name the run that recorded it: $(cat "$OUT")"; false; }
+  [[ "$(sed -n 2p "$OUT")" == *"by run $F on commit "* ]] || { echo "the summary does not name the run that recorded it: $(cat "$OUT")"; false; }
 }
 
 # spec <feature> <dir> — an untracked spec file for the run, recorded as
@@ -631,7 +650,7 @@ spec() {
   refuses "none is recorded for these files, command and platform" suite-lookup 002-next
   runs suite-lookup 002-next --base
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
-  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F — for these files without the untracked specs/002-next/" ]] \
+  [[ "$(sed -n 2p "$OUT")" == "1..2, 2 ok (0 skipped), 0 not ok, exit 0 — recorded "*" by run $F on commit $(git rev-parse HEAD), command \"run-the-suite\" — for these files without the untracked specs/002-next/" ]] \
     || { echo "the summary does not say the spec directory was left out: $(cat "$OUT")"; false; }
 }
 
