@@ -57,7 +57,7 @@
 
 **Independent Test**: the 013 gap entry reads CLOSED and names this feature.
 
-- [ ] T008 [US2] In `specs/013-preflight-git-probe/spec.md`, "Known gaps, deferred with cause": prefix the entry that starts "**`gh` and `adb` keep the boolean-type hole" with `- **CLOSED by feature 054 (`specs/054-preflight-boolean-guard-proof/`), measured.**` on its own line, in the shape the other two closed entries use, and leave the entry's own text as written. Then `grep -rn -- 'boolean-type hole' specs/ pipeline/ docs/ 2>/dev/null` and confirm no other record calls the hole open (SC-003); record the grep in `measurements.md`.
+- [X] T008 [US2] In `specs/013-preflight-git-probe/spec.md`, "Known gaps, deferred with cause": prefix the entry that starts "**`gh` and `adb` keep the boolean-type hole" with `- **CLOSED by feature 054 (`specs/054-preflight-boolean-guard-proof/`), measured.**` on its own line, in the shape the other two closed entries use, and leave the entry's own text as written. Then `grep -rn -- 'boolean-type hole' specs/ pipeline/ docs/ 2>/dev/null` and confirm no other record calls the hole open (SC-003); record the grep in `measurements.md`.
 
 ---
 
