@@ -2,6 +2,56 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.9.0] - 2026-11-04
+
+### Highlights
+
+- K and L are one stop when the branch holds commits and K has nothing
+  left to commit: one question shows the commit list and the branch, title
+  and full body of the pull request, and one answer covers both. Run 054
+  waited at K and then at L, one straight after the other.
+- J commits before its last full-suite run, so N can cite that run instead
+  of running the suite again under `suiteReuse: commit`. Run 054's N ran
+  the suite again (about 9 minutes) because J's commit came after J's run.
+
+### Changed
+
+- **K and L as one stop**, a new section of `docs/rare-paths.md`, with a
+  pointer from K and L. Before the question, K runs L's checks that can
+  stop the run. A yes records in `gates.L` the branch name, the title, the
+  full HEAD commit id and the hash of the body (and of each `--parts`
+  comment file); just before the push they are recomputed, and any
+  difference asks L again as a stop of its own. K and L stay apart under
+  `--auto`, with no remote, a non-GitHub remote or no `gh`, and for a run
+  whose `commits` holds an old-style string entry. A re-entered K that asks
+  again clears the joint fields first, keeping what `drop-stale` recorded.
+- **J commits first.** When J changes files it makes its late commit, then
+  runs its last full suite on that commit, and writes nothing after that
+  run but the record commit. A new failure is fixed, committed and run
+  again, within `maxVerifyIters`, so J may make one late commit per fixing
+  iteration.
+- **J's record commit is always its own empty `Late: J` commit**, made once
+  for each red waved through: while a record is still the newest commit,
+  `late-commit J --record` prints its id; any commit after it means a new
+  record. The record never rides in a commit with files, which would come
+  after J's last suite run: `--record` with an uncommitted change now
+  refuses and says to commit it and run the suite on that commit first.
+  In the single-commit flow, K makes the record with `--record`.
+- **`late-commit J` after a crash.** It records every unrecorded `Late: J`
+  commit, then commits what is left. A path a recorded J commit made since
+  the list was saved (`measurements.lateBefore.head`, new) is never set
+  aside by the saved list, so a path put back to its starting content is
+  still committed after a crash. `snapshot late J --fresh` that recovers a
+  commit still saves its list afresh. `late-commit --list` recovers and
+  writes nothing.
+
+### Fixed
+
+- A failed read of the unrecorded commits, or a commit that could not be
+  recorded, now stops `recover_late` and `recover_piece` instead of reading
+  as nothing to recover; their callers run inside `if`, where `set -e`
+  does nothing. The `mv` that replaces the state file now stops on failure.
+
 ## [1.8.0] - 2026-11-03
 
 ### Highlights
