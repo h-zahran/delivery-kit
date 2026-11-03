@@ -2246,8 +2246,25 @@ SUITE_DIR="$STATE_ROOT/suite-results"
 # SK_CMD, SK_PLAT and SK_KEY; returns 1 with the reason in SK_WHY when there
 # is no key. With base, the untracked files under the run's spec directory
 # are left out: the key of the files as they were before this feature,
-# which F.5's baseline may look up and nothing ever records.
+# which F.5's baseline may look up. Only the base suite run records under
+# it, from a checkout that holds no spec directory (see suite-base).
+# It is suite_config, then suite_key_here in this directory.
 suite_key() {
+  suite_config "$@" || return 1
+  # This call's own scratch file: two calls at once must never truncate or
+  # remove each other's, which would read as a clean answer.
+  SK_SCRATCH="$(mktemp "$(run_dir "$1")/suite-scratch.XXXXXX")" || die "could not make a scratch file"
+  if ! suite_key_here "$SK_SCRATCH"; then rm -f "$SK_SCRATCH"; return 1; fi
+  rm -f "$SK_SCRATCH"
+}
+
+# suite_config <feature> [base] — the half of the key the state file gives:
+# validates it and sets SK_CMD, SK_MODE and, with base, SK_LEAVE; returns 1
+# with the reason in SK_WHY. Run from the repository's top level. Split from
+# the git half because the base suite runner reads its configuration here,
+# in the main tree, and takes the key inside a checkout of the base commit,
+# which has no state file: one key, two places.
+suite_config() {
   local sf spec d top here
   SK_WHY='' SK_KEY='' SK_LEAVE='' SK_HEAD=''
   sf="$(cmd_validate "$1")" || exit 1
@@ -2277,11 +2294,14 @@ suite_key() {
       SK_WHY="the spec file sits under $STATE_ROOT/, which is left out already, so there is no spec directory to leave out"; return 1 ;;
     esac
   fi
-  # This call's own scratch file: two calls at once must never truncate or
-  # remove each other's, which would read as a clean answer.
-  SK_SCRATCH="$(mktemp "$(run_dir "$1")/suite-scratch.XXXXXX")" || die "could not make a scratch file"
-  if ! suite_key_check "$SK_SCRATCH"; then rm -f "$SK_SCRATCH"; return 1; fi
-  rm -f "$SK_SCRATCH"
+}
+
+# suite_key_here <scratch file> — the git half of the key, for the work tree
+# of the current directory: sets SK_TREE, SK_HEAD, SK_BYTES, SK_PLAT and
+# SK_KEY from SK_MODE, SK_CMD and SK_LEAVE, which suite_config set; returns 1
+# with the reason in SK_WHY. The scratch file is the caller's, by any path.
+suite_key_here() {
+  suite_key_check "$1" || return 1
   SK_PLAT="$(uname -s) $(uname -m)"
   # shellcheck disable=SC2016 # a jq program: its $ names are jq's
   SK_KEY="$(jqs -n -c --arg m "$SK_MODE" --arg h "$SK_HEAD" --arg b "$SK_BYTES" --arg c "$SK_CMD" --arg p "$SK_PLAT" \
@@ -2491,7 +2511,7 @@ cmd_suite_key() {
 # result on a set of files is the one that stands, and lookup never reuses
 # a red one.
 cmd_suite_record() {
-  local key="${2:-}" tap="${3:-}" rc="${4:-}" verdict out tmp
+  local key="${2:-}" tap="${3:-}" rc="${4:-}"
   [ $# -eq 4 ] || die "usage: suite-record <feature> <key> <tap-file> <rc>"
   case "$rc" in [0-9]|[0-9][0-9]|[0-9][0-9][0-9]) ;; *) die "the exit code '$rc' is not a number from 0 to 999" ;; esac
   if [ ! -f "$tap" ] || [ ! -r "$tap" ]; then die "the TAP file does not exist or cannot be read"; fi
@@ -2499,13 +2519,23 @@ cmd_suite_record() {
   if ! suite_key "$1"; then die "nothing recorded — no suite key now: $SK_WHY"; fi
   [ "$key" = "$SK_KEY" ] || die "nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken"
   tap_judge "$tap"
+  suite_write_record "$1" "$tap" "$rc" "$SUITE_DIR"
+}
+
+# suite_write_record <feature> <tap path> <rc> <suite dir> — writes the
+# record for SK_KEY from the SK_* values the key set and the TJ_* counts
+# tap_judge set, and prints its verdict. The one writer of a record, for
+# suite-record and for the base suite runner, which names the main tree's
+# suite directory by an absolute path from inside its checkout.
+suite_write_record() {
+  local tap="$2" rc="$3" dir="$4" verdict out tmp
   verdict=red
   if [ "$rc" -eq 0 ] && [ -z "$TJ_MSG" ]; then verdict=green; fi
-  mkdir -p "$SUITE_DIR"
-  out="$SUITE_DIR/$SK_KEY.json"
+  mkdir -p "$dir"
+  out="$dir/$SK_KEY.json"
   # A temporary name of this call's own: two records on one key never write
   # one file.
-  tmp="$(mktemp "$SUITE_DIR/.record.XXXXXX")" || die "could not make a temporary record"
+  tmp="$(mktemp "$dir/.record.XXXXXX")" || die "could not make a temporary record"
   # The probed -b: a native Windows jq writes no CR, so a record is the same
   # bytes on every system, and jq 1.6, which has no -b, still writes one.
   # tree is HEAD's tree when the result was recorded, kept to be read, never
