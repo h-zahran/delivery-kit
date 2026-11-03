@@ -2563,7 +2563,11 @@ suite_write_record() {
 # counts of one is not reused. With --base, for F.5 alone: when these files
 # have no green record, the files without the run's untracked spec directory
 # are looked up too — the baseline is the tree before this feature, and the
-# spec directory is the feature's own.
+# spec directory is the feature's own. The summary names what the record
+# stands for, so a cited baseline can be checked by whoever reads it: the
+# counts, when and by which run it was recorded, the commit it ran on (the
+# tree under files, which keys no commit), and the command as a JSON
+# string, which keeps a quote or a line break in it on the one line.
 # shellcheck disable=SC2016 # a jq program: its $ names are jq's
 SUITE_LOOKUP_JQ='
   if length != 1 or (.[0] | type) != "object" then "unreadable"
@@ -2573,6 +2577,8 @@ SUITE_LOOKUP_JQ='
          and ([.plan, .ok, .skipped, .notOk, .nonTap, .rc] | all(type == "number" and . == floor and . >= 0))
          and .rc == 0 and .notOk == 0 and .nonTap == 0 and .skipped == 0 and .plan >= 1 and .ok == .plan
       then "green\u001f1..\(.plan), \(.ok) ok (\(.skipped) skipped), 0 not ok, exit 0 — recorded \(.recordedAt) by run \(.feature)"
+        + (if (.head | type) == "string" and .head != "" then " on commit \(.head)" else " on tree \(.tree)" end)
+        + ", command \(.command | @json)"
     else "red" end
   end'
 
