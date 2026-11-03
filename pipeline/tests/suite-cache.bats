@@ -137,7 +137,7 @@ reuse() {
   local dirty="$K"
   [ "$dirty" != "$clean" ] || { echo "a changed tracked file left the key as it was"; false; }
   # Staging changes nothing the suite reads, and neither does the commit: N
-  # can cite the run J made before J committed.
+  # can cite J's run after K commits the files it ran on.
   git add README.md
   key
   [ "$K" = "$dirty" ] || { echo "staging a change moved the key"; false; }
@@ -493,7 +493,7 @@ reuse() {
   local rec=".delivery-kit/suite-results/$K.json"
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
-  # J commits the files it ran on; N cites that run.
+  # K commits the files J ran on; under files, N still cites that run.
   git commit -q -am 'J late commit'
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
