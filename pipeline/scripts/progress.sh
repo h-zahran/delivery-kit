@@ -37,6 +37,9 @@ STATE_ROOT=".delivery-kit"
 SCRIPT_DIR="${BASH_SOURCE[0]}"
 case "$SCRIPT_DIR" in */*) SCRIPT_DIR="${SCRIPT_DIR%/*}" ;; *) SCRIPT_DIR=. ;; esac
 SCRIPT_DIR="$(CDPATH='' cd -P -- "$SCRIPT_DIR" && pwd -P)" || { printf 'progress.sh: cannot find the folder that holds progress.sh\n' >&2; exit 1; }
+# This script's own path, for the base suite runner it starts in the
+# background: a copy under another name runs itself, never the original.
+SCRIPT_PATH="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
@@ -60,7 +63,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
 
 # tap-check alone needs no jq: it reads a TAP file with awk, and the
 # repository's scripts/check-suite.sh calls it, which needs only bash and awk.
@@ -513,7 +516,7 @@ RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_pha
 # command added later is refused on an abandoned run unless it is listed
 # there. A state file it cannot read is left to the command's own validate,
 # which names the fault.
-ABANDONED_OK=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup "
+ABANDONED_OK=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup suite-base-run "
 not_abandoned() {
   local sf c
   for c in $ABANDONED_OK; do [ "$c" = "$cmd" ] && return 0; done
@@ -2613,6 +2616,175 @@ cmd_suite_lookup() {
   die "no reusable result — $first; and without the untracked $SK_LEAVE, $LK_WHY"
 }
 
+# --- the base suite run -------------------------------------------------------
+# suite-base <feature> start|wait (feature 053). F.5 may cite a green result
+# for the files as they were before the feature (suite-lookup --base), but a
+# repository that merges by rebase gives the base branch commits no run ever
+# tested, so the lookup always missed and F.5 ran the whole suite. So B
+# starts the full test command in the background on a detached checkout of
+# HEAD's commit — the base commit, since the branch has no commit yet — and
+# records the result with the same key and writer as suite-record. By F.5 it
+# has usually finished, and F.5's lookup finds it like any other record.
+#
+# Why a detached git worktree, in a temporary folder outside the work tree:
+# it shares the repository's configuration (line endings, filters,
+# info/exclude), so its files hold the same bytes, and its index is built
+# from the same commit — measured on this repository to give the key F.5
+# computes (specs/053-f5-cites-main-suite/research.md, R1). A clone carries
+# no local configuration; a checkout inside the tree would put a second copy
+# of the repository where a test walking the file system would read it.
+#
+# What it never does: merge, push, fetch, create or delete a branch, change
+# the main tree's HEAD, index or files, take the repository lock, or write
+# the state file. Its bookkeeping lives in .delivery-kit/runs/<feature>/
+# base-suite/ (see data-model.md), and the processes it may stop are the
+# ones whose ids it wrote there. The wait stops a runner only while its
+# heartbeat is fresh: on a resume a recorded id may belong to another
+# process by now.
+base_dir() { printf '%s/base-suite' "$(run_dir "$1")"; }
+
+# base_tree_ok <path> — the checkout path in the bookkeeping is one this
+# script made: an absolute path ending in dk-base-suite.<suffix>/tree. A
+# path that is anything else is never removed.
+base_tree_ok() {
+  case "$1" in /*/dk-base-suite.*/tree) ;; *) return 1 ;; esac
+  case "$1" in */../*|*/./*) return 1 ;; esac
+}
+
+# base_remove_tree <top> <path> — removes the checkout and the temporary
+# folder it sits in. git worktree remove first, so git's own record of the
+# checkout goes too; then the folder, whatever git left.
+base_remove_tree() {
+  local top="$1" tree="$2"
+  base_tree_ok "$tree" || return 0
+  git -C "$top" worktree remove --force "$tree" >/dev/null 2>&1 || true
+  rm -rf -- "${tree%/tree}"
+  git -C "$top" worktree prune >/dev/null 2>&1 || true
+}
+
+# base_outcome <dir> <line> — the outcome, written last and by rename, so a
+# reader never sees half of it.
+base_outcome() {
+  printf '%s\n' "$2" > "$1/outcome.tmp" && mv -f "$1/outcome.tmp" "$1/outcome"
+}
+
+cmd_suite_base() {
+  local f="$1" sub="${2:-}"
+  case "$sub" in
+    start) [ $# -eq 2 ] || die "usage: suite-base <feature> start"; base_start "$f" ;;
+    *) die "usage: suite-base <feature> start" ;;
+  esac
+}
+
+# base_start <feature> — one line on stdout, exit 0, unless a check cannot
+# be made. Run in B, once the state file and the feature branch exist.
+base_start() {
+  local f="$1" bd commit tmp tree pid
+  need_git_top
+  bd="$(base_dir "$f")"
+  if ! suite_config "$f" base; then printf 'base suite not started: %s\n' "$SK_WHY"; return 0; fi
+  if [ -f "$bd/pid" ]; then
+    printf 'base suite already started on commit %s\n' "$(cat "$bd/commit" 2>/dev/null || true)"; return 0
+  fi
+  if ! suite_key "$f" base; then printf 'base suite not started: %s\n' "$SK_WHY"; return 0; fi
+  commit="$(git rev-parse --verify --quiet 'HEAD^{commit}')" || die "git rev-parse failed"
+  if suite_lookup_one > /dev/null; then
+    printf 'base suite not started: a green result is already recorded for commit %s\n' "$commit"; return 0
+  fi
+  mkdir -p "$bd"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/dk-base-suite.XXXXXX")" || die "could not make a temporary folder for the base checkout"
+  tmp="$(CDPATH='' cd -P -- "$tmp" && pwd -P)" || die "could not read the temporary folder's path"
+  tree="$tmp/tree"
+  if ! git worktree add --quiet --detach "$tree" "$commit" > /dev/null 2>> "$bd/runner.log"; then
+    rm -rf -- "$tmp"
+    die "base suite not started: git worktree add failed (see $bd/runner.log)"
+  fi
+  printf '%s\n' "$commit" > "$bd/commit"
+  printf '%s\n' "$tree" > "$bd/tree"
+  date +%s > "$bd/started"
+  # The runner in a process group of its own — setsid where it exists, job
+  # control (set -m) where it does not — so the wait can stop it and what it
+  # started together. Every descriptor is closed or redirected: a runner
+  # holding the caller's output open would keep the caller (and bats, through
+  # its descriptor 3) waiting for it.
+  (
+    if command -v setsid > /dev/null 2>&1; then
+      setsid bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
+    else
+      set -m
+      bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
+    fi
+    printf '%s\n' "$!" > "$bd/pid.tmp"
+  ) || die "could not start the base suite runner"
+  mv -f "$bd/pid.tmp" "$bd/pid"
+  pid="$(cat "$bd/pid")"
+  printf 'base suite started on commit %s (process %s)\n' "$commit" "$pid"
+}
+
+# base_run <feature> — the runner, started by base_start and by nothing
+# else. It reads the configuration in the main tree, takes the key in the
+# checkout before and after the command, and writes the record into the
+# main tree's suite directory with the one writer.
+BR_TOP='' BR_BD='' BR_TREE='' BR_HB='' BR_CHILD='' BR_DONE=''
+base_run() {
+  local f="$1" key0 rc v
+  need_git_top
+  BR_TOP="$(pwd -P)"
+  BR_BD="$BR_TOP/$(base_dir "$f")"
+  BR_TREE="$(cat "$BR_BD/tree")" || die "no checkout is recorded"
+  base_tree_ok "$BR_TREE" || die "the recorded checkout is not one this script made"
+  trap base_run_exit EXIT
+  trap base_run_term TERM
+  # The heartbeat: epoch seconds, every 5 s, so a wait can tell a live
+  # runner from a process id some other program now has.
+  ( while :; do date +%s > "$BR_BD/heartbeat.tmp" && mv -f "$BR_BD/heartbeat.tmp" "$BR_BD/heartbeat"; sleep 5; done ) &
+  BR_HB=$!
+  if ! suite_config "$f"; then BR_DONE="nothing recorded — no suite key: $SK_WHY"; exit 0; fi
+  cd "$BR_TREE" || die "could not enter the base checkout"
+  SK_SCRATCH="$BR_BD/scratch.$$"
+  if ! suite_key_here "$SK_SCRATCH"; then BR_DONE="nothing recorded — no suite key in the checkout: $SK_WHY"; exit 0; fi
+  key0="$SK_KEY"
+  # A TMPDIR of its own, beside the checkout: the suite's temporary files
+  # never meet the live session's.
+  local tmpd
+  tmpd="$(mktemp -d "${BR_TREE%/tree}/tmp.XXXXXX")" || die "could not make the runner's TMPDIR"
+  TMPDIR="$tmpd" bash -c "$SK_CMD" > "$BR_BD/suite.tap" 2>&1 < /dev/null &
+  BR_CHILD=$!
+  printf '%s\n' "$BR_CHILD" > "$BR_BD/child"
+  rc=0; wait "$BR_CHILD" || rc=$?
+  BR_CHILD=''
+  if ! suite_key_here "$SK_SCRATCH"; then BR_DONE="nothing recorded — no suite key after the run: $SK_WHY"; exit 0; fi
+  if [ "$SK_KEY" != "$key0" ]; then
+    BR_DONE="nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken"
+    exit 0
+  fi
+  cd "$BR_TOP" || die "could not return to the repository's top level"
+  [ "$rc" -le 999 ] || rc=999
+  tap_judge "$BR_BD/suite.tap"
+  v="$(suite_write_record "$f" "$(base_dir "$f")/suite.tap" "$rc" "$BR_TOP/$SUITE_DIR")" || die "the record could not be written"
+  BR_DONE="$v"
+}
+
+# base_run_term — asked to stop (the wait's limit): stop the command, then
+# the exit trap cleans up.
+base_run_term() {
+  if [ -n "$BR_CHILD" ]; then kill -TERM "$BR_CHILD" 2>/dev/null || true; fi
+  BR_DONE=stopped
+  exit 0
+}
+
+# base_run_exit — on any exit: stop the heartbeat, remove the checkout and
+# its temporary folders, write the outcome last, then the script's own
+# clean-up. A runner that died without saying why says so.
+base_run_exit() {
+  if [ -n "$BR_HB" ]; then kill "$BR_HB" 2>/dev/null || true; fi
+  if [ -n "$BR_CHILD" ]; then kill -TERM "$BR_CHILD" 2>/dev/null || true; fi
+  cd "$BR_TOP" 2>/dev/null || true
+  base_remove_tree "$BR_TOP" "$BR_TREE"
+  base_outcome "$BR_BD" "${BR_DONE:-nothing recorded — the runner stopped: see runner.log}" || true
+  on_exit
+}
+
 # tap-check takes a TAP file, not a feature, so it is dispatched before the
 # feature name is checked. It makes no file, so the exit trap, whose rm is
 # one more tool than bash and awk, is dropped first.
@@ -2648,6 +2820,8 @@ case "$cmd" in
   suite-key)     shift 2; cmd_suite_key "$feature_arg" "$@" ;;
   suite-record)  shift 2; cmd_suite_record "$feature_arg" "$@" ;;
   suite-lookup)  shift 2; cmd_suite_lookup "$feature_arg" "$@" ;;
+  suite-base)    shift 2; cmd_suite_base "$feature_arg" "$@" ;;
+  suite-base-run) [ $# -eq 2 ] || usage; base_run "$feature_arg" ;;
   ask-later)     shift 2; cmd_ask_later "$feature_arg" "$@" ;;
   pending)       shift 2; cmd_pending "$feature_arg" "$@" ;;
   answer)        shift 2; cmd_answer "$feature_arg" "$@" ;;
