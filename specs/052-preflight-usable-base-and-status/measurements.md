@@ -96,3 +96,32 @@ the foreground, with its exit status captured on the next line.
   pre-flight, naming where the base came from."; the two flags; the
   `assume-unchanged` sentence; the two limits; the repository-programs
   sentence (item 3). Every mutant turned one pin red.
+
+## Phase 5 — mutants (T019)
+
+2026-11-03, git version 2.53.0, bash 5.3.9(1)-release, at commit `2acccd5`.
+Each mutant was applied by a script that refused unless its anchor
+matched exactly once, written to a COPY of the script beside its two
+siblings, checked to differ from the original and to parse, its changed
+line echoed, and run as `PREFLIGHT_UNDER_TEST=<copy> bats
+pipeline/tests/preflight.bats` in a detached worktree of `HEAD`. Plan
+`1..119` every run; no mutant was a NO-OP.
+
+| Mutant | Change | Red |
+|---|---|---|
+| a | `base_usable` not called for non-override sources | 17 (051 unborn), 32 (usable base) |
+| b | the origin-only refusal dropped | 31 (override only on origin), 32 |
+| c | the unborn refusal dropped | 32 |
+| d | the `^{commit}` check dropped | 32 |
+| e | the tag refusal dropped | 30 (override tag), 32 |
+| f | `--short` put back on the `HEAD` read | 32, 33 (HEAD outside) |
+| g | the `HEAD`-outside stop dropped | 33 |
+| h | `--untracked-files=normal` dropped | 61 (hidden work) |
+| i | `--ignore-submodules=none` dropped | 61 |
+| j | the `:/` pathspec dropped | 61 |
+| k | awk counts `S` (skip-worktree) too | 62 (skip-worktree, sparse) |
+| l | the `ls-files` failure stop dropped | 62 |
+
+Every new test goes red under at least one mutant: 32 under a to f, 33
+under f and g, 61 under h, i and j, 62 under k and l. Mutant k inverts the
+sparse rule, so the "not dirty" direction is shown able to go red too.
