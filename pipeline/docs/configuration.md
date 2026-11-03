@@ -106,9 +106,13 @@ The current branch serves only when it names a branch with a commit:
 on a detached `HEAD` pre-flight stops and asks for a branch to be checked
 out or a base branch to be passed, and on a branch with no commit yet it
 stops and asks for a first commit, or a base branch that has one (see
-[Fields the report did not read](#fields-the-report-did-not-read)). A base branch read from the
-repository, from `origin/HEAD`, this key or the current branch, gets the
-override's name check below, and a name that fails it stops pre-flight.
+[Fields the report did not read](#fields-the-report-did-not-read)). A
+`HEAD` that points outside `refs/heads/`, at a tag or at a remote's
+branch, stops pre-flight too: the current checkout is then no local
+branch. A base branch read from the repository, from `origin/HEAD`, this
+key or the current branch, gets the override's checks below: a legal
+name, a local branch with a commit, and no tag of the same name. A base
+that fails one stops pre-flight, naming where the base came from.
 
 The override beats the remote's default and this key. It has two
 spellings: the `baseBranchOverride` key, and the `--base-branch <name>`
@@ -443,3 +447,17 @@ would take it as a branch name. Names are dotted paths from the report's
 root, and a skip is named by its phase, as `willSkip.<phase>`. The order
 is the order the script produces the fields: a consumer tests
 membership, not position.
+
+`tree.dirty` reads the working tree as git sees it, with two flags on the
+command line that beat the repository's configuration:
+`--untracked-files=normal`, so `status.showUntrackedFiles` cannot hide an
+untracked file, and `--ignore-submodules=none`, so
+`submodule.<name>.ignore` and `diff.ignoreSubmodules` cannot hide a changed
+submodule. A tracked file marked `assume-unchanged` counts as a change: git
+does not look at it, so nobody can say it is clean. Two cases are not
+seen: a file marked `skip-worktree`, because a sparse checkout marks its
+clean files so, and a folder git cannot open, because git only warns about
+it. Pre-flight's status read, like every later phase of the run, runs the
+programs the repository's own configuration names, such as an fsmonitor,
+hooks and filters, as git does in a repository the user owns; git's
+ownership check is the guard against a repository the user does not own.
