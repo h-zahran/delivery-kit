@@ -49,8 +49,9 @@ tree has nothing left for K to commit stops once between J and M, not twice.
 3. **Given** the joint stop, **When** the owner answers no, **Then** nothing
    is pushed and the run stops under the `--until` rule, as a no at K does.
 4. **Given** the joint stop answered yes, **When** the run pushes, **Then**
-   the guide is rebuilt first and must equal the one shown; if it differs,
-   the run stops and asks again.
+   the branch name, the title, the full HEAD commit id and the body (and
+   each `--parts` comment file) are recomputed first and must equal what was
+   shown; if any differs, the run stops and asks L again on its own.
 
 ### User Story 2 - N cites J's suite run (Priority: P1)
 
@@ -77,6 +78,9 @@ exits 0.
 
 ### Edge Cases
 
+- K and L stay apart for a run whose `commits` holds an old-style string
+  entry (no guide is built), and with no remote, a non-GitHub remote or no
+  `gh` (L opens no pull request there). Added at review, 2026-11-03.
 - `--auto` collapses K and L already; the joint stop changes nothing then,
   and every stop `--auto` does not collapse (a path outside the feature, a
   commit K cannot show, a stale `commits` entry, an open waiting question)
@@ -103,21 +107,28 @@ exits 0.
 - **FR-004**: A joint yes MUST be recorded as `gates.K` in K's full shape
   (`list`, `answer`, the commit list and remainder it covered) and as
   `gates.L`, each marking that it was answered jointly.
-- **FR-005**: Before the push, the guide MUST be rebuilt and compared with
-  the one shown; a difference stops the run and asks again.
+- **FR-005**: Before the push, the branch name, the title, the full HEAD
+  commit id and the body file's hash (and each `--parts` file's) MUST be
+  recomputed and compared with what the joint yes recorded; a difference
+  stops the run and asks L again. (Revised at review, 2026-11-03: the first
+  version bound the guide alone, so a resumed run could push a title or body
+  nobody saw.)
 - **FR-006**: A joint no MUST push nothing and stop under the `--until` rule.
-- **FR-007**: `--auto` behaviour MUST be unchanged; the gate table, the gate
-  count and the "floor" paragraph MUST say when K and L are one stop.
+- **FR-007**: `--auto` behaviour MUST be unchanged; the gate table and the
+  gate count MUST say that K and L can be one stop, pointing at K. (Revised
+  at review: the floor paragraph's copy was a duplicate and was removed.)
 - **FR-008**: When J has changed files, J MUST commit them (its late commit)
   before its last full-suite run, and that run MUST be on the commit J
   leaves. J MUST write nothing after its last full-suite run.
 - **FR-009**: J MAY make more than one late commit, one per fixing
   iteration, within `maxVerifyIters`; the prose that says J commits once
   MUST change accordingly, everywhere it appears.
-- **FR-010**: `late-commit J --record` MUST still put the record in a commit
-  exactly once when J already made late commits, and `record-branch`,
-  `commit-list` and `guide` MUST accept a branch holding several `Late: J`
-  commits.
+- **FR-010**: `late-commit J --record` MUST put each waved-through red in
+  its own empty `Late: J` commit, exactly once: an empty `Late: J` commit
+  counts as the record only when no J late commit with files follows it. The
+  record never rides in a J commit with files, which would come after J's
+  last suite run. `record-branch`, `commit-list` and `guide` MUST accept a
+  branch holding several `Late: J` commits. (Revised at review, 2026-11-03.)
 - **FR-011**: The docs (`pipeline/docs/phases.md`, and
   `pipeline/docs/configuration.md` where it says "N cannot cite J's run
   once K commits") MUST describe both changes.
