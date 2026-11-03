@@ -121,6 +121,10 @@ stop a run are listed under the table.
 
 When the branch holds commits and nothing is left to commit, the commit and
 push gates are one stop: one question shows both, and one answer covers both.
+They stay apart under `--auto`, without a GitHub remote or `gh`, and on a run
+an older pipeline started. Before the push, the run checks that the branch,
+the title, the commit and the body are still the ones you saw; if any changed,
+it asks you about the push again.
 
 `--auto` collapses only the commit and push gates. Publishing is the least
 reversible thing this tool does, so it needs its own flag, typed on purpose —

@@ -89,3 +89,57 @@ addition to SKILL.md must free room first.
 - Control after both: 0 not ok. prose.bats + skills.bats: 1..113, 113 ok.
 - The conflict in `pipeline/docs/phases.md` (J, K and L rows) was resolved
   by taking US2's J row and US1's K and L rows, in table order J, K, L.
+
+## Review fixes, 2026-11-03
+
+Phase I's five lenses reviewed the joint stop on `7dae2dc`. The fixes:
+
+- A joint yes now records in `gates.L` what was shown (`branch`, `title`,
+  `head` from `git rev-parse HEAD`, `body` and each `parts` hash), and all of
+  it is recomputed before the push; a difference asks L again, on its own.
+  The guide-only hash is gone.
+- K and L stay apart for a run with an old-style string entry in `commits`,
+  with no remote, a non-GitHub remote or no `gh`, and under `--auto`. The
+  string-entry case left the list of checks run before the joint question.
+- "L asks nothing" became "L does not ask its push question again, but
+  every stop L names still stops it, `pending-check` included".
+- A re-entered K that asks again first writes `gates.L` back with
+  `progress.sh state-set <feature> gates L '<json>'`, the joint fields
+  deleted and whatever `drop-stale` recorded kept.
+- SKILL.md's Gates sentence and gate-table L row say "can be one stop (see
+  K)"; the floor sentence that repeated the Gates one is gone; the K pointer
+  says "follow" and claims nothing; the L pointer shrank to "(see K)".
+  SKILL.md: 65,477 to **65,266 bytes**.
+- phases.md: the K row names the exclusions, the L row the check before the
+  push; the note under the table that said it a third time is gone.
+  `pipeline/README.md` names the exclusions and the check, and is pinned in
+  `tests/readme.bats`.
+
+Span regeneration, control first: the generator (the test file's own
+`prose_slice` and `prose_flat`, cut after the next heading's bold title)
+reproduced the committed `span_k` and `span_l` byte for byte on `7dae2dc`
+before any edit (`span_k OK`, `span_l OK`). The joint test's `want` and the
+`rare_spans` entry were generated from `doc_section`, not typed. A splice
+script replaced the four lines and refused unless exactly four lines
+changed and the line count held.
+
+Controls before the rig: each of the five tests below ran alone on the
+edited tree, `1..1`, `ok 1`, rc 0.
+
+| # | File, pin | Mutation | Test | Result |
+|---|---|---|---|---|
+| M1 | SKILL.md K pointer | `follow` to `always follow` | joint test; K test | both `not ok 1`, rc 1: `joint stop at K pin missing`; `assert_span span_k` failed |
+| M2 | SKILL.md L pointer | `, but every stop L names still stops it` deleted | joint test; guide test | both `not ok 1`, rc 1: `joint answer at L pin missing`; `assert_span span_l` failed |
+| M3 | SKILL.md Gates sentence | `K and L can be one stop (see K).` deleted | joint test | `not ok 1`, rc 1: `gates pin missing` |
+| M4 | SKILL.md gate table L row | `can be one stop with K (see K)` to `one stop with K` | joint test | `not ok 1`, rc 1: `gate table row missing` |
+| M5 | rare-paths.md, string-entry exclusion | the clause deleted | joint test; rare-paths test | both `not ok 1`, rc 1: section `changed:` |
+| M6 | rare-paths.md, `head` field | `` `head`, the full commit id that `git rev-parse HEAD` prints; `` deleted | joint test; rare-paths test | both `not ok 1`, rc 1: section `changed:` |
+| M7 | phases.md K row | the `They stay apart …` sentence deleted | joint test | `not ok 1`, rc 1: `phases.md row missing: \| **K** \|` |
+| M8 | phases.md L row | `the branch, the title, the commit and the body` to `the body` | joint test | `not ok 1`, rc 1: `phases.md row missing: \| **L** \|` |
+| M9 | absent check | the removed floor sentence put back in SKILL.md | joint test | `not ok 1`, rc 1: `old wording is back: K and L stop once, not twice` |
+| M10 | README.md pin | `the title, the commit and the body are` to `the body is` | readme test | `not ok 1`, rc 1: the README message |
+
+Each mutation was checked to have changed the file (a no-op refused), and
+each file was restored from its copy and `cmp` identical. After the rig:
+prose.bats + skills.bats + tests/readme.bats, `1..131`, 131 ok, 0 not ok,
+0 skipped.

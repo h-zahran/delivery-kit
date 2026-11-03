@@ -133,6 +133,8 @@ flat() {
   cd "$ROOT"
   [[ $(flat pipeline/README.md) == *'With no GitHub remote or no `gh`, a `#123` seed **stops** rather than quietly specifying a feature called "#123".'* ]] \
     || { echo "pipeline/README.md no longer says a #123 seed stops without a remote or gh"; false; }
+  [[ $(flat pipeline/README.md) == *'When the branch holds commits and nothing is left to commit, the commit and push gates are one stop: one question shows both, and one answer covers both. They stay apart under `--auto`, without a GitHub remote or `gh`, and on a run an older pipeline started. Before the push, the run checks that the branch, the title, the commit and the body are still the ones you saw; if any changed, it asks you about the push again.'* ]] \
+    || { echo "pipeline/README.md no longer says when the commit and push gates are one stop, and what is checked before the push"; false; }
   [[ $(flat README.md) == *'It is in your Windows user folder: `%USERPROFILE%\.delivery-kit.json`'* ]] \
     || { echo "the root README no longer says where ~/.delivery-kit.json is on Windows"; false; }
   [[ $(flat README.md) == *'Upgrading from the 1.x plugin called `delivery-kit`? Uninstall it **first**'* ]] \
