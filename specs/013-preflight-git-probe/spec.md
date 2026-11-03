@@ -217,7 +217,9 @@ was specified against, not by effort.
   fires-first to fires-last; restoring the over-reaching blanket not-read rule;
   and turning the stop into a warning.
 
-- **`gh` and `adb` keep the boolean-type hole this change measured on them.**
+- **CLOSED: the two assertions landed in `ad20d2e`, and feature 054
+  (`specs/054-preflight-boolean-guard-proof/`) measured that each goes red.**
+  **`gh` and `adb` keep the boolean-type hole this change measured on them.**
   Switching either to `--arg` ships a string with the whole suite green, and a
   consumer writing `.capabilities.gh | not` reads the string `"false"` as
   truthy. Both new git tests assert the type; the two neighbours cannot, because

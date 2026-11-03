@@ -176,3 +176,18 @@ red, and so does the walk.
 - The other seven keep the guards the base table names.
 - The `gh` mutant turns two fields into strings, `capabilities.gh` and
   `remote.ghPresent`: one variable fills both.
+
+## No record calls the hole open (T008), 2026-11-03
+
+`grep -rnE -- '#34\b|issue 34|gh. and .adb.*(type|boolean)|(type|boolean).*gh. and .adb' specs/ pipeline/ docs/ README.md CONTRIBUTING.md`,
+outside this feature's folder, found two lines before the edit:
+
+- `specs/013-preflight-git-probe/spec.md:220`, the "Known gaps" entry: now
+  headed CLOSED, in the shape of the section's other closed entries, its own
+  text kept as written. It names `ad20d2e` as where the assertions landed,
+  because they were not added by this feature.
+- A handoff note under `docs/handoffs/` (2026-11-01). That folder is a
+  private, untracked archive of dated logs; a dated log is not rewritten.
+
+Issue #34 itself closes when the pull request carrying `Closes #34` merges
+(FR-007).
