@@ -494,7 +494,7 @@ reuse() {
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
   # K commits the files J ran on; under files, N still cites that run.
-  git commit -q -am 'J late commit'
+  git commit -q -am 'K commit'
   runs suite-lookup "$F"
   [ "$(sed -n 1p "$OUT")" = "$rec" ]
   # One byte more, and it is another set of files.

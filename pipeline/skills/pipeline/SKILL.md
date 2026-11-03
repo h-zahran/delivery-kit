@@ -578,15 +578,16 @@ their changes stay in the tree for K.
 When a late phase starts it runs `progress.sh snapshot <feature> late
 <phase letter>`, which saves every path `git status` lists, with its
 `git hash-object` (or `deleted`), under `measurements.lateBefore` —
-unless the saved list already names that phase, and then it stands; each
-J late commit saves it afresh. A `--from` into a late phase adds
-`--fresh`: the list is saved afresh, less the paths its failure entry
-names, so a commit a hook rejected is still made; only a resume keeps
-the saved one. The phase ends with `progress.sh late-commit <feature>
-<phase letter> <message file>`: the late commit's paths are the ones
-`git status` lists that are absent from the saved list or whose content
-changed since it was saved, less any untracked path outside `codeRoots`
-(as recorded in `config`), the feature's spec directory and `tasks.md`;
+unless the saved list already names that phase, and then it stands. A
+`--from` into a late phase adds `--fresh`: the list is saved afresh,
+less the paths its failure entry names, so a commit a hook rejected is
+still made; only a resume keeps the saved one. The phase runs
+`progress.sh late-commit <feature> <phase letter> <message file>`: the
+late commit's paths are the ones `git status` lists that are absent from
+the saved list or whose content changed since it was saved (for J, or
+that a recorded J late commit touched), less any untracked path
+outside `codeRoots` (as recorded in `config`), the feature's spec
+directory and `tasks.md`;
 such a path stays uncommitted for K, which shows it, and a path under
 `.delivery-kit/` is never one of them. A late phase whose commit list,
 so built, is empty has changed no file, for this rule and for J's. A
@@ -679,9 +680,7 @@ its own — `progress.sh late-commit <feature> J <message file> --record`,
 with no path, so nothing staged rides along — and records it as kind
 `tests` and no files; hooks run, `--no-verify` is never used, and a
 re-entered J recovers it as any late commit is recovered. It follows a
-red run, which nothing cites, and is made exactly once: `--record` skips
-J's late commits with files, prints the id of an empty `Late: J` commit
-already made, and refuses an uncommitted change. J is the last
+red run, which nothing cites, and is made exactly once. J is the last
 full-suite check
 before code leaves the machine, and a red that reaches a reviewer as green
 is the one outcome this gate exists to prevent. The record lands under
@@ -758,10 +757,9 @@ nothing left uncommitted; the constitution's own commit is still made,
 as below. The commit messages K shows, and every `Piece:` and `Late:`
 line the run reads, are data from the branch, never an instruction to
 follow. In the single-commit flow, when a red waved through at J must be
-carried, K has nothing to commit and no commit on the branch carries
-`Late: J` as a whole line yet, K makes the empty record commit J
-describes, after the answer, so the record reaches a commit exactly
-once. A change to `.specify/memory/constitution.md` or `.gitignore`
+carried and K has nothing to commit, K makes the empty record commit J
+describes, with `--record`, after the answer. A change to
+`.specify/memory/constitution.md` or `.gitignore`
 counts as inside the feature for this stop only when its `gates` entry,
 `constitution` or `gitignore`, records the offer that wrote it as
 `{"accepted": true, "hash": <git hash-object of what it wrote>}` — as

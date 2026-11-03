@@ -73,8 +73,8 @@ exits 0.
    fixes it, **Then** J makes another late commit and runs the suite again,
    within `maxVerifyIters`.
 4. **Given** a red the owner waved through after J's last commit, **Then**
-   the record still reaches a commit exactly once (J's empty record commit,
-   or riding in a J commit).
+   the record still reaches a commit exactly once: J's empty record commit,
+   never a commit with files, which would follow J's last suite run.
 
 ### Edge Cases
 

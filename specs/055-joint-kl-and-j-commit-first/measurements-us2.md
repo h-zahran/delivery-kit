@@ -103,3 +103,132 @@ limit). The first draft of this prose reached 65,967 bytes and that test
 went red; the wording was cut to 64,948 bytes (from 64,266 at `c444768`,
 +682). The helper changing K and L in parallel shares the remaining 588
 bytes.
+
+## Review fixes, 2026-11-03
+
+Scope: the review of J commit-first and J's record commit, five lenses,
+on `7dae2dc`. Every number below was measured in this worktree.
+
+### Script rules changed (`pipeline/scripts/progress.sh`)
+
+| Line | Before | After |
+|---|---|---|
+| 1199-1200 (`recover_piece`) | `( cmd_commit_add … )` alone | `… \|\| die "commit <c> carries 'Piece: <heading>' but could not be recorded …"`: the caller runs it inside `if`, where `set -e` is inert |
+| 1212-1235 (`recover_late`) | records the first unrecorded commit carrying `Late: <phase>`, prints it, returns | for J, records EVERY such commit and prints the last id; any other phase still stops at the first |
+| 1310-1332 (`late_paths`) | a path whose hash matches the saved list is skipped | for J, a path any recorded `tests` entry lists is never skipped for the saved list, read from `commits` |
+| 1555-1563 (`late-commit`, recovery) | `--record`: `while recover_late; do :; done`; others: `if recover_late; then return 0; fi` | `recover_late` writes to a file, not `$( )`, so its `die` ends the script; non-J prints the id and returns; J goes on |
+| 1567-1577 (`--record` search) | a `Late: J` commit with files: `continue`; the empty one, if recorded: print; else `die "… exactly once"` | newest first: the first `Late: J` commit, if empty, is the record (printed); if it has files, `break` and a new record is made. The `die` and the recorded check went: after the recovery every such commit is recorded. The 8-line history comment is now 2 lines of rule |
+| 1582 (`--record` refusal) | `J changed files: the record rides in J's own late commit — run without --record` | `J changed files: commit them with late-commit <feature> J <message file> and run the full suite on that commit first — the record is J's empty commit after that run` |
+| 1595-1598, 1611-1612 (`late-commit`, J) | — | J with recovered commits and nothing left (or no J list saved) prints the last recovered id |
+| removed after `commit_named` | `if [ "$phase" = J ]; then ( late_save '' ) \|\| die …; fi` | gone |
+| 1142, 438 (`state_write`, `cmd_commit_add`) | `mv "$tmp" "$f"` | `mv … \|\| { rm -f "$tmp"; die "could not replace …"; }` |
+
+`late_save` is gone and its body is back in `cmd_snapshot`: the function
+is byte-identical to its text before 055 (`diff` of the two function
+bodies, `d56cc49^` against this tree: no difference). The re-save
+after each J commit existed only so a put-back path was not skipped; the
+`late_paths` rule above does that from `commits`, which `recover_late`
+fills before `late_paths` runs, so it holds after a crash between the
+commit and its record. The re-save was itself the crash window (it ran
+between the commit and the record), and with one caller left a function
+was no longer needed. A second `snapshot late J` still prints "the saved
+list stands": the list saved at J's start names J.
+
+`shellcheck --norc -x pipeline/scripts/progress.sh`: clean.
+
+### Script tests and mutations
+
+Rig: as in section 3, each mutant a copy of `pipeline/scripts/` with one
+replacement (refused unless the old text is found once and the result
+differs; the mutated line echoed), `bash -n`, run through
+`PROGRESS_SH_UNDER_TEST` with `-f 'J|--record|recovered commit|put
+back|late-commit'`. Control on the unmutated copy: `1..27`, 27 ok.
+
+New tests in `pipeline/tests/progress-git.bats`:
+
+- T1 "late-commit J --record makes one record per waved-through red: a J
+  late commit after a record needs a new one" (R1; --record again prints
+  R1; a J fix; --record makes R2; --record again prints R2).
+- T2 "a J late commit a crash left unrecorded still lets J commit a path
+  put back to its pre-J content".
+- T3 "one late-commit J records every unrecorded J late commit, then
+  commits what is left" (also: `snapshot late J` records both and prints
+  the last; with nothing left, `late-commit J` prints the last).
+- T4 "a recovered commit that cannot be recorded stops the run, for a late
+  phase and for a piece" (an empty `Late: I` commit, then `late-commit I`;
+  an empty `Piece: Phase 1: Setup` commit, then `snapshot piece`).
+
+Changed: "late-commit J --record is refused when J changed files: they are
+committed and run first" (was "…: the record rides in J's own commit"; now
+expects the new message); "J's next late commit holds a path put back…"
+(its last assertion now proves the saved list is still J's starting list,
+the file in it with its pre-J hash; its comment names the new mutation);
+the comments of "J's two late commits…" and "--record first records…".
+
+| Mutant | Mutated line | Red tests |
+|---|---|---|
+| m1 | `[ "${#CF[@]}" -eq 0 ] \|\| continue` | T1 (`[ "$r2" = "$(git rev-parse HEAD)" ]`: R1 printed) |
+| m2 | `mine=''` | "J's next late commit holds a path put back…", T2 |
+| m3 | `break` in place of `[ "$phase" = J ] \|\| break` | T3, "--record first records J's unrecorded commits…" |
+| m4 | `if true; then printf '%s\n' "$rec"; return 0; fi` | T2, T3, "--record first records…" |
+| m5a | recover_late's `( cmd_commit_add … )` without `\|\| die` | T4 (the `Late: I` refusal) |
+| m5b | recover_piece's `( cmd_commit_add … )` without `\|\| die` | T4 (the `Piece:` refusal) |
+| m6 | `: MUTANT no refusal` in place of the `--record` refusal | "--record is refused when J changed files…", "--record after J's late commits…" |
+
+All seven red, the control green. The `mv` guards have no test: a `mv`
+that fails on a temporary file in the state directory is not reachable
+without stubbing `mv`.
+
+### Prose and docs
+
+| File | Change |
+|---|---|
+| SKILL.md, H.5 | "; each J late commit saves it afresh" removed (no longer true); "The phase ends with `progress.sh late-commit …`" became "The phase runs …" (J ends with its last suite run); the paths rule gained "(for J, or that a recorded J late commit touched)" |
+| SKILL.md, J | "…made exactly once: `--record` skips J's late commits with files, prints the id of an empty `Late: J` commit already made, and refuses an uncommitted change." cut to "…made exactly once." |
+| SKILL.md, K | the single-commit-flow record sentence: "…carried and K has nothing to commit, K makes the empty record commit J describes, with `--record`, after the answer." (no "no commit carries `Late: J` yet" test; `--record`'s rule decides) |
+| phases.md, J row | "(or into the late commit for a change J has not yet committed; " removed |
+| README.md, `tests` row | "J changed nothing" became "J changed nothing since its last late commit" |
+| suite-cache.bats | the commit the comment says K makes is named 'K commit' (the one at line 523 stays) |
+| spec.md, US2 scenario 4 | "(J's empty record commit, or riding in a J commit)" became ": J's empty record commit, never a commit with files, which would follow J's last suite run" |
+
+SKILL.md: 65,477 bytes before, 65,257 after (-220). `prose.bats`: 101
+tests, 101 ok.
+
+### Spans and pins
+
+Method control: `prose_flat` and `prose_slice` extracted from
+`prose.bats` itself, run over the unchanged SKILL.md, cut after the
+closing heading's bold text, reproduced the committed `span_j` (3,141
+bytes), `span_n` (1,314) and `span_k` (4,651) byte for byte. After the
+edits: `span_j` 3,003 bytes, `span_k` 4,560, regenerated the same way;
+`span_n` unchanged (N was not touched); a new `span_h5`, 2,924 bytes, over
+"**H.5 — converge.**" to "**H.7 — simplify.**", with an `assert_span` in
+"late phases commit their own work". `span_k` was regenerated from this
+branch's K text: the K and L helper's own regeneration supersedes it on
+merge.
+
+Pins changed: H.5's `snapshot` pin (now ends "…and then it stands."),
+H.5's `late-commit` pin (now "The phase runs…", with the J clause), J's
+record pin ("…made exactly once. J is the last full-suite check"), K's
+single-commit record pin. Pins added in "phases.md states the suite reuse
+rules…": the reuse paragraph's "and N citing J's last full-suite run, made
+on the commit J leaves, …", the J row's record and commit-first sentences,
+and configuration.md's "J commits before its last full-suite run, so N can
+cite that run when nothing came after it, but N cannot cite J's run once K
+commits."
+
+Rig: each document mutated in place, the test run, the document restored
+from a byte copy and proved identical with `cmp` (all 9 restored). Control:
+the five tests, `1..5`, 5 ok.
+
+| Mutant | Document | Mutation | Result |
+|---|---|---|---|
+| p1 | SKILL.md | "; each J late commit saves it afresh" put back | late phases: not ok (pin missing) |
+| p2 | SKILL.md | "(for J, or that a recorded J late commit touched)" removed | late phases: not ok (pin missing) |
+| p3 | SKILL.md | "J commits once, when its loop ends." inserted between two pinned H.5 sentences | late phases: not ok (`span_h5` only) |
+| p4 | SKILL.md | the cut `--record` clause put back | phase J span: not ok; J's carry: not ok (pin missing) |
+| p5 | SKILL.md | K's old "no commit … carries `Late: J` yet" sentence put back | phase K: not ok (pin missing) |
+| p6 | phases.md | the reuse paragraph put back to its pre-055 text | not ok |
+| p7 | configuration.md | the suiteReuse clause put back to its pre-055 text | not ok |
+| p8 | phases.md | the J row's commit-first sentence put back to "commits what it changed." | not ok |
+| p9 | phases.md | the J row's "(or into the late commit for a change J has not yet committed; " put back | not ok |
