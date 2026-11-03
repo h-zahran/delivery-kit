@@ -77,3 +77,22 @@ the foreground, with its exit status captured on the next line.
 - T015, the differential of Phase 2 repeated with the Phase 3 script:
   identical to `main`'s script (rc 0) in all six cases, a clean tree and a
   tree with one untracked file among them.
+
+## Phase 4 — the documentation (T016 to T018)
+
+- Two departures from the task text, named: T017's sentences went in as a
+  second paragraph at the end of "Fields the report did not read", not
+  inside the first one after "and whenever `git status` fails.", so the
+  first paragraph's text is unchanged; and T018 updated the existing pin
+  "configuration.md's Base branch section says when the current branch
+  serves, and that every repository name is checked" instead of adding a
+  new test, because that pin held the very sentence T016 replaces.
+- 2026-11-03, the two pins: rc 0, 2 of 2.
+- Mutants, each in a detached worktree of `HEAD` with the changed
+  `configuration.md` and `prose.bats` copied in, one sentence deleted per
+  run (the file shown to change), the two pins run: control green; RED
+  for each of the seven: the `HEAD` outside `refs/heads/` sentence; "gets
+  the override's checks below: …"; "A base that fails one stops
+  pre-flight, naming where the base came from."; the two flags; the
+  `assume-unchanged` sentence; the two limits; the repository-programs
+  sentence (item 3). Every mutant turned one pin red.
