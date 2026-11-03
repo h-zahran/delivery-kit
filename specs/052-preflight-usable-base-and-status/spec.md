@@ -285,7 +285,10 @@ alone, turns at least one test red.
   An existing test whose fixture names a base that FR-001 or FR-002 now
   refuses, and that expects a report, MUST be given a fixture that has
   that base, so it still tests what it tested; its assertions do not
-  change.
+  change. The one exception is an assertion that pins what FR-001
+  reverses: 051's test "a branch with no commit yet stops pre-flight"
+  expected a configured base in a repository with no commit to be
+  reported; it now expects the FR-001 refusal (phase H).
 - **FR-012**: This run MUST release the change as pipeline 1.7.6: a
   dated `## [1.7.6] - <date>` entry in `pipeline/CHANGELOG.md` that
   states what changed, the version in `pipeline/.claude-plugin/plugin.json`,

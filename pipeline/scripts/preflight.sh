@@ -35,7 +35,7 @@ shown() {
   s=${s//[![:print:]]/?}
   printf -v "$1" '%s' "$s$c"
 }
-arg_s='' sd_s='' seg_s='' dir_s='' br_s='' ov_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
+arg_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -195,27 +195,50 @@ branch_like() {
           l = tolower(r)
           if (r != "HEAD" && (l == n || index(l, n "/") == 1 || index(n, l "/") == 1)) { print r; exit } }'
 }
-# The override is what a person typed, or a key somebody wrote, for this
-# run, so it is checked rather than trusted: a legal name, and a LOCAL
-# branch. B runs `git checkout -b <feature> <base>` and later phases read
-# `<base>..HEAD`; both fail on a name that exists only as origin/<base>
-# (measured, git 2.43.0: rc 128), which is a fresh clone's usual state, so
-# that case names the one command that fixes it. A tag, a commit id,
-# origin/main or refs/heads/main is not a branch's name.
-if [ -n "$base_override" ] && [ "$git_usable" = true ]; then
-  branch_ok "$base_override" --base-branch-override
-  shown ov_s "$base_override"
-  if ! git show-ref --verify --quiet "refs/heads/$base_override"; then
-    if git show-ref --verify --quiet "refs/remotes/origin/$base_override"; then
-      die "'$ov_s' exists only on origin; create the local branch first: git branch --track $ov_s origin/$ov_s (--base-branch-override)"
+# base_usable <name> <label> — B runs `git checkout -b <feature> <base>` and
+# later phases read `<base>..HEAD`, so the base must be a LOCAL branch that
+# names a commit, and no tag may share its name. One function serves every
+# source (Principle IV): the override, where it is parsed, and origin/HEAD,
+# the baseBranch key and the current branch once the base is resolved and
+# its name has passed branch_ok. Until feature 052 only the override was
+# checked, and each of these passed (measured, git 2.53.0): a key naming a
+# branch that is nowhere, or only a tag; origin/HEAD naming main in a clone
+# whose local main was deleted; a base that is a branch and a tag at once.
+# `git checkout -b` fails on all of them (rc 128) or, for the tag, makes the
+# branch while every later <base>..HEAD reads the tag. Exit statuses alone
+# decide; git's text is never read. A name that is the current branch before
+# its first commit has no ref yet, so it is told apart from a name that is
+# nowhere; that one message is new for the override too (spec FR-011).
+# `update-ref` refuses to write a tree to a branch, but a ref file written by
+# hand is read as one, so the commit is checked, not assumed.
+base_usable() {
+  shown base_s "$1"
+  if ! git show-ref --verify --quiet "refs/heads/$1"; then
+    if git show-ref --verify --quiet "refs/remotes/origin/$1"; then
+      die "'$base_s' exists only on origin; create the local branch first: git branch --track $base_s origin/$base_s ($2)"
     fi
-    die "'$ov_s' is not a branch here or on origin (--base-branch-override)"
+    if [ "$(git symbolic-ref --quiet HEAD 2>/dev/null)" = "refs/heads/$1" ]; then
+      die "'$base_s' has no commit yet; make a first commit, or pass a base branch that has one ($2)"
+    fi
+    die "'$base_s' is not a branch here or on origin ($2)"
   fi
+  git rev-parse --verify --quiet "refs/heads/$1^{commit}" >/dev/null 2>&1 \
+    || die "'$base_s' does not name a commit ($2)"
   # A name that is a branch and a tag too: `git checkout -b` fails as
   # ambiguous, and <base>..HEAD reads the tag.
-  if git show-ref --verify --quiet "refs/tags/$base_override"; then
-    die "'$ov_s' is a tag as well as a branch; git would read the tag (--base-branch-override)"
+  if git show-ref --verify --quiet "refs/tags/$1"; then
+    die "'$base_s' is a tag as well as a branch; git would read the tag ($2)"
   fi
+}
+# The override is what a person typed, or a key somebody wrote, for this
+# run, so it is checked rather than trusted: a legal name, and a usable
+# LOCAL branch (base_usable above). A name that exists only as origin/<base>
+# (measured, git 2.43.0: rc 128) is a fresh clone's usual state, so that
+# case names the one command that fixes it. A tag, a commit id, origin/main
+# or refs/heads/main is not a branch's name.
+if [ -n "$base_override" ] && [ "$git_usable" = true ]; then
+  branch_ok "$base_override" --base-branch-override
+  base_usable "$base_override" --base-branch-override
 fi
 # The feature branch B will cut: --feature-branch, else the spec folder's
 # last segment, which B names the branch after. It must be a legal name;
@@ -441,12 +464,24 @@ else
   # --abbrev-ref HEAD` prints HEAD in both states, and exits 0 when
   # detached.) With git not usable no read runs here: the base stays empty
   # and notRead names it.
+  #
+  # The FULL ref is read, never --short (feature 052, measured on git
+  # 2.53.0): --short names whatever HEAD points to, so a HEAD pointing at
+  # refs/tags/v1 or refs/remotes/origin/main gave `v1` or `origin/main` as
+  # the base, and a branch with a tag of its name gave `heads/main`, git's
+  # unambiguous spelling, which is no branch's name. A ref outside
+  # refs/heads/ stops here, and the message names no ref: the ref comes
+  # from the repository.
   if [ "$git_usable" = true ]; then
-    rc=0; base="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" || rc=$?
+    rc=0; ref="$(git symbolic-ref --quiet HEAD 2>/dev/null)" || rc=$?
     case "$rc" in
       0) ;;
       1) die "HEAD is detached, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)" ;;
       *) die "HEAD names a branch git cannot read, so the current checkout names no base branch; run git status to see why" ;;
+    esac
+    case "$ref" in
+      refs/heads/?*) base="${ref#refs/heads/}" ;;
+      *) die "HEAD points to a ref that is not a local branch, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)" ;;
     esac
     git rev-parse --verify --quiet HEAD >/dev/null 2>&1 \
       || die "the current branch has no commit yet, so there is nothing to cut the feature branch from; make a first commit, or pass a base branch that has one (the run's --base-branch flag, or the baseBranch key)"
@@ -456,14 +491,22 @@ fi
 # remote names its own default branch, so it gets the override's name
 # check: B types the name into commands. An override is checked where it
 # is parsed; without a usable git nothing is checked, as for an override.
-# Every source but the override is checked, a later one included.
+# Every source but the override is checked, a later one included. Since
+# feature 052 the base must also be usable (base_usable), checked after the
+# name so a name the name check refuses is never looked up; both checks name
+# the source with the same label.
 if [ "$git_usable" = true ]; then
+  label=""
   case "$base_source" in
     override) ;;
-    origin/HEAD) branch_ok "$base" "origin/HEAD; pass a base branch with the run's --base-branch flag" ;;
-    configured) branch_ok "$base" "the baseBranch key" ;;
-    *) branch_ok "$base" "the $base_source; check out another branch, or pass a base branch" ;;
+    origin/HEAD) label="origin/HEAD; pass a base branch with the run's --base-branch flag" ;;
+    configured) label="the baseBranch key" ;;
+    *) label="the $base_source; check out another branch, or pass a base branch" ;;
   esac
+  if [ -n "$label" ]; then
+    branch_ok "$base" "$label"
+    base_usable "$base" "$label"
+  fi
 fi
 # notRead names each field of this report that holds a placeholder, not a
 # fact, because git is not usable here: its git read did not run, or ran and
