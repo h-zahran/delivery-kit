@@ -86,7 +86,7 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" --print-output-on-failure 
 
 **Independent Test**: `bash scripts/check-versions.sh` exits 0 and reports the released state.
 
-- [ ] T020 In `pipeline/CHANGELOG.md`, add `## [1.8.0] - 2026-11-03` above `## [1.7.6]`, with Highlights (F.5 cites a green result for the base commit, recorded by the run's own background suite run started in B) and Added/Changed entries: `suite-base start|wait`, the summary line naming commit and command, the skill's B and F.5 steps, `f5Cited`; Closes #110. Set `"version": "1.8.0"` in `pipeline/.claude-plugin/plugin.json` and the pipeline entry of `.claude-plugin/marketplace.json` (edit with `sed`, never `jq`; prove the diff is one line each).
-- [ ] T021 Run `bash scripts/check-versions.sh`: exit 0. Run `bash "$HOME/bats/bin/bats" -r tests` from the repository root: green, plan line equals ok count.
+- [X] T020 In `pipeline/CHANGELOG.md`, add `## [1.8.0] - 2026-11-03` above `## [1.7.6]`, with Highlights (F.5 cites a green result for the base commit, recorded by the run's own background suite run started in B) and Added/Changed entries: `suite-base start|wait`, the summary line naming commit and command, the skill's B and F.5 steps, `f5Cited`; Closes #110. Set `"version": "1.8.0"` in `pipeline/.claude-plugin/plugin.json` and the pipeline entry of `.claude-plugin/marketplace.json` (edit with `sed`, never `jq`; prove the diff is one line each).
+- [X] T021 Run `bash scripts/check-versions.sh`: exit 0. Run `bash "$HOME/bats/bin/bats" -r tests` from the repository root: green, plan line equals ok count.
 
 **Checkpoint**: 1.8.0 is ready to tag after merge.

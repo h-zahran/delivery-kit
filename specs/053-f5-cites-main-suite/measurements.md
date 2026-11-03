@@ -57,3 +57,9 @@ current files.
   (43 the F.5 pins and span, 64 the new B test, 65 the phases.md pins).
 - T019, after T016 and T018: `prose.bats` + `skills.bats` `1..111`, 111 ok,
   exit 0.
+
+## T020-T021 — release 1.8.0 (2026-11-03)
+
+- `bash scripts/check-versions.sh`: exit 0,
+  `pipeline: plugin=1.8.0 marketplace=1.8.0 changelog=1.8.0 state=released`.
+- Root suite `bash "$HOME/bats/bin/bats" -r tests`: `1..140`, 140 ok, exit 0.

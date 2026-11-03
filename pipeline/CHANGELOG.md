@@ -2,6 +2,55 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.8.0] - 2026-11-03
+
+### Highlights
+
+- F.5 can cite a green suite result for the base commit instead of running
+  the whole suite again. The run records that result itself: B starts the
+  suite in the background on a separate checkout of the base commit, and by
+  F.5 it has usually finished. Closes issue #110.
+
+### Added
+
+- **`progress.sh suite-base <feature> start`.** On a fresh run whose base
+  commit has no green suite result, it makes a detached `git worktree` of
+  HEAD's commit in a temporary folder outside the working tree, and runs
+  the test command there in the background, in a process group of its own.
+  The result is recorded with the same key and the same writer as
+  `suite-record`, so `suite-lookup <feature> --base` at F.5 finds it like
+  any other record, and red is still never reused. It never merges,
+  pushes, fetches, makes or deletes a branch, changes the main tree's HEAD,
+  index or files, takes the lock or writes the state file. It prints one
+  line: started, already started, or not started and why. It starts nothing
+  under `suiteReuse: off`, or when a green record for the base files
+  already exists. Before this, a repository that merges by rebase gave the
+  base branch commits no run had tested, so the lookup always missed and
+  F.5 ran the full suite, about 6 to 9 minutes on this repository.
+- **`progress.sh suite-base <feature> wait [--slice <s>] [--limit <s>]`.**
+  Waits for that run in slices of 540 seconds (exit 2: call again), so one
+  call fits a 600-second tool limit, up to 900 seconds counted from the
+  first call; at the limit it stops the runner. A runner whose heartbeat is
+  more than 60 seconds old is never signalled, since its process id may
+  belong to another program by then, and a dead runner's checkout is
+  removed. The wait never decides reuse.
+- The skill's B starts the base suite run and prints its line; an exit 1
+  does not stop the run. F.5 waits, then looks up as before, and records
+  `f5Cited`, a JSON boolean, and `baseSuite` in the run's metrics.
+
+### Changed
+
+- **A cited suite result names its commit and its command.**
+  `suite-lookup`'s summary line now ends `on commit <sha>, command
+  "<command>"` (`on tree <tree>` under `suiteReuse: files`, which keys no
+  commit), before the `--base` suffix. The command is quoted as JSON, so a
+  quote or a line break in it stays on the one line. The lookup's decision
+  is unchanged.
+- `suite_key` is now two halves, the state file's and git's, and the
+  record write is one function, so the base suite runner shares both
+  rather than copying them. No key changes: measured identical on this
+  repository.
+
 ## [1.7.6] - 2026-11-03
 
 ### Highlights
