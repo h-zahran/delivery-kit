@@ -1,8 +1,9 @@
 # Rare paths
 
 The pipeline skill sends the run to one section of this page when that
-section's path happens, and only then. Each section is the skill's own
-text, moved here word for word to keep the skill small, so it still
+section's path happens, and only then. Each section but "K and L as one
+stop", which was written here, is the skill's own text, moved here word
+for word to keep the skill small, so it still
 speaks from where it stood: "that block" and "This block" are the
 pre-flight probe block; "this decision walk" is pre-flight's decision
 walk; "this item" is decision item 10 under "An illegal implementer
@@ -10,7 +11,8 @@ value" and item 11 under "The git stop"; "item 5" and "B" are the
 skill's; "The enum" is the `implementer` values `claude`,
 `handoff` and `ask`; "That rule" is the skill's missing-tool ground
 rule; and a phase letter names the skill's phase. The gates, the rules
-that never bend and the red flags stay in the skill.
+that never bend and the red flags stay in the skill; "K and L as one
+stop" says how two of those gates are asked, never whether they stop.
 
 ## The probe block without git
 
