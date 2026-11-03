@@ -124,11 +124,13 @@ exits 0.
   iteration, within `maxVerifyIters`; the prose that says J commits once
   MUST change accordingly, everywhere it appears.
 - **FR-010**: `late-commit J --record` MUST put each waved-through red in
-  its own empty `Late: J` commit, exactly once: an empty `Late: J` commit
-  counts as the record only when no J late commit with files follows it. The
+  its own empty `Late: J` commit, one for each red waved through: an empty
+  `Late: J` commit counts as the record only while it is the newest commit,
+  so any commit after it means a new record. The
   record never rides in a J commit with files, which would come after J's
   last suite run. `record-branch`, `commit-list` and `guide` MUST accept a
-  branch holding several `Late: J` commits. (Revised at review, 2026-11-03.)
+  branch holding several `Late: J` commits. (Revised at review, 2026-11-03,
+  and at the last pass, 2026-11-04.)
 - **FR-011**: The docs (`pipeline/docs/phases.md`, and
   `pipeline/docs/configuration.md` where it says "N cannot cite J's run
   once K commits") MUST describe both changes.

@@ -753,7 +753,7 @@ commits_ok() {
 # oldest first, that no commits entry records by its full id.
 unrecorded() {
   local rec list c out=''
-  rec="$(jqs '[.commits[]? | objects | .sha | strings] | join(" ")' "$1")"
+  rec="$(jqs '[.commits[]? | objects | .sha | strings] | join(" ")' "$1")" || die "could not read the recorded commits from $1"
   list="$(git rev-list --reverse --first-parent "$2..HEAD")" || die "git rev-list could not read $2..HEAD"
   for c in $list; do
     case " $rec " in *" $c "*) ;; *) out="$out $c" ;; esac
@@ -1186,9 +1186,11 @@ h5_piece_or_die() {
 # print its id. It is never built or committed again.
 recover_piece() {
   local list c msg kind
-  list="$(unrecorded "$sf" "$base")"
+  # `|| die` on each $( ): unrecorded's own `die` ends only the subshell, and
+  # the caller's `if` makes set -e inert, so a failed read would find nothing.
+  list="$(unrecorded "$sf" "$base")" || die "could not list the unrecorded commits in $base..HEAD — nothing is recovered"
   for c in $list; do
-    msg="$(git log -1 --format=%B "$c")"
+    msg="$(git log -1 --format=%B "$c")" || die "git log could not read commit $c"
     has_line "$msg" "Piece: $HEADING" || continue
     built_or_die "$c" "$HEADING"
     kind=piece
@@ -1211,9 +1213,9 @@ recover_piece() {
 # and the last one's id printed.
 recover_late() {
   local list c msg h i found=''
-  list="$(unrecorded "$sf" "$base")"
+  list="$(unrecorded "$sf" "$base")" || die "could not list the unrecorded commits in $base..HEAD — nothing is recovered"
   for c in $list; do
-    msg="$(git log -1 --format=%B "$c")"
+    msg="$(git log -1 --format=%B "$c")" || die "git log could not read commit $c"
     has_line "$msg" "Late: $phase" || continue
     h=''; i=''
     if [ "$phase" = H.5 ] && h="$(piece_of "$msg")"; then
@@ -1303,16 +1305,31 @@ hash_paths() {
 # late_paths <state file> — LP: the paths git status lists now that are absent
 # from measurements.lateBefore or whose content changed since it was saved,
 # less any untracked path outside the feature, which stays for K, and never
-# one under the state directory. For J, a path a recorded J late commit
-# touched is never skipped for the saved list: put back to the content J's
-# list saved, it is still a change to commit. It is read from `commits`, so
-# it holds after a crash once recover_late has recorded the commit.
+# one under the state directory. For J, a path a recorded J late commit made
+# since the list was saved touched is never skipped for the saved list: put
+# back to the content J's list saved, it is still a change to commit. It is
+# read from `commits`, so it holds after a crash once recover_late has
+# recorded the commit. "Since" is lateBefore.head..HEAD, first-parent: a path
+# a --fresh list set aside on purpose (an owner's edit to a file an earlier J
+# commit touched) stays out. A list with no head, saved by an older
+# pipeline, counts every recorded J late commit.
 late_paths() {
-  local map rec p i=0 n mine=''
+  local map rec p i=0 n mine='' h
   local -a st
   map="$(jqs '.measurements.lateBefore.paths[]? | objects | "\(.hash) \(.path)"' "$1")"
   if [ "$phase" = J ]; then
-    mine="$(jqs '.commits[]? | objects | select(.kind == "tests") | .files[]? | strings' "$1")"
+    h="$(jqs '.measurements.lateBefore.head? // "" | strings' "$1")" || die "could not read measurements.lateBefore.head from $1"
+    if [ -n "$h" ]; then
+      git rev-parse --verify --quiet "$h^{commit}" >/dev/null \
+        || die "measurements.lateBefore.head '$h' does not name a commit — run snapshot $feature late J --fresh"
+      git rev-list --first-parent "$h..HEAD" > "$RD/late-since.txt" || die "git rev-list could not read $h..HEAD"
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      mine="$(jqs --rawfile s "$RD/late-since.txt" '($s | gsub("\r"; "") | split("\n")) as $l
+        | .commits[]? | objects | select(.kind == "tests") | select(.sha as $c | any($l[]; . == $c))
+        | .files[]? | strings' "$1")" || die "could not read J's recorded commits from $1"
+    else
+      mine="$(jqs '.commits[]? | objects | select(.kind == "tests") | .files[]? | strings' "$1")"
+    fi
   fi
   feature_bounds "$1"
   status_to "$RD/late-after.nul"
@@ -1344,11 +1361,12 @@ late_paths() {
 # snapshot <feature> piece — saves measurements.pieceBefore for the piece
 # piece-next names: every path git status lists, with the piece's heading.
 # snapshot <feature> late <phase> [--fresh] — saves measurements.lateBefore:
-# every path with its hash. A list already saved for that piece or phase
-# stands (a resume compares against it); --fresh saves a late list afresh,
-# for a --from, less the paths gates.<phase>.failure.paths names. A piece
-# found already committed is recorded instead, and its id printed: it must
-# not be built again.
+# every path with its hash, and HEAD's id. A list already saved for that
+# piece or phase stands (a resume compares against it); --fresh saves a late
+# list afresh, for a --from, less the paths gates.<phase>.failure.paths
+# names. A piece or late commit found already committed is recorded instead,
+# and its id printed: it must not be made again. J with --fresh then saves
+# its list all the same.
 cmd_snapshot() {
   feature="$1"; what="${2:-}"
   sf="$(cmd_validate "$feature")"
@@ -1386,7 +1404,14 @@ cmd_snapshot() {
       base="$(base_of "$sf")"
       # A re-entered late phase finds its own commit first: one made before a
       # crash is recorded from that commit, its id printed, never made again.
-      if recover_late; then return 0; fi
+      # A --from J goes on to save its list afresh: J may commit again after
+      # it, and a list left from before the crash would sweep in a path the
+      # fresh list sets aside. A file, not $( ): recover_late's `die` must end
+      # the script.
+      if recover_late > "$RD/late-recovered.txt"; then
+        cat "$RD/late-recovered.txt"
+        if [ "$phase" != J ] || [ -z "$fresh" ]; then return 0; fi
+      fi
       if [ -z "$fresh" ] && [ "$(jqs '.measurements.lateBefore.phase? // ""' "$sf")" = "$phase" ]; then
         warn "measurements.lateBefore already names $phase: the saved list stands"
         return 0
@@ -1412,9 +1437,12 @@ cmd_snapshot() {
           printf '%s %s\n' "${HH[$i]}" "${HP[$i]}"; i=$((i + 1))
         done > "$RD/late-before.txt"
       fi
+      # head: J's late_paths counts only J commits made after this list.
+      local head
+      head="$(git rev-parse --verify HEAD)" || die "git rev-parse could not read HEAD"
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      state_write "$sf" '.measurements.lateBefore = {phase: $ph, paths: [$p | split("\n")[] | select(length > 0) | capture("^(?<hash>[^ ]+) (?<path>.*)$")]}' \
-        --arg ph "$phase" --rawfile p "$RD/late-before.txt"
+      state_write "$sf" '.measurements.lateBefore = {phase: $ph, head: $hd, paths: [$p | split("\n")[] | select(length > 0) | capture("^(?<hash>[^ ]+) (?<path>.*)$")]}' \
+        --arg ph "$phase" --arg hd "$head" --rawfile p "$RD/late-before.txt"
       warn "saved measurements.lateBefore for $phase: $n paths"
       ;;
     *) die "snapshot needs 'piece', or 'late <phase>'" ;;
@@ -1537,10 +1565,12 @@ cmd_piece_commit() {
 # before its last full-suite run, so a new failure found on its commit is
 # fixed and committed again (feature 055).
 # late-commit <feature> J <message-file> --record — J's empty record commit
-# of a waved-through red: no path, kind tests, one per waved-through red.
-# late-commit <feature> <phase> --list — prints the paths, commits nothing.
+# of a waved-through red: no path, kind tests, one per waved-through red. A
+# record that is still the newest commit is not made again: its id is printed.
+# late-commit <feature> <phase> --list — prints the paths, commits nothing,
+# writes nothing, and recovers nothing.
 cmd_late_commit() {
-  feature="$1"; phase="${2:-}"; local mf="${3:-}" flag="${4:-}" saved c list rec=''
+  feature="$1"; phase="${2:-}"; local mf="${3:-}" flag="${4:-}" saved c m rec=''
   kind="$(kind_of_phase "$phase")" || die "late-commit needs a late phase: H.5, H.7, I or J (got '$phase')"
   if [ $# -gt 4 ] || [ -z "$mf" ]; then die "usage: late-commit <feature> <phase> <message-file|--list> [--record]"; fi
   case "$flag" in ''|--record) ;; *) die "unknown option '$flag' (only --record)" ;; esac
@@ -1557,24 +1587,26 @@ cmd_late_commit() {
   # commits once per fixing iteration: recover_late has recorded every one,
   # and J goes on to commit what is left, or prints the last one's id. A file,
   # not $( ): recover_late's `die` must end the script, not a subshell.
-  if recover_late > "$RD/late-recovered.txt"; then
+  # --list commits nothing and writes nothing: it recovers nothing.
+  if [ "$mf" != --list ] && recover_late > "$RD/late-recovered.txt"; then
     rec="$(cat "$RD/late-recovered.txt")"
     if [ "$phase" != J ]; then printf '%s\n' "$rec"; return 0; fi
   fi
   saved="$(jqs '.measurements.lateBefore.phase? // "" | strings' "$sf")"
   HEADING=''; IDS=''
   if [ "$flag" = --record ]; then
-    # The record is an empty `Late: J` commit with no J late commit with files
-    # after it: a red waved through after a later fix is a new one to carry.
-    list="$(git rev-list --first-parent "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
-    for c in $list; do
-      has_line "$(git log -1 --format=%B "$c")" 'Late: J' || continue
+    # The record is an empty `Late: J` commit that is HEAD itself: any commit
+    # after it, a fix or not, means a red waved through now is a new one.
+    c="$(git rev-list --first-parent --max-count=1 "$base..HEAD")" || die "git rev-list could not read $base..HEAD"
+    if [ -n "$c" ]; then
+      m="$(git log -1 --format=%B "$c")" || die "git log could not read commit $c"
       commit_files "$c"
-      [ "${#CF[@]}" -eq 0 ] || break
-      warn "J's record is already made and recorded as $c: it is not made again"
-      printf '%s\n' "$c"
-      return 0
-    done
+      if has_line "$m" 'Late: J' && [ "${#CF[@]}" -eq 0 ]; then
+        warn "J's record is already made and recorded as $c, the newest commit: it is not made again"
+        printf '%s\n' "$c"
+        return 0
+      fi
+    fi
     # A change J has not committed has not been through J's last suite run,
     # and the record never rides in a commit with files.
     if [ "$saved" = J ]; then

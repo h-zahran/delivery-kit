@@ -601,7 +601,8 @@ late commit, read "A commit a hook rejected" in
 re-entered late phase's `snapshot` first records, from that commit, any
 commit in `<base>..HEAD` that `commits` does not record and that carries
 its `Late:` line, and prints its id: that commit is made, and is never
-made again. Every `Piece:` and `Late:` line is matched as a
+made again; J still runs its last full suite on it. Every `Piece:` and
+`Late:` line is matched as a
 whole line, and a heading read from one travels as data, as H's heading
 does.
 
@@ -680,7 +681,9 @@ its own — `progress.sh late-commit <feature> J <message file> --record`,
 with no path, so nothing staged rides along — and records it as kind
 `tests` and no files; hooks run, `--no-verify` is never used, and a
 re-entered J recovers it as any late commit is recovered. It follows a
-red run, which nothing cites, and is made exactly once. J is the last
+red run, which nothing cites, and is made once for each red waved
+through: while a record is still the newest commit, `--record` prints
+its id. J is the last
 full-suite check
 before code leaves the machine, and a red that reaches a reviewer as green
 is the one outcome this gate exists to prevent. The record lands under

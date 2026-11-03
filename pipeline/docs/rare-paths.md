@@ -226,7 +226,10 @@ Just before the push, L rebuilds the body and each part as at L, and
 recomputes the branch name, the title, `git rev-parse HEAD` and each
 `git hash-object`. When any of them differs from `gates.L`, the run
 stops and asks L's question again, as a stop of its own, showing the
-new content, and records that answer in `gates.L` without `"joint"`.
+new content. Before it asks, it clears the joint fields with the same
+`state-set` write a re-entered K makes (below), which keeps what
+`drop-stale` recorded; it then records the answer by merging it into
+what is left of `gates.L`, without `"joint"`.
 
 A re-entered K that asks again, as K's own rule says — it has no
 answer, or its commit list or remainder differs from what the joint

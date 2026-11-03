@@ -232,3 +232,132 @@ the five tests, `1..5`, 5 ok.
 | p7 | configuration.md | the suiteReuse clause put back to its pre-055 text | not ok |
 | p8 | phases.md | the J row's commit-first sentence put back to "commits what it changed." | not ok |
 | p9 | phases.md | the J row's "(or into the late commit for a change J has not yet committed; " put back | not ok |
+
+## Last-pass fixes, 2026-11-04
+
+Scope: the last-pass review of 055, on `e741c64`. Every number below was
+measured in this worktree.
+
+### Script rules changed (`pipeline/scripts/progress.sh`)
+
+| Finding | Line | Before | After |
+|---|---|---|---|
+| 1 | 1440-1445 (`snapshot late`, the save) | `lateBefore = {phase, paths}` | `lateBefore = {phase, head, paths}`: `head` is `git rev-parse --verify HEAD` at the save, `\|\| die` |
+| 1 | 1308-1332 (`late_paths`, J's `mine`) | the files of every recorded `tests` entry | with a `head`: the files of recorded `tests` entries whose commit is in `git rev-list --first-parent <head>..HEAD`, that is, made after the list was saved. A `head` that names no commit stops the run. A list with no `head` (an older state file) keeps the old rule |
+| 2 | 1598-1609 (`--record` search) | newest first, the first `Late: J` commit, if empty, is the record; a `Late: J` commit with files ends the search | only HEAD itself (`rev-list --first-parent --max-count=1 <base>..HEAD`) can be the record: an empty `Late: J` HEAD prints its id; any other HEAD means a new record |
+| 2, 7 | 1602-1603 | `has_line "$(git log …)"` | `m="$(git log -1 --format=%B "$c")" \|\| die "git log could not read commit $c"`; `commit_files` already dies |
+| 3b | 1407-1414 (`snapshot late`, recovery) | `if recover_late; then return 0; fi` | `recover_late` writes to a file and its id is printed; J with `--fresh` then goes on to save the list (less the failure paths); every other case returns as before |
+| 4 | 1191, 1193, 1216, 1218 (`recover_piece`, `recover_late`) | `list="$(unrecorded …)"` | `… \|\| die "could not list the unrecorded commits in <base>..HEAD — nothing is recovered"`; the `msg="$(git log …)"` line after each gained `\|\| die` too |
+| 4 | 756 (`unrecorded`) | `rec="$(jqs …)"` | `… \|\| die "could not read the recorded commits from <file>"` |
+| 6 | 1591 (`late-commit`, recovery) | `if recover_late > …` | `if [ "$mf" != --list ] && recover_late > …`: `--list` recovers nothing and writes nothing |
+
+Comments changed to match: `late_paths`, `cmd_snapshot`'s header, the
+recovery comment in `snapshot late`, `cmd_late_commit`'s header and its
+`--record` comment.
+
+`shellcheck --norc -x pipeline/scripts/progress.sh`: clean.
+
+A consequence of finding 6, stated rather than left to find: after a crash
+between a J commit and its record, `--list` does not see that commit's
+files (it is not yet in `commits`), so a path put back to its pre-J
+content shows in `late-commit`'s commit but not in `--list`. The commit is
+right; `--list` is a preview.
+
+### Script tests and mutations
+
+Rig: as in "Review fixes", each mutant a copy of `pipeline/scripts/` with
+one replacement (refused unless the old text is found once and the result
+differs; each mutated line shown by `diff` against the tree), `bash -n`,
+run through `PROGRESS_SH_UNDER_TEST` with `-f 'J|--record|recovered
+commit|put back|late-commit|snapshot|--from|recovery|unrecorded'`.
+Control on the unmutated copy: `1..43`, 43 ok.
+
+New tests in `pipeline/tests/progress-git.bats`:
+
+- L1 "late-commit J --record makes a new record when any commit follows the
+  last one" (R1; --record again prints R1; an owner's commit; --record
+  makes R2).
+- L2 "a --from J leaves out a path an earlier J commit touched and the owner
+  edited since" (the finding's scenario: a.sh committed by J, edited by the
+  owner, `snapshot late J --fresh`, b.sh fixed; J's commit holds b.sh
+  alone and a.sh stays modified).
+- L3 "a J list saved with no head, by an older pipeline, still lets J commit
+  a path put back".
+- L4 "a --from J that recovers a J commit still saves its list afresh" (an
+  unrecorded J commit; `snapshot late J --fresh` prints its id, records
+  it, saves `head` = that commit and a list without the failure path).
+- L5 "late-commit --list recovers nothing, writes nothing and prints paths
+  only" (the state file byte-identical; with no J list, a refusal, not a
+  commit id).
+- L6 "a read of the unrecorded commits that fails stops recovery, for a late
+  phase and for a piece". The plant needs no stub: a commit object in
+  `<base>..HEAD` deleted from `.git/objects`, and the test first proves
+  `git rev-list` fails on the range.
+
+Changed: "snapshot late saves each path with its hash…" now asserts `head`
+on the first save and on the `--fresh` save after an owner's commit; the
+comment of "late-commit J --record makes one record per waved-through red…"
+names a mutation that exists after this change; the section comment says
+"one record for each red waved through".
+
+| Mutant | Mutated line | Red tests |
+|---|---|---|
+| s1 | the save without `head: $hd,` | "snapshot late saves…", L2, L4 |
+| s2 | `if false; then` in place of `if [ -n "$h" ]; then` | L2, L4 |
+| s3 | `mine=''` in the no-head branch | L3 |
+| s4 | `c="$(git log --first-parent --format=%H --grep='^Late: J$' --max-count=1 …)"`: the newest `Late: J` commit, not the newest commit | L1 |
+| s5 | `if has_line "$m" 'Late: J'; then` (the empty-commit check dropped) | "one record per waved-through red…", "--record after J's late commits…", "--record first records…" |
+| s6 | `if true; then return 0; fi` (J's `--fresh` returns on recovery) | L4 |
+| s7 | `if recover_late > …` (`--list` recovers) | L5 |
+| s8a | recover_late's `list="$(unrecorded …)"` without `\|\| die` | L6 |
+| s8b | recover_piece's `list="$(unrecorded …)"` without `\|\| die` | L6 |
+
+All nine red, the control green (4 min 22 s for the ten runs).
+
+Not tested: the `\|\| die` on each `git log` read (finding 7), on
+`unrecorded`'s `jqs` read and on `late_paths`' `head` reads. A `git log`
+that fails on a commit `rev-list` has just listed, or a `jq` that fails on
+a state file `commits_ok` has just read, is not reachable without stubbing
+git or jq. A `head` that names no commit is reachable, and has no test.
+
+### Prose and docs
+
+| File | Before | After |
+|---|---|---|
+| SKILL.md:603-605, H.5 (finding 3a) | "…and prints its id: that commit is made, and is never made again." | "…never made again; J still runs its last full suite on it." |
+| SKILL.md:684-686, J (finding 5) | "…which nothing cites, and is made exactly once." | "…and is made once for each red waved through: while a record is still the newest commit, `--record` prints its id." |
+| phases.md:29, J row (finding 5) | "J's own empty record commit, made once (in the single-commit flow…" | "…made once for each red waved through, and not again while it is the newest commit (in the single-commit flow…" |
+| rare-paths.md:228-232, "K and L as one stop" (finding 8) | "…showing the new content, and records that answer in `gates.L` without `"joint"`." | "…showing the new content. Before it asks, it clears the joint fields with the same `state-set` write a re-entered K makes (below), which keeps what `drop-stale` recorded; it then records the answer by merging it into what is left of `gates.L`, without `"joint"`." |
+| spec.md, FR-010 | "exactly once: an empty `Late: J` commit counts as the record only when no J late commit with files follows it" | "one for each red waved through: an empty `Late: J` commit counts as the record only while it is the newest commit, so any commit after it means a new record" (revision dated) |
+
+SKILL.md: 65,046 bytes before, 65,174 after (+128).
+
+### Spans and pins
+
+Method control: `prose_flat`, `prose_slice`, `doc_section`,
+`rare_section`, the span functions and `rare_spans` extracted from
+`prose.bats` itself, run over the unchanged documents, cut after the
+closing heading's bold text: `span_h5` (2,914 characters), `span_j`
+(2,985), `span_k` (4,502) and the "K and L as one stop" section (2,321),
+both in `rare_spans` and in the joint test's `want`, all identical. After
+the edits, regenerated the same way: `span_h5` 2,954, `span_j` 3,073, the
+section 2,502 (both copies); `span_k` unchanged (K was not touched).
+
+Pins changed: H.5's re-entry pin (now ends "…; J still runs its last full
+suite on it."), J's record pin ("…made once for each red waved through:
+while a record is still the newest commit, `--record` prints its id. J is
+the last full-suite check"), the phases.md J row pin.
+
+Rig: each document copied aside, mutated in place, the six affected tests
+run, the document copied back and proved identical with `cmp` (all six
+restored, and all three documents compared again with a second copy taken
+before the rig). Control: `1..6`, 6 ok.
+
+| Mutant | Document | Mutation | Red tests |
+|---|---|---|---|
+| p1 | SKILL.md | "; J still runs its last full suite on it" removed | late phases (pin and `span_h5`) |
+| p2 | SKILL.md | "made exactly once." put back | phase J carries… (`span_j`), J's carry (pin) |
+| p3 | SKILL.md | the `--record` clause alone removed | phase J carries…, J's carry |
+| p4 | phases.md | "made once (in" put back | phases.md states the suite reuse rules |
+| p5 | rare-paths.md | the old "records that answer in `gates.L` without `"joint"`" put back | K and L are one stop, each rare-paths section… |
+| p6 | rare-paths.md | "which keeps what `drop-stale` recorded" removed | K and L are one stop, each rare-paths section… |
