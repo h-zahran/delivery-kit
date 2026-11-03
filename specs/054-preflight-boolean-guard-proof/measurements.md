@@ -191,3 +191,116 @@ outside this feature's folder, found two lines before the edit:
 
 Issue #34 itself closes when the pull request carrying `Closes #34` merges
 (FR-007).
+
+## Phase I review addendum, and the rig re-measured (J), 2026-11-03
+
+The phase I review (five lenses, then a re-read of the fixes) found the rig
+weaker than this record's earlier sections assume. The rig was rewritten in
+`d6e0477`; everything below ran on that committed rig. The sections above
+are records of the earlier rig and are kept as they were run, with these
+corrections:
+
+- **Own guard.** The earlier rig called a row CAUGHT when the walk and ANY
+  other test were red. FR-011 asks for the field's own guard. The rig now
+  requires a failing command that reads the field by its full path
+  (`.capabilities.git`, never a bare `.git`), read from the start of its test
+  with quotes tracked and `|| { ... }` diagnostics dropped.
+- **Runs that did not finish.** A mutant run whose bats exit is not 0 or 1,
+  or whose plan line differs from its ok plus not-ok lines, is now
+  INCOMPLETE, never a verdict.
+- **Derivation.** Mutants are now found by flipping each `--argjson` in the
+  report template and probing, not by matching `key: $var` text across the
+  whole script.
+- **Control (b), first section.** T002(b) as written in tasks.md (drop the
+  line's trailing backslash) would not produce BAD: the next line becomes a
+  separate command and the script still parses. The control that was run
+  drops the opening quote instead, which does not parse.
+- **runs_live's red line.** The base table names the `type == "boolean"`
+  line; the mutant fails earlier, at `.tree.runsLive == false and ...`, which
+  is also a guard (a comparison with a JSON boolean).
+- **The first finished table** ran a rig edited after its commit, `8d8e2be`
+  (the TAP-count fix, committed in `3ade593`); the section said so only in
+  its heading.
+- **The handoff note** named under T008 sits in a local folder that is not
+  tracked by git.
+
+### Finished table, committed rig
+
+Command: `bash specs/054-preflight-boolean-guard-proof/mutate.sh --final HEAD`,
+HEAD = `d6e0477423b70b9801c5c8fcb330605ebd755fb0`. Exit 0.
+
+```text
+commit   d6e0477423b70b9801c5c8fcb330605ebd755fb0
+date     2026-11-03T16:58:30Z
+mode     final
+CONTROL green 1..120, 120 ok
+not boolean live_runs (its flip turns no boolean into a string)
+not boolean skips (its flip turns no boolean into a string)
+not boolean trailers (its flip turns no boolean into a string)
+not boolean unreadable_runs (its flip turns no boolean into a string)
+derived  adb dirty gh git git_usable runs_live sk_const sk_in_range sk_present
+unmutable capabilities.jq (no --argjson variable fills it)
+
+var ; fields ; verdict ; mutated line ; red count ; red tests (joined by ' | ')
+adb ; capabilities.adb ; CAUGHT ; 682:  --arg adb "$adb_present" \ ; 2 ; capabilities reports jq true and booleans for gh and adb | no report field is the string "true" or "false"
+dirty ; tree.dirty ; CAUGHT ; 685:  --arg dirty "$dirty" --argjson runs_live "$runs_live" \ ; 3 ; no report field is the string "true" or "false" | tree: work the repository's configuration hides from git status is dirty | tree: a skip-worktree file and a clean sparse checkout are not dirty
+gh ; remote.ghPresent,capabilities.gh ; CAUGHT ; 681:  --arg  remote "$remote" --arg gh "$gh_present" --arg gh_command "$gh_command" \ ; 3 ; capabilities reports jq true and booleans for gh and adb | no report field is the string "true" or "false" | gh installed only as gh.cmd is found, named, and keeps the review phase
+git ; capabilities.git ; CAUGHT ; 683:  --arg git "$git_present" --argjson git_usable "$git_usable" \ ; 11 ; no report field is the string "true" or "false" | the capability report names git present when git is findable | the capability report names git absent, and the report survives it | the capability report names a git that refuses the repository for ownership | the ownership refusal is found from exit codes, with git's messages gone | an unusable git reports names unchecked, as an absent one does | the capability report names a git that opens no repository here | the capability report names a git that is found but cannot run | an unusable git with no base flag names the base fields, and never a device skip | a usable git names nothing, even with no remote | without git, the override and the feature branch are reported unchecked
+git_usable ; capabilities.gitUsable ; CAUGHT ; 683:  --argjson git "$git_present" --arg git_usable "$git_usable" \ ; 10 ; no report field is the string "true" or "false" | the capability report names git present when git is findable | the capability report names git absent, and the report survives it | the capability report names a git that refuses the repository for ownership | the ownership refusal is found from exit codes, with git's messages gone | an unusable git reports names unchecked, as an absent one does | the capability report names a git that opens no repository here | the capability report names a git that is found but cannot run | an unusable git with no base flag names the base fields, and never a device skip | a usable git names nothing, even with no remote
+runs_live ; tree.runsLive ; CAUGHT ; 685:  --argjson dirty "$dirty" --arg runs_live "$runs_live" \ ; 3 ; no report field is the string "true" or "false" | a DONE run and an abandoned run are not live; each live run is named | an unreadable state file is warned about and named, never counted as live
+sk_const ; speckit.constitutionSet ; CAUGHT ; 677:  --arg sk_const "$sk_const" \ ; 4 ; no report field is the string "true" or "false" | a NUL in the constitution is found even when the reader stops at its first match | a NUL captured before the reading pipeline fails still reads as not set | a failed read of the constitution's head still reaches the parse and exits 0
+sk_in_range ; speckit.versionInRange ; CAUGHT ; 675:  --arg sk_in_range "$sk_in_range" --arg sk_script "$sk_script" \ ; 2 ; the web fixture reads version and sh flavour, resolving the bash scripts dir | no report field is the string "true" or "false"
+sk_present ; speckit.present ; CAUGHT ; 674:  --arg sk_present "$sk_present" --arg sk_version "$sk_version" \ ; 2 ; the no-speckit fixture reports the tool absent, exit 0 -- reporting is not failing | no report field is the string "true" or "false"
+
+BYTES    worktree preflight.sh identical to d6e0477423b70b9801c5c8fcb330605ebd755fb0
+```
+
+### Base table, committed rig
+
+Command: `bash specs/054-preflight-boolean-guard-proof/mutate.sh 86b1973888e053ce903b8d45b3114be73f30bf8d`.
+Exit 0. The same two HOLE rows as the first base table; the other seven are
+CAUGHT under the own-guard rule.
+
+```text
+commit   86b1973888e053ce903b8d45b3114be73f30bf8d
+date     2026-11-03T17:00:30Z
+mode     base
+CONTROL green 1..119, 119 ok
+not boolean live_runs (its flip turns no boolean into a string)
+not boolean skips (its flip turns no boolean into a string)
+not boolean trailers (its flip turns no boolean into a string)
+not boolean unreadable_runs (its flip turns no boolean into a string)
+derived  adb dirty gh git git_usable runs_live sk_const sk_in_range sk_present
+unmutable capabilities.jq (no --argjson variable fills it)
+
+var ; fields ; verdict ; mutated line ; red count ; red tests (joined by ' | ')
+adb ; capabilities.adb ; CAUGHT ; 682:  --arg adb "$adb_present" \ ; 1 ; capabilities reports jq true and booleans for gh and adb
+dirty ; tree.dirty ; CAUGHT ; 685:  --arg dirty "$dirty" --argjson runs_live "$runs_live" \ ; 2 ; tree: work the repository's configuration hides from git status is dirty | tree: a skip-worktree file and a clean sparse checkout are not dirty
+gh ; remote.ghPresent,capabilities.gh ; CAUGHT ; 681:  --arg  remote "$remote" --arg gh "$gh_present" --arg gh_command "$gh_command" \ ; 2 ; capabilities reports jq true and booleans for gh and adb | gh installed only as gh.cmd is found, named, and keeps the review phase
+git ; capabilities.git ; CAUGHT ; 683:  --arg git "$git_present" --argjson git_usable "$git_usable" \ ; 10 ; the capability report names git present when git is findable | the capability report names git absent, and the report survives it | the capability report names a git that refuses the repository for ownership | the ownership refusal is found from exit codes, with git's messages gone | an unusable git reports names unchecked, as an absent one does | the capability report names a git that opens no repository here | the capability report names a git that is found but cannot run | an unusable git with no base flag names the base fields, and never a device skip | a usable git names nothing, even with no remote | without git, the override and the feature branch are reported unchecked
+git_usable ; capabilities.gitUsable ; CAUGHT ; 683:  --argjson git "$git_present" --arg git_usable "$git_usable" \ ; 9 ; the capability report names git present when git is findable | the capability report names git absent, and the report survives it | the capability report names a git that refuses the repository for ownership | the ownership refusal is found from exit codes, with git's messages gone | an unusable git reports names unchecked, as an absent one does | the capability report names a git that opens no repository here | the capability report names a git that is found but cannot run | an unusable git with no base flag names the base fields, and never a device skip | a usable git names nothing, even with no remote
+runs_live ; tree.runsLive ; CAUGHT ; 685:  --argjson dirty "$dirty" --arg runs_live "$runs_live" \ ; 2 ; a DONE run and an abandoned run are not live; each live run is named | an unreadable state file is warned about and named, never counted as live
+sk_const ; speckit.constitutionSet ; CAUGHT ; 677:  --arg sk_const "$sk_const" \ ; 3 ; a NUL in the constitution is found even when the reader stops at its first match | a NUL captured before the reading pipeline fails still reads as not set | a failed read of the constitution's head still reaches the parse and exits 0
+sk_in_range ; speckit.versionInRange ; HOLE ; 675:  --arg sk_in_range "$sk_in_range" --arg sk_script "$sk_script" \ ; 0 ; 
+sk_present ; speckit.present ; HOLE ; 674:  --arg sk_present "$sk_present" --arg sk_version "$sk_version" \ ; 0 ; 
+
+BYTES    worktree preflight.sh identical to 86b1973888e053ce903b8d45b3114be73f30bf8d
+```
+
+### Controls, committed rig
+
+Each control is a scratch copy of the rig, or a scratch input, changing one
+thing. `git status --porcelain` was byte-identical before and after them.
+
+| Control | What it changes | Result |
+|---|---|---|
+| NO-OP | line 159's replacement text equals its pattern | 13 of 13 template `--argjson` flips reported `changed nothing (NO-OP)`; exit 1 |
+| BAD | line 159's replacement drops the opening quote | 13 of 13 reported `leaves no JSON report (BAD)`; exit 1 |
+| INCOMPLETE | `BATS` is a wrapper that, under the adb mutant only, prints `1..120` and one `ok` and exits 3 | `adb ; INCOMPLETE ; ... (bats exit 3)`, the other 8 CAUGHT; exit 1 |
+| WALK-ONLY (FR-011) | `--final` on `c7508d4`, a commit object (no ref points at it) that is `d6e0477` less the `speckit.present` type line | `sk_present ; WALK-ONLY ; 1 ; no report field is the string "true" or "false"`, the other 8 CAUGHT; exit 1 |
+| Stop mid-batch | TERM to the rig 32 s in, with 3 suites running | exit 143; 0 bats and 0 `timeout` processes left, `git worktree list` names only this checkout, 0 rig folders left |
+
+### The full suite (J)
+
+`testCommand` on the tree of `d6e0477`: `1..964`, 964 ok, 0 skipped, exit 0.
+The base commit's was `1..963`: one test more, the FR-012 walk (SC-004).
