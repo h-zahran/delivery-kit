@@ -1220,7 +1220,7 @@ SPAN
 
 span_j() {
   cat <<'SPAN'
-**J — analyzer and full suite.** Run `analyzeCommand`, then `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against `test_baseline`: pre-existing failures are reported, not owned; new failures are this run's to fix. Fixes for independent failures fan out. Loop until clean against baseline, at most `maxVerifyIters` iterations; a cap breach is a conditional stop — show the failures that survived and ask whether to continue; a hard failure still stops the run outright. J makes its late commit (see H.5) once, when its loop ends — never once per iteration. A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into J's own commit message and the pull-request body. In the single-commit flow J makes no commit, and K's commit message carries them instead. In the piece flow, when a waved-through red must be carried and J changed no file, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message named above carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint, a token, a machine path or a user name, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.**
+**J — analyzer and full suite.** Run `analyzeCommand`, then `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against `test_baseline`: pre-existing failures are reported, not owned; new failures are this run's to fix. Fixes for independent failures fan out. Loop until clean against baseline, at most `maxVerifyIters` iterations; a cap breach is a conditional stop — show the failures that survived and ask whether to continue; a hard failure still stops the run outright. In the piece flow, J commits first, then runs its last full suite on that commit; a new failure there is fixed, committed and run again, within `maxVerifyIters` — one late commit (see H.5) per fixing iteration. J writes nothing after its last full-suite run but the record commit below, so N can cite that run. A breach the owner waves through carries a duty the other caps do not: record the surviving failures in the state file, and carry them into J's own commit message and the pull-request body. In the single-commit flow J makes no commit, and K's commit message carries them instead. In the piece flow, when a waved-through red must be carried and J changed no file since its last late commit, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered. It follows a red run, which nothing cites, and is made exactly once: `--record` skips J's late commits with files, prints the id of an empty `Late: J` commit already made, and refuses an uncommitted change. J is the last full-suite check before code leaves the machine, and a red that reaches a reviewer as green is the one outcome this gate exists to prevent. The record lands under `gates.J`, beside the answer that waved it through — the same key every answered stop already writes. That answer covers the failures it names and no others: a later breach on a DIFFERENT set of failures is a new stop, asked afresh. The never-re-ask rule suppresses a repeat of the same question, never a first sight of a new one, and a run that inherits an answer for failures no human has seen has waved through exactly what this duty exists to surface. Where a degradation named at L leaves no pull request to carry — no remote, a non-GitHub remote, no `gh` — the commit message named above carries it alone and the duty is discharged there. The duty names three destinations because three usually exist; it never waits on one that cannot. Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint, a token, a machine path or a user name, record the fact and its location, never the value. A commit message and a pull-request body leave the machine, and under `--auto` no gate stands between them and whoever can read the repository. **K — commit. STOPS AND ASKS.**
 SPAN
 }
 
@@ -1250,7 +1250,7 @@ SPAN
 
 span_n() {
   cat <<'SPAN'
-**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against baseline, commit fixes (`remainder-commit`), push to the PR branch; its commits and the body it rebuilds follow the no-attribution ground rule. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". N records in the run's metrics whether it cited a suite result, as `suiteCited`: `true` or `false`, a JSON boolean. One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.**
+**N — re-verify and update the PR.** Run `analyzeCommand` and `testCommand` again (or cite the suite, as F.5 allows, without `--base`), classify against baseline, commit fixes (`remainder-commit`), push to the PR branch; its commits and the body it rebuilds follow the no-attribution ground rule. N is DEGRADED, NEVER SKIPPED: without a pull request it still runs the analyzer, runs or cites the suite, still classifies, still commits — it just has nothing to push a review fix to. The last thing this pipeline does with code must never be "change it and not check it". N records in the run's metrics whether it cited a suite result, as `suiteCited`: `true` or `false`, a JSON boolean. By the same lookup, N cites J's last full-suite run, green, when nothing changed after it; under `suiteReuse: commit` a commit K or M made since is a change. One classification is inherited rather than made afresh: a failure the owner accepted at J's cap breach is still new against the baseline, and N must not re-own it. Report it as accepted, carry it exactly as J's duty carries it, and never re-enter a fix loop the owner already ended — an answer given at a stop binds the phases downstream of it, and re-fixing what was accepted overrides the human as surely as marking it resolved would. **N.5 — runtime check.**
 SPAN
 }
 
@@ -1991,14 +1991,14 @@ ABSENT
   local flat
   flat="$(prose_slice "$ORCH" '^\*\*H\.5 — converge\.\*\*' '^\*\*H\.7 — simplify\.\*\*' flat 'phase H.5')" || return 1
   pins_in "$flat" 'phase H.5' <<'PINS'
-In the piece flow, H.5, H.7, I and J each end with one commit of their own when they changed a file — a late commit — which `late-commit` records as kind `converge` (H.5), `simplify` (H.7), `review` (I) or `tests` (J).
+In the piece flow, H.5, H.7 and I each end with one commit of their own when they changed a file, and J one per fixing iteration (see J) — a late commit — which `late-commit` records as kind `converge` (H.5), `simplify` (H.7), `review` (I) or `tests` (J).
 Piece commits stay exactly as built: no late phase rebases, fixes up, amends or rewrites a commit.
 In the single-commit flow the late phases make no commit, and their changes stay in the tree for K.
-When a late phase starts it runs `progress.sh snapshot <feature> late <phase letter>`, which saves every path `git status` lists, with its `git hash-object` (or `deleted`), under `measurements.lateBefore` — unless the saved list already names that phase, and then it stands.
+When a late phase starts it runs `progress.sh snapshot <feature> late <phase letter>`, which saves every path `git status` lists, with its `git hash-object` (or `deleted`), under `measurements.lateBefore` — unless the saved list already names that phase, and then it stands; each J late commit saves it afresh.
 The phase ends with `progress.sh late-commit <feature> <phase letter> <message file>`: the late commit's paths are the ones `git status` lists that are absent from the saved list or whose content changed since it was saved, less any untracked path outside `codeRoots` (as recorded in `config`), the feature's spec directory and `tasks.md`; such a path stays uncommitted for K, which shows it, and a path under `.delivery-kit/` is never one of them.
 A late commit names every path as H's commits do, and its message follows `commitStyle`, names the phase, and carries, on a line of its own, `Late: <phase letter>`, which `late-commit` adds.
 A late phase that changed no file makes no commit and says so; the one exception is J's record of a waved-through red (see J).
-A re-entered late phase's `snapshot` first records, from that commit, any commit in `<base>..HEAD` that `commits` does not record and that carries its `Late:` line, and prints its id: that phase's commit is made, and is never made again.
+A re-entered late phase's `snapshot` first records, from that commit, any commit in `<base>..HEAD` that `commits` does not record and that carries its `Late:` line, and prints its id: that commit is made, and is never made again.
 H.5's entry carries, as its piece, the heading of the phase converge appended to `tasks.md`, as `piece-next` prints a heading, and that phase's task IDs, so `piece-next` never offers that phase as a piece; H.5's message also carries `Tasks:` and `Piece: <heading>` lines for it, so H's crash scan finds it too, and H records a commit carrying `Late: H.5` as kind `converge`.
 Every `Piece:` and `Late:` line is matched as a whole line, and a heading read from one travels as data, as H's heading does.
 A late phase whose commit list, so built, is empty has changed no file, for this rule and for J's.
@@ -2028,16 +2028,36 @@ PINS
 }
 
 @test "J's carry lands in J's own commit, or in an empty one" {
-  # Feature 020, FR-005: J commits once, when its loop ends; the
-  # single-commit flow falls to K's commit; with nothing changed, an empty
-  # commit carries the record.
+  # Feature 020, FR-005, as feature 055 changed it: J commits before its last
+  # full-suite run, one late commit per fixing iteration; the single-commit
+  # flow falls to K's commit; with nothing changed since J's last late
+  # commit, an empty commit carries the record, made exactly once.
   local flat
   flat="$(prose_slice "$ORCH" '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
   pins_in "$flat" 'phase J' <<'PINS'
-J makes its late commit (see H.5) once, when its loop ends — never once per iteration.
 In the single-commit flow J makes no commit, and K's commit message carries them instead.
-In the piece flow, when a waved-through red must be carried and J changed no file, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered.
+In the piece flow, when a waved-through red must be carried and J changed no file since its last late commit, J makes one empty commit whose message is the record, follows `commitStyle` and carries `Late: J` on a line of its own — `progress.sh late-commit <feature> J <message file> --record`, with no path, so nothing staged rides along — and records it as kind `tests` and no files; hooks run, `--no-verify` is never used, and a re-entered J recovers it as any late commit is recovered.
+It follows a red run, which nothing cites, and is made exactly once: `--record` skips J's late commits with files, prints the id of an empty `Late: J` commit already made, and refuses an uncommitted change.
 Redaction binds that carry exactly as it binds the handoff package: where a surviving failure's output holds a credential, an endpoint, a token, a machine path or a user name, record the fact and its location, never the value.
+PINS
+}
+
+@test "J commits first, then runs its last full suite on that commit, so N can cite it" {
+  # Feature 055, FR-008 and FR-009. Each pin is its own clause, so deleting
+  # any one turns this red on its own (measurements-us2.md). Dropped, the
+  # first lets J commit after its run again — HEAD moves past the result and
+  # N runs the suite a second time; the second lets J write after its run;
+  # the third puts back "J commits once"; the fourth drops what N gains.
+  local flat
+  flat="$(prose_slice "$ORCH" '^\*\*J — analyzer and full suite\.\*\*' '^\*\*K — commit\.' flat 'phase J')" || return 1
+  pins_in "$flat" 'phase J' <<'PINS'
+In the piece flow, J commits first, then runs its last full suite on that commit;
+J writes nothing after its last full-suite run but the record commit below, so N can cite that run.
+a new failure there is fixed, committed and run again, within `maxVerifyIters` — one late commit (see H.5) per fixing iteration.
+PINS
+  flat="$(prose_slice "$ORCH" '^\*\*N — re-verify and update the PR\.\*\*' '^\*\*N\.5 — runtime check\.\*\*' flat 'phase N')" || return 1
+  pins_in "$flat" 'phase N' <<'PINS'
+By the same lookup, N cites J's last full-suite run, green, when nothing changed after it; under `suiteReuse: commit` a commit K or M made since is a change.
 PINS
 }
 
@@ -2296,7 +2316,8 @@ PINS
     'The price: once K commits, N cannot cite the run J made before it.' \
     'except a new executable file where git records modes: untracked it reads `100644`, and committed `100755`, so that reuse is lost.' \
     'What the key cannot see, a reuse assumes unchanged: git'"'"'s refs other than HEAD'"'"'s commit — the branch'"'"'s name, tags, and other branches, the base among them, so a branch-range check against a base that moved can be reused' \
-    '**`files`**: the files alone. A change committed, staged or only in the working tree counts the same, so N can cite the run J made before J committed it' \
+    '**`files`**: the files alone. A change committed, staged or only in the working tree counts the same, so N can cite J'"'"'s run after K commits the files it ran on' \
+    'J commits before its last full-suite run, so N can cite that run under `commit` too when nothing came after it.' \
     'Choose it only for a suite that reads no git state: under `files`, a commit message, the index, HEAD and the branch'"'"'s history are all invisible, and a check over a branch range that was vacuous when J ran is reused as green after K gives it commits to read.' \
     '**`off`**: nothing is kept and nothing is reused.' \
     'the **files** are **identical** to the ones the result was recorded on: every tracked path still on disk and every untracked path git does not ignore, except an untracked file under `.delivery-kit/`;' \

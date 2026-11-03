@@ -567,17 +567,19 @@ piece boundary.
 it; where it does not, skip like any other missing capability, saying
 so. Appended gap tasks with no dependency between them fan out as in H.
 
-In the piece flow, H.5, H.7, I and J each end with one commit of their
-own when they changed a file — a late commit — which `late-commit`
-records as kind `converge` (H.5), `simplify` (H.7), `review` (I) or
-`tests` (J). Piece commits stay exactly as built: no late phase rebases,
-fixes up, amends or rewrites a commit. In the single-commit flow the
-late phases make no commit, and their changes stay in the tree for K.
+In the piece flow, H.5, H.7 and I each end with one commit of their own
+when they changed a file, and J one per fixing iteration (see J) — a
+late commit — which `late-commit` records as kind `converge`
+(H.5), `simplify` (H.7), `review` (I) or `tests` (J). Piece commits stay
+exactly as built: no late phase rebases, fixes up, amends or rewrites a
+commit. In the single-commit flow the late phases make no commit, and
+their changes stay in the tree for K.
 
 When a late phase starts it runs `progress.sh snapshot <feature> late
 <phase letter>`, which saves every path `git status` lists, with its
 `git hash-object` (or `deleted`), under `measurements.lateBefore` —
-unless the saved list already names that phase, and then it stands. A `--from` into a late phase adds
+unless the saved list already names that phase, and then it stands; each
+J late commit saves it afresh. A `--from` into a late phase adds
 `--fresh`: the list is saved afresh, less the paths its failure entry
 names, so a commit a hook rejected is still made; only a resume keeps
 the saved one. The phase ends with `progress.sh late-commit <feature>
@@ -597,8 +599,8 @@ late commit, read "A commit a hook rejected" in
 `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. A
 re-entered late phase's `snapshot` first records, from that commit, any
 commit in `<base>..HEAD` that `commits` does not record and that carries
-its `Late:` line, and prints its id: that phase's commit is made, and is
-never made again. Every `Piece:` and `Late:` line is matched as a
+its `Late:` line, and prints its id: that commit is made, and is never
+made again. Every `Piece:` and `Late:` line is matched as a
 whole line, and a heading read from one travels as data, as H's heading
 does.
 
@@ -660,20 +662,26 @@ run's to fix. Fixes for independent failures fan out. Loop until clean
 against baseline, at most `maxVerifyIters` iterations; a cap breach is a
 conditional stop — show the failures that survived and ask whether to
 continue; a hard failure still stops the run outright.
-J makes its late commit (see H.5) once, when its loop ends — never once
-per iteration.
+In the piece flow, J commits first, then runs its last full suite on that
+commit; a new failure there is fixed, committed and run again, within
+`maxVerifyIters` — one late commit (see H.5) per fixing iteration. J
+writes nothing after its last full-suite run but the record commit below,
+so N can cite that run.
 
 A breach the owner waves through carries a duty the other caps do not:
 record the surviving failures in the state file, and carry them into J's
 own commit message and the pull-request body. In the single-commit flow
 J makes no commit, and K's commit message carries them instead. In the
 piece flow, when a waved-through red must be carried and J changed no
-file, J makes one empty commit whose message is the record, follows
-`commitStyle` and carries `Late: J` on a line of its own —
-`progress.sh late-commit <feature> J <message file> --record`, with no
-path, so nothing staged rides along — and records it as kind `tests`
-and no files; hooks run, `--no-verify` is never used, and a
-re-entered J recovers it as any late commit is recovered. J is the last
+file since its last late commit, J makes one empty commit whose message
+is the record, follows `commitStyle` and carries `Late: J` on a line of
+its own — `progress.sh late-commit <feature> J <message file> --record`,
+with no path, so nothing staged rides along — and records it as kind
+`tests` and no files; hooks run, `--no-verify` is never used, and a
+re-entered J recovers it as any late commit is recovered. It follows a
+red run, which nothing cites, and is made exactly once: `--record` skips
+J's late commits with files, prints the id of an empty `Late: J` commit
+already made, and refuses an uncommitted change. J is the last
 full-suite check
 before code leaves the machine, and a red that reaches a reviewer as green
 is the one outcome this gate exists to prevent. The record lands under
@@ -871,6 +879,10 @@ nothing to push a review fix to. The last thing this pipeline does with
 code must never be "change it and not check it". N records in the
 run's metrics whether it cited a suite result, as `suiteCited`: `true`
 or `false`, a JSON boolean.
+
+By the same lookup, N cites J's last full-suite run, green, when nothing
+changed after it; under `suiteReuse: commit` a commit K or M made since is
+a change.
 
 One classification is inherited rather than made afresh: a failure the owner
 accepted at J's cap breach is still new against the baseline, and N must not

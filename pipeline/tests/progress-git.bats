@@ -568,6 +568,142 @@ commit_by_hand() {
   [ "$(jq -r '.commits[-1] | "\(.sha) \(.kind) \(.files | join(","))"' "$SF")" = "$made review src/fix.sh" ]
 }
 
+# --- J commits first (feature 055) ----------------------------------------------
+# J makes its late commit before its last full-suite run, so a run on that
+# commit that finds a new failure leads to another late commit: J may make one
+# per fixing iteration. Its record of a waved-through red is still made once.
+
+@test "J's two late commits in one run are each recorded as kind tests with their own files" {
+  # Mutation: a once-per-phase guard at the top of late-commit (an entry of
+  # the phase's kind already recorded returns early) makes the second call a
+  # no-op that prints nothing, and turns this red.
+  repo
+  runs snapshot "$F" late J
+  printf 'first fix\n' >> src/keep.sh
+  msg 'test: fix the first failure'
+  runs late-commit "$F" J "$MSG"
+  c1="$(cat "$OUT")"
+  [ "$c1" = "$(git rev-parse HEAD)" ]
+  [ "$(files_of HEAD)" = src/keep.sh ]
+  # The next iteration needs no new snapshot: the list late-commit saved
+  # afresh after its commit stands.
+  runs snapshot "$F" late J
+  [[ "$(cat "$ERR")" == *"the saved list stands"* ]]
+  printf 'second fix\n' > src/two.sh
+  msg 'test: fix what the run on the first commit found'
+  runs late-commit "$F" J "$MSG"
+  c2="$(cat "$OUT")"
+  [ "$c2" = "$(git rev-parse HEAD)" ]
+  [ "$c2" != "$c1" ]
+  [ "$(files_of HEAD)" = src/two.sh ]
+  [ "$(msg_tail 1)" = "Late: J" ]
+  [ "$(jq -c '[.commits[] | {sha, kind, files}]' "$SF")" = "[{\"sha\":\"$c1\",\"kind\":\"tests\",\"files\":[\"src/keep.sh\"]},{\"sha\":\"$c2\",\"kind\":\"tests\",\"files\":[\"src/two.sh\"]}]" ]
+}
+
+@test "J's next late commit holds a path put back to the content it had before J" {
+  # late-commit J saves measurements.lateBefore afresh after its commit, so
+  # the next iteration compares with the tree that commit left. Mutation: drop
+  # that save, and the restored file hashes as the list saved at J's start
+  # said — it is skipped, "J changed no file", and the suite's last run would
+  # be on a tree J never committed. This goes red.
+  repo
+  printf 'dirty before J\n' >> src/keep.sh
+  cp src/keep.sh "$BATS_TEST_TMPDIR/keep.before"
+  runs snapshot "$F" late J
+  printf 'J fix\n' >> src/keep.sh
+  msg 'test: fix'
+  runs late-commit "$F" J "$MSG"
+  [ "$(files_of HEAD)" = src/keep.sh ]
+  first="$(git rev-parse HEAD)"
+  cp "$BATS_TEST_TMPDIR/keep.before" src/keep.sh
+  msg 'test: take the fix back'
+  runs late-commit "$F" J "$MSG"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(git rev-parse HEAD)" != "$first" ]
+  [ "$(files_of HEAD)" = src/keep.sh ]
+  [ -z "$(git status --porcelain -- src/keep.sh)" ]
+  [ "$(jq '[.commits[] | select(.kind == "tests")] | length' "$SF")" -eq 2 ]
+  # The saved list is the tree as J's last commit left it: still phase J,
+  # and the clean file is not in it.
+  jq -e '.measurements.lateBefore.phase == "J" and ([.measurements.lateBefore.paths[].path] | index("src/keep.sh") | not)' "$SF"
+}
+
+@test "late-commit J --record after J's late commits makes the record once, and a second --record makes none" {
+  # The record is the empty commit carrying `Late: J`; a J late commit with
+  # files is not it. Mutation: count any `Late: J` commit as the record (the
+  # rule before feature 055), and --record answers with J's fix commit as
+  # the record made — even with an unrun change left — and never makes the
+  # record. This goes red.
+  repo
+  runs snapshot "$F" late J
+  printf 'fix\n' >> src/keep.sh
+  msg 'test: fix'
+  runs late-commit "$F" J "$MSG"
+  fix="$(cat "$OUT")"
+  # A change made after J's last late commit is still refused: no suite run
+  # has seen it.
+  printf 'unrun\n' > src/unrun.sh
+  msg 'test: carry the accepted reds'
+  refuses "J changed files" late-commit "$F" J "$MSG" --record
+  rm src/unrun.sh
+  runs late-commit "$F" J "$MSG" --record
+  rec="$(cat "$OUT")"
+  [ "$rec" = "$(git rev-parse HEAD)" ]
+  [ "$rec" != "$fix" ]
+  [ -z "$(files_of HEAD)" ]
+  [ "$(last_entry)" = "{\"sha\":\"$rec\",\"kind\":\"tests\",\"piece\":\"\",\"tasks\":[],\"files\":[]}" ]
+  # A second --record makes no second record: it prints the first one's id.
+  runs late-commit "$F" J "$MSG" --record
+  [ "$(cat "$OUT")" = "$rec" ]
+  [ "$(git rev-parse HEAD)" = "$rec" ]
+  [ "$(jq '[.commits[] | select(.kind == "tests")] | length' "$SF")" -eq 2 ]
+}
+
+@test "late-commit J --record first records J's unrecorded commits, then makes or finds the record" {
+  # After a crash. Mutation: let --record return on recover_late's first
+  # find, as an ordinary late commit does, and the call prints J's fix commit
+  # as if it were the record and makes none. This goes red.
+  repo
+  printf 'fix\n' > src/fix.sh
+  commit_by_hand "$(printf '%s\n' 'test: fix' '' 'Late: J')" src/fix.sh
+  fix="$(git rev-parse HEAD)"
+  msg 'test: carry the accepted reds'
+  runs late-commit "$F" J "$MSG" --record
+  rec="$(cat "$OUT")"
+  [ "$rec" = "$(git rev-parse HEAD)" ]
+  [ "$rec" != "$fix" ]
+  [ -z "$(files_of HEAD)" ]
+  [ "$(jq -c '[.commits[] | [.sha, .kind]]' "$SF")" = "[[\"$fix\",\"tests\"],[\"$rec\",\"tests\"]]" ]
+  # A record made before a crash and never recorded is recorded from that
+  # commit, its id printed alone, and never made again.
+  jq '.commits = []' "$SF" > t.json; mv t.json "$SF"
+  runs late-commit "$F" J "$MSG" --record
+  [ "$(cat "$OUT")" = "$rec" ]
+  [ "$(git rev-parse HEAD)" = "$rec" ]
+  [ "$(jq -c '[.commits[] | .sha]' "$SF")" = "[\"$fix\",\"$rec\"]" ]
+}
+
+@test "record-branch, commit-list and guide read a branch holding two J late commits and J's record" {
+  # Mutation: a once-only rule for `Late: J` in any one of them — record-branch
+  # stopping on a second J commit, commit-list refusing one, or the guide
+  # keeping one row per kind — turns this red.
+  repo
+  printf '1\n' > src/1.sh
+  commit_by_hand "$(printf '%s\n' 'test: one' '' 'Late: J')" src/1.sh; j1="$(git rev-parse HEAD)"
+  printf '2\n' > src/2.sh
+  commit_by_hand "$(printf '%s\n' 'test: two' '' 'Late: J')" src/2.sh; j2="$(git rev-parse HEAD)"
+  printf '%s\n' 'test: the record' '' 'Late: J' > "$BATS_TEST_TMPDIR/rec.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/rec.txt"; jr="$(git rev-parse HEAD)"
+  runs record-branch "$F"
+  [ "$(cat "$OUT")" = "$(printf '%s\n' "$j1" "$j2" "$jr")" ]
+  [ "$(jq -c '[.commits[] | [.kind, (.files | join(","))]]' "$SF")" = '[["tests","src/1.sh"],["tests","src/2.sh"],["tests",""]]' ]
+  runs commit-list "$F"
+  out="$(cat "$OUT")"
+  [[ "$out" == *"commit 1: $j1"*"    - src/1.sh"*"commit 2: $j2"*"    - src/2.sh"*"commit 3: $jr"*"(none: J's record of a waved-through red)"* ]]
+  runs guide "$F"
+  [ "$(tail -n 3 "$OUT")" = "$(printf '%s\n' "| ${j1:0:7} | tests |  |  | \`src/1.sh\` |" "| ${j2:0:7} | tests |  |  | \`src/2.sh\` |" "| ${jr:0:7} | tests |  |  |  |")" ]
+}
+
 # --- spec-commit --------------------------------------------------------------
 
 @test "spec-commit commits the spec directory alone, once" {

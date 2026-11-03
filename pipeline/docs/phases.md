@@ -26,9 +26,9 @@ already finished, or when you are choosing a value for `--until` or `--from`.
 | H.5 | converge | Re-reads the tree against the spec and appends whatever is still missing as new tasks. Skipped, and said so, where the spec tool does not ship it. In the piece flow, commits what it changed. |
 | H.7 | simplify | No separate pass: the simplify work is the `simplify` lens of I's round. Says so, changes no file and makes no commit. A run begun before pipeline 1.7.0 keeps the commit its H.7 already made. |
 | I | deep review | One round, every lens at once, all read-only until all have reported: spec-review's three (contract compliance, security, tests), the code-review skill as `bugs`, and a `simplify` lens, over the run's whole change. One fix fan-out for every lens's findings; then, when the fixes changed a file, the code-review skill reads only what they changed, once. In the piece flow, the phase commits what it changed. |
-| J | analyzer and full suite | Runs both commands (or reuses a green suite result on identical files) and classifies every failure against the F.5 baseline. Pre-existing failures are reported, not owned. A failure waved through at a cap is recorded and carried into J's own commit (or an empty one when J changed nothing; in the single-commit flow, into K's commit, or into an empty record commit K makes when nothing is left to commit) and the pull request. In the piece flow, commits what it changed. |
 | **K** | commit | **Stops and asks.** Once the branch holds commits, shows every one of them with its message and files, then what is left — every path named, never a wildcard — and the exact message. Collapsed by `--auto`; once the branch holds commits, it still stops for a path outside the code roots, the spec directory and the tasks file, or for a commit it cannot show. When the branch holds commits and nothing is left to commit, K and L are one stop: one question shows the commit list and the branch, title and whole body, and one answer covers both; L's own checks run before it. |
 | **L** | push and pull request | **Stops and asks.** Shows the branch, the title and the whole body before anything leaves your machine. The body carries a review guide, one row per commit, oldest first — see [reviewing a run commit by commit](../README.md#reviewing-a-run-commit-by-commit). Collapsed by `--auto`, except for the stops L names itself, such as a commit it cannot show or a state-file record of a commit that is not on the branch. Degrades where there is no remote, or no GitHub. Asked together with K when K has nothing left to commit; after that joint answer, L rebuilds the review guide before the push, and a guide that differs from the one shown stops the run and asks again. |
+| J | analyzer and full suite | Runs both commands (or reuses a green suite result on identical files) and classifies every failure against the F.5 baseline. Pre-existing failures are reported, not owned. A failure waved through at a cap is recorded and carried into J's own empty record commit, made once (or into the late commit for a change J has not yet committed; in the single-commit flow, into K's commit, or into an empty record commit K makes when nothing is left to commit) and the pull request. In the piece flow, commits what it changed before its last full-suite run, one late commit per fixing iteration, and runs that run on the commit it leaves, so N can cite it. |
 | M | pull request comments | Runs no review of its own. Reads, once per round, the pull request's comments from people with write access and its check results, and fixes those, in a capped loop. Posts nothing; never waits for a pending check. Skipped, and said so, when there is no pull request. |
 | N | re-verify | Runs the analyzer and the suite again (or reuses a green suite result on identical files), classifies, commits fixes, pushes. **Degraded, never skipped** — the last thing a run does with code must not be "change it and not check it". |
 | N.5 | runtime check | Proves the change actually runs: a browser for a web project, a device for Android, otherwise the configured verify command. Reports honestly when no strategy applies rather than inventing one. |
@@ -90,13 +90,15 @@ again. The `suiteReuse` setting says what a recorded result must match:
   `git show :<path>` — is never told a result that does not hold. Other refs
   are not in the key: the branch's name, tags, and other branches, the base
   among them. A check over a range such as `main...HEAD` is safe from a new
-  commit on HEAD, but not from `main` moving while HEAD stays. The price:
-  once K commits, N cannot cite the run J made before it.
+  commit on HEAD, but not from `main` moving while HEAD stays. J commits
+  before its last full-suite run, so N can cite that run under `commit`
+  too when nothing came after it. The price: once K commits, N cannot
+  cite the run J made before it.
 - **`files`**: the files alone. A change committed, staged or only in the
-  working tree counts the same, so N can cite the run J made before J
-  committed it, even when J's fixes deleted a file or added one — except a
-  new executable file where git records modes: untracked it reads `100644`,
-  and committed `100755`, so that reuse is lost. Choose it only
+  working tree counts the same, so N can cite J's run after K commits the
+  files it ran on, even when J's fixes deleted a file or added one —
+  except a new executable file where git records modes: untracked it reads
+  `100644`, and committed `100755`, so that reuse is lost. Choose it only
   for a suite that reads no git state: under `files`, a commit message, the
   index, HEAD and the branch's history are all invisible, and a check over
   a branch range that was vacuous when J ran is reused as green after K
@@ -216,8 +218,9 @@ the file breaks; `suite-record` judges with the same rules, and the
 repository's own quickstart check calls it. It needs only bash and awk.
 Reuse fires when nothing the key covers changed since a green run: a phase
 re-entered on the same files; a later run's F.5 on a tree an earlier run
-passed; and, under `files`, N citing J when nothing changed after J's green
-run but J's late commit.
+passed; and N citing J's last full-suite run, made on the commit J leaves,
+when nothing changed after it — under `files`, also when all that changed
+is a commit of the same files.
 
 ## Questions that wait
 
