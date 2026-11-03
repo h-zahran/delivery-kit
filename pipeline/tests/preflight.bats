@@ -65,6 +65,17 @@ seed() {
     commit -q --allow-empty -m seed
 }
 
+# main_base — seed, and a local branch main beside the checked-out one, for a
+# test that names main as its base only as a formality. Since feature 052
+# pre-flight checks that a base is a local branch with a commit, so a base
+# that names nothing stops the probe. main is made only where it is not the
+# branch the commit landed on: `git init` without -b follows the caller's
+# init.defaultBranch.
+main_base() {
+  seed
+  git show-ref --verify --quiet refs/heads/main || git branch main
+}
+
 # stub <path> — a program that exists and does nothing. The probe asks only
 # whether a capability can be FOUND, so presence is the whole behaviour.
 stub() {
@@ -156,7 +167,7 @@ stub() {
 
 @test "remote classification: none, github, other" {
   T="$BATS_TEST_TMPDIR/remote"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "none" ]
   not_read_is '[]'
@@ -172,7 +183,7 @@ stub() {
 
 @test "base branch: origin/HEAD first, then the override, each with its source" {
   T="$BATS_TEST_TMPDIR/base"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base; git branch trunk
   probe --dir "$T" --base-branch trunk
   [ "$(jq -r '.baseBranch' <<<"$output")" = "trunk" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
@@ -218,21 +229,21 @@ stub() {
   [ "$stderr" = "preflight: the current branch has no commit yet, so there is nothing to cut the feature branch from; make a first commit, or pass a base branch that has one (the run's --base-branch flag, or the baseBranch key)" ] \
     || { echo "wrong stop: $stderr"; false; }
   # The stop is for the current-checkout source only: a base from a flag
-  # reads no checkout, so the same repository reports. That a configured
-  # base names a branch with a commit is not checked here; this pins only
-  # that the stop does not fire for another source.
+  # reads no checkout, so this stop does not fire for it. Until feature 052
+  # the same repository then reported the configured name unchecked; now
+  # the usable-base check refuses it, since a repository with no commit has
+  # no branch at all, and it names the key, not the current checkout.
   probe --dir "$T" --base-branch main
-  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
-  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
-  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
-  not_read_is '[]'
+  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
+  [ "$stderr" = "preflight: 'main' is not a branch here or on origin (the baseBranch key)" ] \
+    || { echo "wrong stop: $stderr"; false; }
 }
 
 @test "base branch: a detached HEAD stops pre-flight, naming the fix" {
   # Feature 051. The old read printed HEAD and exited 0 here, so no exit
   # check on it could see the case.
   T="$BATS_TEST_TMPDIR/detached"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base
   git checkout -q --detach
   probe --dir "$T"
   [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
@@ -267,7 +278,7 @@ stub() {
   # baseBranch key, and the current branch. git branch refuses a leading
   # dash, so update-ref plants it. Each source is probed on its own.
   T="$BATS_TEST_TMPDIR/base-names"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base
   git update-ref refs/heads/-dash HEAD
   git symbolic-ref HEAD refs/heads/-dash
   probe --dir "$T"
@@ -471,6 +482,108 @@ stub() {
   [ "$(jq -r '.baseBranch' <<<"$output")" = "develop" ]
 }
 
+# Feature 052, items 1 and 5 of issue #107: the override's "a local branch
+# with a commit, and not a tag too" check now holds for every source. Before
+# it, a base from origin/HEAD, the baseBranch key or the current branch was
+# checked by name only, and phase B's `git checkout -b <feature> <base>`
+# failed, or <base>..HEAD read a tag (spec Context, cases 1a to 1f and 5a).
+# usable_base_refused <want> <probe args...> — the probe stops with exactly
+# that line on stderr and prints no report.
+usable_base_refused() {
+  local want="preflight: $1"; shift
+  probe "$@"
+  [ "$status" -eq 1 ] || { echo "exit $status for: $want"; false; }
+  [ -z "$output" ] || { echo "a report was printed for: $want"; false; }
+  [ "$stderr" = "$want" ] || { echo "want: $want"; echo "got:  $stderr"; false; }
+}
+
+@test "base branch: a usable base is checked from every source" {
+  local key='the baseBranch key'
+  local oh="origin/HEAD; pass a base branch with the run's --base-branch flag"
+  local cur='the current branch; check out another branch, or pass a base branch'
+  local B="$BATS_TEST_TMPDIR/usable"
+
+  # 1a: no commit at all; the key names the unborn current branch.
+  mkdir -p "$B/1a"; cd "$B/1a"; git init -q -b main .
+  usable_base_refused "'main' has no commit yet; make a first commit, or pass a base branch that has one ($key)" \
+    --dir "$B/1a" --base-branch main
+
+  # 1b: the key names a branch that is nowhere.
+  mkdir -p "$B/1b"; cd "$B/1b"; git init -q -b work .; seed
+  usable_base_refused "'main' is not a branch here or on origin ($key)" --dir "$B/1b" --base-branch main
+
+  # 1c: the key names a tag, and no branch.
+  mkdir -p "$B/1c"; cd "$B/1c"; git init -q -b work .; seed; git tag main
+  usable_base_refused "'main' is not a branch here or on origin ($key)" --dir "$B/1c" --base-branch main
+
+  # 1d: the key names a branch that is a tag too.
+  mkdir -p "$B/1d"; cd "$B/1d"; git init -q -b work .; seed; git branch main; git tag main
+  usable_base_refused "'main' is a tag as well as a branch; git would read the tag ($key)" \
+    --dir "$B/1d" --base-branch main
+  # The positive control: with the tag gone the same base is reported.
+  git tag -d main >/dev/null
+  probe --dir "$B/1d" --base-branch main
+  [ "$status" -eq 0 ] || { echo "1d without the tag: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
+
+  # 1e: origin/HEAD names main, and there is no local main.
+  mkdir -p "$B/1e"; cd "$B/1e"; git init -q -b work .; seed
+  git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  usable_base_refused "'main' exists only on origin; create the local branch first: git branch --track main origin/main ($oh)" \
+    --dir "$B/1e" --base-branch main
+  # The positive control: after the command the message names, it reports.
+  git branch -q --track main origin/main
+  probe --dir "$B/1e" --base-branch main
+  [ "$status" -eq 0 ] || { echo "1e after the fix: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "origin/HEAD" ]
+
+  # 1f: as 1e with the local main, which is a tag too.
+  git tag main
+  usable_base_refused "'main' is a tag as well as a branch; git would read the tag ($oh)" \
+    --dir "$B/1e" --base-branch main
+
+  # 5a: the current branch is a tag too; no remote, no base flag.
+  mkdir -p "$B/5a"; cd "$B/5a"; git init -q -b work .; seed; git tag work
+  usable_base_refused "'work' is a tag as well as a branch; git would read the tag ($cur)" --dir "$B/5a"
+
+  # A branch ref that names no commit. `git update-ref` refuses to write a
+  # tree to a branch, and a ref file written by hand does not (measured,
+  # git 2.53.0); `git checkout -b` from it exits 128.
+  mkdir -p "$B/tree"; cd "$B/tree"; git init -q -b work .; seed; git branch main
+  git rev-parse 'HEAD^{tree}' > .git/refs/heads/main
+  usable_base_refused "'main' does not name a commit ($key)" --dir "$B/tree" --base-branch main
+}
+
+# Feature 052, item 4 of issue #107: the current checkout used to be read
+# with `git symbolic-ref --short`, which names whatever HEAD points to, so a
+# HEAD pointing at a tag or a remote's branch reported `v1` or `origin/main`
+# as the base branch. The full ref is read now, and one outside refs/heads/
+# stops pre-flight. The message names no ref: the ref comes from the
+# repository.
+@test "base branch: HEAD outside refs/heads/ stops pre-flight, naming the fix" {
+  local want="HEAD points to a ref that is not a local branch, so the current checkout names no base branch; check out a branch, or pass a base branch (the run's --base-branch flag, or the baseBranch key)"
+  T="$BATS_TEST_TMPDIR/head-outside"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  git tag v1
+  git update-ref refs/remotes/origin/main HEAD
+  local ref
+  for ref in refs/tags/v1 refs/remotes/origin/main; do
+    git symbolic-ref HEAD "$ref"
+    usable_base_refused "$want" --dir "$T"
+    [[ "$stderr" != *v1* && "$stderr" != *origin/main* ]] || { echo "the ref was printed: $stderr"; false; }
+  done
+  # The positive control: HEAD back on the branch reports it.
+  git symbolic-ref HEAD refs/heads/work
+  probe --dir "$T"
+  [ "$status" -eq 0 ] || { echo "on work: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = "work" ]
+  [ "$(jq -r '.baseBranchSource' <<<"$output")" = "current branch" ]
+}
+
 @test "base branch: the override is checked in the repository, not in the caller's" {
   # The check once ran before the cd into --dir, so a branch that existed
   # only where the caller stood was accepted.
@@ -498,7 +611,7 @@ stub() {
 @test "feature branch: the base from origin/HEAD is refused too, with no override" {
   # The only other test of the base's own name uses the override path.
   T="$BATS_TEST_TMPDIR/branch-is-origin-head"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base
   git remote add origin https://github.com/example/thing.git
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   probe --dir "$T" --feature-branch main
@@ -903,7 +1016,7 @@ hidden_refused() {
 
 @test "willSkip names phases L and M in a repository with no remote" {
   T="$BATS_TEST_TMPDIR/skips"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   probe --dir "$T" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '[.willSkip[].phase] | index("L") != null' <<<"$output")" = "true" ]
@@ -912,7 +1025,7 @@ hidden_refused() {
 
 @test "tree reports dirty and runsLive from the facts on disk" {
   T="$BATS_TEST_TMPDIR/tree"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.tree.dirty' <<<"$output")" = "false" ]
   [ "$(jq -r '.tree.runsLive' <<<"$output")" = "false" ]
@@ -929,7 +1042,7 @@ hidden_refused() {
   # Feature 051. With .git/index overwritten, git status --porcelain exits
   # 128 and prints nothing, which the old script read as a clean tree.
   T="$BATS_TEST_TMPDIR/badindex"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base
   printf 'garbage' > .git/index
   # The precondition: git still opens the repository, so gitUsable is true
   # and this is a read that fails under a usable git.
@@ -949,7 +1062,7 @@ hidden_refused() {
 @test "a DONE run and an abandoned run are not live; each live run is named" {
   local P="$PIPELINE/scripts/progress.sh"
   T="$BATS_TEST_TMPDIR/ended"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   bash "$P" init 001-done b main web > /dev/null
   bash "$P" phase-start 001-done DONE
   probe --dir "$T" --base-branch main
@@ -982,7 +1095,7 @@ hidden_refused() {
 @test "an unreadable state file is warned about and named, never counted as live" {
   local f
   T="$BATS_TEST_TMPDIR/garbage"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   for f in 001-garbage 002-empty 003-array 004-twice 005-nophase; do mkdir -p ".delivery-kit/runs/$f"; done
   printf 'garbage' > .delivery-kit/runs/001-garbage/progress.json
   : > .delivery-kit/runs/002-empty/progress.json
@@ -1244,7 +1357,7 @@ hidden_refused() {
   stub "$a/gh"
   ra="$BATS_TEST_TMPDIR/repo-elsewhere"
   mkdir -p "$ra"
-  ( cd "$ra" && git init -q . && git remote add origin https://gitlab.example.com/x/y.git )
+  ( cd "$ra" && git init -q . && main_base && git remote add origin https://gitlab.example.com/x/y.git )
   probe --path "$a" --dir "$ra" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.gh' <<<"$output")" = "true" ]
@@ -1261,7 +1374,7 @@ hidden_refused() {
   shimdir "$b" $PROBE_TOOLS
   rb="$BATS_TEST_TMPDIR/repo-expected-host"
   mkdir -p "$rb"
-  ( cd "$rb" && git init -q . && git remote add origin https://github.com/example/thing.git )
+  ( cd "$rb" && git init -q . && main_base && git remote add origin https://github.com/example/thing.git )
   probe --path "$b" --dir "$rb" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.capabilities.gh' <<<"$output")" = "false" ]
@@ -1293,7 +1406,7 @@ hidden_refused() {
   [ ! -e "$d/gh" ]
   r="$BATS_TEST_TMPDIR/repo-cmd-only"
   mkdir -p "$r"
-  ( cd "$r" && git init -q . && git remote add origin https://github.com/example/thing.git )
+  ( cd "$r" && git init -q . && main_base && git remote add origin https://github.com/example/thing.git )
   probe --path "$d" --dir "$r" --base-branch main
   [ "$status" -eq 0 ]
   [ "$(jq -r '.remote.kind' <<<"$output")" = "github" ]
@@ -1664,7 +1777,7 @@ refuse_for_ownership() {
   # fails under a usable git, which is outside what notRead covers.
   local r="$BATS_TEST_TMPDIR/noremote"
   git_isolate
-  mkdir -p "$r"; ( cd "$r" && git init -q . && seed )
+  mkdir -p "$r"; ( cd "$r" && git init -q . && main_base )
   probe --dir "$r"
   [ "$status" -eq 0 ]
   git_report_is true usable
@@ -1723,7 +1836,7 @@ BIG_CONST_SIZES="65530 65540 65600 65650 65700"
 big_const() {
   local d="$1" n="$2" mode="$3"
   mkdir -p "$d/.specify/memory"
-  ( cd "$d" && git init -q . )
+  ( cd "$d" && git init -q . && main_base )
   awk -v n="$n" -v mode="$mode" 'BEGIN {
     c = (mode == "blank") ? " " : "x"
     l = sprintf("%79s", ""); gsub(/ /, c, l)
@@ -2132,7 +2245,7 @@ judge_big() {
 @test "pre-flight: abandoned false or null is live, a dot-named run is read, and a jq without -b reads them all" {
   local P="$PIPELINE/scripts/progress.sh" real d
   T="$BATS_TEST_TMPDIR/edges"
-  mkdir -p "$T"; cd "$T"; git init -q .
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
   for r in 001-false 002-null 003-true .hidden ..b; do bash "$P" init "$r" b main web > /dev/null; done
   for r in false:001-false null:002-null true:003-true; do
     jq --argjson v "${r%%:*}" '.abandoned = $v' ".delivery-kit/runs/${r#*:}/progress.json" > t.json
