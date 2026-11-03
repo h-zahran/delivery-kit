@@ -90,3 +90,9 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" --print-output-on-failure 
 - [X] T021 Run `bash scripts/check-versions.sh`: exit 0. Run `bash "$HOME/bats/bin/bats" -r tests` from the repository root: green, plan line equals ok count.
 
 **Checkpoint**: 1.8.0 is ready to tag after merge.
+
+---
+
+## Phase 7: Convergence
+
+- [X] T022 Run `quickstart.md` section 3 on this repository with the real `testCommand`: a scratch detached worktree of `065ab80` holding a throwaway run `999-q`, `suite-base 999-q start`, `wait` looped while it exits 2, then `suite-lookup 999-q --base`; compare the background TAP's plan line and ok count with `.delivery-kit/runs/053-f5-cites-main-suite/suite-f5.tap` (`1..934`), and check section 4 (the main tree unmoved). Record the times, the lines and the counts in `specs/053-f5-cites-main-suite/measurements.md`, dated; remove the scratch worktree after. per Constitution II, plan: Constitution Check (missing)

@@ -63,3 +63,25 @@ current files.
 - `bash scripts/check-versions.sh`: exit 0,
   `pipeline: plugin=1.8.0 marketplace=1.8.0 changelog=1.8.0 state=released`.
 - Root suite `bash "$HOME/bats/bin/bats" -r tests`: `1..140`, 140 ok, exit 0.
+
+## T022 — the real suite through suite-base on 065ab80 (2026-11-03)
+
+- Scratch detached worktree of `065ab80`, throwaway run `999-q` with the
+  real `testCommand`, the Phase 6 script. `start` at 11:31:01 UTC printed
+  `base suite started on commit 065ab807e7ea6188a79505dd527d29741f6816eb`;
+  `wait --slice 60` exited 2 seven times, then `base suite ended: green`
+  at 11:38:34 — 7 min 33 s, against F.5's 6 min 6 s on the main tree for
+  the same commit (the machine was otherwise idle; not investigated).
+- `suite-lookup 999-q --base`: exit 0,
+  `1..934, 934 ok (0 skipped), 0 not ok, exit 0 — recorded
+  2026-11-03T11:38:33Z by run 999-q on commit
+  065ab807e7ea6188a79505dd527d29741f6816eb, command "bash
+  \"$HOME/bats/bin/bats\" -r --print-output-on-failure tests handoff/tests
+  pipeline/tests team/tests" — for these files without the untracked
+  specs/999-q/`.
+- The background TAP: `1..934`, 934 ok — the same plan line and count as
+  this run's F.5 TAP. The record's key is `62b4305…`, the key research R1's
+  probe recorded by hand for the same commit and command.
+- Section 4: HEAD, `git status --porcelain=v1` and `git branch --list` of
+  the main tree identical before and after; `git worktree list` differed
+  only by the scratch worktree, removed after.
