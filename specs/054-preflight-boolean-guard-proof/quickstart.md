@@ -9,7 +9,8 @@ scratch copies only; it never edits a tracked file.
 bash specs/054-preflight-boolean-guard-proof/mutate.sh 86b1973888e053ce903b8d45b3114be73f30bf8d
 ```
 
-Expected: a control line `CONTROL green`, then one row per derived mutant.
+Expected: a control line `CONTROL green`, an `unmutable capabilities.jq`
+line, then one row per derived mutant.
 `sk_present` and `sk_in_range` read `HOLE`; the others read `CAUGHT`. Exit 0, because `HOLE` is
 a finding on the base run.
 

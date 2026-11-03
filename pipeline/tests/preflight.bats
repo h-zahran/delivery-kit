@@ -1116,8 +1116,13 @@ hidden_refused() {
 @test "no report field is the string \"true\" or \"false\"" {
   probe --dir "$FIX/web" --base-branch main
   [ "$status" -eq 0 ]
-  jq -e '[.. | strings | select(. == "true" or . == "false")] | length == 0' <<<"$output" > /dev/null \
-    || { echo "string booleans at: $(jq -c '[paths(type == "string") as $p | select(getpath($p) == "true" or getpath($p) == "false") | $p]' <<<"$output")"; false; }
+  # paths() never yields the root, so a report that IS the string "true"
+  # would pass the walk: the root's type is checked first.
+  jq -e 'type == "object"' <<<"$output" > /dev/null
+  # Only a string can equal "true" or "false", so one call both tests and
+  # names them. Output that is not JSON leaves $bad empty, never "[]".
+  bad="$(jq -c '[paths(. == "true" or . == "false")]' <<<"$output")"
+  [ "$bad" = "[]" ] || { echo "string booleans at: $bad"; false; }
 }
 
 @test "willSkip names phases L and M in a repository with no remote" {

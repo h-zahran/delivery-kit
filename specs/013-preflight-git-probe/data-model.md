@@ -50,6 +50,10 @@ how the document reads to a human, not a contract change.
   alone, so the same substitution would ship them as strings unnoticed. Adding
   it means editing tests that already exist, which SC-004 forbids in this
   change. Named here so the next change can close it.
+
+  **CLOSED** (the paragraph above is the gap as it read while open): the two
+  assertions landed in `ad20d2e`, and feature 054
+  (`specs/054-preflight-boolean-guard-proof/`) measured that each goes red.
 - **Complete when a tool is absent.** An absent tool sets its field to `false`.
   It never removes the field, never truncates the document, and never causes a
   non-zero exit.
