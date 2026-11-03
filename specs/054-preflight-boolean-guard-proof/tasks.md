@@ -47,7 +47,7 @@
 
 **Independent Test**: `mutate.sh --final HEAD` exits 0.
 
-- [ ] T007 [US1] Run `bash specs/054-preflight-boolean-guard-proof/mutate.sh --final HEAD` (HEAD holds Phase 3's commit); write its control line and every row into `specs/054-preflight-boolean-guard-proof/measurements.md` under "Finished table", with the date, the commit id and the command. For each row, name the red test whose failing line reads that field. Note that the `gh` mutant also turns `remote.ghPresent` into a string (one variable fills both fields).
+- [X] T007 [US1] Run `bash specs/054-preflight-boolean-guard-proof/mutate.sh --final HEAD` (HEAD holds Phase 3's commit); write its control line and every row into `specs/054-preflight-boolean-guard-proof/measurements.md` under "Finished table", with the date, the commit id and the command. For each row, name the red test whose failing line reads that field. Note that the `gh` mutant also turns `remote.ghPresent` into a string (one variable fills both fields).
 
 ---
 

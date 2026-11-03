@@ -109,9 +109,12 @@ fields_of() {
   printf '%s' "${out#,}"
 }
 
-# mutant <var> — writes $tmp/r-<var> as "verdict<TAB>mutated line<TAB>red names".
+# mutant <var> — writes $tmp/r-<var> as
+# "kind<TAB>mutated line<TAB>red count<TAB>walk red count<TAB>red names".
+# The counts come from the TAP file, never from the joined names: a test name
+# may itself hold the "; " the names are joined with.
 mutant() {
-  local v="$1" d="$tmp/m-$1" n line red
+  local v="$1" d="$tmp/m-$1" n line red nred nwalk
   cp -R "$wt/pipeline/scripts" "$d"
   n="$(grep -cF -- "--argjson $v \"" "$d/preflight.sh")"
   if [ "$n" != 1 ]; then printf 'BAD\t%s occurrences of --argjson %s\t\n' "$n" "$v" > "$tmp/r-$v"; return; fi
@@ -121,8 +124,10 @@ mutant() {
   if ! bash -n "$d/preflight.sh" 2>/dev/null; then printf 'BAD\tbash -n failed\t\n' > "$tmp/r-$v"; return; fi
   line="$(grep -n -- "--arg $v \"" "$d/preflight.sh" | head -1)"
   run_suite "$tmp/t-$v.tap" "$d/preflight.sh"
-  red="$(sed -n 's/^not ok [0-9]* //p' "$tmp/t-$v.tap" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
-  printf 'RAN\t%s\t%s\n' "$line" "$red" > "$tmp/r-$v"
+  nred="$(grep -c '^not ok' "$tmp/t-$v.tap")"
+  nwalk="$(sed -n 's/^not ok [0-9]* //p' "$tmp/t-$v.tap" | grep -cxF -- "$WALK")"
+  red="$(sed -n 's/^not ok [0-9]* //p' "$tmp/t-$v.tap" | awk 'NR > 1 {printf " | "} {printf "%s", $0}')"
+  printf 'RAN\t%s\t%s\t%s\t%s\n' "$line" "$nred" "$nwalk" "$red" > "$tmp/r-$v"
 }
 
 # Split on purpose: $vars is a space-separated list of [a-z_] names.
@@ -142,18 +147,13 @@ pids=""
 
 fail=0
 echo
-echo "var | fields | verdict | mutated line | red tests"
+echo "var ; fields ; verdict ; mutated line ; red count ; red tests (joined by ' | ')"
 for v in $vars; do
-  IFS="$(printf '\t')" read -r kind line red < "$tmp/r-$v"
+  nred=0; nwalk=0; red=""
+  IFS="$(printf '\t')" read -r kind line nred nwalk red < "$tmp/r-$v"
   if [ "$kind" = RAN ]; then
-    walk=0; other=0
-    old_ifs="$IFS"; IFS=';'
-    for t in $red; do
-      t="${t# }"
-      [ -n "$t" ] || continue
-      if [ "$t" = "$WALK" ]; then walk=1; else other=$((other + 1)); fi
-    done
-    IFS="$old_ifs"
+    walk=0; [ "$nwalk" -gt 0 ] && walk=1
+    other=$((nred - nwalk))
     if [ "$walk" = 0 ] && [ "$other" = 0 ]; then verdict=HOLE
     elif [ "$final" = 0 ]; then verdict=CAUGHT
     elif [ "$walk" = 1 ] && [ "$other" -gt 0 ]; then verdict=CAUGHT
@@ -168,7 +168,7 @@ for v in $vars; do
     CAUGHT) ;;
     *) [ "$final" = 1 ] && fail=1 ;;
   esac
-  echo "$v | $(fields_of "$v") | $verdict | ${line:-} | ${red:-}"
+  echo "$v ; $(fields_of "$v") ; $verdict ; ${line:-} ; ${nred:-0} ; ${red:-}"
 done
 
 # The worktree's script must still be the commit's, byte for byte: proof that
