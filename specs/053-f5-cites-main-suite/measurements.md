@@ -85,3 +85,20 @@ current files.
 - Section 4: HEAD, `git status --porcelain=v1` and `git branch --list` of
   the main tree identical before and after; `git worktree list` differed
   only by the scratch worktree, removed after.
+
+## Phase I — the review round's fixes (2026-11-03)
+
+- Five lenses at once: contract (6 MEDIUM, 9 LOW), security (1 MEDIUM, 5
+  LOW), tests (3 HIGH, 3 MEDIUM, 7 LOW), bugs (14 candidates), simplify
+  (3 MEDIUM, 13 LOW); then the bugs lens's re-read of the fixes (12). Every
+  finding and its disposition is in the run's `review-I.txt`.
+- After the fixes: `base-suite.bats` `1..27`, 27 ok, three runs in a row;
+  `suite-cache.bats` + `prose.bats` + `skills.bats` `1..182`, 182 ok; the
+  analyzer exits 0; no `suite-base-run` process left.
+- Mutations, each landed (its line printed) and each red on its target
+  test: the limit rewritten per call; no heartbeat write; the exit code
+  dropped; no key comparison at start; no TMPDIR check; no admin removal in
+  the fallback (first SURVIVED: given the full path, git 2.53 removes a
+  missing worktree's record itself, so the test now breaks the checkout's
+  `.git` file to reach the fallback); a default limit of 905; no TERM in
+  base_stop; the unchecked tree printed; no abandoned check.

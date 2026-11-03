@@ -168,8 +168,9 @@ computes for a new run on that commit.
   the background run — only the processes that run started — and run the
   suite itself. When the background run ended without a green record (it
   failed, was refused, or is red), F.5 MUST run the suite itself.
-- **FR-004**: The cited text MUST name the commit the record was made on, the
-  command and the counts.
+- **FR-004**: The cited text MUST name the commit the record was made on (its
+  tree under `suiteReuse: files`, which keys no commit), the command and the
+  counts.
 - **FR-005**: Every case where the record does not hold — none, red, another
   commit, other files, another command, platform or mode — MUST still run the
   suite at F.5, with no new way for a lookup to answer yes.
@@ -191,8 +192,8 @@ computes for a new run on that commit.
   text, so the owner knows when it runs, what it costs and how to turn it off
   (`suiteReuse: off`).
 - **FR-008**: The run's metrics MUST record whether F.5 cited a result, as a
-  JSON boolean, so the measure in SC-001 can be read from
-  `pipeline-run.json`.
+  JSON boolean (`f5Cited`), and the wait's last line (`baseSuite`), so the
+  measure in SC-001 can be read from `pipeline-run.json`.
 - **FR-009**: Each new behaviour MUST ship with a test that goes red when the
   behaviour is removed or inverted (a positive control), per the
   constitution.

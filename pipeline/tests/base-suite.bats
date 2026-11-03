@@ -45,12 +45,17 @@ setup() {
 # teardown — stops the runner and its child by the ids the run recorded, and
 # every process this test started (OWN), then removes any checkout left.
 teardown() {
-  local f p
-  for f in .delivery-kit/runs/*/base-suite/pid .delivery-kit/runs/*/base-suite/child; do
-    [ -f "$f" ] || continue
-    p="$(cat "$f")"
-    case "$p" in ''|*[!0-9]*) continue ;; esac
-    kill "$p" 2>/dev/null || true
+  local d f p n
+  # Only a runner that has not written its outcome is still ours to stop: an
+  # id recorded by a runner that ended may belong to another process now.
+  for d in .delivery-kit/runs/*/base-suite; do
+    [ -d "$d" ] && [ ! -f "$d/outcome" ] || continue
+    for f in "$d/pid" "$d/child"; do
+      p="$(cat "$f" 2>/dev/null || true)"
+      case "$p" in ''|*[!0-9]*) continue ;; esac
+      kill "$p" 2>/dev/null || true
+      n=0; while kill -0 "$p" 2>/dev/null && [ "$n" -lt 25 ]; do n=$((n + 1)); sleep 0.2; done
+    done
   done
   for p in ${OWN[@]+"${OWN[@]}"}; do kill "$p" 2>/dev/null || true; done
   if [ -d .git ]; then
@@ -127,7 +132,7 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   repo
   local head; head="$(git rev-parse HEAD)"
   runs suite-base "$F" start
-  [[ "$(cat "$OUT")" == "base suite started on commit $head (process "*")" ]] || { echo "start said: $(cat "$OUT")"; false; }
+  [[ "$(cat "$OUT")" == "base suite started on commit $head (process "*"), command \"printf "* ]] || { echo "start said: $(cat "$OUT")"; false; }
   outcome_wait
   [ "$OUTCOME" = green ] || { echo "outcome '$OUTCOME'; log: $(cat "$BD/runner.log")"; false; }
   runs suite-lookup "$F" --base
@@ -141,6 +146,8 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   runs suite-base "$F" start
   outcome_wait
   [ "$OUTCOME" = red ] || { echo "outcome '$OUTCOME'"; false; }
+  bash "$PROG" suite-base "$F" wait > "$OUT"
+  [ "$(cat "$OUT")" = "base suite ended: red" ] || { echo "wait said: $(cat "$OUT")"; false; }
   run -1 bash "$PROG" suite-lookup "$F" --base
   [[ "$output" == *"is red, and a red result is never reused"* ]] || { echo "$output"; false; }
 }
@@ -189,16 +196,17 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   [ "$OUTCOME" = green ]
 }
 
-@test "the main tree's HEAD, index, refs and files are untouched, and the checkout is removed" {
-  # Mutation: run the command in the main tree instead of the checkout, and
-  # the status bytes or the worktree count below change.
+@test "the main tree's HEAD, index, refs, files and state file are untouched, and the checkout is removed" {
+  # Mutation: have the runner write the state file, or leave its checkout
+  # behind, and the snapshot or the worktree count below changes. (Running
+  # the command in the main tree is caught by the moved-file tests.)
   repo
   local before after
-  before="$(git rev-parse HEAD; git symbolic-ref HEAD; git status --porcelain=v1 -z | od -c; git ls-files -s; git for-each-ref)"
+  before="$(git rev-parse HEAD; git symbolic-ref HEAD; git status --porcelain=v1 -z | od -c; git ls-files -s; git for-each-ref; cksum < ".delivery-kit/runs/$F/progress.json")"
   runs suite-base "$F" start
   outcome_wait
   [ "$OUTCOME" = green ]
-  after="$(git rev-parse HEAD; git symbolic-ref HEAD; git status --porcelain=v1 -z | od -c; git ls-files -s; git for-each-ref)"
+  after="$(git rev-parse HEAD; git symbolic-ref HEAD; git status --porcelain=v1 -z | od -c; git ls-files -s; git for-each-ref; cksum < ".delivery-kit/runs/$F/progress.json")"
   [ "$before" = "$after" ] || { diff <(printf '%s\n' "$before") <(printf '%s\n' "$after"); false; }
   [ "$(others)" = 0 ] || { git worktree list; false; }
 }
@@ -226,7 +234,7 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
 @test "one key and one record writer" {
   # Principle IV: the runner reuses the key and the writer; a second copy of
   # either would drift.
-  local script="$ROOT/pipeline/scripts/progress.sh" n
+  local script="$PROG" n
   # shellcheck disable=SC2016 # literal jq text
   n="$(grep -cF -- '{mode: $m, head: $h, files: $b, command: $c, platform: $p}' "$script")"
   [ "$n" = 1 ] || { echo "the key's template occurs $n times"; false; }
@@ -284,9 +292,15 @@ waits() {
   sleep 60 3>&- &
   OWN+=("$!")
   runs suite-base "$F" start
-  local i=0
+  local n=0
+  while [ ! -s "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "the command never started"; false; }; sleep 0.2; done
+  local i=0 t0
   waits --slice 1 --limit 2
-  while [ "$WRC" = 2 ] && [ "$i" -lt 10 ]; do i=$((i + 1)); waits --slice 1 --limit 2; done
+  t0="$(date +%s)"
+  while [ "$WRC" = 2 ] && [ "$i" -lt 10 ]; do i=$((i + 1)); t0="$(date +%s)"; waits --slice 1 --limit 2; done
+  # The TERM reaches the runner's group, so the stop takes well under the
+  # 10 s fallback. Mutation: drop the TERM, and only the fallback stops it.
+  [ $(( $(date +%s) - t0 )) -lt 8 ] || { echo "the stopping call took the fallback's 10 s"; false; }
   [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
   [ "$(cat "$OUT")" = "base suite stopped at the 2 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
   gone "$(cat "$BD/pid")" || { echo "the runner is still alive"; false; }
@@ -306,7 +320,9 @@ waits() {
   printf '%s\n' "$TMPDIR/dk-base-suite.none/tree" > "$BD/tree"
   printf '%s\n' "$(( $(date +%s) - 120 ))" > "$BD/started"
   printf '%s\n' "$(( $(date +%s) - 120 ))" > "$BD/heartbeat"
-  waits --slice 2 --limit 1
+  # A live id with a stale heartbeat gets 15 s to beat again, then is said
+  # to have stopped; the limit, long passed, never signals it.
+  waits --slice 30 --limit 1
   [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
   [ "$(cat "$OUT")" = "base suite stopped reporting" ] || { echo "wait said: $(cat "$OUT")"; false; }
   kill -0 "${OWN[0]}" || { echo "a process whose heartbeat was stale was signalled"; false; }
@@ -335,17 +351,167 @@ waits() {
 }
 
 @test "the limit counts from the first wait" {
-  # Mutation: count the limit from each call, and the third call runs out
-  # its slice instead of stopping the runner.
+  # Mutation: count the limit from each call, and the second call runs out
+  # its slice (exit 2) instead of stopping the runner.
   repo "exec sleep 60"
   runs suite-base "$F" start
-  waits --slice 1 --limit 3
-  [ "$WRC" = 2 ]
-  waits --slice 1 --limit 3
-  [ "$WRC" = 2 ]
-  local t0; t0="$(date +%s)"
-  waits --slice 5 --limit 3
+  waits --slice 1 --limit 50
+  [ "$WRC" = 2 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  # The first wait was 100 s ago, as far as the limit knows.
+  printf '%s\n' "$(( $(date +%s) - 100 ))" > "$BD/wait-started"
+  waits --slice 3 --limit 50
   [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
-  [ "$(cat "$OUT")" = "base suite stopped at the 3 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
-  [ $(( $(date +%s) - t0 )) -lt 5 ] || { echo "the third call ran out its slice"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 50 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
+}
+
+@test "with no flags the limit is 900 seconds" {
+  # Mutation: change the default limit, and the runner is not stopped here.
+  repo "exec sleep 60"
+  runs suite-base "$F" start
+  printf '%s\n' "$(( $(date +%s) - 899 ))" > "$BD/wait-started"
+  local t0; t0="$(date +%s)"
+  waits
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 900 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  [ $(( $(date +%s) - t0 )) -lt 15 ]
+}
+
+@test "the heartbeat keeps a long run alive past its first minute" {
+  # Mutation: drop the heartbeat writer, and a run older than 60 s reads as
+  # stopped, so F.5 would run the suite itself.
+  repo "exec sleep 30"
+  runs suite-base "$F" start
+  local n=0
+  while [ ! -f "$BD/heartbeat" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "no heartbeat"; false; }; sleep 0.2; done
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$BD/started"
+  local beat; beat="$(cat "$BD/heartbeat")"
+  sleep 6
+  [ "$(cat "$BD/heartbeat")" != "$beat" ] || { echo "the heartbeat did not move"; false; }
+  waits --slice 1
+  [ "$WRC" = 2 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+}
+
+@test "green TAP with a failing exit code is red" {
+  # Mutation: drop the command's exit code, and this records green.
+  repo "$GREEN; exit 3"
+  runs suite-base "$F" start
+  outcome_wait
+  [ "$OUTCOME" = red ] || { echo "outcome '$OUTCOME'"; false; }
+}
+
+@test "the runner reads only its checkout while the main tree changes" {
+  # Mutation: run the command in the main tree, and the TAP shows the
+  # changed bytes.
+  repo "sleep 2; printf '1..1\\nok 1 a\\n# readme=%s\\n' \"\$(cat README.md)\""
+  runs suite-base "$F" start
+  printf 'changed\n' > README.md
+  outcome_wait
+  [ "$OUTCOME" = green ] || { echo "outcome '$OUTCOME'; tap: $(cat "$BD/suite.tap")"; false; }
+  grep -qx '# readme=base' "$BD/suite.tap" || { echo "the runner read the main tree: $(cat "$BD/suite.tap")"; false; }
+}
+
+@test "a run holding the lock does not stop the base suite run" {
+  repo
+  bash "$PROG" lock-take "$F" another-session > /dev/null
+  runs suite-base "$F" start
+  outcome_wait
+  [ "$OUTCOME" = green ] || { echo "outcome '$OUTCOME'; log: $(cat "$BD/runner.log")"; false; }
+}
+
+@test "start refuses what it cannot cite, and starts nothing" {
+  # An unknown suiteReuse value.
+  repo
+  reuse sometimes
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" == "base suite not started: config.suiteReuse in "*" is none of commit, files or off" ]] || { echo "start said: $(cat "$OUT")"; false; }
+  reuse commit
+  # No spec file.
+  mv specs/001-demo/spec.md "$BATS_TEST_TMPDIR/spec.md"
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" == "base suite not started: artifacts.spec in "*" names no spec file that exists" ]] || { echo "start said: $(cat "$OUT")"; false; }
+  mv "$BATS_TEST_TMPDIR/spec.md" specs/001-demo/spec.md
+  # A TMPDIR inside the work tree. Mutation: drop the check, and a checkout
+  # lands inside the tree.
+  mkdir -p inner
+  printf 'inner/\n' >> .git/info/exclude
+  TMPDIR="$WORK/inner" runs suite-base "$F" start
+  [ "$(cat "$OUT")" = "base suite not started: TMPDIR lies inside the work tree, and the checkout must lie outside it" ] || { echo "start said: $(cat "$OUT")"; false; }
+  # A main tree that differs from the base commit outside the spec
+  # directory. Mutation: drop the key comparison, and a runner starts whose
+  # record could never be cited.
+  printf 'more\n' >> README.md
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" == "base suite not started: the base commit's files are not these files without the spec directory"* ]] || { echo "start said: $(cat "$OUT")"; false; }
+  [ ! -f "$BD/pid" ]
+  [ "$(others)" = 0 ] || { git worktree list; false; }
+}
+
+@test "the clean-up removes only its own checkout's record" {
+  # Mutation: prune every worktree record, and the record of the owner's
+  # worktree, whose folder is away, is gone.
+  repo
+  git worktree add -q --detach "$BATS_TEST_TMPDIR/mine" HEAD
+  mv "$BATS_TEST_TMPDIR/mine" "$BATS_TEST_TMPDIR/away"
+  local admin; admin="$(git rev-parse --git-common-dir)/worktrees/mine"
+  [ -d "$admin" ]
+  runs suite-base "$F" start
+  outcome_wait
+  [ "$OUTCOME" = green ]
+  # Again through the fallback: git refuses to remove the runner's checkout
+  # (its .git file is broken), so its own record is removed by path. A
+  # missing folder would not reach the fallback: given the full path, git
+  # removes the record of a worktree whose folder is gone (git 2.53).
+  state 002-next "exec sleep 60" specs/002-next
+  rm -rf specs/001-demo
+  runs suite-base 002-next start
+  local b=".delivery-kit/runs/002-next/base-suite" n=0
+  while [ ! -s "$b/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || false; sleep 0.2; done
+  kill -KILL "$(cat "$b/pid")" "$(cat "$b/child")"
+  printf 'gitdir: /nowhere\n' > "$(cat "$b/tree")/.git"
+  bash "$PROG" suite-base 002-next wait > "$OUT"
+  [ "$(cat "$OUT")" = "base suite stopped reporting" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  # The record's path must be known, or the check below passes on nothing.
+  [ -s "$b/admin" ] || { echo "no admin path was recorded"; false; }
+  [ ! -d "$(cat "$b/admin")" ] || { echo "the dead runner's own record was left"; false; }
+  [ -d "$admin" ] || { echo "the owner's worktree record was pruned"; false; }
+  mv "$BATS_TEST_TMPDIR/away" "$BATS_TEST_TMPDIR/mine"
+}
+
+@test "start on an abandoned run starts nothing" {
+  # Mutation: drop the abandoned check, and a runner starts for a run that
+  # has ended.
+  repo
+  bash "$PROG" abandon "$F" > /dev/null
+  runs suite-base "$F" start
+  [ "$(cat "$OUT")" = "base suite not started: the run was abandoned" ] || { echo "start said: $(cat "$OUT")"; false; }
+  [ ! -f "$BD/pid" ]
+  [ "$(others)" = 0 ]
+}
+
+@test "a dead runner's ids are never signalled again" {
+  # Once the wait finds the runner gone, the outcome says so, and a later
+  # wait reads it instead of looking at the recorded ids.
+  repo "exec sleep 60"
+  runs suite-base "$F" start
+  local n=0
+  while [ ! -s "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || false; sleep 0.2; done
+  kill -KILL "$(cat "$BD/pid")" "$(cat "$BD/child")"
+  gone "$(cat "$BD/pid")"
+  waits --slice 2
+  [ "$(cat "$OUT")" = "base suite stopped reporting" ]
+  [ "$(cat "$BD/outcome")" = "stopped reporting" ] || { echo "no outcome was written"; false; }
+  waits --slice 2
+  [ "$WRC" = 0 ] && [ "$(cat "$OUT")" = "base suite stopped reporting" ] || { echo "second wait: $WRC $(cat "$OUT")"; false; }
+}
+
+@test "wait and start refuse a bad argument" {
+  repo
+  local a
+  for a in "--slice 0" "--slice abc" "--limit" "--other 1"; do
+    # shellcheck disable=SC2086 # the words are the arguments
+    run -1 bash "$PROG" suite-base "$F" wait $a
+  done
+  run -1 bash "$PROG" suite-base "$F"
+  [[ "$output" == *"usage: suite-base <feature> start | wait"* ]] || { echo "$output"; false; }
+  run -1 bash "$PROG" suite-base "$F" start extra
 }

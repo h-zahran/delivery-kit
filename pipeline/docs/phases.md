@@ -180,17 +180,33 @@ second copy of the repository where a test walking the file system would
 read it. The run records its result as an ordinary record, with the same
 key and the same writer as `suite-record`, and it never merges, pushes,
 fetches, makes or deletes a branch, changes the main tree, takes the lock
-or writes the state file. It starts nothing when a green record for the
-base files already exists, and nothing under `suiteReuse: off`. At F.5,
+or writes the state file, and its `started` line shows the command it
+runs. Before it starts anything, it compares the checkout's key with these
+files' `--base` key, and starts nothing when they differ — an accepted
+`.gitignore` line, say, makes a record that could never be cited. It
+starts nothing when a green record for the base files already exists, and
+nothing under `suiteReuse: off` or any value that is not `commit` or
+`files`. At F.5,
 `progress.sh suite-base <feature> wait` waits for it: exit 2 means still
 running after one slice of 540 seconds, so each call fits inside a
 600-second tool limit and is made again; the limit is 900 seconds, counted
 from F.5's first wait, and at the limit the runner is stopped. A runner
 whose heartbeat is more than 60 seconds old is never signalled: its
-process id may belong to another program by then. The wait never decides
-reuse; `suite-lookup <feature> --base` does, as above. A cited line names
-the record's commit (its tree under `files`, which keys no commit) and its
-command.
+process id may belong to another program by then; a live id whose
+heartbeat is stale gets 15 seconds to beat again. The runner stops itself
+after 3,600 seconds, so a suite that hangs on a run that never reaches F.5
+still ends. The wait never decides reuse; `suite-lookup <feature> --base`
+does, as above. A cited line names the record's commit (its tree under
+`files`, which keys no commit) and its command.
+
+It costs a second full run of the suite during C to F, and at worst F.5
+waits the whole 900 seconds and then runs the suite itself. The checkout
+holds no file git ignores — no dependency folder, no build output, no
+`.env` — so a suite that needs one is red there and nothing is cited, and a
+suite that an ignored file breaks in the main tree can be green there: a
+green the main tree would not pass makes J blame the feature for a failure
+it did not cause, never the reverse. For such a suite, set `suiteReuse:
+off`.
 
 `progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule
 to any TAP file, keyed or not, and prints one summary line or the first rule

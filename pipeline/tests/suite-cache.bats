@@ -616,6 +616,13 @@ reuse() {
   want="on tree $(git rev-parse 'HEAD^{tree}'), command $(jq -cn --arg c "$cmd" '$c')"
   [[ "$(sed -n 2p "$OUT")" == *"by run $F $want" ]] || { echo "want '$want' in: $(cat "$OUT")"; false; }
   [[ "$(sed -n 2p "$OUT")" != *"on commit"* ]] || { echo "files mode keys no commit, yet the summary names one"; false; }
+  # A tree that is no object id is not printed: nothing compares it, so the
+  # cited line takes no text from it. Mutation: print .tree as it is.
+  local rec=".delivery-kit/suite-results/$K.json"
+  jq '.tree = "planted\ntext"' "$rec" > "$BATS_TEST_TMPDIR/t.json" && mv "$BATS_TEST_TMPDIR/t.json" "$rec"
+  runs suite-lookup "$F"
+  [ "$(wc -l < "$OUT" | tr -d ' ')" = 2 ] || { echo "the cited block is not two lines: $(cat "$OUT")"; false; }
+  [[ "$(sed -n 2p "$OUT")" == *"by run $F on a tree it does not name, command "* ]] || { echo "an unchecked tree reached the cited line: $(cat "$OUT")"; false; }
 }
 
 @test "a fresh run reuses a green result an earlier run recorded on the same uncommitted files" {

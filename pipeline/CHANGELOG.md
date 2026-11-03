@@ -19,24 +19,40 @@ All notable changes to the `pipeline` plugin.
   the test command there in the background, in a process group of its own.
   The result is recorded with the same key and the same writer as
   `suite-record`, so `suite-lookup <feature> --base` at F.5 finds it like
-  any other record, and red is still never reused. It never merges,
-  pushes, fetches, makes or deletes a branch, changes the main tree's HEAD,
-  index or files, takes the lock or writes the state file. It prints one
-  line: started, already started, or not started and why. It starts nothing
-  under `suiteReuse: off`, or when a green record for the base files
-  already exists. Before this, a repository that merges by rebase gave the
-  base branch commits no run had tested, so the lookup always missed and
-  F.5 ran the full suite, about 6 to 9 minutes on this repository.
+  any other record, and red is still never reused. It never merges, pushes,
+  fetches, makes or deletes a branch, changes the main tree's HEAD, index
+  or files, takes the lock or writes the state file. It prints one line:
+  started (with the command, JSON-quoted, since the command now runs from
+  inside the script), already started, or not started and why. It starts
+  nothing under `suiteReuse: off` or any value but `commit` and `files`,
+  when a green record for the base files already exists, when `TMPDIR` lies
+  inside the work tree, on an abandoned run, or when the checkout's key is
+  not these files' `--base` key, so it never runs a suite whose record
+  could not be cited. The runner stops itself after 3,600 seconds. It
+  removes its checkout through git, and only that checkout's record, never
+  with a repository-wide `git worktree prune`. Before this, a repository
+  that merges by rebase gave the base branch commits no run had tested, so
+  the lookup always missed and F.5 ran the full suite, about 6 to 9 minutes
+  on this repository.
 - **`progress.sh suite-base <feature> wait [--slice <s>] [--limit <s>]`.**
   Waits for that run in slices of 540 seconds (exit 2: call again), so one
   call fits a 600-second tool limit, up to 900 seconds counted from the
   first call; at the limit it stops the runner. A runner whose heartbeat is
   more than 60 seconds old is never signalled, since its process id may
-  belong to another program by then, and a dead runner's checkout is
-  removed. The wait never decides reuse.
+  belong to another program by then (a live one gets 15 seconds to beat
+  again), and a dead runner's checkout is removed. The wait never decides
+  reuse.
+- **What it costs, and what it cannot see.** A second full run of the suite
+  during C to F, and at worst a 900-second wait before F.5 runs the suite
+  itself. The checkout holds no file git ignores, so a suite that needs a
+  dependency folder or a build is red there and nothing is cited; a suite
+  that an ignored file breaks in the main tree can be green there, which
+  makes J blame the feature, never the reverse. For such a suite, set
+  `suiteReuse: off`.
 - The skill's B starts the base suite run and prints its line; an exit 1
-  does not stop the run. F.5 waits, then looks up as before, and records
-  `f5Cited`, a JSON boolean, and `baseSuite` in the run's metrics.
+  does not stop the run. F.5 waits, then looks up as before (an exit 1 from
+  the wait goes on to the lookup), and records `f5Cited`, a JSON boolean,
+  and `baseSuite` in the run's metrics.
 
 ### Changed
 
@@ -44,8 +60,8 @@ All notable changes to the `pipeline` plugin.
   `suite-lookup`'s summary line now ends `on commit <sha>, command
   "<command>"` (`on tree <tree>` under `suiteReuse: files`, which keys no
   commit), before the `--base` suffix. The command is quoted as JSON, so a
-  quote or a line break in it stays on the one line. The lookup's decision
-  is unchanged.
+  quote or a line break in it stays on the one line. A `tree` that is not
+  an object id is not printed. The lookup's decision is unchanged.
 - `suite_key` is now two halves, the state file's and git's, and the
   record write is one function, so the base suite runner shares both
   rather than copying them. No key changes: measured identical on this

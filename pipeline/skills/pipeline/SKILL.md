@@ -400,7 +400,8 @@ running; red or missing, run. F.5 adds `--base`, which also accepts one for thes
 without the run's untracked spec directory. F.5 first runs `progress.sh
 suite-base <feature> wait` again while it exits 2 — it waits for the run
 B started, and never decides reuse — then asks `suite-lookup <feature>
---base`. F.5 records in the run's metrics whether it cited a result, as
+--base`; an exit 1 from the wait is printed too, and F.5 goes on to the
+lookup. F.5 records in the run's metrics whether it cited a result, as
 `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`.
 
 **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered

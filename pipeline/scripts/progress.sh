@@ -516,7 +516,7 @@ RUN_END_JQ='if (.abandoned // false) != false then "abandoned" elif .current_pha
 # command added later is refused on an abandoned run unless it is listed
 # there. A state file it cannot read is left to the command's own validate,
 # which names the fault.
-ABANDONED_OK=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup suite-base-run "
+ABANDONED_OK=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup suite-base suite-base-run "
 not_abandoned() {
   local sf c
   for c in $ABANDONED_OK; do [ "$c" = "$cmd" ] && return 0; done
@@ -2251,7 +2251,6 @@ SUITE_DIR="$STATE_ROOT/suite-results"
 # are left out: the key of the files as they were before this feature,
 # which F.5's baseline may look up. Only the base suite run records under
 # it, from a checkout that holds no spec directory (see suite-base).
-# It is suite_config, then suite_key_here in this directory.
 suite_key() {
   suite_config "$@" || return 1
   # This call's own scratch file: two calls at once must never truncate or
@@ -2522,16 +2521,16 @@ cmd_suite_record() {
   if ! suite_key "$1"; then die "nothing recorded — no suite key now: $SK_WHY"; fi
   [ "$key" = "$SK_KEY" ] || die "nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken"
   tap_judge "$tap"
-  suite_write_record "$1" "$tap" "$rc" "$SUITE_DIR"
+  suite_write_record "$1" "$tap" "$rc"
 }
 
-# suite_write_record <feature> <tap path> <rc> <suite dir> — writes the
-# record for SK_KEY from the SK_* values the key set and the TJ_* counts
-# tap_judge set, and prints its verdict. The one writer of a record, for
-# suite-record and for the base suite runner, which names the main tree's
-# suite directory by an absolute path from inside its checkout.
+# suite_write_record <feature> <tap path> <rc> — writes the record for
+# SK_KEY from the SK_* values the key set and the TJ_* counts tap_judge set,
+# into SUITE_DIR, and prints its verdict. The one writer of a record, for
+# suite-record and for the base suite runner, which calls it from the main
+# tree's top level once its checkout's key is taken.
 suite_write_record() {
-  local tap="$2" rc="$3" dir="$4" verdict out tmp
+  local tap="$2" rc="$3" dir="$SUITE_DIR" verdict out tmp
   verdict=red
   if [ "$rc" -eq 0 ] && [ -z "$TJ_MSG" ]; then verdict=green; fi
   mkdir -p "$dir"
@@ -2570,7 +2569,9 @@ suite_write_record() {
 # stands for, so a cited baseline can be checked by whoever reads it: the
 # counts, when and by which run it was recorded, the commit it ran on (the
 # tree under files, which keys no commit), and the command as a JSON
-# string, which keeps a quote or a line break in it on the one line.
+# string, which keeps a quote or a line break in it on the one line. The
+# tree is never compared, so it is printed only when it is an object id: a
+# hand-edited one could otherwise print any text into the cited line.
 # shellcheck disable=SC2016 # a jq program: its $ names are jq's
 SUITE_LOOKUP_JQ='
   if length != 1 or (.[0] | type) != "object" then "unreadable"
@@ -2579,8 +2580,10 @@ SUITE_LOOKUP_JQ='
     elif .verdict == "green"
          and ([.plan, .ok, .skipped, .notOk, .nonTap, .rc] | all(type == "number" and . == floor and . >= 0))
          and .rc == 0 and .notOk == 0 and .nonTap == 0 and .skipped == 0 and .plan >= 1 and .ok == .plan
-      then "green\u001f1..\(.plan), \(.ok) ok (\(.skipped) skipped), 0 not ok, exit 0 — recorded \(.recordedAt) by run \(.feature)"
-        + (if (.head | type) == "string" and .head != "" then " on commit \(.head)" else " on tree \(.tree)" end)
+      then "green\u001f1..\(.plan), \(.ok) ok (\(.skipped) skipped), 0 not ok, exit 0 — recorded \(.recordedAt | tostring | gsub("[\u0000-\u001f\u007f]"; "?")) by run \(.feature | tostring | gsub("[\u0000-\u001f\u007f]"; "?"))"
+        + (if (.head | type) == "string" and .head != "" then " on commit \(.head)"
+           elif (.tree | type) == "string" and (.tree | test("^[0-9a-f]{40}([0-9a-f]{24})?$")) then " on tree \(.tree)"
+           else " on a tree it does not name" end)
         + ", command \(.command | @json)"
     else "red" end
   end'
@@ -2617,131 +2620,220 @@ cmd_suite_lookup() {
 }
 
 # --- the base suite run -------------------------------------------------------
-# suite-base <feature> start|wait (feature 053). F.5 may cite a green result
-# for the files as they were before the feature (suite-lookup --base), but a
-# repository that merges by rebase gives the base branch commits no run ever
-# tested, so the lookup always missed and F.5 ran the whole suite. So B
-# starts the full test command in the background on a detached checkout of
-# HEAD's commit — the base commit, since the branch has no commit yet — and
-# records the result with the same key and writer as suite-record. By F.5 it
-# has usually finished, and F.5's lookup finds it like any other record.
+# suite-base <feature> start|wait. B starts the full test command in the
+# background on a detached checkout of HEAD's commit — the base commit, as
+# the branch has no commit of its own yet — and records the result with the
+# same key and writer as suite-record, so F.5's suite-lookup --base finds it
+# like any other record. The contract, the bookkeeping files and the
+# measurements: specs/053-f5-cites-main-suite/ (contracts/suite-base.md,
+# data-model.md, research.md R1).
 #
 # Why a detached git worktree, in a temporary folder outside the work tree:
 # it shares the repository's configuration (line endings, filters,
 # info/exclude), so its files hold the same bytes, and its index is built
-# from the same commit — measured on this repository to give the key F.5
-# computes (specs/053-f5-cites-main-suite/research.md, R1). A clone carries
-# no local configuration; a checkout inside the tree would put a second copy
-# of the repository where a test walking the file system would read it.
+# from the same commit. A clone carries no local configuration; a checkout
+# inside the tree would put a second copy of the repository where a test
+# walking the file system would read it. start compares the checkout's key
+# with these files' --base key before it starts anything, so it never runs a
+# suite whose record F.5 could not cite.
+#
+# What it cannot see: files git ignores. The checkout holds none — no
+# dependency folder, no build output — so a suite that needs them is red
+# there and nothing is cited, and a suite an ignored file breaks in the main
+# tree can be green there. A red is never cited; a green the main tree would
+# not pass only makes J stricter. For such a suite, set suiteReuse off.
 #
 # What it never does: merge, push, fetch, create or delete a branch, change
 # the main tree's HEAD, index or files, take the repository lock, or write
-# the state file. Its bookkeeping lives in .delivery-kit/runs/<feature>/
-# base-suite/ (see data-model.md), and the processes it may stop are the
-# ones whose ids it wrote there. The wait stops a runner only while its
-# heartbeat is fresh: on a resume a recorded id may belong to another
-# process by now.
+# the state file. It signals only the ids it wrote in its bookkeeping, and
+# the runner's only while its heartbeat is fresh: on a resume a recorded id
+# may belong to another program by now. It removes only the checkout it
+# made, through git, and that checkout's own record in git.
+BASE_USAGE="usage: suite-base <feature> start | wait [--slice <seconds>] [--limit <seconds>]"
+# The runner stops itself after this many seconds, so a suite that hangs on
+# a run that never reaches F.5's wait still ends.
+BASE_MAX=3600
+
 base_dir() { printf '%s/base-suite' "$(run_dir "$1")"; }
 
-# base_tree_ok <path> — the checkout path in the bookkeeping is one this
-# script made: an absolute path ending in dk-base-suite.<suffix>/tree. A
-# path that is anything else is never removed.
+# base_num <file> — prints the whole number of 1 or more the file holds, or
+# returns 1. base_pid also refuses 1: no file of ours ever names init.
+base_num() {
+  local v
+  v="$(cat "$1" 2>/dev/null)" || return 1
+  case "$v" in ''|0*|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$v"
+}
+base_pid() {
+  local v
+  v="$(base_num "$1")" || return 1
+  [ "$v" -gt 1 ] || return 1
+  printf '%s' "$v"
+}
+
+# base_put <file> <line> — written whole, by rename, so a reader never sees
+# half of it.
+base_put() { printf '%s\n' "$2" > "$1.tmp" && mv -f "$1.tmp" "$1"; }
+
+# base_tree_ok <path> — the checkout path is one this script made: an
+# absolute path whose last two parts are dk-base-suite.<letters and digits>
+# and tree, with no line break, no `.` or `..` part, no empty part, and no
+# link where the folder above it is. The folder may be gone already.
 base_tree_ok() {
-  case "$1" in /*/dk-base-suite.*/tree) ;; *) return 1 ;; esac
-  case "$1" in */../*|*/./*) return 1 ;; esac
+  local d="${1%/tree}" name
+  [ "$d/tree" = "$1" ] || return 1
+  case "$1" in /*) ;; *) return 1 ;; esac
+  case "$1" in *$'\n'*|*/../*|*/./*|*//*) return 1 ;; esac
+  name="${d##*/}"
+  case "$name" in dk-base-suite.?*) ;; *) return 1 ;; esac
+  case "${name#dk-base-suite.}" in *[!A-Za-z0-9]*) return 1 ;; esac
+  [ ! -L "$d" ]
 }
 
-# base_remove_tree <top> <path> — removes the checkout and the temporary
-# folder it sits in. git worktree remove first, so git's own record of the
-# checkout goes too; then the folder, whatever git left.
+# base_abs <git rev-parse option> — the folder git names, as an absolute
+# path through cd, so git older than 2.31 (no --path-format) answers too.
+base_abs() {
+  local d
+  d="$(git rev-parse "$1" 2>/dev/null)" || return 1
+  (CDPATH='' cd -P -- "$d" 2>/dev/null && pwd -P)
+}
+
+# base_remove_tree <path> <admin> — removes the checkout through git, which
+# refuses a folder that is not one of this repository's worktrees, then the
+# temporary folder around it. When git refuses (its .git file is broken,
+# say), the checkout's own record under the common git folder is removed
+# instead, and only when that record points back at this checkout; never a
+# repository-wide prune, which would drop the records of every worktree
+# whose folder is away (an unmounted drive). Never fails the caller.
 base_remove_tree() {
-  local top="$1" tree="$2"
+  local tree="$1" admin="$2" common back d
   base_tree_ok "$tree" || return 0
-  git -C "$top" worktree remove --force "$tree" >/dev/null 2>&1 || true
-  rm -rf -- "${tree%/tree}"
-  git -C "$top" worktree prune >/dev/null 2>&1 || true
-}
-
-# base_outcome <dir> <line> — the outcome, written last and by rename, so a
-# reader never sees half of it.
-base_outcome() {
-  printf '%s\n' "$2" > "$1/outcome.tmp" && mv -f "$1/outcome.tmp" "$1/outcome"
+  d="${tree%/tree}"
+  if ! git worktree remove --force "$tree" > /dev/null 2>&1; then
+    common="$(base_abs --git-common-dir)" || common=''
+    back="$(cat "$admin/gitdir" 2>/dev/null)" || back=''
+    if [ -n "$common" ] && [ -n "$admin" ] && [ -d "$admin" ] && [ ! -L "$admin" ]; then
+      case "${admin#"$common/worktrees/"}" in
+        "$admin"|''|*/*) ;;
+        *) case "$back" in */"${d##*/}"/tree/.git) rm -rf -- "$admin" 2> /dev/null || true ;; esac ;;
+      esac
+    fi
+  fi
+  rm -rf -- "${tree%/tree}" 2> /dev/null || true
+  return 0
 }
 
 cmd_suite_base() {
   local f="$1" sub="${2:-}"
   case "$sub" in
-    start) [ $# -eq 2 ] || die "usage: suite-base <feature> start"; base_start "$f" ;;
+    start) [ $# -eq 2 ] || die "$BASE_USAGE"; base_start "$f" ;;
     wait)  shift 2; base_wait "$f" "$@" ;;
-    *) die "usage: suite-base <feature> start | wait [--slice <seconds>] [--limit <seconds>]" ;;
+    *) die "$BASE_USAGE" ;;
   esac
 }
 
 # base_start <feature> — one line on stdout, exit 0, unless a check cannot
 # be made. Run in B, once the state file and the feature branch exist.
 base_start() {
-  local f="$1" bd commit tmp tree pid
+  local f="$1" bd sf commit base_key tmp tree admin top pid pre=''
   need_git_top
   bd="$(base_dir "$f")"
-  if ! suite_config "$f" base; then printf 'base suite not started: %s\n' "$SK_WHY"; return 0; fi
   if [ -f "$bd/pid" ]; then
     printf 'base suite already started on commit %s\n' "$(cat "$bd/commit" 2>/dev/null || true)"; return 0
   fi
+  sf="$(state_file "$f")"
+  if [ -f "$sf" ] && [ "$(jqs "$RUN_END_JQ" "$sf" 2>/dev/null || true)" = abandoned ]; then
+    printf 'base suite not started: the run was abandoned\n'; return 0
+  fi
   if ! suite_key "$f" base; then printf 'base suite not started: %s\n' "$SK_WHY"; return 0; fi
+  base_key="$SK_KEY"
   commit="$(git rev-parse --verify --quiet 'HEAD^{commit}')" || die "git rev-parse failed"
   if suite_lookup_one > /dev/null; then
     printf 'base suite not started: a green result is already recorded for commit %s\n' "$commit"; return 0
   fi
-  mkdir -p "$bd"
+  top="$(pwd -P)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/dk-base-suite.XXXXXX")" || die "could not make a temporary folder for the base checkout"
   tmp="$(CDPATH='' cd -P -- "$tmp" && pwd -P)" || die "could not read the temporary folder's path"
+  case "$tmp/" in "$top/"*)
+    rm -rf -- "$tmp"
+    printf 'base suite not started: TMPDIR lies inside the work tree, and the checkout must lie outside it\n'; return 0 ;;
+  esac
   tree="$tmp/tree"
+  mkdir -p "$bd"
   if ! git worktree add --quiet --detach "$tree" "$commit" > /dev/null 2>> "$bd/runner.log"; then
     rm -rf -- "$tmp"
     die "base suite not started: git worktree add failed (see $bd/runner.log)"
   fi
-  printf '%s\n' "$commit" > "$bd/commit"
-  printf '%s\n' "$tree" > "$bd/tree"
-  date +%s > "$bd/started"
+  admin="$(cd "$tree" && base_abs --git-dir)" || admin=''
+  # The checkout's key must be the one F.5 will look up. It is not when the
+  # main tree differs from the base commit outside the spec directory — an
+  # accepted .gitignore line, say — and a record made there could never be
+  # cited, so nothing starts.
+  # The scratch path is absolute: the key is taken inside the checkout.
+  SK_SCRATCH="$(mktemp "$top/$(run_dir "$f")/suite-scratch.XXXXXX")" || die "could not make a scratch file"
+  if ! ( cd "$tree" && suite_key_here "$SK_SCRATCH" && [ "$SK_KEY" = "$base_key" ] ) 2>> "$bd/runner.log"; then
+    rm -f "$SK_SCRATCH"
+    base_remove_tree "$tree" "$admin"
+    printf 'base suite not started: the base commit'"'"'s files are not these files without the spec directory, so its result could never be cited\n'
+    return 0
+  fi
+  rm -f "$SK_SCRATCH"
+  base_put "$bd/commit" "$commit"
+  base_put "$bd/tree" "$tree"
+  base_put "$bd/admin" "$admin"
+  base_put "$bd/started" "$(date +%s)"
   # The runner in a process group of its own — setsid where it exists, job
   # control (set -m) where it does not — so the wait can stop it and what it
   # started together. Every descriptor is closed or redirected: a runner
   # holding the caller's output open would keep the caller (and bats, through
   # its descriptor 3) waiting for it.
-  (
-    if command -v setsid > /dev/null 2>&1; then
-      setsid bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
-    else
-      set -m
-      bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
-    fi
+  if command -v setsid > /dev/null 2>&1; then pre=setsid; fi
+  if ! (
+    [ -n "$pre" ] || set -m
+    ${pre:+"$pre"} bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
     printf '%s\n' "$!" > "$bd/pid.tmp"
-  ) || die "could not start the base suite runner"
+  ); then
+    base_remove_tree "$tree" "$admin"
+    rm -f "$bd/commit" "$bd/tree" "$bd/admin" "$bd/started" "$bd/pid.tmp"
+    die "base suite not started: the runner could not be started"
+  fi
   mv -f "$bd/pid.tmp" "$bd/pid"
   pid="$(cat "$bd/pid")"
-  printf 'base suite started on commit %s (process %s)\n' "$commit" "$pid"
+  # The command is shown here, JSON-quoted, as F.5's own call used to show it:
+  # it now runs from inside this script.
+  printf 'base suite started on commit %s (process %s), command %s\n' "$commit" "$pid" \
+    "$(jq ${JQB:+"$JQB"} -cn --arg c "$SK_CMD" '$c')"
 }
 
 # base_run <feature> — the runner, started by base_start and by nothing
 # else. It reads the configuration in the main tree, takes the key in the
 # checkout before and after the command, and writes the record into the
 # main tree's suite directory with the one writer.
-BR_TOP='' BR_BD='' BR_TREE='' BR_HB='' BR_CHILD='' BR_DONE=''
+BR_TOP='' BR_BD='' BR_TREE='' BR_ADMIN='' BR_HB='' BR_CHILD='' BR_DONE=''
 base_run() {
-  local f="$1" key0 rc v
+  local f="$1" rel key0 rc tmpd v
   need_git_top
   BR_TOP="$(pwd -P)"
-  BR_BD="$BR_TOP/$(base_dir "$f")"
+  rel="$(base_dir "$f")"
+  BR_BD="$BR_TOP/$rel"
   BR_TREE="$(cat "$BR_BD/tree")" || die "no checkout is recorded"
+  BR_ADMIN="$(cat "$BR_BD/admin" 2>/dev/null || true)"
   base_tree_ok "$BR_TREE" || die "the recorded checkout is not one this script made"
   trap base_run_exit EXIT
-  trap base_run_term TERM
+  # A TERM after the record was written keeps its verdict.
+  trap 'BR_DONE="${BR_DONE:-stopped}"; exit 0' TERM
   # The heartbeat: epoch seconds, every 5 s, so a wait can tell a live
   # runner from a process id some other program now has. The loop ends by
-  # itself once the runner is gone: a runner stopped by KILL runs no trap,
-  # and a loop that outlived it would write on for ever ($$ is the runner,
-  # in the subshell too).
-  ( while kill -0 "$$" 2>/dev/null; do date +%s > "$BR_BD/heartbeat.tmp" && mv -f "$BR_BD/heartbeat.tmp" "$BR_BD/heartbeat"; sleep 5; done ) &
+  # itself once the runner is gone ($$ is the runner, in the subshell too):
+  # a runner stopped by KILL runs no trap, and a loop that outlived it would
+  # write on for ever. It also stops the runner after BASE_MAX seconds.
+  ( st="$(date +%s)"
+    while kill -0 "$$" 2>/dev/null; do
+      now="$(date +%s)"
+      base_put "$BR_BD/heartbeat" "$now" || true
+      if [ $((now - st)) -ge "$BASE_MAX" ]; then kill -TERM "$$" 2>/dev/null || true; fi
+      sleep 5
+    done ) &
   BR_HB=$!
   if ! suite_config "$f"; then BR_DONE="nothing recorded — no suite key: $SK_WHY"; exit 0; fi
   cd "$BR_TREE" || die "could not enter the base checkout"
@@ -2750,112 +2842,123 @@ base_run() {
   key0="$SK_KEY"
   # A TMPDIR of its own, beside the checkout: the suite's temporary files
   # never meet the live session's.
-  local tmpd
   tmpd="$(mktemp -d "${BR_TREE%/tree}/tmp.XXXXXX")" || die "could not make the runner's TMPDIR"
   TMPDIR="$tmpd" bash -c "$SK_CMD" > "$BR_BD/suite.tap" 2>&1 < /dev/null &
   BR_CHILD=$!
   printf '%s\n' "$BR_CHILD" > "$BR_BD/child"
   rc=0; wait "$BR_CHILD" || rc=$?
+  # The command has ended: its id is no longer ours to signal.
   BR_CHILD=''
+  rm -f "$BR_BD/child"
   if ! suite_key_here "$SK_SCRATCH"; then BR_DONE="nothing recorded — no suite key after the run: $SK_WHY"; exit 0; fi
   if [ "$SK_KEY" != "$key0" ]; then
     BR_DONE="nothing recorded — what the key covers (the files, the git state its mode reads, the command, the platform) is not what it was when the key was taken"
     exit 0
   fi
   cd "$BR_TOP" || die "could not return to the repository's top level"
-  [ "$rc" -le 999 ] || rc=999
-  tap_judge "$BR_BD/suite.tap"
-  v="$(suite_write_record "$f" "$(base_dir "$f")/suite.tap" "$rc" "$BR_TOP/$SUITE_DIR")" || die "the record could not be written"
+  tap_judge "$rel/suite.tap"
+  v="$(suite_write_record "$f" "$rel/suite.tap" "$rc")" || die "the record could not be written"
   BR_DONE="$v"
 }
 
-# base_run_term — asked to stop (the wait's limit): stop the command, then
-# the exit trap cleans up.
-base_run_term() {
-  if [ -n "$BR_CHILD" ]; then kill -TERM "$BR_CHILD" 2>/dev/null || true; fi
-  BR_DONE=stopped
-  exit 0
-}
-
-# base_run_exit — on any exit: stop the heartbeat, remove the checkout and
-# its temporary folders, write the outcome last, then the script's own
-# clean-up. A runner that died without saying why says so.
+# base_run_exit — on any exit: no further TERM cuts the clean-up short; stop
+# the heartbeat and the command, remove the checkout and its temporary
+# folders, write the outcome last unless the wait wrote one, then the
+# script's own clean-up. A runner that died without saying why says so.
 base_run_exit() {
+  trap '' TERM
   if [ -n "$BR_HB" ]; then kill "$BR_HB" 2>/dev/null || true; fi
-  if [ -n "$BR_CHILD" ]; then kill -TERM "$BR_CHILD" 2>/dev/null || true; fi
+  # A command still running is stopped with all it started: the runner
+  # leads its own process group, and ignores this TERM itself. Where there
+  # is no group of its own, the command's id alone.
+  if [ -n "$BR_CHILD" ]; then
+    kill -TERM -- "-$$" 2>/dev/null || kill -TERM "$BR_CHILD" 2>/dev/null || true
+  fi
   cd "$BR_TOP" 2>/dev/null || true
-  base_remove_tree "$BR_TOP" "$BR_TREE"
-  base_outcome "$BR_BD" "${BR_DONE:-nothing recorded — the runner stopped: see runner.log}" || true
+  base_remove_tree "$BR_TREE" "$BR_ADMIN"
+  [ -f "$BR_BD/outcome" ] || base_put "$BR_BD/outcome" "${BR_DONE:-nothing recorded — the runner stopped: see runner.log}" || true
   on_exit
 }
 
 # base_alive <dir> — the runner is alive and says so: its process id
 # answers, and its heartbeat (or, before the first one, its start) is at
-# most 60 s old. A heartbeat older than that means the id may belong to
-# another program by now, so nothing is ever signalled on it.
+# most 60 s old.
 base_alive() {
-  local pid hb now
-  pid="$(cat "$1/pid" 2>/dev/null)" || return 1
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  local pid hb
+  pid="$(base_pid "$1/pid")" || return 1
   kill -0 "$pid" 2>/dev/null || return 1
-  hb="$(cat "$1/heartbeat" 2>/dev/null || cat "$1/started" 2>/dev/null)" || return 1
-  case "$hb" in ''|*[!0-9]*) return 1 ;; esac
-  now="$(date +%s)"
-  [ $((now - hb)) -le 60 ]
+  hb="$(base_num "$1/heartbeat" || base_num "$1/started")" || return 1
+  [ $(( $(date +%s) - hb )) -le 60 ]
 }
 
-# base_wait <feature> [--slice <s>] [--limit <s>] — see the contract in
-# specs/053-f5-cites-main-suite/contracts/suite-base.md. Exit 2: still
-# running when this call's slice ended; call again. Exit 0: nothing is
+# base_wait <feature> [--slice <s>] [--limit <s>] — see the contract. Exit 2:
+# still running when this call's slice ended; call again. Exit 0: nothing is
 # running any more, one line saying how it ended. It never says whether a
 # result may be cited: suite-lookup decides that, as before. The slice keeps
 # one call inside a caller's own time limit; the limit counts from the
 # first call, kept in wait-started, so a loop of calls cannot wait longer.
+# F.5 passes neither flag: the defaults are the documented ones, and the
+# flags exist for the tests.
 base_wait() {
-  local f="$1" slice=540 limit=900 bd top now ws end pid out
+  local f="$1" slice=540 limit=900 bd now ws end pid out since
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
       --slice|--limit)
-        [ $# -ge 2 ] || die "usage: suite-base <feature> wait [--slice <seconds>] [--limit <seconds>]"
+        [ $# -ge 2 ] || die "$BASE_USAGE"
         case "$2" in ''|0*|*[!0-9]*) die "$1 takes a whole number of seconds, 1 or more" ;; esac
         if [ "$1" = --slice ]; then slice="$2"; else limit="$2"; fi
         shift 2 ;;
-      *) die "usage: suite-base <feature> wait [--slice <seconds>] [--limit <seconds>]" ;;
+      *) die "$BASE_USAGE" ;;
     esac
   done
   need_git_top
-  top="$(pwd -P)"
   bd="$(base_dir "$f")"
   if [ ! -f "$bd/pid" ]; then printf 'no base suite was started for this run\n'; return 0; fi
   now="$(date +%s)"
-  [ -f "$bd/wait-started" ] || printf '%s\n' "$now" > "$bd/wait-started"
-  ws="$(cat "$bd/wait-started")"
-  case "$ws" in ''|*[!0-9]*) die "$bd/wait-started holds no time" ;; esac
+  [ -f "$bd/wait-started" ] || base_put "$bd/wait-started" "$now"
+  ws="$(base_num "$bd/wait-started")" || die "$bd/wait-started holds no time"
   end=$((now + slice))
   while :; do
     if [ -f "$bd/outcome" ]; then
       out="$(cat "$bd/outcome")"
       case "$out" in
-        "stopped at the "*) printf 'base suite %s\n' "$out" ;;
+        "stopped at the "*|"stopped reporting") printf 'base suite %s\n' "$out" ;;
         *) printf 'base suite ended: %s\n' "$out" ;;
       esac
       return 0
     fi
-    if ! base_alive "$bd"; then
-      # Never signalled. Only a runner whose id no longer answers has its
-      # checkout removed: a live id with a stale heartbeat may be a runner
-      # a suspended machine has not woken yet.
-      pid="$(cat "$bd/pid" 2>/dev/null || true)"
-      case "$pid" in ''|*[!0-9]*) pid='' ;; esac
-      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
-        base_remove_tree "$top" "$(cat "$bd/tree" 2>/dev/null || true)"
+    now="$(date +%s)"
+    if base_alive "$bd"; then
+      rm -f "$bd/stale-since"
+      if [ $((now - ws)) -ge "$limit" ]; then base_stop "$bd" "$limit"; return 0; fi
+    elif [ -f "$bd/outcome" ]; then
+      continue
+    else
+      # Never signalled. A live id with a stale heartbeat may be a runner on
+      # a machine just woken from sleep, whose next beat is due within 5 s:
+      # it gets 15 s, counted across calls in stale-since, to beat again,
+      # and no longer than the limit. A runner whose id no longer answers
+      # ended without an outcome: its checkout is removed, and the outcome
+      # says so, so its recorded ids are never signalled again.
+      pid="$(base_pid "$bd/pid" || true)"
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        [ -f "$bd/stale-since" ] || base_put "$bd/stale-since" "$now"
+        since="$(base_num "$bd/stale-since" || printf '%s' "$now")"
+        if [ $((now - since)) -lt 15 ] && [ $((now - ws)) -lt "$limit" ]; then
+          if [ "$now" -ge "$end" ]; then
+            printf 'base suite still running after %s s of waiting\n' "$((now - ws))"
+            return 2
+          fi
+          sleep 1; continue
+        fi
+      else
+        base_remove_tree "$(cat "$bd/tree" 2>/dev/null || true)" "$(cat "$bd/admin" 2>/dev/null || true)"
+        base_put "$bd/outcome" "stopped reporting" || true
       fi
       printf 'base suite stopped reporting\n'
       return 0
     fi
-    now="$(date +%s)"
-    if [ $((now - ws)) -ge "$limit" ]; then base_stop "$bd" "$top" "$limit"; return 0; fi
     if [ "$now" -ge "$end" ]; then
       printf 'base suite still running after %s s of waiting\n' "$((now - ws))"
       return 2
@@ -2864,20 +2967,29 @@ base_wait() {
   done
 }
 
-# base_stop <dir> <top> <limit> — the limit passed with the runner alive:
-# TERM to its process group, or to its own id where the group cannot be
-# signalled; its trap stops the command and cleans up. Up to 10 s for that,
-# then the command's own id and the checkout are seen to here.
+# base_stop <dir> <limit> — the limit passed with the runner alive and its
+# heartbeat fresh: TERM to its process group, or to its own id where the
+# group cannot be signalled; its trap stops the command and cleans up. Only
+# when that has not happened in 10 s: KILL, the command by the id the runner
+# still holds, and the checkout. An outcome the runner wrote meanwhile with
+# a verdict stands: the run ended before the stop reached it.
 base_stop() {
-  local bd="$1" top="$2" limit="$3" pid child n=0
-  pid="$(cat "$bd/pid")"
+  local bd="$1" limit="$2" pid child out n=0
+  pid="$(base_pid "$bd/pid")" || return 0
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   while [ ! -f "$bd/outcome" ] && [ "$n" -lt 10 ]; do n=$((n + 1)); sleep 1; done
-  child="$(cat "$bd/child" 2>/dev/null || true)"
-  case "$child" in ''|*[!0-9]*) ;; *) kill -TERM "$child" 2>/dev/null || true ;; esac
-  base_remove_tree "$top" "$(cat "$bd/tree" 2>/dev/null || true)"
-  base_outcome "$bd" "stopped at the $limit s limit"
-  printf 'base suite stopped at the %s s limit\n' "$limit"
+  if [ ! -f "$bd/outcome" ]; then
+    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    child="$(base_pid "$bd/child" || true)"
+    if [ -n "$child" ]; then kill -KILL "$child" 2>/dev/null || true; fi
+    base_remove_tree "$(cat "$bd/tree" 2>/dev/null || true)" "$(cat "$bd/admin" 2>/dev/null || true)"
+  fi
+  out="$(cat "$bd/outcome" 2>/dev/null || true)"
+  case "$out" in
+    ''|stopped) base_put "$bd/outcome" "stopped at the $limit s limit" || true
+                printf 'base suite stopped at the %s s limit\n' "$limit" ;;
+    *) printf 'base suite ended: %s\n' "$out" ;;
+  esac
 }
 
 # tap-check takes a TAP file, not a feature, so it is dispatched before the
