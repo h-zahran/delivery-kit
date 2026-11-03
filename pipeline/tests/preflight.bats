@@ -1197,11 +1197,15 @@ dirty_is() {
   commit_staged sub
   dirty_is false "$B/super"
   # A change inside the submodule, not committed: --ignore-submodules=dirty
-  # or =untracked would still hide it; only =none reports it.
+  # or =untracked would still hide it; only =none reports it. The file's own
+  # bytes are kept and put back: under core.autocrlf=true (the Windows
+  # runner's) the checkout wrote CRLF, and an `echo` back wrote LF, which
+  # git then reads as a change (measured with autocrlf=true on Linux).
+  cp s/a "$B/a.kept"
   echo changed > s/a
   git config submodule.s.ignore all
   dirty_is true "$B/super"
-  echo a > s/a
+  cp "$B/a.kept" s/a
   git config --unset submodule.s.ignore
   dirty_is false "$B/super"
   ( cd s && echo b > b && git add b && commit_staged b )
