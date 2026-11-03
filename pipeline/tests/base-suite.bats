@@ -237,3 +237,115 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   [[ "$body" == *suite_key_here* ]] || { echo "the runner does not call suite_key_here"; false; }
   [[ "$body" == *suite_write_record* ]] || { echo "the runner does not call suite_write_record"; false; }
 }
+
+# gone <pid> — true once the process has ended, polled for at most 5 s: a
+# stopped process can take a moment to be reaped.
+gone() {
+  local n=0
+  while kill -0 "$1" 2>/dev/null; do
+    n=$((n + 1)); [ "$n" -le 25 ] || return 1
+    sleep 0.2
+  done
+}
+
+# waits <args...> — suite-base wait, its exit status in WRC, stdout in $OUT.
+waits() {
+  WRC=0
+  bash "$PROG" suite-base "$F" wait "$@" > "$OUT" 2> "$ERR" || WRC=$?
+}
+
+@test "wait says when none was started" {
+  repo
+  waits
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "no base suite was started for this run" ]
+}
+
+@test "wait returns when the runner ends" {
+  repo
+  runs suite-base "$F" start
+  waits --slice 30
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite ended: green" ] || { echo "wait said: $(cat "$OUT")"; false; }
+}
+
+@test "wait gives back control while the runner works" {
+  # Mutation: ignore the slice, and this call blocks until the limit.
+  repo "exec sleep 20"
+  runs suite-base "$F" start
+  waits --slice 1 --limit 60
+  [ "$WRC" = 2 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [[ "$(cat "$OUT")" == "base suite still running after "* ]] || { echo "wait said: $(cat "$OUT")"; false; }
+}
+
+@test "wait stops only its own runner at the limit" {
+  # Mutation: drop the stop, and the runner and its child live on.
+  repo "exec sleep 60"
+  sleep 60 3>&- &
+  OWN+=("$!")
+  runs suite-base "$F" start
+  local i=0
+  waits --slice 1 --limit 2
+  while [ "$WRC" = 2 ] && [ "$i" -lt 10 ]; do i=$((i + 1)); waits --slice 1 --limit 2; done
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 2 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  gone "$(cat "$BD/pid")" || { echo "the runner is still alive"; false; }
+  gone "$(cat "$BD/child")" || { echo "the runner's command is still alive"; false; }
+  kill -0 "${OWN[0]}" || { echo "a process the run did not start was stopped"; false; }
+  [ "$(others)" = 0 ] || { git worktree list; false; }
+}
+
+@test "a runner that stopped reporting is never signalled" {
+  # Mutation: drop the heartbeat check before the stop, and this sleep dies.
+  repo
+  sleep 60 3>&- &
+  OWN+=("$!")
+  mkdir -p "$BD"
+  printf '%s\n' "${OWN[0]}" > "$BD/pid"
+  git rev-parse HEAD > "$BD/commit"
+  printf '%s\n' "$TMPDIR/dk-base-suite.none/tree" > "$BD/tree"
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$BD/started"
+  printf '%s\n' "$(( $(date +%s) - 120 ))" > "$BD/heartbeat"
+  waits --slice 2 --limit 1
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped reporting" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  kill -0 "${OWN[0]}" || { echo "a process whose heartbeat was stale was signalled"; false; }
+}
+
+@test "a dead runner's checkout is removed" {
+  repo "exec sleep 60"
+  runs suite-base "$F" start
+  # Wait for the command to start, then stop the runner and its command by
+  # the ids the run recorded, without any chance to clean up.
+  local n=0
+  while [ ! -f "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || false; sleep 0.2; done
+  kill -KILL "$(cat "$BD/pid")" "$(cat "$BD/child")"
+  gone "$(cat "$BD/pid")"
+  [ "$(others)" = 1 ]
+  waits --slice 2
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped reporting" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  [ "$(others)" = 0 ] || { git worktree list; false; }
+  # The heartbeat loop ends with its runner: a runner stopped by KILL runs
+  # no trap, and a loop that outlived it once wrote on for ever (found while
+  # building this test). Mutation: loop on `:` again, and the beat moves.
+  local beat; beat="$(cat "$BD/heartbeat" 2>/dev/null || true)"
+  sleep 6
+  [ "$(cat "$BD/heartbeat" 2>/dev/null || true)" = "$beat" ] || { echo "the heartbeat moved after its runner was gone"; false; }
+}
+
+@test "the limit counts from the first wait" {
+  # Mutation: count the limit from each call, and the third call runs out
+  # its slice instead of stopping the runner.
+  repo "exec sleep 60"
+  runs suite-base "$F" start
+  waits --slice 1 --limit 3
+  [ "$WRC" = 2 ]
+  waits --slice 1 --limit 3
+  [ "$WRC" = 2 ]
+  local t0; t0="$(date +%s)"
+  waits --slice 5 --limit 3
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 3 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
+  [ $(( $(date +%s) - t0 )) -lt 5 ] || { echo "the third call ran out its slice"; false; }
+}

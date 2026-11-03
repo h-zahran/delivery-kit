@@ -2672,7 +2672,8 @@ cmd_suite_base() {
   local f="$1" sub="${2:-}"
   case "$sub" in
     start) [ $# -eq 2 ] || die "usage: suite-base <feature> start"; base_start "$f" ;;
-    *) die "usage: suite-base <feature> start" ;;
+    wait)  shift 2; base_wait "$f" "$@" ;;
+    *) die "usage: suite-base <feature> start | wait [--slice <seconds>] [--limit <seconds>]" ;;
   esac
 }
 
@@ -2736,8 +2737,11 @@ base_run() {
   trap base_run_exit EXIT
   trap base_run_term TERM
   # The heartbeat: epoch seconds, every 5 s, so a wait can tell a live
-  # runner from a process id some other program now has.
-  ( while :; do date +%s > "$BR_BD/heartbeat.tmp" && mv -f "$BR_BD/heartbeat.tmp" "$BR_BD/heartbeat"; sleep 5; done ) &
+  # runner from a process id some other program now has. The loop ends by
+  # itself once the runner is gone: a runner stopped by KILL runs no trap,
+  # and a loop that outlived it would write on for ever ($$ is the runner,
+  # in the subshell too).
+  ( while kill -0 "$$" 2>/dev/null; do date +%s > "$BR_BD/heartbeat.tmp" && mv -f "$BR_BD/heartbeat.tmp" "$BR_BD/heartbeat"; sleep 5; done ) &
   BR_HB=$!
   if ! suite_config "$f"; then BR_DONE="nothing recorded — no suite key: $SK_WHY"; exit 0; fi
   cd "$BR_TREE" || die "could not enter the base checkout"
@@ -2783,6 +2787,97 @@ base_run_exit() {
   base_remove_tree "$BR_TOP" "$BR_TREE"
   base_outcome "$BR_BD" "${BR_DONE:-nothing recorded — the runner stopped: see runner.log}" || true
   on_exit
+}
+
+# base_alive <dir> — the runner is alive and says so: its process id
+# answers, and its heartbeat (or, before the first one, its start) is at
+# most 60 s old. A heartbeat older than that means the id may belong to
+# another program by now, so nothing is ever signalled on it.
+base_alive() {
+  local pid hb now
+  pid="$(cat "$1/pid" 2>/dev/null)" || return 1
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  hb="$(cat "$1/heartbeat" 2>/dev/null || cat "$1/started" 2>/dev/null)" || return 1
+  case "$hb" in ''|*[!0-9]*) return 1 ;; esac
+  now="$(date +%s)"
+  [ $((now - hb)) -le 60 ]
+}
+
+# base_wait <feature> [--slice <s>] [--limit <s>] — see the contract in
+# specs/053-f5-cites-main-suite/contracts/suite-base.md. Exit 2: still
+# running when this call's slice ended; call again. Exit 0: nothing is
+# running any more, one line saying how it ended. It never says whether a
+# result may be cited: suite-lookup decides that, as before. The slice keeps
+# one call inside a caller's own time limit; the limit counts from the
+# first call, kept in wait-started, so a loop of calls cannot wait longer.
+base_wait() {
+  local f="$1" slice=540 limit=900 bd top now ws end pid out
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slice|--limit)
+        [ $# -ge 2 ] || die "usage: suite-base <feature> wait [--slice <seconds>] [--limit <seconds>]"
+        case "$2" in ''|0*|*[!0-9]*) die "$1 takes a whole number of seconds, 1 or more" ;; esac
+        if [ "$1" = --slice ]; then slice="$2"; else limit="$2"; fi
+        shift 2 ;;
+      *) die "usage: suite-base <feature> wait [--slice <seconds>] [--limit <seconds>]" ;;
+    esac
+  done
+  need_git_top
+  top="$(pwd -P)"
+  bd="$(base_dir "$f")"
+  if [ ! -f "$bd/pid" ]; then printf 'no base suite was started for this run\n'; return 0; fi
+  now="$(date +%s)"
+  [ -f "$bd/wait-started" ] || printf '%s\n' "$now" > "$bd/wait-started"
+  ws="$(cat "$bd/wait-started")"
+  case "$ws" in ''|*[!0-9]*) die "$bd/wait-started holds no time" ;; esac
+  end=$((now + slice))
+  while :; do
+    if [ -f "$bd/outcome" ]; then
+      out="$(cat "$bd/outcome")"
+      case "$out" in
+        "stopped at the "*) printf 'base suite %s\n' "$out" ;;
+        *) printf 'base suite ended: %s\n' "$out" ;;
+      esac
+      return 0
+    fi
+    if ! base_alive "$bd"; then
+      # Never signalled. Only a runner whose id no longer answers has its
+      # checkout removed: a live id with a stale heartbeat may be a runner
+      # a suspended machine has not woken yet.
+      pid="$(cat "$bd/pid" 2>/dev/null || true)"
+      case "$pid" in ''|*[!0-9]*) pid='' ;; esac
+      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+        base_remove_tree "$top" "$(cat "$bd/tree" 2>/dev/null || true)"
+      fi
+      printf 'base suite stopped reporting\n'
+      return 0
+    fi
+    now="$(date +%s)"
+    if [ $((now - ws)) -ge "$limit" ]; then base_stop "$bd" "$top" "$limit"; return 0; fi
+    if [ "$now" -ge "$end" ]; then
+      printf 'base suite still running after %s s of waiting\n' "$((now - ws))"
+      return 2
+    fi
+    sleep 1
+  done
+}
+
+# base_stop <dir> <top> <limit> — the limit passed with the runner alive:
+# TERM to its process group, or to its own id where the group cannot be
+# signalled; its trap stops the command and cleans up. Up to 10 s for that,
+# then the command's own id and the checkout are seen to here.
+base_stop() {
+  local bd="$1" top="$2" limit="$3" pid child n=0
+  pid="$(cat "$bd/pid")"
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  while [ ! -f "$bd/outcome" ] && [ "$n" -lt 10 ]; do n=$((n + 1)); sleep 1; done
+  child="$(cat "$bd/child" 2>/dev/null || true)"
+  case "$child" in ''|*[!0-9]*) ;; *) kill -TERM "$child" 2>/dev/null || true ;; esac
+  base_remove_tree "$top" "$(cat "$bd/tree" 2>/dev/null || true)"
+  base_outcome "$bd" "stopped at the $limit s limit"
+  printf 'base suite stopped at the %s s limit\n' "$limit"
 }
 
 # tap-check takes a TAP file, not a feature, so it is dispatched before the

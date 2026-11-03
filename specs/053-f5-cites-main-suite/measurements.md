@@ -32,3 +32,21 @@ current files.
   included. Red: test 1 (the --base lookup misses) and test 5 (no green
   base record to find). Test 7 stayed green: its stub writes nothing, so
   the main tree's status cannot show the difference; test 1 is the guard.
+
+## T012-T014 — suite-base wait (2026-11-03)
+
+- T012, against the Phase 3 script: `base-suite.bats` `1..17`, tests 11 to
+  17 not ok, 1 to 10 ok.
+- Found while T012 ran: test 16 stops a runner with KILL, which runs no
+  trap, and the runner's heartbeat loop (`while :`) lived on as an orphan,
+  writing for ever. It was stopped by its pid, and the loop now runs only
+  while the runner's id answers (`while kill -0 "$$"`); test 16 asserts the
+  heartbeat no longer moves 6 s after its runner is gone.
+- T014: three runs in a row, each `1..17`, 17 ok, exit 0; no
+  `suite-base-run` process left 6 s after each.
+- Mutation 1, landed (`2804:  : mutated-fresh`): the heartbeat's age is no
+  longer checked. Red: test 15 (a process whose heartbeat was stale was
+  signalled).
+- Mutation 2, landed (line 2744 loops on `:`): red: test 16 (the heartbeat
+  moved after its runner was gone). The mutant's orphan loop was then
+  stopped by its pid.
