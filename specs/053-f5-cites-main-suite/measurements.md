@@ -50,3 +50,10 @@ current files.
 - Mutation 2, landed (line 2744 loops on `:`): red: test 16 (the heartbeat
   moved after its runner was gone). The mutant's orphan loop was then
   stopped by its pid.
+
+## T015-T019 — the skill and the docs (2026-11-03)
+
+- T015, against the unchanged prose: `prose.bats` `1..99`, 96 ok, 3 not ok
+  (43 the F.5 pins and span, 64 the new B test, 65 the phases.md pins).
+- T019, after T016 and T018: `prose.bats` + `skills.bats` `1..111`, 111 ok,
+  exit 0.

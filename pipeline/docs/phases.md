@@ -20,7 +20,7 @@ already finished, or when you are choosing a value for `--until` or `--from`.
 | D | plan | Runs the spec-kit plan command, and checks the plan against the constitution. |
 | E | tasks | Runs the spec-kit tasks command, then audits each task for a named file, independent verifiability, and ordering. |
 | F | analyze | Runs the spec-kit analyze command and fixes what it finds, in a capped loop that ends after a round with no critical or high finding — see [the analyze loop](#the-analyze-loop). |
-| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature's, and phase J classifies against this record. May reuse a green result on identical files instead, or on the files as they were before the feature — see [reusing a suite run](#reusing-a-suite-run). |
+| F.5 | test baseline | Runs the test command and records the result verbatim. Failures that exist *before* the feature are not the feature's, and phase J classifies against this record. May reuse a green result on identical files instead, or on the files as they were before the feature, or a result the run's own background run recorded on the base commit — see [reusing a suite run](#reusing-a-suite-run). |
 | **G** | implementer | **Stops and asks** up to two questions. First, who builds: here, or a package for a cheaper model — the `implementer` setting can answer this one. Then, for a build here, how you review it: **commits** (one commit per piece, read afterwards) or **pauses** (a stop before each piece's commit). The second question is asked on every fresh run that builds here; nothing answers it in advance, and `--auto` does not collapse it. Choosing the package parks the run and hands you a brief. |
 | H | implement | Runs the spec-kit implement command. On a run that builds here, it commits the spec first, then builds one phase of the tasks file — a *piece* — at a time and commits each piece on its own; in pause mode it stops before each piece's commit (go on, fix this, or stop here). A handoff run, or one begun on an older pipeline, builds in one pass and leaves the commit to K. Independent tasks in the same group run in parallel; two agents never edit one file. |
 | H.5 | converge | Re-reads the tree against the spec and appends whatever is still missing as new tasks. Skipped, and said so, where the spec tool does not ship it. In the piece flow, commits what it changed. |
@@ -168,6 +168,29 @@ and a spec directory already tracked, still counts. A result is never
 recorded under that narrower key; the run F.5 makes is recorded for the
 files it ran on. A spec file at the top level, under `.delivery-kit/`, or
 outside the repository has no spec directory to leave out.
+
+The record `--base` looks up is made by the run itself. In B, once the
+state file and the feature branch exist, `progress.sh suite-base <feature>
+start` runs the test command in the background on a detached `git
+worktree` of HEAD's commit — the base commit, since the branch has no
+commit yet — in a temporary folder outside the working tree. A worktree
+shares the repository's configuration, so its files hold the same bytes
+and its key is the one F.5 computes; a checkout inside the tree would put a
+second copy of the repository where a test walking the file system would
+read it. The run records its result as an ordinary record, with the same
+key and the same writer as `suite-record`, and it never merges, pushes,
+fetches, makes or deletes a branch, changes the main tree, takes the lock
+or writes the state file. It starts nothing when a green record for the
+base files already exists, and nothing under `suiteReuse: off`. At F.5,
+`progress.sh suite-base <feature> wait` waits for it: exit 2 means still
+running after one slice of 540 seconds, so each call fits inside a
+600-second tool limit and is made again; the limit is 900 seconds, counted
+from F.5's first wait, and at the limit the runner is stopped. A runner
+whose heartbeat is more than 60 seconds old is never signalled: its
+process id may belong to another program by then. The wait never decides
+reuse; `suite-lookup <feature> --base` does, as above. A cited line names
+the record's commit (its tree under `files`, which keys no commit) and its
+command.
 
 `progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule
 to any TAP file, keyed or not, and prints one summary line or the first rule

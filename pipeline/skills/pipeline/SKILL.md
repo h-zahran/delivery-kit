@@ -347,7 +347,12 @@ is written into `gates.gitignore` the same way. THEN create the feature
 branch
 off the detected base branch, named `--branch`, else the feature's
 name: the spec files are still uncommitted, and uncommitted work
-travels with `git checkout -b`. Record `artifacts.spec`.
+travels with `git checkout -b`. Record `artifacts.spec`. Then run
+`progress.sh suite-base <feature> start` and print the one line it
+prints: on a fresh run whose base commit has no green suite result, it
+starts the full suite on that commit in the background, in a separate
+checkout, for F.5 to cite. An exit 1 is printed too and does not stop the
+run: F.5 then runs the suite.
 
 **C — clarify, looped.** Invoke `/speckit-clarify`. The tool asks one
 question at a time, best-effort marked `**Question:**`. THE HUMAN
@@ -392,7 +397,11 @@ refusal, only means nothing is kept). F.5, J and N may cite, quoting its two
 lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these
 identical files, git state as `suiteReuse` says, and command — instead of
 running; red or missing, run. F.5 adds `--base`, which also accepts one for these files
-without the run's untracked spec directory.
+without the run's untracked spec directory. F.5 first runs `progress.sh
+suite-base <feature> wait` again while it exits 2 — it waits for the run
+B started, and never decides reuse — then asks `suite-lookup <feature>
+--base`. F.5 records in the run's metrics whether it cited a result, as
+`f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`.
 
 **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 it: implement with Claude here, or produce a handoff package for a
