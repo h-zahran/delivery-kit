@@ -14,8 +14,8 @@ Expected: every test passes; shellcheck prints nothing.
 ## The new tests alone
 
 ```bash
-bash "$HOME/bats/bin/bats" --print-output-on-failure -f 'usable base|HEAD points|assume-unchanged|untracked-files|submodule|sparse' pipeline/tests/preflight.bats
-bash "$HOME/bats/bin/bats" --print-output-on-failure -f 'configuration.md' pipeline/tests/prose.bats
+bash "$HOME/bats/bin/bats" --print-output-on-failure -f 'usable base is checked|HEAD outside refs/heads/|configuration hides|skip-worktree file' pipeline/tests/preflight.bats
+bash "$HOME/bats/bin/bats" --print-output-on-failure -f 'notRead list is documented|Base branch section says' pipeline/tests/prose.bats
 ```
 
 ## By hand: one base case and one tree case

@@ -97,3 +97,7 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" --print-output-on-failure 
 ## Implementation strategy
 
 Phases 1 and 2 close items 1, 4 and 5 (MVP). Phase 3 closes item 2 as the owner scoped it. Phase 4 documents item 3 and the limits. Phase 5 proves each rule can fail. Phase 6 ships it.
+
+## Phase 7: Convergence
+
+- [X] T022 In `specs/052-preflight-usable-base-and-status/quickstart.md`, make the `-f` filter of "The new tests alone" select the four new `pipeline/tests/preflight.bats` tests by their real names ("a usable base is checked from every source", "HEAD outside refs/heads/ stops pre-flight", "tree: work the repository's configuration hides", "tree: a skip-worktree file and a clean sparse checkout"), then execute every bash block in the file from the repository root and record each result in `specs/052-preflight-usable-base-and-status/measurements.md` per plan: quickstart (partial)

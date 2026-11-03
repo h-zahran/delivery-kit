@@ -125,3 +125,17 @@ pipeline/tests/preflight.bats` in a detached worktree of `HEAD`. Plan
 Every new test goes red under at least one mutant: 32 under a to f, 33
 under f and g, 61 under h, i and j, 62 under k and l. Mutant k inverts the
 sparse rule, so the "not dirty" direction is shown able to go red too.
+
+## H.5 — convergence (T022)
+
+- Converge found one gap: quickstart.md's `-f` filters did not select two
+  of the four new tests (their names say "HEAD outside refs/heads/" and
+  "configuration hides", not "HEAD points" or "submodule"), and the
+  prose filter did not select the `notRead` pin. Both filters now name the
+  tests. Every other FR and SC had code and a test.
+- 2026-11-03, the quickstart blocks executed from the repository root:
+  block 1's shellcheck line, rc 0 and no output (its bats line is the full
+  suite, run in phase J); block 2, rc 0, `1..4` and `1..2`, every test
+  `ok`; block 3 (with `/path/to` set to the repository), rc 1 with
+  "preflight: 'main' is not a branch here or on origin (the baseBranch
+  key)", then `true`.
