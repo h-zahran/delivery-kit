@@ -153,11 +153,18 @@ commit_by_hand() {
   runs snapshot "$F" late H.7
   [[ "$(cat "$ERR")" == *"the saved list stands"* ]]
   jq -e '[.measurements.lateBefore.paths[].path] | index("src/more.sh") | not' "$SF"
+  # The list carries HEAD's id as it was saved, and a --fresh save carries
+  # HEAD's id then. Mutation: drop `head: $hd` from the save, and both
+  # assertions go red.
+  [ "$(jq -r '.measurements.lateBefore.head' "$SF")" = "$(git rev-parse HEAD)" ]
+  printf 'owner\n' >> README.md
+  commit_by_hand 'docs: an owner commit' README.md
   # A --from saves afresh, less the paths the phase's failure entry names.
   jq '.gates["H.7"] = {failure: {paths: ["src/new.sh"], output: "hook said no"}}' "$SF" > t.json
   mv t.json "$SF"
   runs snapshot "$F" late H.7 --fresh
   jq -e '[.measurements.lateBefore.paths[].path] | (index("src/more.sh") != null) and (index("src/new.sh") == null)' "$SF"
+  [ "$(jq -r '.measurements.lateBefore.head' "$SF")" = "$(git rev-parse HEAD)" ]
 }
 
 @test "snapshot refuses a path holding a line feed" {
@@ -575,7 +582,7 @@ commit_by_hand() {
 # --- J commits first (feature 055) ----------------------------------------------
 # J makes its late commit before its last full-suite run, so a run on that
 # commit that finds a new failure leads to another late commit: J may make one
-# per fixing iteration. Its record of a waved-through red is still made once.
+# per fixing iteration. It makes one record for each red waved through.
 
 @test "J's two late commits in one run are each recorded as kind tests with their own files" {
   # Mutation: a once-per-phase guard at the top of late-commit (an entry of
@@ -689,10 +696,10 @@ commit_by_hand() {
 }
 
 @test "late-commit J --record makes one record per waved-through red: a J late commit after a record needs a new one" {
-  # An empty `Late: J` commit is the record only when no J late commit with
-  # files came after it. Mutation: `break` turned to `continue` in --record's
-  # search, so any empty `Late: J` commit counts, and the --record after the
-  # fix prints R1 and makes nothing. This goes red.
+  # An empty `Late: J` commit is the record only while it is the newest
+  # commit. Mutation: drop the empty-commit check (`&& [ "${#CF[@]}" -eq 0
+  # ]`) in --record's search, so a newest `Late: J` commit with files counts,
+  # and the --record after the fix prints the fix and makes nothing. Red.
   repo
   runs snapshot "$F" late J
   msg 'test: carry the first accepted red'
@@ -797,6 +804,151 @@ commit_by_hand() {
   printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/empty.txt"
   git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/empty.txt"
   refuses "carries 'Piece: Phase 1: Setup' but could not be recorded" snapshot "$F" piece
+}
+
+# --- last-pass review of 055 --------------------------------------------------
+
+@test "late-commit J --record makes a new record when any commit follows the last one" {
+  # The record is the newest commit or it is not the record: a red waved
+  # through after any later commit, a J fix or not, is a new one to carry.
+  # Mutation: read the newest `Late: J` commit in place of the newest commit
+  # (`git log --first-parent --format=%H --grep='^Late: J$' --max-count=1`),
+  # and the --record after the owner's commit prints R1 and makes nothing.
+  repo
+  runs snapshot "$F" late J
+  msg 'test: carry the first accepted red'
+  runs late-commit "$F" J "$MSG" --record
+  r1="$(cat "$OUT")"
+  # Nothing follows it: a second --record prints R1 and makes nothing.
+  runs late-commit "$F" J "$MSG" --record
+  [ "$(cat "$OUT")" = "$r1" ]
+  [ "$(git rev-parse HEAD)" = "$r1" ]
+  printf 'owner\n' >> README.md
+  commit_by_hand 'docs: an owner commit' README.md
+  owner="$(git rev-parse HEAD)"
+  msg 'test: carry the second accepted red'
+  runs late-commit "$F" J "$MSG" --record
+  r2="$(cat "$OUT")"
+  [ "$r2" = "$(git rev-parse HEAD)" ]
+  [ "$r2" != "$r1" ]
+  [ "$r2" != "$owner" ]
+  [ -z "$(files_of HEAD)" ]
+  [ "$(msg_tail 1)" = "Late: J" ]
+  [ "$(jq -c '[.commits[] | [.sha, .kind]]' "$SF")" = "[[\"$r1\",\"tests\"],[\"$r2\",\"tests\"]]" ]
+}
+
+@test "a --from J leaves out a path an earlier J commit touched and the owner edited since" {
+  # The fresh list set the owner's edit aside: only a J commit made after the
+  # list was saved makes a path J's own. Mutation: ignore the saved head
+  # (`if [ -n "$h" ]` turned to `if false`), so every recorded J commit
+  # counts, and J's next commit sweeps in src/a.sh. Red.
+  repo
+  runs snapshot "$F" late J
+  printf 'J fix\n' > src/a.sh
+  msg 'test: fix a'
+  runs late-commit "$F" J "$MSG"
+  [ "$(files_of HEAD)" = src/a.sh ]
+  printf 'owner edit\n' >> src/a.sh
+  runs snapshot "$F" late J --fresh
+  [ "$(jq -r '.measurements.lateBefore.head' "$SF")" = "$(git rev-parse HEAD)" ]
+  printf 'J fix\n' > src/b.sh
+  msg 'test: fix b'
+  runs late-commit "$F" J "$MSG"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(files_of HEAD)" = src/b.sh ]
+  [ "$(git status --porcelain -- src/a.sh)" = " M src/a.sh" ]
+}
+
+@test "a J list saved with no head, by an older pipeline, still lets J commit a path put back" {
+  # Mutation: `mine=''` in the no-head branch of late_paths, and the put-back
+  # file hashes as the saved list said: "J changed no file". Red.
+  repo
+  printf 'dirty before J\n' >> src/keep.sh
+  cp src/keep.sh "$BATS_TEST_TMPDIR/keep.before"
+  runs snapshot "$F" late J
+  jq 'del(.measurements.lateBefore.head)' "$SF" > t.json; mv t.json "$SF"
+  printf 'J fix\n' >> src/keep.sh
+  msg 'test: fix'
+  runs late-commit "$F" J "$MSG"
+  first="$(cat "$OUT")"
+  cp "$BATS_TEST_TMPDIR/keep.before" src/keep.sh
+  msg 'test: take the fix back'
+  runs late-commit "$F" J "$MSG"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(git rev-parse HEAD)" != "$first" ]
+  [ "$(files_of HEAD)" = src/keep.sh ]
+  [ -z "$(git status --porcelain -- src/keep.sh)" ]
+}
+
+@test "a --from J that recovers a J commit still saves its list afresh" {
+  # A crash left J's commit unrecorded; the owner then edited its file and
+  # ran --from J. The recovered commit's id is printed, and the list is saved
+  # afresh all the same. Mutation: return on a recovered commit for --fresh
+  # too (`if [ "$phase" != J ] || [ -z "$fresh" ]` turned to `if true`), and
+  # the list from before the crash stands: J's next commit sweeps in src/a.sh
+  # and the saved head is the old one. Red.
+  repo
+  runs snapshot "$F" late J
+  printf 'J fix\n' > src/a.sh
+  commit_by_hand "$(printf '%s\n' 'test: fix a' '' 'Late: J')" src/a.sh
+  hand="$(git rev-parse HEAD)"
+  printf 'owner edit\n' >> src/a.sh
+  printf 'hook\n' > src/hook.sh
+  jq '.gates.J = {failure: {paths: ["src/hook.sh"], output: "hook said no"}}' "$SF" > t.json; mv t.json "$SF"
+  runs snapshot "$F" late J --fresh
+  [ "$(cat "$OUT")" = "$hand" ]
+  [ "$(jq -c '[.commits[] | .sha]' "$SF")" = "[\"$hand\"]" ]
+  jq -e --arg h "$hand" '.measurements.lateBefore.head == $h
+    and ([.measurements.lateBefore.paths[].path] | (index("src/a.sh") != null) and (index("src/hook.sh") == null))' "$SF"
+  printf 'J fix\n' > src/b.sh
+  msg 'test: fix b'
+  runs late-commit "$F" J "$MSG"
+  [ "$(files_of HEAD)" = "$(printf '%s\n' src/b.sh src/hook.sh)" ]
+  [ "$(git status --porcelain -- src/a.sh)" = " M src/a.sh" ]
+}
+
+@test "late-commit --list recovers nothing, writes nothing and prints paths only" {
+  # Mutation: let --list recover (drop `[ "$mf" != --list ] &&`), and the
+  # first call records the hand commit, changing the state file, and the
+  # second prints that commit's id where paths are expected. Red.
+  repo
+  runs snapshot "$F" late J
+  printf 'J fix\n' > src/a.sh
+  commit_by_hand "$(printf '%s\n' 'test: fix a' '' 'Late: J')" src/a.sh
+  head="$(git rev-parse HEAD)"
+  printf 'x\n' > src/x.sh
+  cp "$SF" "$BATS_TEST_TMPDIR/before.json"
+  runs late-commit "$F" J --list
+  [ "$(cat "$OUT")" = src/x.sh ]
+  cmp "$BATS_TEST_TMPDIR/before.json" "$SF"
+  [ "$(git rev-parse HEAD)" = "$head" ]
+  # With no J list saved, --list refuses: it never prints a commit id.
+  jq 'del(.measurements.lateBefore)' "$SF" > t.json; mv t.json "$SF"
+  refuses "measurements.lateBefore does not name J" late-commit "$F" J --list
+}
+
+@test "a read of the unrecorded commits that fails stops recovery, for a late phase and for a piece" {
+  # unrecorded's `die` ends only its $( ) subshell, and the recover step runs
+  # inside an `if`. The plant: a commit object in <base>..HEAD deleted, so
+  # git rev-list fails there. Mutation: drop the `|| die` after
+  # recover_late's `list="$(unrecorded …)"`, or after recover_piece's, and
+  # that call finds nothing to recover and goes on: late-commit commits,
+  # snapshot saves a list. Each turns this red.
+  repo
+  runs snapshot "$F" late I
+  printf 'one\n' > src/one.sh
+  commit_by_hand 'feat: one' src/one.sh
+  mid="$(git rev-parse HEAD)"
+  printf 'two\n' > src/two.sh
+  commit_by_hand 'feat: two' src/two.sh
+  rm -f ".git/objects/${mid:0:2}/${mid:2}"
+  # The plant landed: git itself can no longer walk the range.
+  run git rev-list --first-parent main..HEAD
+  [ "$status" -ne 0 ]
+  printf 'fix\n' > src/fix.sh
+  msg 'fix: review'
+  refuses "could not list the unrecorded commits" late-commit "$F" I "$MSG"
+  refuses "could not list the unrecorded commits" snapshot "$F" piece
 }
 
 @test "record-branch, commit-list and guide read a branch holding two J late commits and J's record" {
