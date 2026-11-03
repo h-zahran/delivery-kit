@@ -80,8 +80,8 @@ Test command for a phase: `bash "$HOME/bats/bin/bats" --print-output-on-failure 
 
 **Goal**: installed copies get the change (FR-012).
 
-- [ ] T020 In `pipeline/CHANGELOG.md`, add `## [1.7.6] - 2026-11-03` above `## [1.7.5]` with `### Highlights` (one line) and `### Fixed` (the usable-base check from every source; `HEAD` outside `refs/heads/`; the status flags and `assume-unchanged`; the documented limits; closes issue #107), in the file's style; set `"version": "1.7.6"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.6` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
-- [ ] T021 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.6) and `bash "$HOME/bats/bin/bats" --print-output-on-failure tests` in the FOREGROUND: green.
+- [X] T020 In `pipeline/CHANGELOG.md`, add `## [1.7.6] - 2026-11-03` above `## [1.7.5]` with `### Highlights` (one line) and `### Fixed` (the usable-base check from every source; `HEAD` outside `refs/heads/`; the status flags and `assume-unchanged`; the documented limits; closes issue #107), in the file's style; set `"version": "1.7.6"` in `pipeline/.claude-plugin/plugin.json`; set the pipeline entry's version to `1.7.6` in `.claude-plugin/marketplace.json` with `sed`, never `jq` (`git diff --stat` shows one line changed there).
+- [X] T021 Run `bash scripts/check-versions.sh` (rc 0, pipeline released at 1.7.6) and `bash "$HOME/bats/bin/bats" --print-output-on-failure tests` in the FOREGROUND: green.
 
 ---
 

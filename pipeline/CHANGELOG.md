@@ -2,6 +2,49 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.7.6] - 2026-11-03
+
+### Highlights
+
+- Pre-flight checks that the base branch it found can be branched from,
+  whatever its source, and its clean-tree check sees work the
+  repository's own configuration hides from `git status`.
+
+### Fixed
+
+- **A base branch from the repository is checked to exist.** A base from
+  `origin/HEAD`, the `baseBranch` key or the current branch was checked by
+  name only, so a key naming a branch that is nowhere, or only a tag, a
+  clone whose local `main` was deleted while `origin/HEAD` still named it,
+  and a base that is a branch and a tag at once all reached the report,
+  and phase B's `git checkout -b` then failed or `<base>..HEAD` read the
+  tag. Every source now gets the override's check: a local branch with a
+  commit, and no tag of its name. A base that exists only on `origin` is
+  refused with the command that creates it, `git branch --track <name>
+  origin/<name>`, and a base that is the current branch before its first
+  commit says so. That one case changes an override's message too: it
+  used to say the name is not a branch here or on `origin`.
+- **A `HEAD` outside `refs/heads/` no longer names a base branch.** The
+  current checkout was read with `git symbolic-ref --short`, so a `HEAD`
+  pointing at the tag `v1` or at `origin/main` gave `v1` or `origin/main`
+  as the base, and a branch with a tag of its name gave `heads/main`. The
+  full ref is read now; one outside `refs/heads/` stops pre-flight.
+- **The clean-tree check sees work the repository's configuration
+  hides.** `git status` exited 0 and printed nothing for an untracked file
+  under `status.showUntrackedFiles=no`, for a changed submodule under
+  `submodule.<name>.ignore=all` or `diff.ignoreSubmodules=all`, and for a
+  file marked `assume-unchanged`, so `tree.dirty` read `false`. The status
+  read now passes `--untracked-files=normal` and
+  `--ignore-submodules=none`, and a file marked `assume-unchanged` counts
+  as a change. A `skip-worktree` file and a folder git cannot open are
+  still not seen, by choice: a clean sparse checkout marks its files
+  `skip-worktree`. `configuration.md` names both, and says that pre-flight,
+  like every later phase, runs the programs the repository's own
+  configuration names, as git does in a repository the user owns.
+- The suite's fixtures are probed from a scratch repository on `main`, so
+  a CI pull-request checkout, which is detached with no `main`, does not
+  stop them. Closes issue #107.
+
 ## [1.7.5] - 2026-11-02
 
 ### Highlights
