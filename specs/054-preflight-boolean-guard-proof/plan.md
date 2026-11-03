@@ -47,7 +47,7 @@ open gap entry is marked closed, and the pull request carries `Closes #34`.
 | II. Measure; never assert | Which fields have the hole is decided by the base-commit run, not by a search. Both tables are dated and name their commit (SC-005). |
 | III. A gate must be shown able to go red | Every assertion, old and new, is shown red by its mutant. The FR-012 test is shown red by every mutant and green on its own fixture. The rig never edits a tracked file: it mutates scratch copies only, and checks at the end that its worktree's script is byte-identical to the commit. |
 | IV. One implementation | No rule is duplicated. The FR-012 test checks every field with one walk. |
-| V. Derive coverage | The FR-012 test names no field, so a future boolean is covered on arrival. The rig's mutant list is derived, not typed: the boolean paths of a real report, joined to the `field: $var` lines of the report template and the `--argjson` names. The rig stops if the derived list lacks any of the seven the spec names. |
+| V. Derive coverage | The FR-012 test names no field, so a future boolean is covered on arrival. The rig's mutant list is derived by measurement: each `--argjson` in the report template is flipped and probed, and the booleans that became strings are its fields. The rig stops if the derived list lacks any of the seven the spec names. |
 
 Gate result: PASS, no departure.
 

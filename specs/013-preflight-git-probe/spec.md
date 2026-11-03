@@ -218,7 +218,8 @@ was specified against, not by effort.
   and turning the stop into a warning.
 
 - **CLOSED: the two assertions landed in `ad20d2e`, and feature 054
-  (`specs/054-preflight-boolean-guard-proof/`) measured that each goes red.**
+  (`specs/054-preflight-boolean-guard-proof/`) measured that each goes red.
+  The rest of this entry is the gap as it read while open.**
   **`gh` and `adb` keep the boolean-type hole this change measured on them.**
   Switching either to `--arg` ships a string with the whole suite green, and a
   consumer writing `.capabilities.gh | not` reads the string `"false"` as
