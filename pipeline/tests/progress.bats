@@ -478,10 +478,11 @@ setup() {
   # remainder-commit, to twenty-four with suite-key, suite-record and
   # suite-lookup, to twenty-five with show-message, to twenty-nine with
   # ask-later, pending, answer and pending-check, and to thirty-one with
-  # abandon and get, and to thirty-two with board, edited here rather than
-  # pinned by a second, weaker test
-  # beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|tap-check|ask-later|pending|answer|pending-check|abandon|get|board>"* ]]
+  # abandon and get, and to thirty-two with board, and to thirty-three with
+  # suite-base (feature 053; its internal suite-base-run, started by
+  # suite-base alone, is not listed), edited here rather than pinned by a
+  # second, weaker test beside this one.
+  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
@@ -1505,10 +1506,12 @@ board_vs_lock_take() {
   cp "$sf" before.json
   # The commands that still work on an abandoned run, written here as the
   # contract: they read it, refresh its metrics, mark it again, or release
-  # a lock; tap-check reads a TAP file, never a run. Every other command the
+  # a lock; tap-check reads a TAP file, never a run; suite-base's start
+  # refuses an abandoned run itself, and its wait may stop a base suite
+  # runner the abandoned run left (feature 053). Every other command the
   # usage line lists is refused — a command added later included, since the
   # list is read from the script's usage.
-  ok=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup tap-check "
+  ok=" read validate get board metrics abandon lock-release piece-next show-message guide commit-list pending pending-check suite-key suite-record suite-lookup suite-base tap-check "
   run bash "$PROG"
   list="${output#*<}"; list="${list%%>*}"
   [[ "|$list|" == *"|init|"* && "|$list|" == *"|state-set|"* && "|$list|" == *"|get|"* ]] \
