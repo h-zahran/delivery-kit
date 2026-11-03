@@ -2,18 +2,30 @@
 
 bats_require_minimum_version 1.5.0
 
-# Suite for pipeline/scripts/preflight.sh — detection and probe. Fixture
-# directories sit INSIDE this repository, so git facts read from them
-# belong to the enclosing checkout — which is why no fixture test asserts
-# baseBranch or remote, and why those assertions get their own scratch
-# repositories below. The --base-branch flag on fixture runs is a
-# formality: where the checkout publishes origin/HEAD, that wins by
-# design.
+# Suite for pipeline/scripts/preflight.sh — detection and probe. The fixture
+# directories are copied, once per file, into a scratch repository on branch
+# main with one commit, and every fixture test probes that copy. They used to
+# be probed where they sit, inside this checkout, so their git facts were the
+# checkout's. Since feature 052 pre-flight checks that the base branch exists
+# as a local branch with a commit, and a CI pull-request checkout is detached
+# with no main at all, so every fixture probe would have stopped in CI alone
+# (research R6). No fixture test asserts baseBranch or remote; those
+# assertions get their own scratch repositories below.
 
 load ../../tests/helper
 
+setup_file() {
+  local copy="$BATS_FILE_TMPDIR/fixtures"
+  cp -R "$ROOT/pipeline/tests/fixtures" "$copy"
+  git -C "$copy" init -q -b main
+  git -C "$copy" add .
+  git -C "$copy" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false \
+    commit -q -m fixtures
+  export FIX_REPO="$copy"
+}
+
 setup() {
-  FIX="$ROOT/pipeline/tests/fixtures"
+  FIX="$FIX_REPO"
   # PREFLIGHT_UNDER_TEST points the suite at another copy of the script, for
   # mutation runs: mutate a copy, point the suite at it, watch a test go red.
   # The copy needs its siblings beside it: trailer-check.sh, and the
