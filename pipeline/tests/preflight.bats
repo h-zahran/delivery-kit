@@ -1055,6 +1055,105 @@ hidden_refused() {
     || { echo "wrong stop: $stderr"; false; }
 }
 
+# Feature 052, item 2 of issue #107: `git status --porcelain` exits 0 and
+# prints nothing for work the repository's own configuration hides, so the
+# report said the tree was clean (spec Context, 2b and 2d). The status read
+# now passes --untracked-files=normal and --ignore-submodules=none, which
+# beat the configuration, and a file marked assume-unchanged counts as a
+# change: git does not look at it, so nobody can say it is clean.
+# dirty_is <want> <repo> [probe args...] — the probe reports, and tree.dirty
+# is <want>.
+dirty_is() {
+  local want=$1 dir=$2; shift 2
+  probe --dir "$dir" --base-branch main "$@"
+  [ "$status" -eq 0 ] || { echo "$dir: exit $status: $stderr"; false; }
+  [ "$(jq -r '.tree.dirty' <<<"$output")" = "$want" ] \
+    || { echo "$dir: tree.dirty is $(jq -r '.tree.dirty' <<<"$output"), want $want"; false; }
+}
+# commit_all — commit what is staged, with the identity on the command line.
+commit_all() {
+  git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "$1"
+}
+
+@test "tree: work the repository's configuration hides from git status is dirty" {
+  local B="$BATS_TEST_TMPDIR/hidden-work"
+
+  # 2b: status.showUntrackedFiles=no hides an untracked file.
+  mkdir -p "$B/2b"; cd "$B/2b"; git init -q -b main .
+  echo x > f; git add f; commit_all f
+  git config status.showUntrackedFiles no
+  dirty_is false "$B/2b"
+  echo new > u
+  dirty_is true "$B/2b"
+
+  # 2d: an assume-unchanged file, not even changed, counts as a change.
+  mkdir -p "$B/2d"; cd "$B/2d"; git init -q -b main .
+  echo x > f; git add f; commit_all f
+  dirty_is false "$B/2d"
+  git update-index --assume-unchanged f
+  dirty_is true "$B/2d"
+  # From a subfolder too: the listing covers the whole tree, as the status
+  # read does, so an assume-unchanged file above the folder still counts.
+  mkdir sub; echo y > sub/g; git add sub/g; commit_all g
+  dirty_is true "$B/2d/sub"
+  git update-index --no-assume-unchanged f
+  dirty_is false "$B/2d/sub"
+
+  # A submodule with a new commit checked out, hidden by either setting.
+  mkdir -p "$B/sub-src"; cd "$B/sub-src"; git init -q -b main .
+  echo a > a; git add a; commit_all a
+  mkdir -p "$B/super"; cd "$B/super"; git init -q -b main .
+  echo x > f; git add f; commit_all f
+  git -c protocol.file.allow=always submodule add -q "$B/sub-src" s
+  commit_all sub
+  dirty_is false "$B/super"
+  ( cd s && echo b > b && git add b && commit_all b )
+  git config submodule.s.ignore all
+  dirty_is true "$B/super"
+  git config --unset submodule.s.ignore
+  git config diff.ignoreSubmodules all
+  dirty_is true "$B/super"
+}
+
+# The limits the owner chose to document rather than detect (spec FR-006):
+# a sparse checkout marks every file outside its cone skip-worktree on a
+# clean tree, so skip-worktree cannot mean hidden work. And a listing that
+# fails stops pre-flight, as a failed status read does.
+@test "tree: a skip-worktree file and a clean sparse checkout are not dirty" {
+  local B="$BATS_TEST_TMPDIR/not-hidden"
+
+  # 2c: a skip-worktree file, changed, is not seen (a documented limit).
+  mkdir -p "$B/2c"; cd "$B/2c"; git init -q -b main .
+  echo x > f; git add f; commit_all f
+  git update-index --skip-worktree f
+  echo changed > f
+  dirty_is false "$B/2c"
+
+  # A clean sparse checkout.
+  mkdir -p "$B/sparse/a" "$B/sparse/b"; cd "$B/sparse"; git init -q -b main .
+  echo 1 > a/1; echo 2 > b/2; git add a b; commit_all ab
+  git sparse-checkout set a
+  [ ! -e b/2 ] || { echo "the sparse checkout did not apply"; false; }
+  dirty_is false "$B/sparse"
+
+  # The listing fails while git status works: a git that refuses ls-files.
+  local d="$BATS_TEST_TMPDIR/no-ls-files" real
+  real="$(command -v git)"
+  shimdir "$d" awk grep head jq od
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 1; done\nexec "%s" "$@"\n' "$real" > "$d/git"
+  chmod +x "$d/git"
+  probe --path "$d" --dir "$B/2c" --base-branch main
+  [ "$status" -eq 1 ] || { echo "exit $status, want 1: $output"; false; }
+  [ -z "$output" ] || { echo "a report was printed: $output"; false; }
+  [ "$stderr" = "preflight: the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git status to see why" ] \
+    || { echo "wrong stop: $stderr"; false; }
+  # The positive control: the same search path with a git that answers
+  # ls-files reports.
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$real" > "$d/git"
+  probe --path "$d" --dir "$B/2c" --base-branch main
+  [ "$status" -eq 0 ] || { echo "the plain shim: exit $status: $stderr"; false; }
+}
+
 # A DONE run and an abandoned one are not live. Both are made by the real
 # progress.sh, so the marker pre-flight reads is the one abandon writes. A
 # mutant that compared current_phase with anything but DONE passed this

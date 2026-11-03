@@ -563,11 +563,31 @@ adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 # A status read that fails is no answer about the tree: with a usable git
 # it stops pre-flight, rather than read as clean. With git not usable the
 # read cannot succeed, so it does not run, and notRead names the field.
+#
+# Feature 052: git status exits 0 and prints nothing for work the
+# repository's own configuration hides (measured, git 2.53.0), so two flags
+# on the command line, which beat the configuration, close two cases:
+# --untracked-files=normal against status.showUntrackedFiles=no, and
+# --ignore-submodules=none against submodule.<name>.ignore and
+# diff.ignoreSubmodules. A third read lists the index with `ls-files -v`,
+# whose tag is a lowercase letter for a file marked assume-unchanged (-f,
+# not -v, is the fsmonitor flag): git does not look at such a file, so
+# nobody can say it is clean, and it counts as a change. The `:/` pathspec
+# makes the listing cover the whole tree from any folder, as git status
+# does; without it a run from a subfolder lists only that subfolder. A file
+# name holding a line feed is quoted, so every line starts with its tag.
+# awk reads every line, so no reader that leaves early can kill git under
+# pipefail (tests/pipefail.bats). Two cases stay unseen, documented as
+# limits: a skip-worktree file (a sparse checkout marks clean files so) and
+# a folder git cannot open (git only warns on stderr, which is never read).
 dirty=false
 if [ "$git_usable" = true ]; then
-  st="$(git status --porcelain 2>/dev/null)" \
+  st="$(git status --porcelain --untracked-files=normal --ignore-submodules=none 2>/dev/null)" \
     || die "the working tree's status could not be read: git status failed, so pre-flight cannot tell whether the tree is clean; run git status to see why"
   [ -z "$st" ] || dirty=true
+  au="$(git ls-files -v -- ':/' 2>/dev/null | awk '/^[a-z] / { n++ } END { print n + 0 }')" \
+    || die "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git status to see why"
+  [ "$au" = 0 ] || dirty=true
 fi
 mark_not_read tree.dirty
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it

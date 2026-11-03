@@ -63,3 +63,17 @@ the foreground, with its exit status captured on the next line.
   the same with `--base-branch main` and an untracked file; the same with
   `--base-branch-override main`; a clean tree with a tracked file; a
   modified tracked file.
+
+## Phase 3 — the clean-tree read (T011 to T015)
+
+- T013, 2026-11-03, the two new tests against the Phase 2 script: rc 1,
+  plan `1..119`, 117 `ok`. Red: "tree: work the repository's
+  configuration hides from git status is dirty" (first at 2b: `tree.dirty`
+  false, want true) and "tree: a skip-worktree file and a clean sparse
+  checkout are not dirty" (at the failed-listing case: exit 0, want 1; its
+  2c and sparse cases, which come first, passed).
+- After T014: shellcheck clean; rc 0, plan `1..119`, 119 `ok`, no skip.
+  `tests/pipefail.bats`: rc 0, 14 of 14.
+- T015, the differential of Phase 2 repeated with the Phase 3 script:
+  identical to `main`'s script (rc 0) in all six cases, a clean tree and a
+  tree with one untracked file among them.
