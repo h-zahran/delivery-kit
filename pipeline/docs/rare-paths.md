@@ -192,6 +192,25 @@ comments, each under that limit, in order, and shown with the body at L
 a later rebuild edits those comments rather than posting new ones; no
 row and no file is dropped.
 
+## K and L as one stop
+
+K and L are one stop when `<base>..HEAD` holds a commit and K has
+nothing left to commit: no remainder, no constitution commit, no record
+commit for K to make. Under `--auto`, or with no remote, K and L act as
+they do apart. K first runs L's checks that can stop the run, in this
+order: the string-entry case, `record-branch`, a stale entry, waiting
+questions, `pending-check`, `guide`. Then one question shows K's commit
+list, `codeRoots` and every path outside the feature, and L's branch
+name, title and full body; one answer covers both. A yes is recorded as
+`gates.K` in K's full shape and as `gates.L` with `guide`, the guide's
+`git hash-object`; each carries `"joint": true`. A no pushes nothing and
+stops the run under the `--until` rule, as a no at K does. A re-entered
+K that asks again sets aside the joint answer in `gates.L`.
+
+After a joint yes at K, L asks nothing, on a resume too, but still runs
+its checks; before the push, the rebuilt guide's `git hash-object` must
+equal `gates.L.guide`, or the run stops and asks again.
+
 ## No runtime strategy
 
 If no server command
