@@ -1368,7 +1368,7 @@ SPAN
   # the base run is a minute from done; "never decides reuse" dropped, a
   # wait's "ended: green" could be read as leave to cite.
   pins_in "$flat" 'phase F.5' <<'PINS'
-F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`.
+F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`; an exit 1 from the wait is printed too, and F.5 goes on to the lookup.
 F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`.
 PINS
   # INSERTION GUARD — see the block above. A clause anchor proves a rule is
@@ -1378,7 +1378,7 @@ PINS
 
 span_f5() {
   cat <<'SPAN'
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`. F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`; an exit 1 from the wait is printed too, and F.5 goes on to the lookup. F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 SPAN
 }
 
@@ -2277,10 +2277,13 @@ PINS
     'Only the untracked spec directory is left out: any other change, and a spec directory already tracked, still counts. A result is never recorded under that narrower key;' \
     '`progress.sh tap-check <tap-file> [<expected-count>]` applies the green rule to any TAP file, keyed or not' \
     'on a detached `git worktree` of HEAD'"'"'s commit — the base commit, since the branch has no commit yet — in a temporary folder outside the working tree.' \
-    'It starts nothing when a green record for the base files already exists, and nothing under `suiteReuse: off`.' \
+    'It starts nothing when a green record for the base files already exists, and nothing under `suiteReuse: off` or any value that is not `commit` or `files`.' \
     'the limit is 900 seconds, counted from F.5'"'"'s first wait, and at the limit the runner is stopped.' \
-    'A runner whose heartbeat is more than 60 seconds old is never signalled: its process id may belong to another program by then.' \
-    'The wait never decides reuse; `suite-lookup <feature> --base` does, as above.'
+    'A runner whose heartbeat is more than 60 seconds old is never signalled: its process id may belong to another program by then; a live id whose heartbeat is stale gets 15 seconds to beat again.' \
+    'The wait never decides reuse; `suite-lookup <feature> --base` does, as above.' \
+    'It costs a second full run of the suite during C to F, and at worst F.5 waits the whole 900 seconds and then runs the suite itself.' \
+    'The checkout holds no file git ignores' \
+    'Before it starts anything, it compares the checkout'"'"'s key with these files'"'"' `--base` key, and starts nothing when they differ'
   do
     [[ "$flat" == *"$want"* ]] || { echo "phases.md's reuse section no longer says: $want"; false; }
   done
