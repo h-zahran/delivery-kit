@@ -132,12 +132,19 @@ stub() {
 @test "the no-speckit fixture reports the tool absent, exit 0 -- reporting is not failing" {
   probe --dir "$FIX/no-speckit" --base-branch main
   [ "$status" -eq 0 ]
+  # The type, never a pattern over jq -r's text: -r prints the string "false"
+  # exactly as it prints the boolean, so the line below passed on both.
+  jq -e '.speckit.present | type == "boolean"' <<<"$output" > /dev/null
   [ "$(jq -r '.speckit.present' <<<"$output")" = "false" ]
   [ "$(jq -r '.speckit.constitutionSet' <<<"$output")" = "false" ]
 }
 
 @test "the web fixture reads version and sh flavour, resolving the bash scripts dir" {
   probe --dir "$FIX/web" --base-branch main
+  # The type, never a pattern over jq -r's text: -r prints the string "true"
+  # exactly as it prints the boolean, so the versionInRange line below passed
+  # on both.
+  jq -e '.speckit.versionInRange | type == "boolean"' <<<"$output" > /dev/null
   [ "$(jq -r '.speckit.version' <<<"$output")" = "0.16.5" ]
   [ "$(jq -r '.speckit.script' <<<"$output")" = "sh" ]
   [ "$(jq -r '.speckit.scriptsDir' <<<"$output")" = ".specify/scripts/bash" ]
@@ -1097,6 +1104,20 @@ hidden_refused() {
   # exactly as it prints the boolean, so a pattern passed on both.
   jq -e '.capabilities.gh | type == "boolean"' <<<"$output" > /dev/null
   jq -e '.capabilities.adb | type == "boolean"' <<<"$output" > /dev/null
+}
+
+# Feature 054. A walk over the whole report, naming no field: every boolean
+# the script passes in with --argjson is in every report, whatever its value,
+# so one fixture reaches them all, and one passed with --arg instead arrives
+# as the string "true" or "false". A boolean added to the report later is
+# covered the day it lands, with no list to update. It checks how the report
+# is built, not what a caller supplies: a branch named "true" would be a
+# legitimate string, and this fixture supplies no such value.
+@test "no report field is the string \"true\" or \"false\"" {
+  probe --dir "$FIX/web" --base-branch main
+  [ "$status" -eq 0 ]
+  jq -e '[.. | strings | select(. == "true" or . == "false")] | length == 0' <<<"$output" > /dev/null \
+    || { echo "string booleans at: $(jq -c '[paths(type == "string") as $p | select(getpath($p) == "true" or getpath($p) == "false") | $p]' <<<"$output")"; false; }
 }
 
 @test "willSkip names phases L and M in a repository with no remote" {
