@@ -778,9 +778,9 @@ rides inside the feature's commits.
 `remainder-commit <feature> <message file> --kind constitution` makes it
 and records it as kind `constitution`.
 
-When `<base>..HEAD` holds a commit and K has nothing left to commit, K
-and L are one stop: read "K and L as one stop" in
-`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` and follow it.
+When `<base>..HEAD` holds a commit and K has nothing left to commit,
+follow "K and L as one stop" in
+`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 
 **L — push and open a pull request. STOPS AND ASKS.** Show the branch
 name, the PR title and the full body before anything leaves the machine.
@@ -793,9 +793,8 @@ request to review). Ask any waiting questions before building the body;
 before the push, `progress.sh pending-check <feature>` must exit 0 (see
 Gates).
 
-After a joint yes at K, L asks nothing, on a resume too, but still runs
-its checks below, as "K and L as one stop" in
-`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` says.
+After a joint yes (see K), L does not ask its push question again, but
+every stop L names still stops it.
 
 Before anything else, a run whose `commits` holds an old-style string
 entry started on an older pipeline: it builds no guide, says so, and
@@ -922,8 +921,7 @@ clarify questions at C; a pre-answered `handoff` at G; `releaseCommand`
 unset at O) records that and moves on. C, G and O can each have nothing
 to ask; K and L always have content, and stop unless `--auto` collapsed
 them or a degradation named at pre-flight (no remote, no `gh`) already
-reduced them. When K has nothing left to commit, K and L are one stop
-(see K). A pre-answered `implementer`
+reduced them. K and L can be one stop (see K). A pre-answered `implementer`
 removes the implementer question, never the review question, so G stops
 on every fresh `claude` run.
 
@@ -932,8 +930,7 @@ State the floor honestly. No fresh run reaches DONE without a stop: on a
 run parks at H. A re-entry past G asks nothing there and so can reach
 DONE with no gate stopping it — for example a run resumed from an older
 pipeline that had completed G (see G), or a run re-entered with
-`--from H` or later. K and L stop once, not twice, when K has nothing
-left to commit. Nothing outside
+`--from H` or later. Nothing outside
 the gate table is silenced by
 `--auto` — the pre-flight constitution offer, every cap breach, a
 missing required tool, any hard failure and a failed runtime check all
@@ -955,7 +952,7 @@ A gate is a safe handoff point: the state file records which gate waits.
 | Clarify | C | Every question the tool raises, one at a time |
 | Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
 | Commit | K | The commit list, oldest first, each commit with its message and files; then every uncommitted path and the exact commit message |
-| Push and pull request | L | Branch name, title, full body; one stop with K when K has nothing left to commit |
+| Push and pull request | L | Branch name, title, full body; can be one stop with K (see K) |
 | Release | O | The exact command, and where it publishes |
 
 Conditional stops: the resume prompt, a cap breach in C, F, J or M, a

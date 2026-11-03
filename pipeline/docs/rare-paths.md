@@ -196,20 +196,43 @@ row and no file is dropped.
 
 K and L are one stop when `<base>..HEAD` holds a commit and K has
 nothing left to commit: no remainder, no constitution commit, no record
-commit for K to make. Under `--auto`, or with no remote, K and L act as
-they do apart. K first runs L's checks that can stop the run, in this
-order: the string-entry case, `record-branch`, a stale entry, waiting
-questions, `pending-check`, `guide`. Then one question shows K's commit
-list, `codeRoots` and every path outside the feature, and L's branch
-name, title and full body; one answer covers both. A yes is recorded as
-`gates.K` in K's full shape and as `gates.L` with `guide`, the guide's
-`git hash-object`; each carries `"joint": true`. A no pushes nothing and
-stops the run under the `--until` rule, as a no at K does. A re-entered
-K that asks again sets aside the joint answer in `gates.L`.
+commit for K to make. They stay apart, each acting as it does alone,
+under `--auto`; with no remote, a non-GitHub remote or no `gh`,
+where L opens no pull request; and for a run whose `commits` holds an
+old-style string entry, which builds no guide.
 
-After a joint yes at K, L asks nothing, on a resume too, but still runs
-its checks; before the push, the rebuilt guide's `git hash-object` must
-equal `gates.L.guide`, or the run stops and asks again.
+K first runs L's checks that can stop the run, in this order:
+`record-branch`, a stale entry, waiting questions, `pending-check`, and
+`guide`, with `--parts` when the body would pass GitHub's limit. Then
+one question shows K's commit list, `codeRoots` and every path outside
+the feature, and L's branch name, title and full body, with each guide
+part; one answer covers both. A no pushes nothing and stops the run
+under the `--until` rule, as a no at K does.
+
+A yes is recorded as `gates.K` in K's full shape, and in `gates.L`,
+beside whatever `drop-stale` recorded there, as what was shown:
+`branch`, the branch name; `title`; `head`, the full commit id that
+`git rev-parse HEAD` prints; `body`, the body file's `git hash-object`;
+and, when the body is over GitHub's limit, `parts`, the
+`git hash-object` of each `--parts` comment file, in order. Both
+`gates.K` and `gates.L` carry `"joint": true`, and `gates.L.answer`
+holds the answer.
+
+After a joint yes, L does not ask its push question again, on a resume
+too, but every stop L names still stops it, `pending-check` included.
+Just before the push, L rebuilds the body and each part as at L, and
+recomputes the branch name, the title, `git rev-parse HEAD` and each
+`git hash-object`. When any of them differs from `gates.L`, the run
+stops and asks L's question again, as a stop of its own, showing the
+new content, and records that answer in `gates.L` without `"joint"`.
+
+A re-entered K that asks again, as K's own rule says — it has no
+answer, or its commit list or remainder differs from what the joint
+answer covered — first sets the joint answer aside with
+`progress.sh state-set <feature> gates L "$(progress.sh get <feature> '(.gates.L // {}) | del(.joint, .answer, .branch, .title, .head, .body, .parts)')"`.
+That write keeps whatever `drop-stale` recorded under `gates.L`, and it
+comes before the question, so a session that ends while K waits leaves
+no joint answer behind.
 
 ## No runtime strategy
 
