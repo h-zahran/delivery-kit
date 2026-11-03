@@ -139,3 +139,44 @@ sparse rule, so the "not dirty" direction is shown able to go red too.
   `ok`; block 3 (with `/path/to` set to the repository), rc 1 with
   "preflight: 'main' is not a branch here or on origin (the baseBranch
   key)", then `true`.
+
+## Phase I — one review round
+
+- Five lenses (contract, security, tests, bugs, simplify) reported 38
+  findings: 3 HIGH, 13 MEDIUM, 22 LOW. 30 were fixed, 8 deferred with a
+  reason; the second bugs pass, over the fixes alone, found 10 more: 8
+  fixed, 2 deferred. The list, with each outcome, is the run's
+  `review-I.txt`.
+- A correction to Phase 1, dated 2026-11-03: "No test … needed the
+  fixtures inside this checkout" was false. The test "the capability
+  report names git absent" keeps a tripwire on `baseBranchSource` that
+  needs a published `origin/HEAD`, and a mobile-android test's comment
+  relied on the checkout's remote. Both held only by accident with a
+  remote-less copy. The fixture repository now gets a GitHub `origin` and
+  `origin/HEAD` naming `main` in `setup_file`, the git facts those tests
+  were written against.
+- The bare-name collisions were first closed with a hand-made list of
+  git's short-name rules; the second bugs pass measured it missing
+  reftable's `ORIG_HEAD`, `main-worktree/HEAD` and a full commit id, and
+  refusing a branch named `COMMIT_EDITMSG`. `git rev-parse
+  --symbolic-full-name <name>` printed `refs/heads/<name>` exactly when
+  `git checkout -b` succeeded, on 10 shapes in both ref formats (git
+  2.53.0), and replaced the list; only the full-commit-id spelling needed
+  its own rule.
+- Mutants, 2026-11-03, each landed (its line echoed), parsed, and run
+  against `pipeline/tests/preflight.bats` (plan `1..119`) from a detached
+  worktree holding the changed files, three at a time: all 26 red. a
+  (base check skipped for non-override sources): 17, 19, 32. b origin-only:
+  31, 32. c unborn: 32. d commit check: 32. e tag: 30, 32. f `--short` on
+  HEAD: 32, 33. g HEAD-outside: 33. h `--untracked-files`: 61. i
+  `--ignore-submodules` dropped: 61. i2 `=dirty` in its place: 61. j `:/`:
+  61. k counts `S`: 62. l listing stop: 62. m and n2 (the first
+  collision list, whole and cut down) and n (its file rule): 32; then,
+  after the change to `--symbolic-full-name`, its check dropped: 32, and
+  the commit-id rule dropped: 32. p origin/HEAD outside origin: 32. q
+  `--short` on origin/HEAD: 32. r `--no-literal-pathspecs`: 61. s the
+  listing on a dirty status: 62. t the warning: 61. u the assume-unchanged
+  rule removed: 61. v `branch_ok` dropped from `base_usable`: 19, 20, 29,
+  107, 108, 109. w the masking copy replaced by the raw name: 32.
+- The differential against `main`'s script, rerun after the fixes:
+  identical (rc 0) in all six cases.

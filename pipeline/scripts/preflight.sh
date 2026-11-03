@@ -196,22 +196,33 @@ branch_like() {
           if (r != "HEAD" && (l == n || index(l, n "/") == 1 || index(n, l "/") == 1)) { print r; exit } }'
 }
 # base_usable <name> <label> — B runs `git checkout -b <feature> <base>` and
-# later phases read `<base>..HEAD`, so the base must be a LOCAL branch that
-# names a commit, and no tag may share its name. One function serves every
-# source (Principle IV): the override, where it is parsed, and origin/HEAD,
-# the baseBranch key and the current branch once the base is resolved and
-# its name has passed branch_ok. Until feature 052 only the override was
-# checked, and each of these passed (measured, git 2.53.0): a key naming a
-# branch that is nowhere, or only a tag; origin/HEAD naming main in a clone
-# whose local main was deleted; a base that is a branch and a tag at once.
-# `git checkout -b` fails on all of them (rc 128) or, for the tag, makes the
-# branch while every later <base>..HEAD reads the tag. Exit statuses alone
-# decide; git's text is never read. A name that is the current branch before
-# its first commit has no ref yet, so it is told apart from a name that is
-# nowhere; that one message is new for the override too (spec FR-011).
-# `update-ref` refuses to write a tree to a branch, but a ref file written by
-# hand is read as one, so the commit is checked, not assumed.
+# later phases read `<base>..HEAD`, so the base must be a legal name
+# (branch_ok, first, so a name it refuses is never looked up), a LOCAL
+# branch that names a commit, and a name git reads as that branch and as
+# nothing else. One function serves every source (Principle IV): the
+# override, where it is parsed, and origin/HEAD, the baseBranch key and the
+# current branch once the base is resolved; each refusal names the source by
+# its label. Each case below makes `git checkout -b` exit 128 (measured, git
+# 2.53.0): a name that is nowhere, or only a tag; a name only origin has,
+# a fresh clone's usual state, so that refusal names the one command that
+# fixes it; the current branch before its first commit, which has no ref
+# yet; a ref file written by hand to hold a tree (`update-ref` refuses to
+# write one, a written file is read as one); and a name git reads as
+# something other than the branch. A tag of the same name has its own
+# message, since every later <base>..HEAD would read the tag. Every other
+# such name, refs/<name>, a remote's branch, a remote's HEAD, ORIG_HEAD,
+# main-worktree/<ref>, in either ref format, is found by asking git how it
+# reads the name: `rev-parse --symbolic-full-name` prints refs/heads/<name>
+# only when the name means that branch and nothing else, and it agreed with
+# `git checkout -b` on every case measured (git 2.53.0, files and reftable),
+# where a hand-made list of git's rules missed some and refused a branch
+# named after a git file that is no ref. A remote can supply such a name
+# through origin/HEAD. A name spelled as a full commit id is refused apart:
+# `checkout -b` takes the branch, while rev-parse and <base>..HEAD take the
+# commit. Exit statuses and that one ref name alone decide; git's text is
+# never read.
 base_usable() {
+  branch_ok "$1" "$2"
   shown base_s "$1"
   if ! git show-ref --verify --quiet "refs/heads/$1"; then
     if git show-ref --verify --quiet "refs/remotes/origin/$1"; then
@@ -224,20 +235,22 @@ base_usable() {
   fi
   git rev-parse --verify --quiet "refs/heads/$1^{commit}" >/dev/null 2>&1 \
     || die "'$base_s' does not name a commit ($2)"
-  # A name that is a branch and a tag too: `git checkout -b` fails as
-  # ambiguous, and <base>..HEAD reads the tag.
   if git show-ref --verify --quiet "refs/tags/$1"; then
     die "'$base_s' is a tag as well as a branch; git would read the tag ($2)"
   fi
+  local full
+  full="$(git rev-parse --symbolic-full-name "$1" 2>/dev/null)" || full=""
+  [ "$full" = "refs/heads/$1" ] \
+    || die "'$base_s' is the name of another ref as well as a branch; git cannot tell them apart ($2)"
+  case "${#1}:$1" in
+    40:*[!0-9a-f]*|64:*[!0-9a-f]*) ;;
+    40:*|64:*) die "'$base_s' is spelled as a full commit id; git would read the commit, not the branch ($2)" ;;
+  esac
 }
 # The override is what a person typed, or a key somebody wrote, for this
-# run, so it is checked rather than trusted: a legal name, and a usable
-# LOCAL branch (base_usable above). A name that exists only as origin/<base>
-# (measured, git 2.43.0: rc 128) is a fresh clone's usual state, so that
-# case names the one command that fixes it. A tag, a commit id, origin/main
-# or refs/heads/main is not a branch's name.
+# run, so it is checked rather than trusted, here where it is parsed. A tag,
+# a commit id, origin/main or refs/heads/main is not a branch's name.
 if [ -n "$base_override" ] && [ "$git_usable" = true ]; then
-  branch_ok "$base_override" --base-branch-override
   base_usable "$base_override" --base-branch-override
 fi
 # The feature branch B will cut: --feature-branch, else the spec folder's
@@ -449,8 +462,18 @@ fi
 base=""; base_source=""
 if [ -n "$base_override" ]; then
   base="$base_override"; base_source="override"
-elif b="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
-  base="${b#origin/}"; base_source="origin/HEAD"
+elif b="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"; then
+  # The full ref, as for HEAD below: --short makes git choose an unambiguous
+  # spelling, so with a ref named origin/main beside origin's own it printed
+  # remotes/origin/main, and the old strip of `origin/` kept that as the
+  # base; and it accepted an origin/HEAD pointing at another remote's branch
+  # (measured, git 2.53.0). The message names no ref: the ref comes from the
+  # repository.
+  case "$b" in
+    refs/remotes/origin/?*) base="${b#refs/remotes/origin/}" ;;
+    *) die "origin/HEAD points to a ref that is not one of origin's branches, so the remote names no base branch; pass a base branch with the run's --base-branch flag" ;;
+  esac
+  base_source="origin/HEAD"
 elif [ -n "$base_configured" ]; then
   base="$base_configured"; base_source="configured"
 else
@@ -491,22 +514,14 @@ fi
 # remote names its own default branch, so it gets the override's name
 # check: B types the name into commands. An override is checked where it
 # is parsed; without a usable git nothing is checked, as for an override.
-# Every source but the override is checked, a later one included. Since
-# feature 052 the base must also be usable (base_usable), checked after the
-# name so a name the name check refuses is never looked up; both checks name
-# the source with the same label.
-if [ "$git_usable" = true ]; then
-  label=""
+# Every source but the override is checked, a later one included, and the
+# base must be usable as well as legal (base_usable).
+if [ "$git_usable" = true ] && [ "$base_source" != override ]; then
   case "$base_source" in
-    override) ;;
-    origin/HEAD) label="origin/HEAD; pass a base branch with the run's --base-branch flag" ;;
-    configured) label="the baseBranch key" ;;
-    *) label="the $base_source; check out another branch, or pass a base branch" ;;
+    origin/HEAD) base_usable "$base" "origin/HEAD; pass a base branch with the run's --base-branch flag" ;;
+    configured) base_usable "$base" "the baseBranch key" ;;
+    *) base_usable "$base" "the $base_source; check out another branch, or pass a base branch" ;;
   esac
-  if [ -n "$label" ]; then
-    branch_ok "$base" "$label"
-    base_usable "$base" "$label"
-  fi
 fi
 # notRead names each field of this report that holds a placeholder, not a
 # fact, because git is not usable here: its git read did not run, or ran and
@@ -564,30 +579,40 @@ adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 # it stops pre-flight, rather than read as clean. With git not usable the
 # read cannot succeed, so it does not run, and notRead names the field.
 #
-# Feature 052: git status exits 0 and prints nothing for work the
-# repository's own configuration hides (measured, git 2.53.0), so two flags
-# on the command line, which beat the configuration, close two cases:
+# git status exits 0 and prints nothing for work the repository's own
+# configuration hides (measured, git 2.53.0), so two flags on the command
+# line, which beat the configuration, close two cases:
 # --untracked-files=normal against status.showUntrackedFiles=no, and
 # --ignore-submodules=none against submodule.<name>.ignore and
-# diff.ignoreSubmodules. A third read lists the index with `ls-files -v`,
-# whose tag is a lowercase letter for a file marked assume-unchanged (-f,
-# not -v, is the fsmonitor flag): git does not look at such a file, so
-# nobody can say it is clean, and it counts as a change. The `:/` pathspec
-# makes the listing cover the whole tree from any folder, as git status
-# does; without it a run from a subfolder lists only that subfolder. A file
-# name holding a line feed is quoted, so every line starts with its tag.
-# awk reads every line, so no reader that leaves early can kill git under
-# pipefail (tests/pipefail.bats). Two cases stay unseen, documented as
-# limits: a skip-worktree file (a sparse checkout marks clean files so) and
-# a folder git cannot open (git only warns on stderr, which is never read).
+# diff.ignoreSubmodules. When the status is clean, a second read lists the
+# index with `ls-files -v`, whose tag is a lowercase letter for a file
+# marked assume-unchanged (-f, not -v, is the fsmonitor flag): git does not
+# look at such a file, so nobody can say it is clean, and it counts as a
+# change. Under core.ignoreStat git marks every file it writes so, and that
+# repository always reads dirty: git cannot see a change there either. A
+# warning says why, since git status shows nothing. The `:/` pathspec makes
+# the listing cover the whole tree from any folder, as git status does;
+# without it a run from a subfolder lists only that subfolder, and
+# --no-literal-pathspecs keeps GIT_LITERAL_PATHSPECS in the environment from
+# reading `:/` as a file name, which listed nothing. A file name holding a
+# line feed is quoted, so every line starts with its tag. awk reads every
+# line, so no reader that leaves early can kill git under pipefail
+# (tests/pipefail.bats). Two cases stay unseen, documented as limits: a
+# skip-worktree file (a sparse checkout marks clean files so) and a folder
+# git cannot open (git only warns on stderr, which is never read).
 dirty=false
 if [ "$git_usable" = true ]; then
   st="$(git status --porcelain --untracked-files=normal --ignore-submodules=none 2>/dev/null)" \
     || die "the working tree's status could not be read: git status failed, so pre-flight cannot tell whether the tree is clean; run git status to see why"
   [ -z "$st" ] || dirty=true
-  au="$(git ls-files -v -- ':/' 2>/dev/null | awk '/^[a-z] / { n++ } END { print n + 0 }')" \
-    || die "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git status to see why"
-  [ "$au" = 0 ] || dirty=true
+  if [ "$dirty" = false ]; then
+    au="$(git --no-literal-pathspecs ls-files -v -- ':/' 2>/dev/null | awk '/^[a-z] / { n++ } END { print n + 0 }')" \
+      || die "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git ls-files -v to see why"
+    if [ "$au" != 0 ]; then
+      dirty=true
+      warn "tracked files marked assume-unchanged: $au; git does not look at them, so the tree is read as dirty (git ls-files -v shows each with a lowercase tag; core.ignoreStat marks every file so)"
+    fi
+  fi
 fi
 mark_not_read tree.dirty
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it

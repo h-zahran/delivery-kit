@@ -19,11 +19,22 @@ All notable changes to the `pipeline` plugin.
   and a base that is a branch and a tag at once all reached the report,
   and phase B's `git checkout -b` then failed or `<base>..HEAD` read the
   tag. Every source now gets the override's check: a local branch with a
-  commit, and no tag of its name. A base that exists only on `origin` is
+  commit, and no tag of its name. A branch whose name git reads as anything
+  else, such as `refs/<name>`, a remote's branch or `ORIG_HEAD`, is refused
+  too, since `git checkout -b` cannot tell them apart, and so is a branch
+  named as a full commit id; a remote can supply such a name through
+  `origin/HEAD`. A base that exists only on `origin` is
   refused with the command that creates it, `git branch --track <name>
   origin/<name>`, and a base that is the current branch before its first
-  commit says so. That one case changes an override's message too: it
-  used to say the name is not a branch here or on `origin`.
+  commit says so. That case changes an override's message: it used to say
+  the name is not a branch here or on `origin`. A branch ref that names no
+  commit, written by hand to hold a tree, is refused for every source, the
+  override included, which the old check accepted.
+- **`origin/HEAD` is read as a full ref.** It was read with `--short`, so
+  a ref named `origin/main` beside origin's own gave the base
+  `remotes/origin/main`, and an `origin/HEAD` pointing at another remote's
+  branch was accepted. One outside `refs/remotes/origin/` now stops
+  pre-flight.
 - **A `HEAD` outside `refs/heads/` no longer names a base branch.** The
   current checkout was read with `git symbolic-ref --short`, so a `HEAD`
   pointing at the tag `v1` or at `origin/main` gave `v1` or `origin/main`
@@ -35,8 +46,13 @@ All notable changes to the `pipeline` plugin.
   `submodule.<name>.ignore=all` or `diff.ignoreSubmodules=all`, and for a
   file marked `assume-unchanged`, so `tree.dirty` read `false`. The status
   read now passes `--untracked-files=normal` and
-  `--ignore-submodules=none`, and a file marked `assume-unchanged` counts
-  as a change. A `skip-worktree` file and a folder git cannot open are
+  `--ignore-submodules=none`, and when that shows nothing, a file marked
+  `assume-unchanged` counts as a change, with a line on stderr saying how
+  many and pointing at `git ls-files -v`; a repository that sets
+  `core.ignoreStat` marks every file so, and always reads as dirty. A
+  listing that fails stops pre-flight, as a failed `git status` does, and
+  `GIT_LITERAL_PATHSPECS` in the environment no longer empties it. A
+  `skip-worktree` file and a folder git cannot open are
   still not seen, by choice: a clean sparse checkout marks its files
   `skip-worktree`. `configuration.md` names both, and says that pre-flight,
   like every later phase, runs the programs the repository's own
