@@ -88,7 +88,7 @@ the merged result in the state file's `config` key so resume does not
 re-resolve differently — `codeRoots` as resolved, never `null`, since
 `late-commit` and `commit-list` read it. Record `commitTrailers` as
 pre-flight reports it, never the key's list alone. B records `config`, with
-`testCommand` as resolved.
+`testCommand` as resolved and its layer as `testCommandFrom`.
 
 For how layers merge and when a value stops the run, follow "Resolving
 the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
@@ -166,6 +166,7 @@ spec tool    : <speckit.version> at .specify/ — <speckit.invocationForm> — <
 Constitution : <set / not set — plan gates run against an empty document>
 git          : <usable / NOT USABLE: <gitReason> — the run stops, see decision 11>
 Base branch  : <baseBranch>  (from <baseBranchSource>)
+Test command : <JSON-quoted command>  (from <layer>)
 Branch       : <featureBranch>  (from --branch)
 Spec folder  : <specDir>  (from --spec-dir)
 Trailers     : <each trailer>  (from <its layer>)
@@ -296,7 +297,7 @@ run's state file records one, read
 `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` first, and follow it.
 
 **Implementer:** render this line as "The Implementer line" in
-`${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says.
+`${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, and Test command as "The Test command line" there.
 
 **Seed forms.** The seed is interpreted three ways, in order:
 
@@ -335,10 +336,8 @@ recorded) with the seed FIRST — the spec tool names the feature
 (`NNN-slug`) and creates no git branch itself. With `--spec-dir`, follow B's
 rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`. The feature now has its name:
 run `progress.sh init <feature> <branch> <base> <projectType>` (the
-branch argument is the branch about to be cut, named `--branch`, else
-the feature's name —
-`init` is idempotent, so a resume re-running it finds the run rather
-than clobbering it). A state file `init` finds already there is checked
+branch to cut, named `--branch`, else the feature's name; `init` is
+idempotent, so a resume finds the run rather than clobbering it). A state file `init` finds already there is checked
 first, as Resume says, before anything in it is used. Then take the lock
 (`progress.sh lock-take <feature>
 <session>`), move A's seed into the run directory, and start phase

@@ -55,6 +55,7 @@ spec tool    : 0.16.5 at .specify/ — hyphen-skills — sh scripts — in range
 Constitution : set
 git          : present
 Base branch  : main  (from origin/HEAD)
+Test command : "npm test"  (from the repository's .delivery-kit.json)
 Implementer  : claude  (from ~/.delivery-kit.json)
 Remote       : github  (gh present)
 Available    : jq, git, gh, handoff, code-review, browser tools

@@ -58,9 +58,9 @@ Each phase is one review piece. The order frees the skill's bytes first, and lea
 
 **Independent Test**: quickstart section 2 prints `PASS`, and the prose pins for the line pass.
 
-- [ ] T012 [US2] In `pipeline/tests/base-suite.bats`, add tests: the `started` line ends in `, from <json>` when `config.testCommandFrom` is a string, and has no such part when it is absent. In `pipeline/tests/prose.bats`, add pins: the probe block holds the `Test command` line between `Base branch` and `Branch`; `pipeline/docs/configuration.md` holds "The Test command line" with the layer list, the JSON quoting and the resume rule. Run them and see them red.
-- [ ] T013 [US2] In `pipeline/scripts/progress.sh`, `base_start`, read `config.testCommandFrom` and add it to the `started` line, per the contract.
-- [ ] T014 [US2] In `pipeline/docs/configuration.md`, after "The Implementer line", add "The Test command line" per the contract and FR-008, FR-009. In `pipeline/skills/pipeline/SKILL.md`, add the line to the probe block and extend the `**Implementer:**` pointer to name it. In `pipeline/README.md`, add the line to the sample probe block. Check the byte count is under 65,536. Run `pipeline/tests/prose.bats` and `pipeline/tests/base-suite.bats` until green.
+- [X] T012 [US2] In `pipeline/tests/base-suite.bats`, add tests: the `started` line ends in `, from <json>` when `config.testCommandFrom` is a string, and has no such part when it is absent. In `pipeline/tests/prose.bats`, add pins: the probe block holds the `Test command` line between `Base branch` and `Branch`; `pipeline/docs/configuration.md` holds "The Test command line" with the layer list, the JSON quoting and the resume rule. Run them and see them red.
+- [X] T013 [US2] In `pipeline/scripts/progress.sh`, `base_start`, read `config.testCommandFrom` and add it to the `started` line, per the contract.
+- [X] T014 [US2] In `pipeline/docs/configuration.md`, after "The Implementer line", add "The Test command line" per the contract and FR-008, FR-009. In `pipeline/skills/pipeline/SKILL.md`, add the line to the probe block and extend the `**Implementer:**` pointer to name it. In `pipeline/README.md`, add the line to the sample probe block. Check the byte count is under 65,536. Run `pipeline/tests/prose.bats` and `pipeline/tests/base-suite.bats` until green.
 
 **Checkpoint**: a fresh run shows the command before B starts it.
 

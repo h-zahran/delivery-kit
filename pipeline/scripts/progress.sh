@@ -2857,7 +2857,7 @@ cmd_suite_base() {
 # must not read as a legal "not started", and B stops on it. SK_FAULT marks
 # those two.
 base_start() {
-  local f="$1" bd sf commit base_key tmp tree admin top pid pre=''
+  local f="$1" bd sf commit base_key tmp tree admin top pid pre='' from
   need_git_top
   bd="$(base_dir "$f")"
   if [ -f "$bd/pid" ]; then
@@ -2926,9 +2926,12 @@ base_start() {
   mv -f "$bd/pid.tmp" "$bd/pid"
   pid="$(cat "$bd/pid")"
   # The command is shown here, JSON-quoted, as F.5's own call used to show it:
-  # it now runs from inside this script.
-  printf 'base suite started on commit %s (process %s), command %s\n' "$commit" "$pid" \
-    "$(jq ${JQB:+"$JQB"} -cn --arg c "$SK_CMD" '$c')"
+  # it now runs from inside this script. The layer that set it, as B recorded
+  # it, is quoted too: its text can come from a tracked path.
+  from="$(jqs '.config.testCommandFrom? | strings' "$sf")" || from=''
+  printf 'base suite started on commit %s (process %s), command %s%s\n' "$commit" "$pid" \
+    "$(jq ${JQB:+"$JQB"} -cn --arg c "$SK_CMD" '$c')" \
+    "${from:+, from $(jq ${JQB:+"$JQB"} -cn --arg c "$from" '$c')}"
 }
 
 # base_run <feature> — the runner, started by base_start and by nothing
