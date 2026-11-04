@@ -220,6 +220,16 @@ passed; and N citing J's last full-suite run, made on the commit J leaves,
 when nothing changed after it — under `files`, also when all that changed
 is a commit of the same files.
 
+## One fault harness per run
+
+To check that a test can go red, a run breaks the code on purpose in a
+throwaway copy. Several actors do this in one run. They share one harness,
+saved in the run directory, so none of them rebuilds the mechanics or
+rediscovers the same facts. They share nothing else: in phase I the tests
+reviewer names its own faults before it reads the harness, so its judgement
+stays independent. Nothing caps the number of faults. `pipeline:spec-review`
+holds the rules.
+
 ## Questions that wait
 
 A run asks the owner things at many points, and stopping for each one is

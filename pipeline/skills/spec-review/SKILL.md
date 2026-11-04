@@ -39,6 +39,40 @@ soften another's, and no lens is skipped because another found nothing:
    new requirement have a covering test? Would each test fail if its
    feature were broken (name the mutation that proves it)?
 
+## The fault harness
+
+A fault script breaks the code on purpose and checks that a test goes red.
+Its mechanics are the harness: the throwaway copy, the test runner's path,
+and the facts that make it run. The faults are what it tries. In a pipeline
+run there is one harness, at `.delivery-kit/runs/<feature>/fault-harness.sh`.
+With no run directory, this section does not apply.
+
+- The first actor that needs to plant a fault saves the harness there, with
+  the facts it needed at the top. A later actor reuses and extends it, and
+  never builds another. This binds phases H and J, and I's reviewers and fix
+  step.
+- In phase I only the tests reviewer may create the harness. Another reviewer
+  uses it if it exists, or else names the fault in its finding. I's fix step
+  runs a fault named that way through the harness before it accepts or
+  declines the finding.
+- The tests reviewer writes its own faults to
+  `.delivery-kit/runs/<feature>/faults-tests.txt` BEFORE it reads the harness.
+  The harness shares mechanics, never a fault list, so judgement stays
+  independent.
+- Run every fault the work needs. Nothing caps the number of faults, and no
+  lens is dropped because a harness exists.
+- A harness works only on a throwaway copy. It never edits the working tree
+  and never writes to git in the repository. The run directory is the one
+  place a reviewer may write.
+- A harness reports a fault that changed no byte as a fault that did not land,
+  never as a test that stayed green.
+- Before running a harness, run `git ls-files --error-unmatch -- <its path>`.
+  Only exit 1, not tracked, lets it run. On any other exit, do not run it, say
+  so, and work from a scratch folder of your own: git may have brought that
+  file from somewhere else.
+- A harness that breaks is repaired in place, and the fact that broke it is
+  added at its top.
+
 ## Output
 
 One report, in a form the caller can parse. Every finding is one line,
