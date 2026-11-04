@@ -1544,7 +1544,7 @@ line_limit=$HELD_LINE_LIMIT
   pairs=$(( room / 2 - 1 ))
   [ $(( pairs * 2 + 1 )) -gt "$line_limit" ] \
     || { echo "fixture: only $pairs quote markers fit under the size limit, no line longer than $line_limit"; false; }
-  LC_ALL=C awk -v n="$pairs" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
+  LC_ALL=C awk -v n="$pairs" 'BEGIN { for (i = 0; i < n; i++) printf "> "; print "x" }' >> "$d/$copied/CHANGELOG.md"
   line="$(LC_ALL=C awk 'length($0) > 1000 { print NR }' "$d/$copied/CHANGELOG.md")"
   [ -n "$line" ] || { echo "fixture: the quote-marker line did not land"; false; }
   forms_refused K3 "line $line is $(( pairs * 2 + 1 )) bytes long"
@@ -1570,13 +1570,16 @@ line_limit=$HELD_LINE_LIMIT
     *) echo "K4: the dense line is not cut to the quote cut, then masked. output: ${output:0:600}"; false ;;
   esac
 
+  # The long lines are printed, not built with s = s "...": that loop is quadratic.
+  # It made this one test take 52 s of its 60 s under load, and time out when the
+  # suite's files run side by side. The bytes are the same.
   # H8: the default form passes a copy holding every refused plant above
   # that it accepts, each after its own `Plain text.` and blank line. The
   # NUL plant is left out by name: K5 stops both forms.
   forms_put $'CRplant\r## x' '' 'Plain text.' '' "$long" '' 'Plain text.' '' $'## x \x9b' '' 'Plain text.' '' 'LONGplant'
-  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 400000; i++) s = s "> "; print s "x" }' >> "$d/$copied/CHANGELOG.md"
+  LC_ALL=C awk 'BEGIN { for (i = 0; i < 400000; i++) printf "> "; print "x" }' >> "$d/$copied/CHANGELOG.md"
   printf '\nPlain text.\n\nDENSEplant\n' >> "$d/$copied/CHANGELOG.md"
-  LC_ALL=C awk 'BEGIN { s = ""; for (i = 0; i < 200000; i++) s = s "a\033"; print s }' >> "$d/$copied/CHANGELOG.md"
+  LC_ALL=C awk 'BEGIN { for (i = 0; i < 200000; i++) printf "a\033"; print "" }' >> "$d/$copied/CHANGELOG.md"
   [ "$(LC_ALL=C awk 'length($0) > 1000 { n++ } END { print n + 0 }' "$d/$copied/CHANGELOG.md")" = "3" ] \
     || { echo "fixture: the combined copy does not hold all three long lines"; false; }
   forms_default

@@ -31,13 +31,21 @@ Green on the final text, both with no effect a test can show on this machine:
 
 ## Time at the repository root
 
-`bash scripts/run-suite.sh` from the repository root, on the final script, on 16 CPUs, 8 files at once, with load from other programs at about 6. Each report passes `progress.sh tap-check`.
+`bash scripts/run-suite.sh` from the repository root, on the final script, on 16 CPUs, 8 files at once, with load from other programs. Each report passes `progress.sh tap-check`.
 
-| Pass | Wall time | Exit | Plan | ok | not ok | skip |
-|---|---|---|---|---|---|---|
-| 1 | 111 s | 0 | `1..1007` | 1007 | 0 | 0 |
-| 2 | 111 s | 0 | `1..1007` | 1007 | 0 | 0 |
-| 3 | 109 s | 0 | `1..1007` | 1007 | 0 | 0 |
+| Pass | Wall time | Exit | Plan | ok | not ok | skip | Load after |
+|---|---|---|---|---|---|---|---|
+| 1 | 102 s | 0 | `1..1007` | 1007 | 0 | 0 | 6.3 |
+| 2 | 101 s | 0 | `1..1007` | 1007 | 0 | 0 | 6.7 |
+| 3 | 100 s | 0 | `1..1007` | 1007 | 0 | 0 | 5.6 |
+
+## The one red, at phase J
+
+On the first comparison at phase J, with load 11 from other programs, the side-by-side run went red, in 157 s: `tests/gate.bats`, "--released refuses a byte or a line it cannot judge # timeout after 60s". The serial suite on the same commit was green, with no timeout. Its fixture built long lines with a quadratic `awk` loop, so that one test took 52 s alone at that load, and the next slowest test in the suite took 8 s.
+
+The fixture now prints the same bytes, shown by `cksum` on both forms: `1759262738 800002` and `604270046 400001`. The test takes 0.8 s, which also shortens the serial suite and CI.
+
+The script stays exposed to that risk for any future test near 60 s. It does not retry: a timeout stays a red.
 
 Serial, run 056's phase J suite took 561 s on 983 tests. The base run's 983 tests plus this feature's 24 new tests make 1007.
 

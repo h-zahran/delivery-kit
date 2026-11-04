@@ -79,6 +79,7 @@ A fault script breaks the code on purpose and checks that a test goes red. The h
 - **The command is stopped.** `suite-base wait --limit` stops its process group. The command must leave no running child and no temporary folder behind, and must show what ran.
 - **Tests that share `$TMPDIR`.** Files that run side by side must not collide through shared temporary paths, so each file has a `TMPDIR` of its own.
 - **macOS and bash 3.2.** The command runs on bash 3.2 and needs no tool that the serial command does not need, other than standard POSIX tools.
+- **A test near its 60-second timeout.** Load from running side by side can push it over, where a serial run passes. Phase J met one, and its fixture was fixed. A timeout stays a red: the script does not retry.
 - **Windows.** CI does not use the command, because it stays serial and sharded. The command's own tests still run in CI on all three systems, using a stand-in test runner.
 - **Run 1 itself.** B records `config.testCommand` as resolved, and `suite-key` reads that recorded value. So this run keeps the serial command in F.5, J and N. Run 2 is the first that uses the new command. The evidence for this run is direct measurement.
 - **A planted harness.** A cloned repository can track the run directory, or a link or submodule that brings a file to its path. An actor must not run a harness in that case. It treats that as no harness and says so.
