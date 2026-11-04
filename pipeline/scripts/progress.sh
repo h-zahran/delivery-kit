@@ -2383,10 +2383,10 @@ suite_key() {
 # which has no state file: one key, two places.
 suite_config() {
   local sf spec d top here
-  SK_WHY='' SK_KEY='' SK_LEAVE='' SK_HEAD=''
+  SK_WHY='' SK_FAULT='' SK_KEY='' SK_LEAVE='' SK_HEAD=''
   sf="$(cmd_validate "$1")" || exit 1
   SK_CMD="$(jqs '.config.testCommand? | strings' "$sf")" || SK_CMD=''
-  if [ -z "$SK_CMD" ]; then SK_WHY="config.testCommand is not recorded as a string in $sf"; return 1; fi
+  if [ -z "$SK_CMD" ]; then SK_FAULT=1; SK_WHY="config.testCommand is not recorded as a string in $sf"; return 1; fi
   SK_MODE="$(jqs '.config.suiteReuse? | if . == null then "commit" elif type == "string" then . else "?" end' "$sf")" || SK_MODE='?'
   case "$SK_MODE" in
     commit|files) ;;
@@ -2397,7 +2397,7 @@ suite_config() {
     spec="$(jqs '.artifacts.spec? // "" | strings' "$sf")" || spec=''
     # No message names the spec's path: artifacts may record it absolute,
     # and a full path can carry a user name into a public log.
-    if [ -z "$spec" ] || [ ! -f "$spec" ]; then SK_WHY="artifacts.spec in $sf names no spec file that exists"; return 1; fi
+    if [ -z "$spec" ] || [ ! -f "$spec" ]; then SK_FAULT=1; SK_WHY="artifacts.spec in $sf names no spec file that exists"; return 1; fi
     # The top level as the spec directory would leave out every untracked
     # file, the feature's code with the rest.
     case "$spec" in */*) d="${spec%/*}" ;; *) d=. ;; esac
@@ -2849,8 +2849,13 @@ cmd_suite_base() {
   esac
 }
 
-# base_start <feature> — one line on stdout, exit 0, unless a check cannot
-# be made. Run in B, once the state file and the feature branch exist.
+# base_start <feature> — one line on stdout. Run in B, once the state file,
+# its config, artifacts.spec and the feature branch exist. Exit 0: started, or
+# legally not started. Exit 1: a check could not be made, said on stderr; F.5
+# then runs the suite. Exit 3: the run's own record cannot serve the start (no
+# usable config.testCommand, or no spec file at artifacts.spec), which a run
+# must not read as a legal "not started", and B stops on it. SK_FAULT marks
+# those two.
 base_start() {
   local f="$1" bd sf commit base_key tmp tree admin top pid pre=''
   need_git_top
@@ -2862,7 +2867,11 @@ base_start() {
   if [ -f "$sf" ] && [ "$(jqs "$RUN_END_JQ" "$sf" 2>/dev/null || true)" = abandoned ]; then
     printf 'base suite not started: the run was abandoned\n'; return 0
   fi
-  if ! suite_key "$f" base; then printf 'base suite not started: %s\n' "$SK_WHY"; return 0; fi
+  if ! suite_key "$f" base; then
+    printf 'base suite not started: %s\n' "$SK_WHY"
+    [ -z "$SK_FAULT" ] || return 3
+    return 0
+  fi
   base_key="$SK_KEY"
   commit="$(git rev-parse --verify --quiet 'HEAD^{commit}')" || die "git rev-parse failed"
   if suite_lookup_one > /dev/null; then

@@ -162,17 +162,19 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   [[ "$output" == *"none is recorded"* ]] || { echo "$output"; false; }
 }
 
-@test "a state file with no usable test command starts nothing, says so and exits 0" {
-  # Feature 056: B must record config first, because this path stops nothing
-  # and F.5 then runs the suite. Mutation: make this path exit 1, and runs goes
-  # red; start a runner anyway, and the folder or the process check goes red.
-  local sf edit
+@test "a state file with no usable test command starts nothing, says so and exits 3" {
+  # Feature 058: exit 0 here read as a legal "not started", and run 056's
+  # ordering fault hid behind it. Mutation: make this path exit 0 or 1, and the
+  # status check goes red; start a runner anyway, and the folder or the process
+  # check goes red.
+  local sf edit rc
   repo
   sf=".delivery-kit/runs/$F/progress.json"
   for edit in 'del(.config.testCommand)' '.config.testCommand = null' '.config.testCommand = ""' '.config.testCommand = 42'; do
     jq "$edit" "$sf" > "$BATS_TEST_TMPDIR/t.json"
     mv "$BATS_TEST_TMPDIR/t.json" "$sf"
-    runs suite-base "$F" start
+    rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
+    [ "$rc" -eq 3 ] || { echo "status $rc, after $edit: $(cat "$ERR")"; false; }
     [[ "$(cat "$OUT")" == "base suite not started: config.testCommand is not recorded as a string in "* ]] \
       || { echo "start said, after $edit: $(cat "$OUT")"; false; }
     [ ! -e "$BD" ] || { echo "a bookkeeping folder was made, after $edit"; false; }
@@ -443,11 +445,6 @@ waits() {
   runs suite-base "$F" start
   [[ "$(cat "$OUT")" == "base suite not started: config.suiteReuse in "*" is none of commit, files or off" ]] || { echo "start said: $(cat "$OUT")"; false; }
   reuse commit
-  # No spec file.
-  mv specs/001-demo/spec.md "$BATS_TEST_TMPDIR/spec.md"
-  runs suite-base "$F" start
-  [[ "$(cat "$OUT")" == "base suite not started: artifacts.spec in "*" names no spec file that exists" ]] || { echo "start said: $(cat "$OUT")"; false; }
-  mv "$BATS_TEST_TMPDIR/spec.md" specs/001-demo/spec.md
   # A TMPDIR inside the work tree. Mutation: drop the check, and a checkout
   # lands inside the tree.
   mkdir -p inner
@@ -532,4 +529,69 @@ waits() {
   run -1 bash "$PROG" suite-base "$F"
   [[ "$output" == *"usage: suite-base <feature> start | wait"* ]] || { echo "$output"; false; }
   run -1 bash "$PROG" suite-base "$F" start extra
+}
+
+# Feature 058: exit 3 is the run's own record failing the start.
+@test "an artifacts.spec that names no spec file exits 3, absent or stale" {
+  local sf rc edit
+  repo
+  sf=".delivery-kit/runs/$F/progress.json"
+  for edit in 'del(.artifacts.spec)' '.artifacts.spec = "specs/001-demo/gone.md"'; do
+    jq "$edit" "$sf" > "$BATS_TEST_TMPDIR/t.json"
+    mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+    rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
+    [ "$rc" -eq 3 ] || { echo "status $rc, after $edit: $(cat "$ERR")"; false; }
+    [[ "$(cat "$OUT")" == "base suite not started: artifacts.spec in "*" names no spec file that exists" ]] \
+      || { echo "start said, after $edit: $(cat "$OUT")"; false; }
+    [ ! -e "$BD" ] || { echo "a bookkeeping folder was made, after $edit"; false; }
+  done
+}
+
+@test "a start after exit 3 starts, once the record is fixed" {
+  # Mutation: leave a marker behind at exit 3, and the second start refuses.
+  local sf rc
+  repo
+  sf=".delivery-kit/runs/$F/progress.json"
+  jq 'del(.config.testCommand)' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 3 ]
+  jq --arg c "$GREEN" '.config.testCommand = $c' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" == "base suite started on commit "* ]] || { echo "start said: $(cat "$OUT")"; false; }
+  outcome_wait
+  [ "$OUTCOME" = green ]
+}
+
+# The classification is read from the script, so a new reason cannot arrive
+# unclassified. The legal paths' exit 0 is asserted where each is tested,
+# through `runs`. Mutation: add a line, or mark a third reason as a fault.
+@test "every reason the start can give is classified: two fault, the rest legal" {
+  local lines line faults=0 reasons=0
+  lines="$(grep -n 'SK_WHY="' "$PROG" | grep -v "SK_WHY='" )"
+  [ -n "$lines" ]
+  while IFS= read -r line; do
+    reasons=$((reasons + 1))
+    case "$line" in
+      *'config.testCommand is not recorded as a string'*|*'names no spec file that exists'*)
+        [[ "$line" == *'SK_FAULT=1'* ]] || { echo "not marked a fault: $line"; false; }
+        faults=$((faults + 1)) ;;
+      *'config.suiteReuse is off'*|*'none of commit, files or off'*|*'outside this repository'*|*'top level'*|*'left out already'*|*'assume-unchanged'*|*'names no commit yet'*|*'${paths##*'*)
+        [[ "$line" != *'SK_FAULT=1'* ]] || { echo "a legal reason is marked a fault: $line"; false; }
+        ;;
+      *) echo "a reason this test does not classify: $line"; false ;;
+    esac
+  done <<<"$lines"
+  [ "$faults" -eq 2 ] || { echo "$faults fault reasons"; false; }
+  [ "$reasons" -ge 8 ] || { echo "only $reasons reasons read"; false; }
+  # base_start's own lines: every printf and die that says "not started".
+  lines="$(grep -n 'base suite not started' "$PROG" | grep -v '^[0-9]*:#')"
+  while IFS= read -r line; do
+    case "$line" in
+      *'the run was abandoned'*|*'$SK_WHY'*|*'a green result is already recorded'*|*'TMPDIR lies inside'*|*'are not these files'*) ;;
+      *'die "base suite not started: git worktree add failed'*|*'die "base suite not started: the runner could not be started'*) ;;
+      *) echo "a line this test does not classify: $line"; false ;;
+    esac
+  done <<<"$lines"
 }

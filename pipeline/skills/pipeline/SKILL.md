@@ -332,8 +332,7 @@ result aside in a scratch file, then write it into the run directory as
 
 **B — specify.** Invoke `/speckit-specify` (derive the dot form if
 recorded) with the seed FIRST — the spec tool names the feature
-(`NNN-slug`) and creates no git branch itself; that contract is recorded
-in the spec-tool verification document. With `--spec-dir`, follow B's
+(`NNN-slug`) and creates no git branch itself. With `--spec-dir`, follow B's
 rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`. The feature now has its name:
 run `progress.sh init <feature> <branch> <base> <projectType>` (the
 branch argument is the branch about to be cut, named `--branch`, else
@@ -354,7 +353,8 @@ travels with it. Record `artifacts.spec`. Then run
 prints: on a fresh run whose base commit has no green suite result, it
 starts the full suite on that commit in the background, in a separate
 checkout, for F.5 to cite. An exit 1 is printed too and does not stop the
-run: F.5 then runs the suite.
+run: F.5 then runs the suite. An exit 3 stops it: read "No test command" in
+`${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 
 **C — clarify, looped.** Invoke `/speckit-clarify`. The tool asks one
 question at a time, best-effort marked `**Question:**`. THE HUMAN
@@ -959,8 +959,8 @@ A gate is a safe handoff point: the state file records which gate waits.
 | Release | O | The exact command, and where it publishes |
 
 Conditional stops: the resume prompt, a cap breach in C, F, J or M, a
-missing required tool, any hard failure, a failed runtime check, K's
-stop for a path outside the feature, K's or L's stop for a commit it
+missing required tool, any hard failure, a failed runtime check, B's exit
+3, K's stop for a path outside the feature, K's or L's stop for a commit it
 cannot show or a stale `commits` entry (see K and L), a run whose
 state file is tracked in git (see Resume), and a waiting question still
 open when L would push.

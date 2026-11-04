@@ -359,8 +359,8 @@ implementer gate asks nothing there, and the clarify gate and the
 constitution offer are already behind it, so with `--auto` and
 `releaseCommand` unset it can reach the end without any gate asking. Cap
 breaches, a missing required tool, hard failures, a failed runtime
-check, a state file tracked in git, a pause, and the commit and push
-phases' own stops — a path outside the feature once the branch holds
+check, no test command at B, a state file tracked in git, a pause, and
+the commit and push phases' own stops — a path outside the feature once the branch holds
 commits, a commit they cannot show, a record of a commit that is not on
 the branch — still stop a run, whatever `--auto` collapsed. Set this key
 knowing the whole range.
