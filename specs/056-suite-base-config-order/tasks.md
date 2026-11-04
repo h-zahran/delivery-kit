@@ -12,9 +12,9 @@
 
 **Independent Test**: `bash "$HOME/bats/bin/bats" --filter 'B records config before' pipeline/tests/prose.bats` passes, with plan line `1..1`.
 
-- [ ] T001 [US2] In `pipeline/tests/prose.bats`, directly after the test "B starts the base suite run once the branch is cut", add the test "B records config before it starts the base suite run", as research R2 says. Run it and record in `specs/056-suite-base-config-order/measurements.md` that it is red, naming the missing sentence, before T002.
-- [ ] T002 [US1] In `pipeline/skills/pipeline/SKILL.md`, phase B, directly before ``Record `artifacts.spec`.``, add the sentence from research R1. Rewrap only the lines this touches. Run the new test and confirm it is green.
-- [ ] T003 [US1] In `pipeline/docs/phases.md`, section "Reusing a suite run", change "once the state file and the feature branch exist" so that it also names `config` as recorded (research R3).
+- [X] T001 [US2] In `pipeline/tests/prose.bats`, directly after the test "B starts the base suite run once the branch is cut", add the test "B records config before it starts the base suite run", as research R2 says. Run it and record in `specs/056-suite-base-config-order/measurements.md` that it is red, naming the missing sentence, before T002.
+- [X] T002 [US1] In `pipeline/skills/pipeline/SKILL.md`, phase B, directly before ``Record `artifacts.spec`.``, add the sentence from research R1. Rewrap only the lines this touches. Run the new test and confirm it is green.
+- [X] T003 [US1] In `pipeline/docs/phases.md`, section "Reusing a suite run", change "once the state file and the feature branch exist" so that it also names `config` as recorded (research R3).
 
 **Checkpoint**: the new test and the skill's size test pass, and `pipeline/scripts/progress.sh` has no diff.
 

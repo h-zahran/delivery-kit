@@ -23,7 +23,7 @@
 
 **Decision**: One test in `pipeline/tests/prose.bats`, after "B starts the base suite run once the branch is cut". It slices phase B with `prose_slice ... flat`, so a wrap cannot change its verdict and text outside B cannot satisfy it. Then it checks, in this order:
 
-1. The flat text holds the start phrase ``Then run `progress.sh suite-base <feature> start` ``. If not, it fails and names the start command.
+1. The flat text holds the start phrase `` `progress.sh suite-base <feature> start` ``. If not, it fails and names the start command.
 2. The flat text holds the record sentence. If not, it fails and names the sentence.
 3. The text before the first start phrase holds the record sentence. If not, it fails and names the order.
 

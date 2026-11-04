@@ -347,7 +347,8 @@ is written into `gates.gitignore` the same way. THEN create the feature
 branch
 off the detected base branch, named `--branch`, else the feature's
 name: the spec files are still uncommitted, and uncommitted work
-travels with `git checkout -b`. Record `artifacts.spec`. Then run
+travels with `git checkout -b`. A fresh run records `config` here, as
+Configuration says: `suite-base` reads it. Record `artifacts.spec`. Then run
 `progress.sh suite-base <feature> start` and print the one line it
 prints: on a fresh run whose base commit has no green suite result, it
 starts the full suite on that commit in the background, in a separate
