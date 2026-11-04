@@ -8,7 +8,7 @@
       "scripts",
       "tests"
     ],
-    "testCommand": "bash \"$HOME/bats/bin/bats\" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests",
+    "testCommand": "bash scripts/run-suite.sh",
     "analyzeCommand": "mapfile -d '' files < <(git ls-files -z -- '*.sh' '*.bash' ':(exclude).specify/'); shellcheck --norc -f gcc -- \"${files[@]}\""
   }
 }
