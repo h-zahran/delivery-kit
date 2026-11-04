@@ -290,7 +290,8 @@ What the run does with trailers:
   <feature> config commitTrailers '<json array>'`, and each entry's
   layer, in the same order, as `config.commitTrailersFrom`. This record
   replaces the key's own list in `config`: it holds the key's trailers
-  and the flags', never the key's alone.
+  and the flags', never the key's alone. It follows B's record of
+  `config`, because a write of the whole key replaces it.
 - The commit subcommands add the list themselves: `spec-commit`,
   `piece-commit`, `late-commit` (J's `--record` included) and
   `remainder-commit`. They read it from the state file as data. The run

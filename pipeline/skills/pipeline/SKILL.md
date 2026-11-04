@@ -86,7 +86,8 @@ There are NO environment-variable overrides for pipeline keys. Record
 the merged result in the state file's `config` key so resume does not
 re-resolve differently — `codeRoots` as resolved, never `null`, since
 `late-commit` and `commit-list` read it. Record `commitTrailers` as
-pre-flight reports it, never the key's list alone.
+pre-flight reports it, never the key's list alone. B records `config`, with
+`testCommand` as resolved.
 
 For how layers merge and when a value stops the run, follow "Resolving
 the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
@@ -343,12 +344,12 @@ first, as Resume says, before anything in it is used. Then take the lock
 tracking with `phase-start <feature> B`. A constitution answer held
 aside at pre-flight is written into `gates.constitution` here, in the
 same breath as the seed. A `.gitignore` answer held aside at pre-flight
-is written into `gates.gitignore` the same way. THEN create the feature
-branch
+is written into `gates.gitignore` the same way. Record `config` here if it
+is still empty, as Configuration says: `suite-base` reads it. THEN create
+the feature branch
 off the detected base branch, named `--branch`, else the feature's
 name: the spec files are still uncommitted, and uncommitted work
-travels with `git checkout -b`. A fresh run records `config` here, as
-Configuration says: `suite-base` reads it. Record `artifacts.spec`. Then run
+travels with `git checkout -b`. Record `artifacts.spec`. Then run
 `progress.sh suite-base <feature> start` and print the one line it
 prints: on a fresh run whose base commit has no green suite result, it
 starts the full suite on that commit in the background, in a separate

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase B tells the orchestrator to run `progress.sh suite-base <feature> start`, and that command reads `config.testCommand` from the state file. The Configuration section says to record `config`, but nothing says when. Add one sentence to B, before the start command. Add one test that goes red when the order is swapped, then release as pipeline 1.9.1.
+Phase B tells the orchestrator to run `progress.sh suite-base <feature> start`, and that command reads `config.testCommand` from the state file. The Configuration section says to record `config`, but nothing says when. Add one sentence to B, before the start command, and one to Configuration. Add a test that goes red when the order is swapped, and one that holds the command's silent path, then release as pipeline 1.9.1.
 
 ## Technical Context
 
@@ -26,7 +26,7 @@ Phase B tells the orchestrator to run `progress.sh suite-base <feature> start`, 
 
 **Constraints**: `pipeline/skills/pipeline/SKILL.md` stays under 65,536 bytes (65,174 today). `pipeline/scripts/progress.sh` does not change.
 
-**Scale/Scope**: One sentence in the skill, one clause in `pipeline/docs/phases.md`, one test, three version records.
+**Scale/Scope**: Two sentences in the skill, one clause in `pipeline/docs/phases.md`, one sentence in `pipeline/docs/configuration.md`, two tests, three version records.
 
 ## Constitution Check
 

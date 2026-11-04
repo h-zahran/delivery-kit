@@ -54,6 +54,8 @@ A maintainer edits phase B later, and the two instructions swap places or the re
 - Phase C follows phase B in the file. The test's phase B region must end where phase C starts, so text from a later phase cannot satisfy it.
 - Words such as "config" also appear in other phases and in the configuration section. Only the text inside phase B counts.
 - A line break can fall inside either phrase. The test must read the text so that a line wrap alone does not change its verdict.
+- A resume into B whose first attempt stopped before the record holds an empty `config`. The instruction must reach it, and must not overwrite a `config` already recorded.
+- A `config` that holds `testCommand` as `null` reaches the same silent path. Configuration must say that `testCommand` is recorded as resolved.
 
 ## Requirements *(mandatory)*
 
@@ -63,19 +65,22 @@ A maintainer edits phase B later, and the two instructions swap places or the re
 - **FR-002**: The new instruction MUST rely on the existing configuration rule for what `config` holds. It MUST NOT add a second definition.
 - **FR-003**: A test MUST fail when, inside phase B, the record instruction comes after the start command.
 - **FR-004**: The same test MUST fail when either instruction is absent from phase B, or when phase B cannot be found.
-- **FR-005**: The test MUST read only phase B, so text in another section cannot satisfy it.
+- **FR-005**: For the order in phase B, the test MUST read only phase B, so text in another section cannot satisfy it.
 - **FR-006**: The pipeline skill MUST stay under its existing size limit of 65,536 bytes.
 - **FR-007**: `pipeline/scripts/progress.sh` MUST NOT change.
 - **FR-008**: The behaviour of the base suite start command, including its message and its exit status, MUST NOT change.
 - **FR-009**: The change MUST ship as pipeline 1.9.1: the plugin's changelog, its manifest and the marketplace entry MUST all name that version, and the repository's version check MUST pass. Merging and tagging stay with the owner.
 - **FR-010**: `pipeline/docs/phases.md`, where it says when the base suite starts, MUST state the same order, so the two documents do not differ.
+- **FR-011**: The instruction MUST reach a resume into B that holds an empty `config`, and MUST NOT overwrite a `config` already recorded.
+- **FR-012**: Configuration MUST say that B records `config`, with `testCommand` as resolved. `pipeline/docs/configuration.md` MUST put the trailer write after B's record, because a write of the whole key replaces it.
+- **FR-013**: A test MUST hold the start command's "not started" line and exit 0 when `testCommand` is missing, `null`, empty or not a string.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: In phase B's text, the record instruction comes before the start command, with 0 occurrences of the start command before it.
-- **SC-002**: Each of the 4 faults in User Story 2 (swapped, record removed, start removed, correct order only outside phase B) makes the test fail, and the shipped skill makes it pass.
+- **SC-002**: Each of the 4 faults in User Story 2 (swapped, record removed, start removed, correct order only outside phase B) makes the test fail, each further fault in `measurements.md` makes its test fail, and the shipped skill makes them pass.
 - **SC-003**: The skill's size test still passes, and the skill's size is at most 65,535 bytes.
 - **SC-004**: The change touches 0 lines of `pipeline/scripts/progress.sh`.
 - **SC-005**: The full test suite shows no new failure against the run's baseline.

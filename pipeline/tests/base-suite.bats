@@ -162,6 +162,24 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   [[ "$output" == *"none is recorded"* ]] || { echo "$output"; false; }
 }
 
+@test "a state file with no usable test command starts nothing, says so and exits 0" {
+  # Feature 056: B must record config first, because this path stops nothing
+  # and F.5 then runs the suite. Mutation: make this path exit 1, and runs goes
+  # red; start a runner anyway, and the folder or the process check goes red.
+  local sf edit
+  repo
+  sf=".delivery-kit/runs/$F/progress.json"
+  for edit in 'del(.config.testCommand)' '.config.testCommand = null' '.config.testCommand = ""' '.config.testCommand = 42'; do
+    jq "$edit" "$sf" > "$BATS_TEST_TMPDIR/t.json"
+    mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+    runs suite-base "$F" start
+    [[ "$(cat "$OUT")" == "base suite not started: config.testCommand is not recorded as a string in "* ]] \
+      || { echo "start said, after $edit: $(cat "$OUT")"; false; }
+    [ ! -e "$BD" ] || { echo "a bookkeeping folder was made, after $edit"; false; }
+    [ "$(others)" = 0 ]
+  done
+}
+
 @test "suiteReuse off starts nothing" {
   # Mutation: drop the suite_config check, and a runner starts.
   repo
