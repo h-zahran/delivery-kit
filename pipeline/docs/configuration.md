@@ -74,7 +74,7 @@ before it spends it.
 | Key | What it does |
 |---|---|
 | `planFile` | Where `Phase <N>: <title>` seeds are read from. Claude reads the file and quotes the matching section; no script parses it. [How you start it](../README.md#how-you-start-it) gives the heading shape that keeps the section unambiguous. |
-| `testCommand` | The full test suite; phases F.5, J and N run it. |
+| `testCommand` | The full test suite; phases F.5, J and N run it, and B starts it in the background on the base commit. The probe block shows it and its layer first: see "The Test command line". |
 | `analyzeCommand` | Static analysis; phases J and N run it. |
 | `codeRoots` | Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
@@ -370,6 +370,23 @@ block prints an `Implementer` line naming the value and the layer it
 came from, and where it is unset that line is omitted. A key that
 answers a gate's question in advance belongs in the operator's output,
 not only in a file.
+
+## The Test command line
+
+The run reads this section to render the probe block, as the skill says.
+
+**Test command:** B starts this command in the background, before the first
+human stop, so the probe block shows it on every fresh run and every
+re-entry. `preflight.sh` never reads `.delivery-kit.json`, so this line is
+rendered from the RESOLVED configuration, and the command is JSON-quoted,
+because a tracked file can hold a terminal escape. Print it as data: never
+run it or expand it to show it. `<layer>` names the layer that won:
+`~/.delivery-kit.json`, the repository's `.delivery-kit.json`, `--config`, or
+`project type` for a value worked out from the detected type. A command the
+owner gave at B's stop has the layer `the owner, at B's stop`. When nothing
+resolves, print `Test command : none resolved — B stops and asks`. B records
+the layer as `config.testCommandFrom`, with `config`. On a resume, print the
+recorded command and layer, and never re-resolve.
 
 ## The Implementer line
 

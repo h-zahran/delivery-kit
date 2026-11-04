@@ -186,7 +186,7 @@ PARTS
   # 65,536 bytes. The skill's **Implementer:** pointer sends the run there.
   local implline
   implline="$(prose_slice "$docs" '^## The Implementer line$' '^## The state directory$' flat 'the Implementer line' '**Implementer:** `preflight.sh` never reads `.delivery-kit.json`, so this')" || return 1
-  [[ $flat == *'**Implementer:** render this line as "The Implementer line" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says.'* ]] \
+  [[ $flat == *'**Implementer:** render this line as "The Implementer line" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says,'* ]] \
     || { echo 'the skill no longer sends the run to "The Implementer line"'; false; }
   [[ $implline == *'Print it whenever the key resolves to a value; omit the line entirely when the key is unset.'* ]] \
     || { echo 'the probe line print rule altered'; false; }
@@ -2318,7 +2318,7 @@ PINS
   flat="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' flat 'configuration')" || return 1
   pins_in "$flat" 'configuration' <<'PINS'
 Record the merged result in the state file's `config` key so resume does not re-resolve differently — `codeRoots` as resolved, never `null`, since `late-commit` and `commit-list` read it.
-B records `config`, with `testCommand` as resolved.
+B records `config`, with `testCommand` as resolved and its layer as `testCommandFrom`.
 PINS
 }
 
@@ -2670,7 +2670,7 @@ ROWS
   b="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   [[ $b == *'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.'* ]] \
     || { echo "B no longer sends the run to its --spec-dir rule"; false; }
-  [[ $b == *'named `--branch`, else the feature'"'"'s name —'* ]] \
+  [[ $b == *'named `--branch`, else the feature'"'"'s name;'* ]] \
     || { echo "B no longer names the branch from --branch"; false; }
   docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.'* ]] \
@@ -3291,4 +3291,32 @@ PINS
     || { echo "the skill no longer sends pre-flight's values to the page"; false; }
   [[ $flat == *'<key> [<sub-key>] <json>` or `--json-file <path>`'* ]] \
     || { echo "the state-write rule no longer names the file form"; false; }
+}
+
+# Feature 058: a tracked testCommand starts in B, before the first human stop,
+# so the block the operator reads first shows it. The line is pinned inside the
+# block, in its place, and the rule on the docs page.
+@test "the probe block shows the test command and its layer before B runs it" {
+  local probe flat docs before
+  probe="$(prose_slice "$ORCH" '^Project type : ' '^Will skip ' raw 'probe block')" || return 1
+  grep -qxF 'Test command : <JSON-quoted command>  (from <layer>)' <<<"$probe" \
+    || { echo 'the Test command probe line altered or left its block'; false; }
+  before=${probe%%'Test command : '*}
+  [[ $before == *'Base branch  : '* && $before != *'Branch       : '* ]] \
+    || { echo 'the Test command line no longer sits between Base branch and Branch'; false; }
+  flat="$(prose_flat < "$ORCH")"
+  [[ $flat == *'and Test command as "The Test command line" there.'* ]] \
+    || { echo 'the skill no longer sends the run to "The Test command line"'; false; }
+  [[ $flat == *'with `testCommand` as resolved and its layer as `testCommandFrom`.'* ]] \
+    || { echo 'B no longer records the layer'; false; }
+  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  pins_in "$docs" 'The Test command line' <<'PINS'
+**Test command:** B starts this command in the background, before the first human stop, so the probe block shows it on every fresh run and every re-entry.
+`preflight.sh` never reads `.delivery-kit.json`, so this line is rendered from the RESOLVED configuration, and the command is JSON-quoted, because a tracked file can hold a terminal escape.
+`<layer>` names the layer that won: `~/.delivery-kit.json`, the repository's `.delivery-kit.json`, `--config`, or `project type` for a value worked out from the detected type.
+When nothing resolves, print `Test command : none resolved — B stops and asks`.
+B records the layer as `config.testCommandFrom`, with `config`. On a resume, print the recorded command and layer, and never re-resolve.
+PINS
+  [[ "$(cat "$ROOT/pipeline/README.md")" == *'Test command : "npm test"  (from the repository'"'"'s .delivery-kit.json)'* ]] \
+    || { echo 'the README sample lost the line'; false; }
 }

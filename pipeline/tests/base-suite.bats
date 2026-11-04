@@ -595,3 +595,35 @@ waits() {
     esac
   done <<<"$lines"
 }
+
+# Feature 058: the started line shows the layer that set the command, read from
+# the state file, JSON-quoted as the command is. Mutation: drop the read, or
+# print it raw.
+@test "the started line names the command's layer when the state file records it" {
+  local sf
+  repo
+  sf=".delivery-kit/runs/$F/progress.json"
+  jq '.config.testCommandFrom = "the repository'"'"'s .delivery-kit.json"' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" == *', from "the repository'"'"'s .delivery-kit.json"' ]] || { echo "start said: $(cat "$OUT")"; false; }
+  outcome_wait
+}
+
+@test "the started line says no layer when none is recorded" {
+  repo
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" != *', from '* ]] || { echo "start said: $(cat "$OUT")"; false; }
+  outcome_wait
+}
+
+@test "the started line says no layer when the record is not a string" {
+  local sf
+  repo
+  sf=".delivery-kit/runs/$F/progress.json"
+  jq '.config.testCommandFrom = 42' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  runs suite-base "$F" start
+  [[ "$(cat "$OUT")" != *', from '* ]] || { echo "start said: $(cat "$OUT")"; false; }
+  outcome_wait
+}
