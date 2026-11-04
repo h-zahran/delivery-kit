@@ -232,7 +232,7 @@ PARTS
   # run reaches the end without a stop, and this sentence lists what stops a
   # run whatever `--auto` collapsed. The changelog pin above keeps the
   # released 1.1.0 wording; the two no longer agree verbatim, by design.
-  grep -qF 'Cap breaches, a missing required tool, hard failures, a failed runtime check, a state file tracked in git, a pause, and the commit and push phases'\'' own stops — a path outside the feature once the branch holds commits, a commit they cannot show, a record of a commit that is not on the branch — still stop a run, whatever `--auto` collapsed.' <<<"$dflat" \
+  grep -qF 'Cap breaches, a missing required tool, hard failures, a failed runtime check, no test command at B, a state file tracked in git, a pause, and the commit and push phases'\'' own stops — a path outside the feature once the branch holds commits, a commit they cannot show, a record of a commit that is not on the branch — still stop a run, whatever `--auto` collapsed.' <<<"$dflat" \
     || { echo 'the docs stop-list sentence altered'; false; }
   # Feature 021, phase I: the floor itself, and the old claims it replaced.
   # A mutant re-inserting "does not stop — an --auto run then touches the
@@ -1244,7 +1244,7 @@ SPAN
 
 span_g() {
   cat <<'SPAN'
-Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push. The pre-flight constitution offer (decision item 9) is one of them, and `--auto` does not collapse it. `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used. Record every gate's answer in the state file's `gates` key.
+Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, B's exit 3, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push. The pre-flight constitution offer (decision item 9) is one of them, and `--auto` does not collapse it. `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used. Record every gate's answer in the state file's `gates` key.
 SPAN
 }
 
@@ -2103,7 +2103,7 @@ PINS
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(prose_flat <<<"$raw")"
   pins_in "$flat" 'gates' <<'PINS'
-Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push.
+Conditional stops: the resume prompt, a cap breach in C, F, J or M, a missing required tool, any hard failure, a failed runtime check, B's exit 3, K's stop for a path outside the feature, K's or L's stop for a commit it cannot show or a stale `commits` entry (see K and L), a run whose state file is tracked in git (see Resume), and a waiting question still open when L would push.
 `--auto` collapses none of the stops K, L and a tracked state file add to that list: K and L stop for them even when `--auto` collapsed the gate, and the stop for a tracked state file comes before any recorded answer is used.
 PINS
   assert_span span_g "$flat" 'the conditional-stops paragraph gained, lost or reworded text. An appended exception ("under --auto, K'"'"'s stop for a path outside the feature is collapsed") repeals a stop while leaving its pin intact.' || false
@@ -2336,7 +2336,11 @@ PINS
   flat="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   pins_in "$flat" 'phase B' <<'PINS'
 Record `artifacts.spec`. Then run `progress.sh suite-base <feature> start` and print the one line it prints: on a fresh run whose base commit has no green suite result, it starts the full suite on that commit in the background, in a separate checkout, for F.5 to cite.
-An exit 1 is printed too and does not stop the run: F.5 then runs the suite.
+An exit 1 is printed too and does not stop the run: F.5 then runs the suite. An exit 3 stops it: read "No test command" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
+PINS
+  docs="$(prose_flat < "$ROOT/pipeline/docs/phases.md")"
+  pins_in "$docs" 'phases.md' <<'PINS'
+A state file with no usable `testCommand`, or an `artifacts.spec` that names no spec file, exits 3, and B stops: the run's own record cannot serve the start, and that is never a legal "not started".
 PINS
   docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'`off`: nothing is kept or reused, and no base suite run starts.'* ]] \
@@ -2344,7 +2348,7 @@ PINS
 }
 
 # Feature 056: the start reads config.testCommand, and without it prints "not
-# started" and exits 0, so nothing stops and F.5 runs the suite. Read in the
+# started" and, since feature 058, exits 3 and stops B. Read in the
 # flattened phase B alone: a wrap cannot change the verdict, and the same words
 # in another section cannot satisfy it. prose_slice keeps the closing line, which
 # is phase C's, so the text is cut at that heading first. The sentence stays with
@@ -3153,6 +3157,8 @@ When the body would pass GitHub's limit of 65,536 characters, the body's guide g
 K and L are one stop when `<base>..HEAD` holds a commit and K has nothing left to commit: no remainder, no constitution commit, no record commit for K to make. They stay apart, each acting as it does alone, under `--auto`; with no remote, a non-GitHub remote or no `gh`, where L opens no pull request; and for a run whose `commits` holds an old-style string entry, which builds no guide. K first runs L's checks that can stop the run, in this order: `record-branch`, a stale entry, waiting questions, `pending-check`, and `guide`, with `--parts` when the body would pass GitHub's limit. Then one question shows K's commit list, `codeRoots` and every path outside the feature, and L's branch name, title and full body, with each guide part; one answer covers both. A no pushes nothing and stops the run under the `--until` rule, as a no at K does. A yes is recorded as `gates.K` in K's full shape, and in `gates.L`, beside whatever `drop-stale` recorded there, as what was shown: `branch`, the branch name; `title`; `head`, the full commit id that `git rev-parse HEAD` prints; `body`, the body file's `git hash-object`; and, when the body is over GitHub's limit, `parts`, the `git hash-object` of each `--parts` comment file, in order. Both `gates.K` and `gates.L` carry `"joint": true`, and `gates.L.answer` holds the answer. After a joint yes, L does not ask its push question again, on a resume too, but every stop L names still stops it, `pending-check` included. Just before the push, L rebuilds the body and each part as at L, and recomputes the branch name, the title, `git rev-parse HEAD` and each `git hash-object`. When any of them differs from `gates.L`, the run stops and asks L's question again, as a stop of its own, showing the new content. Before it asks, it clears the joint fields with the same `state-set` write a re-entered K makes (below), which keeps what `drop-stale` recorded; it then records the answer by merging it into what is left of `gates.L`, without `"joint"`. A re-entered K that asks again, as K's own rule says — it has no answer, or its commit list or remainder differs from what the joint answer covered — first sets the joint answer aside with `progress.sh state-set <feature> gates L "$(progress.sh get <feature> '(.gates.L // {}) | del(.joint, .answer, .branch, .title, .head, .body, .parts)')"`. That write keeps whatever `drop-stale` recorded under `gates.L`, and it comes before the question, so a session that ends while K waits leaves no joint answer behind.
 ## No runtime strategy
 If no server command resolves for a web project, say so and fall through to the `verifyCommand` strategy rather than guessing — an invented command that appears to hang is worse than an honest skip. If no strategy applies and `verifyCommand` is unset, print what could not be verified and why, then continue.
+## No test command
+`suite-base start` exits 3 when the run's own record cannot serve it. This is a conditional stop, and `--auto` does not collapse it. Print the line, and act on its reason. An `artifacts.spec` that names no spec file: B has not recorded it, or the file moved. Record it and run the start again. Stop only if no spec file exists. A `config.testCommand` that is not recorded: - When the configuration resolved a command, B recorded `config` too late or not at all. Record it as Configuration says, and run the start again. This needs no answer. - When nothing resolves, stop and ask the owner: give a test command, or go on with none. A command the owner gives goes into `config.testCommand`, with `config.testCommandFrom` as `the owner, at B's stop`, by `state-set --json-file` as `configuration.md` says. Then run the start again. Going on with none is recorded as `gates.B`, an object whose `testCommand` is `none`, beside the owner's answer. From then on: - F.5 runs no suite and waits for none. It records `no test command: no suite ran` in `test_baseline`. - J and N run `analyzeCommand`, say that no suite ran, and never report a pass. - The pull-request body says that no suite ran. A re-entered B that finds `gates.B.testCommand` recorded does not ask again.
 ## The tracked-state check
 Before any recorded answer is used, the run asks git whether the state file is tracked, with `git ls-files --error-unmatch -- ':(literal,icase)<state file>'` — `literal` so no character in the path is read as a pattern, `icase` so a copy tracked under other letter case is found on a file system that ignores case: at pre-flight, before decision item 5 accepts a state file's claim on the dirt, on every re-entry (`--resume`, `--from`, or a resume chosen at the resume prompt); and in B, straight after an `init` that finds a state file already there. Exit 0 means tracked: the run stops, names the tracked state file, shows every answer recorded under `gates`, and waits for the developer to confirm them, once, for all of them; `--auto` never collapses this stop. Exit 1 means untracked, and the run goes on; any other exit status is a hard failure, never read as untracked. The confirmation is recorded under `gates.trackedState`, and a recorded confirmation never suppresses the next re-entry's stop — the file travels with the repository, and a yes written into it is a yes nobody at the next keyboard gave. Without the confirmation the run goes no further: the lock is released if this session took it, and the state file is left intact. Within one invocation, the confirmation given at the first check stands for the later ones on the same state file; only a new invocation, or another state file, asks again.
 SPANS

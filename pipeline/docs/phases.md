@@ -188,7 +188,11 @@ files' `--base` key, and starts nothing when they differ — an accepted
 `.gitignore` line, say, makes a record that could never be cited. It
 starts nothing when a green record for the base files already exists, and
 nothing under `suiteReuse: off` or any value that is not `commit` or
-`files`. At F.5,
+`files`. Each of those exits 0. A state file with no usable `testCommand`,
+or an `artifacts.spec` that names no spec file, exits 3, and B stops: the
+run's own record cannot serve the start, and that is never a legal "not
+started". A check that cannot be made exits 1, and F.5 then runs the suite.
+At F.5,
 `progress.sh suite-base <feature> wait` waits for it: exit 2 means still
 running after one slice of 540 seconds, so each call fits inside a
 600-second tool limit and is made again; the limit is 900 seconds, counted

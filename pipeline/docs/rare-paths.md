@@ -2,7 +2,7 @@
 
 The pipeline skill sends the run to one section of this page when that
 section's path happens, and only then. Each section but "K and L as one
-stop", which was written here, is the skill's own text, moved here word
+stop" and "No test command", which were written here, is the skill's own text, moved here word
 for word to keep the skill small, so it still
 speaks from where it stood: "that block" and "This block" are the
 pre-flight probe block; "this decision walk" is pre-flight's decision
@@ -247,6 +247,38 @@ resolves for a web project, say so and fall through to the
 appears to hang is worse than an honest skip. If no strategy applies
 and `verifyCommand` is unset, print what could not be verified and why,
 then continue.
+
+## No test command
+
+`suite-base start` exits 3 when the run's own record cannot serve it. This is
+a conditional stop, and `--auto` does not collapse it. Print the line, and act
+on its reason.
+
+An `artifacts.spec` that names no spec file: B has not recorded it, or the
+file moved. Record it and run the start again. Stop only if no spec file
+exists.
+
+A `config.testCommand` that is not recorded:
+
+- When the configuration resolved a command, B recorded `config` too late or
+  not at all. Record it as Configuration says, and run the start again. This
+  needs no answer.
+- When nothing resolves, stop and ask the owner: give a test command, or go on
+  with none.
+
+A command the owner gives goes into `config.testCommand`, with
+`config.testCommandFrom` as `the owner, at B's stop`, by `state-set --json-file`
+as `configuration.md` says. Then run the start again.
+
+Going on with none is recorded as `gates.B`, an object whose `testCommand` is
+`none`, beside the owner's answer. From then on:
+
+- F.5 runs no suite and waits for none. It records `no test command: no suite
+  ran` in `test_baseline`.
+- J and N run `analyzeCommand`, say that no suite ran, and never report a pass.
+- The pull-request body says that no suite ran.
+
+A re-entered B that finds `gates.B.testCommand` recorded does not ask again.
 
 ## The tracked-state check
 
