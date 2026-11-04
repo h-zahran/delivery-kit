@@ -2356,7 +2356,7 @@ PINS
   flat=${flat%%'**C — clarify'*}
   record='Record `config` here if it is still empty, as Configuration says: `suite-base` reads it.'
   start='`progress.sh suite-base <feature> start`'
-  spot='written into `gates.gitignore` the same way. '"$record"' THEN create the feature branch'
+  spot='written into `gates.gitignore` the same way. '"$record"' THEN run `progress.sh branch-cut <feature>`'
   [[ $flat == *"$start"* ]] || { echo "phase B no longer runs the base suite start command"; false; }
   [[ $flat == *"$record"* ]] || { echo "phase B no longer holds the record sentence: $record"; false; }
   before=${flat%%"$start"*}
@@ -2666,7 +2666,7 @@ ROWS
   b="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
   [[ $b == *'With `--spec-dir`, follow B'"'"'s rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.'* ]] \
     || { echo "B no longer sends the run to its --spec-dir rule"; false; }
-  [[ $b == *'named `--branch`, else the feature'"'"'s name:'* ]] \
+  [[ $b == *'named `--branch`, else the feature'"'"'s name —'* ]] \
     || { echo "B no longer names the branch from --branch"; false; }
   docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   [[ $docs == *'Two flags change it for one run: `--branch <name>` names the feature branch, and `--spec-dir <path>` names the spec folder, relative to the repository root.'* ]] \

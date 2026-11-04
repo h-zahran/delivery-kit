@@ -482,7 +482,7 @@ stub() {
 }
 
 @test "base branch: an override that exists only on origin is refused, naming the command that fixes it" {
-  # B's `git checkout -b <feature> <base>` and every later `<base>..HEAD`
+  # branch-cut's `git checkout -b <feature> <base>` and every later `<base>..HEAD`
   # fail on a name that is only origin/<base>: both are measured here, so
   # the refusal is shown to protect a real step. A fresh clone is in this
   # state for every branch but the default.
@@ -508,7 +508,7 @@ stub() {
 # Feature 052, items 1 and 5 of issue #107: the override's "a local branch
 # with a commit, and not a tag too" check now holds for every source. Before
 # it, a base from origin/HEAD, the baseBranch key or the current branch was
-# checked by name only, and phase B's `git checkout -b <feature> <base>`
+# checked by name only, and phase B's `git checkout -b <feature> <base>`, now branch-cut's,
 # failed, or <base>..HEAD read a tag (spec Context, cases 1a to 1f and 5a).
 @test "base branch: a usable base is checked from every source" {
   local key='the baseBranch key'

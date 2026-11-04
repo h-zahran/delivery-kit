@@ -482,7 +482,7 @@ setup() {
   # suite-base (feature 053; its internal suite-base-run, started by
   # suite-base alone, is not listed), edited here rather than pinned by a
   # second, weaker test beside this one.
-  [[ "$output" == *"<init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board>"* ]]
+  [[ "$output" == *"<init|branch-cut|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board>"* ]]
 }
 
 @test "validate names the file and the key when completed_phases is not a list" {
