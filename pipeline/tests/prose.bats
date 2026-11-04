@@ -2116,6 +2116,16 @@ ROWS
 ROWS
 }
 
+# The whole "K and L as one stop" section, flattened. It lives in a function
+# of its own, not in a heredoc inside a command substitution: bash 3.2 (macOS
+# CI) counts the quote marks in such a heredoc, and this text holds an odd
+# number of apostrophes, which broke the parse of the whole file.
+kl_section_want() {
+  cat <<'SECTION'
+K and L are one stop when `<base>..HEAD` holds a commit and K has nothing left to commit: no remainder, no constitution commit, no record commit for K to make. They stay apart, each acting as it does alone, under `--auto`; with no remote, a non-GitHub remote or no `gh`, where L opens no pull request; and for a run whose `commits` holds an old-style string entry, which builds no guide. K first runs L's checks that can stop the run, in this order: `record-branch`, a stale entry, waiting questions, `pending-check`, and `guide`, with `--parts` when the body would pass GitHub's limit. Then one question shows K's commit list, `codeRoots` and every path outside the feature, and L's branch name, title and full body, with each guide part; one answer covers both. A no pushes nothing and stops the run under the `--until` rule, as a no at K does. A yes is recorded as `gates.K` in K's full shape, and in `gates.L`, beside whatever `drop-stale` recorded there, as what was shown: `branch`, the branch name; `title`; `head`, the full commit id that `git rev-parse HEAD` prints; `body`, the body file's `git hash-object`; and, when the body is over GitHub's limit, `parts`, the `git hash-object` of each `--parts` comment file, in order. Both `gates.K` and `gates.L` carry `"joint": true`, and `gates.L.answer` holds the answer. After a joint yes, L does not ask its push question again, on a resume too, but every stop L names still stops it, `pending-check` included. Just before the push, L rebuilds the body and each part as at L, and recomputes the branch name, the title, `git rev-parse HEAD` and each `git hash-object`. When any of them differs from `gates.L`, the run stops and asks L's question again, as a stop of its own, showing the new content. Before it asks, it clears the joint fields with the same `state-set` write a re-entered K makes (below), which keeps what `drop-stale` recorded; it then records the answer by merging it into what is left of `gates.L`, without `"joint"`. A re-entered K that asks again, as K's own rule says — it has no answer, or its commit list or remainder differs from what the joint answer covered — first sets the joint answer aside with `progress.sh state-set <feature> gates L "$(progress.sh get <feature> '(.gates.L // {}) | del(.joint, .answer, .branch, .title, .head, .body, .parts)')"`. That write keeps whatever `drop-stale` recorded under `gates.L`, and it comes before the question, so a session that ends while K waits leaves no joint answer behind.
+SECTION
+}
+
 @test "K and L are one stop when K has nothing left to commit" {
   # Feature 055, US1 (FR-001 to FR-007): the joint condition, the order of
   # L's checks before the joint question, the gates.K and gates.L records
@@ -2138,10 +2148,7 @@ PINS
 After a joint yes (see K), L does not ask its push question again, but every stop L names still stops it.
 PINS
   sec="$(doc_section "$ROOT/pipeline/docs/rare-paths.md" 'K and L as one stop')" || return 1
-  want="$(cat <<'SECTION'
-K and L are one stop when `<base>..HEAD` holds a commit and K has nothing left to commit: no remainder, no constitution commit, no record commit for K to make. They stay apart, each acting as it does alone, under `--auto`; with no remote, a non-GitHub remote or no `gh`, where L opens no pull request; and for a run whose `commits` holds an old-style string entry, which builds no guide. K first runs L's checks that can stop the run, in this order: `record-branch`, a stale entry, waiting questions, `pending-check`, and `guide`, with `--parts` when the body would pass GitHub's limit. Then one question shows K's commit list, `codeRoots` and every path outside the feature, and L's branch name, title and full body, with each guide part; one answer covers both. A no pushes nothing and stops the run under the `--until` rule, as a no at K does. A yes is recorded as `gates.K` in K's full shape, and in `gates.L`, beside whatever `drop-stale` recorded there, as what was shown: `branch`, the branch name; `title`; `head`, the full commit id that `git rev-parse HEAD` prints; `body`, the body file's `git hash-object`; and, when the body is over GitHub's limit, `parts`, the `git hash-object` of each `--parts` comment file, in order. Both `gates.K` and `gates.L` carry `"joint": true`, and `gates.L.answer` holds the answer. After a joint yes, L does not ask its push question again, on a resume too, but every stop L names still stops it, `pending-check` included. Just before the push, L rebuilds the body and each part as at L, and recomputes the branch name, the title, `git rev-parse HEAD` and each `git hash-object`. When any of them differs from `gates.L`, the run stops and asks L's question again, as a stop of its own, showing the new content. Before it asks, it clears the joint fields with the same `state-set` write a re-entered K makes (below), which keeps what `drop-stale` recorded; it then records the answer by merging it into what is left of `gates.L`, without `"joint"`. A re-entered K that asks again, as K's own rule says — it has no answer, or its commit list or remainder differs from what the joint answer covered — first sets the joint answer aside with `progress.sh state-set <feature> gates L "$(progress.sh get <feature> '(.gates.L // {}) | del(.joint, .answer, .branch, .title, .head, .body, .parts)')"`. That write keeps whatever `drop-stale` recorded under `gates.L`, and it comes before the question, so a session that ends while K waits leaves no joint answer behind.
-SECTION
-)"
+  want="$(kl_section_want)"
   [ "$sec" = "$want" ] || { echo "rare-paths.md section \"K and L as one stop\" changed:"; echo "$sec"; false; }
   raw="$(prose_slice "$ORCH" '^## Gates$' '^## Parallel agents$' raw 'gates')" || return 1
   flat="$(prose_flat <<<"$raw")"
@@ -2163,18 +2170,19 @@ ROWS
   # "L asks nothing" (L's own stops still stop it), a check of the guide
   # alone (the push must match everything shown), and the stop counted
   # three times in phases.md.
-  # The text is built first, on a line of its own: bash 3.2 (macOS CI) scans a
-  # heredoc that starts on a line holding `$( )` as part of that line, so the
-  # apostrophe in "guide's" below opened a quote and broke the parse of the
-  # whole file, 220 lines further on.
-  local hay
-  hay="$(prose_flat < "$ORCH") $(rare_section 'K and L as one stop') $(prose_flat <<<"$doc")"
-  absent_in "$hay" <<'OLD'
-L asks nothing
-the rebuilt guide's `git hash-object`
-K and L are two gates but one stop
-K and L stop once, not twice
-OLD
+  # One command substitution per line, no herestring inside one, and the old
+  # wordings as printf arguments, not a heredoc: shapes bash 3.2 (macOS CI)
+  # reads the same way bash 5 does.
+  local hay sec_kl doc_flat
+  hay="$(prose_flat < "$ORCH")"
+  sec_kl="$(rare_section 'K and L as one stop')"
+  doc_flat="$(printf '%s\n' "$doc" | prose_flat)"
+  hay="$hay $sec_kl $doc_flat"
+  printf '%s\n' \
+    'L asks nothing' \
+    'the rebuilt guide'"'"'s `git hash-object`' \
+    'K and L are two gates but one stop' \
+    'K and L stop once, not twice' | absent_in "$hay"
 }
 
 @test "the review guide is in the PR body and the DONE summary" {

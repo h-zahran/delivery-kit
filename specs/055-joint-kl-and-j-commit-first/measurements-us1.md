@@ -163,3 +163,28 @@ then `absent_in "$hay" <<'OLD'`.
   `cmp` identical. (The same line appended to rare-paths.md stayed green:
   it lands in the last section, which the guard does not read — the place
   was wrong, not the guard.)
+
+## macOS CI fix, second round, 2026-11-04
+
+The first fix (`74bbadd`) made the file parse under `bash -n`, but CI's
+macOS job then failed at run time. Run on bash 3.2.57 in Docker with bats,
+the repository mounted read-only and a stand-in `git` that answers only
+`rev-parse --show-toplevel`: the joint test failed, and the stand-in
+logged `git hash-object` — bash 3.2 had RUN the backticks of the test text.
+Bisecting the preprocessed file line by line showed the trigger: the joint
+test's `want="$(cat <<'SECTION' … SECTION)"`. bash 3.2 counts quote marks in
+a heredoc inside a command substitution, and this section text holds an
+odd number of apostrophes; the older sections in the file happen to hold
+an even number. The earlier diagnosis (a heredoc on a line with `$( )`) was
+a symptom of the same parity shift.
+
+- Fix: the section text moved into a function of its own,
+  `kl_section_want`, as `rare_spans` already does; the old wordings are
+  `printf` arguments, not a heredoc; one command substitution per line.
+- A scan of every suite file for a heredoc inside `$( )` with an odd count
+  of apostrophes or backticks, or unbalanced parentheses: 0 found.
+- bash 3.2 `bash -n` over all 21 preprocessed suite files: 0 failures.
+- bash 3.2 run of the joint test: ok. bash 3.2 run of all of
+  `pipeline/tests/prose.bats`: branch 1..101, 100 ok; main 1..99, 98 ok;
+  the one failure is the same test on both (it needs a real git), so 055
+  adds no bash 3.2 failure.
