@@ -2476,7 +2476,9 @@ suite_key_check() {
 }
 
 # TAP_AWK judges a TAP file, one copy of these rules for this plugin and the
-# delivery-kit repository's quickstarts: tap-check prints its verdict,
+# delivery-kit repository's quickstarts (scripts/run-suite.sh there copies its
+# number and plan-first rules, per file, for what its renumbering hides):
+# tap-check prints its verdict,
 # suite-record keeps it, and the repository's scripts/check-suite.sh, which
 # does not ship with this plugin, calls tap-check. (The repository's CI reads
 # its own shards' TAP with checks of its own.) It prints one line: seven counts — non-blank lines, plan

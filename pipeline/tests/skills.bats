@@ -317,13 +317,16 @@ PINS
 A fault script breaks the code on purpose and checks that a test goes red.
 Its mechanics are the harness: the throwaway copy, the test runner's path,
 and the facts that make it run. The faults are what it tries. In a pipeline
-run there is one harness, at `.delivery-kit/runs/<feature>/fault-harness.sh`.
-With no run directory, this section does not apply.
+run there is one harness, at `.delivery-kit/runs/<feature>/fault-harness.sh`,
+and each brief names `<feature>`. With no run directory, this section does
+not apply.
 
 - The first actor that needs to plant a fault saves the harness there, with
-  the facts it needed at the top. A later actor reuses and extends it, and
-  never builds another. This binds phases H and J, and I's reviewers and fix
-  step.
+  the facts it needed at the top, by writing a temporary file and renaming it.
+  A later actor reuses and extends it, and never builds another. This binds
+  phases H and J, and I's reviewers and fix step. Among agents running at
+  once, the brief names the one that owns the file, and only it writes or
+  repairs it. In phase I that is the tests reviewer.
 - In phase I only the tests reviewer may create the harness. Another reviewer
   uses it if it exists, or else names the fault in its finding. I's fix step
   runs a fault named that way through the harness before it accepts or
@@ -334,38 +337,43 @@ With no run directory, this section does not apply.
   independent.
 - Run every fault the work needs. Nothing caps the number of faults, and no
   lens is dropped because a harness exists.
-- A harness works only on a throwaway copy. It never edits the working tree
-  and never writes to git in the repository. The run directory is the one
-  place a reviewer may write.
+- A harness works only on a throwaway copy, and runs from inside it. It never
+  edits the working tree and never writes to git in the repository. A reviewer
+  writes only in the run directory and in a temporary folder of its own.
+- Each actor runs the harness once with no fault, and again after the harness
+  or the tree changes. That run must stay green: a copy that cannot start its
+  tests makes every fault read as caught.
 - A harness reports a fault that changed no byte as a fault that did not land,
-  never as a test that stayed green.
-- Before running a harness, run `git ls-files --error-unmatch -- <its path>`.
-  Only exit 1, not tracked, lets it run. On any other exit, do not run it, say
-  so, and work from a scratch folder of your own: git may have brought that
-  file from somewhere else.
+  never as a test that stayed green. A fault counts as caught only when the
+  output shows the failing test's own `not ok` line.
+- Before writing anything under the run directory for this, or running a
+  harness or a faults file, read what is there, and from the repository's top
+  run `git ls-files -- ':(literal,icase).delivery-kit'`. Only exit 0 with empty
+  output lets it go on: a tracked file, link or submodule can bring a file to
+  that path that git calls untracked. On any other answer, do not use that
+  path, and say so. The first actor then keeps the harness in a temporary
+  folder of its own, its report names the folder, and the rules above hold.
 - A harness that breaks is repaired in place, and the fact that broke it is
   added at its top.
 TEXT
 }
 
-@test "the fault harness caps nothing, and the orchestrator and phases.md point at it" {
+@test "the fault harness is pointed at from the ground rules and explained in phases.md, whole" {
   local s
-  s="$(span "$REVIEW" '^## The fault harness$' '^## Output$')" || return 1
-  absent_in "$s" 'the fault harness section' <<'OLD'
-at most
-no more than
-up to
-a limit
-OLD
-  pins_in "$(flat "$ORCH")" 'the orchestrator' <<'PINS'
-- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`.
+  s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
+  pins_in "$s" 'the ground rules' <<'PINS'
+- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it. - **The task board is live.**
 PINS
   s="$(span "$ROOT/pipeline/docs/phases.md" '^## One fault harness per run$' '^## Questions that wait$')" || return 1
-  pins_in "$s" 'phases.md' <<'PINS'
-one harness, saved in the run directory
-names its own faults before it reads the harness
-Nothing caps the number of faults
-PINS
+  exactly "$s" 'the phases.md section' <<'TEXT'
+## One fault harness per run
+
+To check that a test can go red, a run breaks the code on purpose in a
+throwaway copy. Several actors do this in one run. They share one harness,
+saved in the run directory, so none of them rebuilds the mechanics or
+rediscovers the same facts. They share nothing else, so their judgement stays
+independent. `pipeline:spec-review` holds the rules.
+TEXT
 }
 
 # --- pipeline:device-verify -------------------------------------------------
