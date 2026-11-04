@@ -26,8 +26,8 @@
 
 **Independent Test**: `specs/056-suite-base-config-order/measurements.md` holds one row per fault, with its mutated text and the test's failure message.
 
-- [ ] T004 [US2] In a detached worktree outside the repository, run the four faults from research R5 against `pipeline/skills/pipeline/SKILL.md` (swapped, record removed, start removed, correct order only outside phase B). For each one, print the mutated text, run only the new test, and record the result in `specs/056-suite-base-config-order/measurements.md`. Remove the worktree after. Never change the tracked tree.
-- [ ] T005 [US2] Run the new test in `pipeline/tests/prose.bats` at run time on Docker `bash:3.2`, and record the result in `specs/056-suite-base-config-order/measurements.md`.
+- [X] T004 [US2] In a detached worktree outside the repository, run the four faults from research R5 against `pipeline/skills/pipeline/SKILL.md` (swapped, record removed, start removed, correct order only outside phase B). For each one, print the mutated text, run only the new test, and record the result in `specs/056-suite-base-config-order/measurements.md`. Remove the worktree after. Never change the tracked tree.
+- [X] T005 [US2] Run the new test in `pipeline/tests/prose.bats` at run time on Docker `bash:3.2`, and record the result in `specs/056-suite-base-config-order/measurements.md`.
 
 **Checkpoint**: all four faults are red for the right reason, and the shipped skill is green.
 
