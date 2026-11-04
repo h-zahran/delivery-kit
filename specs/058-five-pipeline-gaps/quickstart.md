@@ -69,15 +69,25 @@ cd "$ROOT"; rm -rf "$W"; echo PASS
 set -eu
 ROOT="$PWD"
 W="$(mktemp -d)"; git worktree add -q --detach "$W/t" HEAD; cd "$W/t"
-f=pipeline/skills/pipeline/SKILL.md
-awk 'BEGIN{ m="Record `config` here if it is still empty, as Configuration says: `suite-base` reads it." }
-  /^is still empty, as Configuration says/ { next } { print }' "$f" > "$W/s"
-sed -e 's/^is written into `gates.gitignore` the same way\. Record `config` here if it$/is written into `gates.gitignore` the same way./' \
-  -e 's/^\*\*C — clarify, looped\.\*\*/&  Record `config` here if it is still empty, as Configuration says: `suite-base` reads it./' "$W/s" > "$f"
-if git diff --quiet -- "$f"; then echo "the mutant did not land"; exit 1; fi
-if bash "$HOME/bats/bin/bats" -f 'B records config before' pipeline/tests/prose.bats > "$W/o" 2>&1; then
-  echo "the mutant stayed green"; exit 1
-fi
+python3 - <<'PY'
+import re
+p='pipeline/skills/pipeline/SKILL.md'
+s=open(p,encoding='utf-8',newline='').read()
+rec=re.compile(r"Record `config` here if it\s+is still empty, as Configuration says: `suite-base` reads it\. ")
+assert len(rec.findall(s))==1
+s=rec.sub('',s)
+start=re.compile(r"Then run\s+`progress\.sh suite-base <feature> start` and print the one line it\s+prints:")
+assert len(start.findall(s))==1
+s=start.sub('It prints:',s)
+c='**C — clarify, looped.**'
+assert s.count(c)==1
+s=s.replace(c,c+' Record `config` here if it is still empty, as Configuration says: `suite-base` reads it. Then run `progress.sh suite-base <feature> start` and print the one line.')
+open(p,'w',encoding='utf-8',newline='').write(s)
+PY
+if git diff --quiet; then echo "the mutant did not land"; exit 1; fi
+rc=0; bash "$HOME/bats/bin/bats" -f 'B records config before' pipeline/tests/prose.bats > "$W/o" 2>&1 || rc=$?
+[ "$rc" -ne 0 ] || { echo "the mutant stayed green"; exit 1; }
+grep -q 'phase B no longer runs the base suite start command' "$W/o"
 cd "$ROOT"; git worktree remove --force "$W/t"; rm -rf "$W"; echo PASS
 ```
 
