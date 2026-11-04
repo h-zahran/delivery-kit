@@ -314,3 +314,13 @@ holding_fixture() {
   find . -type f | LC_ALL=C sort > "$TEST_DIR/after"
   cmp "$TEST_DIR/before" "$TEST_DIR/after" || { echo "files changed:"; diff "$TEST_DIR/before" "$TEST_DIR/after"; false; }
 }
+
+@test "run-suite: this repository's testCommand calls it, and the serial command stays documented" {
+  local cmd
+  cmd="$(jq -r '.pipeline.testCommand' "$ROOT/.delivery-kit.json")"
+  [ "$cmd" = 'bash scripts/run-suite.sh' ] || { echo "testCommand is: $cmd"; false; }
+  grep -qF 'bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests' "$ROOT/CONTRIBUTING.md" \
+    || { echo "CONTRIBUTING.md lost the serial command"; false; }
+  grep -qF 'bash scripts/run-suite.sh' "$ROOT/CONTRIBUTING.md" \
+    || { echo "CONTRIBUTING.md does not name the faster command"; false; }
+}

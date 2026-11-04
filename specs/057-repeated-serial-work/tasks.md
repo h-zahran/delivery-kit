@@ -26,8 +26,8 @@
 
 **Independent Test**: `jq -r '.pipeline.testCommand' .delivery-kit.json` prints `bash scripts/run-suite.sh`, and `git diff main -- .github/workflows/ci.yml` is empty.
 
-- [ ] T004 [US1] Add to `tests/run-suite.bats` a test that `.delivery-kit.json`'s `testCommand` is exactly `bash scripts/run-suite.sh`, and that `CONTRIBUTING.md` still holds the serial command. See it red. In `.delivery-kit.json`, set `pipeline.testCommand` to `bash scripts/run-suite.sh`.
-- [ ] T005 [US1] In `CONTRIBUTING.md`, section "Running the tests", directly after the serial command's code block, add a short paragraph: `bash scripts/run-suite.sh` runs the same files side by side and takes less time, it is what the pipeline's `testCommand` calls here, and CI stays serial.
+- [X] T004 [US1] Add to `tests/run-suite.bats` a test that `.delivery-kit.json`'s `testCommand` is exactly `bash scripts/run-suite.sh`, and that `CONTRIBUTING.md` still holds the serial command. See it red. In `.delivery-kit.json`, set `pipeline.testCommand` to `bash scripts/run-suite.sh`.
+- [X] T005 [US1] In `CONTRIBUTING.md`, section "Running the tests", directly after the serial command's code block, add a short paragraph: `bash scripts/run-suite.sh` runs the same files side by side and takes less time, it is what the pipeline's `testCommand` calls here, and CI stays serial.
 
 **Checkpoint**: `tests/run-suite.bats` passes, and `git diff main -- .github/workflows/ci.yml` is empty.
 

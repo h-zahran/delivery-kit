@@ -33,6 +33,10 @@ git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git 
 bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipeline/tests team/tests
 ```
 
+`bash scripts/run-suite.sh` runs the same files side by side and takes less
+time. It is what the pipeline's `testCommand` calls in this repository. CI
+stays serial, one shard per suite, for the reason its workflow gives.
+
 The tag above is the readable one, and it is deliberately NOT the commit
 the workflow pins. CI fetches an immutable commit, because an upstream
 retag would otherwise change the third-party code an automated gate
