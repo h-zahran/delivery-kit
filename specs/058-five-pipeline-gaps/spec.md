@@ -81,7 +81,7 @@ A prose test takes a slice of a document between two boundaries. Today the slice
 
 1. **Given** a caller that does not opt in, **When** it takes a slice, **Then** the slice is byte-identical to today's, closing line included.
 2. **Given** a caller that opts in, **When** it takes a slice, **Then** the closing line is absent, and every guard still fires on the same document faults.
-3. **Given** a slice that holds only its boundary line once the closing line is dropped, **When** a caller opts in, **Then** the helper refuses rather than return an empty slice.
+3. **Given** a region that is one line, its opener and closer on the same line, **When** a caller opts in, **Then** the helper refuses rather than return an empty slice.
 4. **Given** the audit list below, **When** the work is done, **Then** each of the 14 tests is recorded with its verdict: switched, or kept on the default with the reason.
 
 ---
