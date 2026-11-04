@@ -2,6 +2,43 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.11.0] - 2026-11-04
+
+### Added
+
+- **`progress.sh branch-cut <feature>`.** A resume into phase B ran `git
+  checkout -b` a second time, which exits 128, and no text said what to do.
+  The new subcommand reads the branch and the base from the state file. It
+  cuts an absent branch, says so when HEAD is on it, and switches to it from
+  elsewhere only when the base is its ancestor. It never deletes a branch,
+  moves a branch's commit or discards work. It replaces phase B's sentence.
+- **A `Test command` line in the probe block.** A tracked `testCommand` starts
+  in the background in phase B, before the first human stop, and nothing showed
+  it. The line shows the command, JSON-quoted, and the layer that set it, on
+  every fresh run and every re-entry. Phase B records the layer as
+  `config.testCommandFrom`, and the base suite's `started` line names it.
+- **`state-set --json-file <path>` and `preflight.sh --values-file <path>`.**
+  A value a tracked file set no longer goes through a shell, where a quote broke
+  the command and `'$(...)` ran code. Each value gets the same checks as the
+  inline form or the flag. The refusal of a quote, a dollar sign or a backtick
+  in a trailer stays, because a person may still type `--trailer`.
+
+### Changed
+
+- **`suite-base <feature> start` exits 3 when the run's own record cannot serve
+  it:** no usable `config.testCommand`, or no spec file at `artifacts.spec`. It
+  used to exit 0, the status of a legal "not started", so a run could pass over
+  it. Phase B stops on exit 3: the owner gives a command, or goes on with none,
+  and then phases F.5, J and N say that no suite ran. `--auto` does not collapse
+  this stop. Every other "not started" line keeps exit 0. See "No test command"
+  in `docs/rare-paths.md`.
+
+### Notes
+
+- The test helper `prose_slice` gained forms that leave out the closing line, so
+  text on the next section's first line cannot satisfy a test that claims to
+  read one section. It is test code and does not ship in this plugin.
+
 ## [1.10.0] - 2026-11-04
 
 ### Added

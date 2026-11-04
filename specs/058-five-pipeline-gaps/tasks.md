@@ -88,8 +88,8 @@ Each phase is one review piece. The order frees the skill's bytes first, and lea
 
 **Independent Test**: `bash scripts/check-versions.sh` exits 0, and `wc -c < pipeline/skills/pipeline/SKILL.md` prints a number under 65536.
 
-- [ ] T020 In `pipeline/CHANGELOG.md`, add the `[1.11.0] - 2026-11-04` section above `[1.10.0]`: the five gaps, with `branch-cut`, status 3, the `Test command` line, `--json-file`, `--values-file`. Say that `prose_slice` is test code and does not ship.
-- [ ] T021 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.11.0`. Run `bash scripts/check-versions.sh`.
+- [X] T020 In `pipeline/CHANGELOG.md`, add the `[1.11.0] - 2026-11-04` section above `[1.10.0]`: the five gaps, with `branch-cut`, status 3, the `Test command` line, `--json-file`, `--values-file`. Say that `prose_slice` is test code and does not ship.
+- [X] T021 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.11.0`. Run `bash scripts/check-versions.sh`.
 
 **Checkpoint**: the versions agree.
 
