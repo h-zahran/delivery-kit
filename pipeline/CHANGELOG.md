@@ -2,6 +2,27 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.10.0] - 2026-11-04
+
+### Added
+
+- **One fault harness per run.** To check that a test can go red, a run breaks
+  the code on purpose in a throwaway copy. Up to three actors in one run each
+  built their own script for it, and rediscovered the same facts. The tests
+  reviewer finished last in each of four measured runs. `pipeline:spec-review`
+  now defines one harness, `.delivery-kit/runs/<feature>/fault-harness.sh`: the
+  first actor that needs it saves it, and later actors reuse and extend it. The
+  tests reviewer writes its own faults to `faults-tests.txt` before it reads the
+  harness, so its judgement stays independent. Nothing caps the faults, and no
+  lens is dropped. A harness that git tracks is not run. The orchestrator gains
+  one pointer, and `docs/phases.md` explains it.
+
+### Notes
+
+- This repository's `testCommand` now runs the suite's files side by side
+  through `scripts/run-suite.sh`. That script is the repository's own and does
+  not ship in this plugin. It changes no behaviour of the plugin.
+
 ## [1.9.1] - 2026-11-04
 
 ### Fixed

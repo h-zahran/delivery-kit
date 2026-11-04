@@ -55,9 +55,9 @@
 
 **Independent Test**: `bash scripts/check-versions.sh` exits 0, and `specs/057-repeated-serial-work/measurements.md` holds at least three passes.
 
-- [ ] T011 [US1] From the repository root, run quickstart sections 2 and 3. Record each pass's time and counts, the comparison of test names with the serial report, and the serial time in `specs/057-repeated-serial-work/measurements.md`.
-- [ ] T012 In `pipeline/CHANGELOG.md`, add the `[1.10.0] - 2026-11-04` section above `[1.9.1]`: the fault harness. Say that the suite script is this repository's own and does not ship in the plugin.
-- [ ] T013 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.10.0`. Run `bash scripts/check-versions.sh`.
+- [X] T011 [US1] From the repository root, run quickstart sections 2 and 3. Record each pass's time and counts, the comparison of test names with the serial report, and the serial time in `specs/057-repeated-serial-work/measurements.md`.
+- [X] T012 In `pipeline/CHANGELOG.md`, add the `[1.10.0] - 2026-11-04` section above `[1.9.1]`: the fault harness. Say that the suite script is this repository's own and does not ship in the plugin.
+- [X] T013 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.10.0`. Run `bash scripts/check-versions.sh`.
 
 **Checkpoint**: the versions agree, and the measurements meet SC-001 to SC-003.
 

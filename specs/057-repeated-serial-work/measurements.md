@@ -22,3 +22,17 @@ Through this run's own harness, `.delivery-kit/runs/057-repeated-serial-work/fau
 
 Two gaps this run found and closed before that table: stubs without the execute bit were passed over in silence, so the real `getconf` answered; and no test read a second plan line in the report, or a link to a folder.
 
+## T011: time at the repository root
+
+`bash scripts/run-suite.sh` from the repository root, at the end of piece 4, on 16 CPUs, 8 files at once, with load from other programs at about 5. Each report passes `progress.sh tap-check`.
+
+| Pass | Wall time | Exit | Plan | ok | not ok | skip |
+|---|---|---|---|---|---|---|
+| 1 | 104 s | 0 | `1..1000` | 1000 | 0 | 0 |
+| 2 | 109 s | 0 | `1..1000` | 1000 | 0 | 0 |
+| 3 | 111 s | 0 | `1..1000` | 1000 | 0 | 0 |
+
+Serial, run 056's phase J suite took 561 s on 983 tests. The base run's 983 tests plus this feature's 17 new tests make 1000.
+
+SC-003, the same set of test names as the serial report, is checked at phase J, which runs the serial command on the final commit. Nothing is written after J's last suite, so the result is in the pull request body.
+
