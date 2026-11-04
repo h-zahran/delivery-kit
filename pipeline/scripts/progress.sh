@@ -2105,7 +2105,7 @@ metrics_write() {
 }
 
 # --- state-set ----------------------------------------------------------------
-# state-set <feature> <key> [<sub-key>] <json> — the whole-key write for the
+# state-set <feature> <key> [<sub-key>] <json> | --json-file <path> — the whole-key write for the
 # keys no other subcommand writes: gates, artifacts, measurements and config
 # (objects), analyze_changelog (a list), test_baseline and last_task
 # (strings). With a sub-key, only that member of the object is replaced. The
@@ -2115,11 +2115,14 @@ metrics_write() {
 # or is never written, and is refused.
 STATE_SET_KEYS=" gates artifacts measurements config analyze_changelog test_baseline last_task "
 cmd_state_set() {
-  feature="$1"; local key="${2:-}" sub='' json want k ok=1
+  feature="$1"; local key="${2:-}" sub='' json='' file='' want k ok=1
+  local usage='usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'
   case $# in
     3) json="$3" ;;
-    4) sub="$3"; json="$4"; [ -n "$sub" ] || die "the sub-key is empty" ;;
-    *) die "usage: state-set <feature> <key> [<sub-key>] <json>" ;;
+    4) if [ "$3" = --json-file ]; then file="$4"; else sub="$3"; json="$4"; [ -n "$sub" ] || die "the sub-key is empty"; fi ;;
+    5) [ "$4" = --json-file ] || die "$usage"
+       sub="$3"; file="$5"; [ -n "$sub" ] || die "the sub-key is empty" ;;
+    *) die "$usage" ;;
   esac
   ok=0
   for k in $STATE_SET_KEYS; do if [ "$k" = "$key" ]; then ok=1; fi; done
@@ -2130,7 +2133,16 @@ cmd_state_set() {
     *) want=object ;;
   esac
   if [ -n "$sub" ] && [ "$want" != object ]; then die "'$key' holds a $want, which has no sub-keys"; fi
-  jq -n --argjson v "$json" '$v' >/dev/null 2>&1 || die "the value is not one valid JSON document: $json"
+  # --json-file: a value from a tracked file reaches this script with no shell
+  # reading it. A redirect, so a leading dash is a path, after the checks, so a
+  # failed redirect cannot print a raw one. jq's stderr is dropped: a parse
+  # error can quote the file. From here on the value is the inline form's.
+  if [ -n "$file" ]; then
+    { [ -f "$file" ] && [ -r "$file" ]; } || die "no readable file at $file"
+    json="$(jq ${JQB:+"$JQB"} -c -s 'if length == 1 then .[0] else error("not one document") end' < "$file" 2>/dev/null)" \
+      || die "$file does not hold one JSON document"
+  fi
+  jq -n --argjson v "$json" '$v' >/dev/null 2>&1 || die "the value is not one valid JSON document: ${file:-$json}"
   if [ -z "$sub" ]; then
     # shellcheck disable=SC2016 # a jq program: its $ names are jq's
     [ "$(jqs -n --argjson v "$json" '$v | type')" = "$want" ] || die "'$key' must be a JSON $want"

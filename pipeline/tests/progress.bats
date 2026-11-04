@@ -1702,3 +1702,88 @@ board_vs_lock_take() {
   run bash "$PROG" init .hidden b main web
   [ "$status" -eq 0 ]
 }
+
+# Feature 058: state-set takes its JSON from a file, so a value from a tracked
+# file never goes through a shell. The checks after the read are the inline
+# form's: the tests below pin the ones a file could get around.
+@test "state-set --json-file stores a whole key and a sub-key, byte-exact, and no shell reads it" {
+  local sf=.delivery-kit/runs/001-demo/progress.json want
+  bash "$PROG" init 001-demo b main web
+  # The bytes are written by printf, so this test types the value once only.
+  printf '%s\n' '["Task: it'"'"'s $(touch marker) `touch marker2`"]' > list.json
+  bash "$PROG" state-set 001-demo config commitTrailers --json-file list.json
+  want="$(jq -c . list.json)"
+  [ "$(jq -c '.config.commitTrailers' "$sf")" = "$want" ] || { jq -c '.config' "$sf"; false; }
+  [ ! -e marker ] && [ ! -e marker2 ]
+  printf '%s\n' '{"planFile":"it'"'"'s.md","commitTrailers":[]}' > whole.json
+  bash "$PROG" state-set 001-demo config --json-file whole.json
+  [ "$(jq -c '.config' "$sf")" = '{"planFile":"it'"'"'s.md","commitTrailers":[]}' ]
+  # A leading dash is a path, never a flag to jq.
+  printf '"x"\n' > ./-dash.json
+  bash "$PROG" state-set 001-demo test_baseline --json-file -dash.json
+  [ "$(jq -r '.test_baseline' "$sf")" = x ]
+  # A sub-key write through a file and through the inline form store the same.
+  printf '"y"\n' > y.json
+  bash "$PROG" state-set 001-demo gates C --json-file y.json
+  cp "$sf" by-file.json
+  bash "$PROG" state-set 001-demo gates C '"y"'
+  cmp by-file.json "$sf"
+}
+
+@test "state-set --json-file refuses what is not one JSON document, writes nothing, prints no content" {
+  local sf=.delivery-kit/runs/001-demo/progress.json bad
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
+  mkdir folder
+  : > empty.json
+  printf '"SECRETWORD" "SECRETWORD"\n' > two.json
+  printf '{"a": SECRETWORD\n' > broken.json
+  for bad in missing.json folder empty.json two.json broken.json; do
+    run --separate-stderr bash "$PROG" state-set 001-demo config --json-file "$bad"
+    [ "$status" -eq 1 ] || { echo "$bad: status $status"; false; }
+    [ -z "$output" ] || { echo "$bad: stdout: $output"; false; }
+    [[ "$stderr" == *"$bad"* ]] || { echo "$bad: the path is not named: $stderr"; false; }
+    [[ "$stderr" != *SECRETWORD* ]] || { echo "$bad: the content was printed: $stderr"; false; }
+    cmp before.json "$sf"
+  done
+  # A flag with no path is a usage fault.
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file
+  [ "$status" -eq 1 ]
+  cmp before.json "$sf"
+}
+
+@test "state-set --json-file passes through the same checks as the inline form" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
+  # The type check on a whole key.
+  printf '["SECRETWORD"]\n' > list.json
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file list.json
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"'config' must be a JSON object"* ]] || { echo "$stderr"; false; }
+  [[ "$stderr" != *SECRETWORD* ]] || { echo "$stderr"; false; }
+  # A key it does not own.
+  printf '{}\n' > obj.json
+  run --separate-stderr bash "$PROG" state-set 001-demo commits --json-file obj.json
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"state-set does not write 'commits'"* ]] || { echo "$stderr"; false; }
+  # The gates.pending guard, on a sub-key and on the whole key.
+  run --separate-stderr bash "$PROG" state-set 001-demo gates pending --json-file obj.json
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'gates.pending is written only by ask-later and answer'* ]] || { echo "$stderr"; false; }
+  printf '{"pending":[]}\n' > forged.json
+  run --separate-stderr bash "$PROG" state-set 001-demo gates --json-file forged.json
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'a whole-gates write must keep gates.pending'* ]] || { echo "$stderr"; false; }
+  cmp before.json "$sf"
+}
+
+@test "state-set keeps the inline form and its usage names the file form" {
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" state-set 001-demo gates C '"x"'
+  [ "$(jq -r '.gates.C' "$sf")" = x ]
+  run --separate-stderr bash "$PROG" state-set 001-demo gates C D E
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'* ]] || { echo "$stderr"; false; }
+}

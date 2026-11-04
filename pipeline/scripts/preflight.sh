@@ -35,7 +35,7 @@ shown() {
   s=${s//[![:print:]]/?}
   printf -v "$1" '%s' "$s$c"
 }
-arg_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
+arg_s='' vf_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -48,15 +48,16 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 here="${BASH_SOURCE[0]}"
 case "$here" in */*) here="${here%/*}" ;; *) here=. ;; esac
 here="$(cd -P -- "$here" && pwd -P)" || die "cannot find the folder that holds preflight.sh"
-add_trailer() {
-  local t="$1" ok
-  ok="$("$BASH" "$here/trailer-check.sh" "$(jq -jn --arg t "$t" '$t | tojson')" 2>&1 >/dev/null)" \
+add_trailer_json() {
+  local j="$1" ok
+  ok="$("$BASH" "$here/trailer-check.sh" "$j" 2>&1 >/dev/null)" \
     || die "$ok (a commit trailer)"
-  trailers="$(jq -n --argjson a "$trailers" --arg t "$t" '$a + [$t]')"
+  trailers="$(jq -n --argjson a "$trailers" --argjson t "$j" '$a + [$t]')"
 }
+add_trailer() { add_trailer_json "$(jq -jn --arg t "$1" '$t | tojson')"; }
 
 dir="."; ptype_override=""; base_configured=""; base_override=""
-feature_branch=""; spec_dir=""; trailers='[]'
+feature_branch=""; spec_dir=""; trailers='[]'; values_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)          dir="${2:?--dir needs a path}"; shift 2 ;;
@@ -66,9 +67,42 @@ while [ $# -gt 0 ]; do
     --feature-branch) feature_branch="${2:?--feature-branch needs a name}"; shift 2 ;;
     --spec-dir)     spec_dir="${2:?--spec-dir needs a path}"; shift 2 ;;
     --trailer)      add_trailer "${2:?--trailer needs a value}"; shift 2 ;;
-    *) shown arg_s "$1"; die "unknown argument '$arg_s' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer)" ;;
+    --values-file)  values_file="${2:?--values-file needs a path}"; shift 2 ;;
+    *) shown arg_s "$1"; die "unknown argument '$arg_s' (legal: --dir --project-type --base-branch --base-branch-override --feature-branch --spec-dir --trailer --values-file)" ;;
   esac
 done
+# --values-file: the values a tracked file set reach this script with no shell
+# reading them on the way. Each then takes the path a flag's value takes, with
+# the same checks. Read here, before --dir's cd, so a relative path is the
+# caller's. The file's trailers go first and a typed override wins, whatever
+# the command line's order. A trailer stays JSON to trailer-check.sh, as a
+# value taken through $( ) would lose a trailing line feed. An override must
+# become a shell value, so a NUL, which bash would drop, is refused first, and
+# the x keeps a trailing line feed for the name checks to refuse.
+if [ -n "$values_file" ]; then
+  shown vf_s "$values_file"
+  { [ -f "$values_file" ] && [ -r "$values_file" ]; } || die "no readable file at '$vf_s' (--values-file)"
+  values="$(jq -c -s 'if length == 1 and (.[0] | type) == "object" then .[0] else error("not one object") end' < "$values_file" 2>/dev/null)" \
+    || die "'$vf_s' does not hold one JSON object (--values-file)"
+  jq -en --argjson v "$values" '$v | (keys - ["commitTrailers", "baseBranchOverride"]) == []' > /dev/null \
+    || die "'$vf_s' holds a key other than commitTrailers and baseBranchOverride (--values-file)"
+  jq -en --argjson v "$values" '$v
+    | ((has("commitTrailers") | not) or ((.commitTrailers | type) == "array" and (.commitTrailers | all(type == "string"))))
+    and ((has("baseBranchOverride") | not) or ((.baseBranchOverride | type) == "string" and (.baseBranchOverride | length > 0 and (explode | all(. != 0)))))' > /dev/null \
+    || die "'$vf_s' holds a value of the wrong type: commitTrailers is a list of strings, baseBranchOverride a name (--values-file)"
+  typed_trailers="$trailers"; trailers='[]'
+  n="$(jq -n --argjson v "$values" '$v.commitTrailers // [] | length')"
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    add_trailer_json "$(jq -cn --argjson v "$values" --argjson i "$i" '$v.commitTrailers[$i]')"
+    i=$((i + 1))
+  done
+  trailers="$(jq -n --argjson a "$trailers" --argjson b "$typed_trailers" '$a + $b')"
+  if [ -z "$base_override" ] && [ "$(jq -n --argjson v "$values" '$v | has("baseBranchOverride")')" = true ]; then
+    base_override="$(jq -jn --argjson v "$values" '$v.baseBranchOverride'; printf x)"
+    base_override="${base_override%x}"
+  fi
+fi
 # The spec folder is handed to the spec tool, which creates it and writes
 # into it, and its last segment becomes the run's name under
 # .delivery-kit/runs/ and, without --feature-branch, the branch's name. So

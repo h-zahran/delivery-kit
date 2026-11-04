@@ -148,10 +148,11 @@ that set it.
 
 What the run does with the override:
 
-- It passes `--base-branch-override <name>` to `preflight.sh` only when
-  `--base-branch` was typed or `baseBranchOverride` resolves to a value,
-  the flag's value when both, and on a fresh run only. On a resume it
-  passes none, as for the trailers and the branch: a tracked key moved to
+- It hands the override to `preflight.sh` only when `--base-branch` was
+  typed or `baseBranchOverride` resolves to a value, the flag's value when
+  both, and on a fresh run only: a typed name as `--base-branch-override
+  <name>`, and the key's value in the values file (see "Values from a
+  tracked file"). On a resume it passes none, as for the trailers and the branch: a tracked key moved to
   a branch that is not here must not stop a resume.
 - `preflight.sh` reports the source as `override` and cannot tell which
   layer set it, so the probe line names the layer that set it — the
@@ -274,8 +275,8 @@ character, a variation selector, a tag character or a byte-order mark,
 from the one list in `scripts/hidden-chars.sh` that questions are
 checked against too. A refusal shows such a trailer as JSON, each of
 these characters as its `\u` escape, never raw. It also stops on a
-trailer holding a quote (`'`), a dollar sign or a backtick, because the
-run types the list into a shell command, and on one holding `##[`
+trailer holding a quote (`'`), a dollar sign or a backtick, because a
+person may type a trailer into a shell command, and on one holding `##[`
 anywhere, which a GitHub workflow log reads as a command. Every
 commit the run makes carries the list, the spec commit included, and the
 same trailer is never added twice. The list is read on a fresh run only.
@@ -284,14 +285,15 @@ resume is reported, never applied silently.
 
 What the run does with trailers:
 
-- On a fresh run it passes `--trailer <text>` to `preflight.sh` once per
-  trailer: the key's first, then the flags', in order.
+- On a fresh run it hands `preflight.sh` the key's trailers in the values
+  file (see "Values from a tracked file"), and passes `--trailer <text>`
+  once per flag. The list is the file's first, then the flags', in order.
 - The probe block prints a `Trailers` line only when `commitTrailers` is
   not empty. It names each trailer's layer: the configuration file by
   path, or `--trailer`.
 - It records the list pre-flight reports with `progress.sh state-set
-  <feature> config commitTrailers '<json array>'`, and each entry's
-  layer, in the same order, as `config.commitTrailersFrom`. This record
+  <feature> config commitTrailers --json-file <path>`, and each entry's
+  layer, in the same order, as `config.commitTrailersFrom`, the same way. This record
   replaces the key's own list in `config`: it holds the key's trailers
   and the flags', never the key's alone. It follows B's record of
   `config`, because a write of the whole key replaces it.
@@ -401,6 +403,24 @@ if not, offers to append the one line to `.gitignore`, showing exactly
 what it will write. Declining is fine; the files show up as untracked.
 The pipeline never edits `.gitignore` silently, and stages only paths it
 names, in every commit it makes.
+
+## Values from a tracked file
+
+A value a tracked file set never goes through a shell: a quote in it breaks
+the command, and `'$(...)` in it runs code, before any check can read it. So
+the run writes such values to a file with its file tool, never with a shell
+command, and hands over the path:
+
+- To `preflight.sh`: `--values-file <path>`, one JSON object with the
+  optional keys `commitTrailers` (a list of strings) and
+  `baseBranchOverride` (a name). Each value gets the same checks as its
+  flag. A value typed at the keyboard goes as its flag.
+- To the state file: `progress.sh state-set <feature> <key> [<sub-key>]
+  --json-file <path>`, one JSON document. B's record of `config` goes this
+  way, because `testCommand` and `analyzeCommand` can hold a quote.
+
+The shell reads only the path. The file goes in a temporary folder outside
+the repository, so it is never committed and never reads as dirt.
 
 ## The spec tool
 

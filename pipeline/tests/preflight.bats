@@ -2497,3 +2497,119 @@ judge_big() {
   jq -e '.tree.liveRuns == ["001-false", "002-null", ".hidden", "..b"] and .tree.unreadableRuns == []' <<<"$output" > /dev/null \
     || { echo "a jq without -b misjudged: $(jq -c .tree <<<"$output")"; false; }
 }
+
+# Feature 058: tracked values reach the probe through a file, so no shell reads
+# them on the way. The checks are the flags' own.
+@test "values file: a report byte-identical to the same values typed as flags" {
+  local by_flags
+  T="$BATS_TEST_TMPDIR/values-same"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch integration
+  probe --dir "$T" --trailer 'Team: one' --trailer 'Task: T-12 (second part)' --base-branch-override integration
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  by_flags="$output"
+  printf '%s\n' '{"commitTrailers":["Team: one","Task: T-12 (second part)"],"baseBranchOverride":"integration"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$output" = "$by_flags" ] || { echo "file: $output"; echo "flags: $by_flags"; false; }
+  # Both keys are optional, and an empty object changes nothing.
+  printf '{}\n' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '[]' ]
+  [ "$(jq -r '.baseBranch' <<<"$output")" != integration ]
+}
+
+@test "values file: its trailers come first, whatever the order on the command line" {
+  T="$BATS_TEST_TMPDIR/values-order"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  printf '%s\n' '{"commitTrailers":["Team: key","Task: key"]}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --trailer 'Flag: typed' --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: key","Task: key","Flag: typed"]' ]
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json" --trailer 'Flag: typed'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: key","Task: key","Flag: typed"]' ]
+}
+
+@test "values file: a typed override beats the file's, as a flag beats a key" {
+  T="$BATS_TEST_TMPDIR/values-override"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch from-file; git branch typed
+  printf '%s\n' '{"baseBranchOverride":"from-file"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = from-file ]
+  probe --dir "$T" --base-branch-override typed --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = typed ]
+  # The losing value is still data the file must get right: a wrong type stops.
+  printf '%s\n' '{"baseBranchOverride":7}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --base-branch-override typed --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ]
+}
+
+@test "values file: a hostile trailer or override is refused by the flags' own checks, and no shell reads it" {
+  T="$BATS_TEST_TMPDIR/values-hostile"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  jq -n '{commitTrailers: ["Task: it'"'"'s $(touch marker)"]}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *'holds a quote ('*'(a commit trailer)' ]] || { echo "$stderr"; false; }
+  [ ! -e marker ]
+  jq -n '{baseBranchOverride: "x'"'"'$(touch marker)"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [[ "$stderr" == *'--base-branch-override'* ]] || { echo "$stderr"; false; }
+  [ ! -e marker ]
+}
+
+@test "values file: a line break at the end of a trailer is refused, not lost" {
+  # A value taken through $( ) would lose it and pass.
+  T="$BATS_TEST_TMPDIR/values-lf"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  printf '%s\n' '{"commitTrailers":["Task: one\n"]}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+  [[ "$stderr" == *'(a commit trailer)' ]] || { echo "$stderr"; false; }
+  # The same for an override: the name is checked as it stands.
+  printf '%s\n' '{"baseBranchOverride":"work\n"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+}
+
+@test "values file: a relative path is read from the caller's folder, not from --dir" {
+  T="$BATS_TEST_TMPDIR/values-relative"
+  mkdir -p "$T" "$BATS_TEST_TMPDIR/caller"; cd "$T"; git init -q -b work .; seed
+  printf '%s\n' '{"commitTrailers":["Team: caller"]}' > "$BATS_TEST_TMPDIR/caller/v.json"
+  cd "$BATS_TEST_TMPDIR/caller"
+  probe --dir "$T" --values-file v.json
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: caller"]' ]
+}
+
+@test "values file: each refusal names the path and prints no value" {
+  local bad
+  T="$BATS_TEST_TMPDIR/values-bad"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  cd "$BATS_TEST_TMPDIR"
+  mkdir -p folder
+  : > empty.json
+  printf '"SECRETWORD"\n' > string.json
+  printf '["SECRETWORD"]\n' > list.json
+  printf '{"a": SECRETWORD\n' > broken.json
+  printf '{"x":"SECRETWORD"} {"y":"SECRETWORD"}\n' > two.json
+  printf '{"SECRETWORD":"SECRETWORD"}\n' > unknown.json
+  printf '{"commitTrailers":"SECRETWORD"}\n' > trailers-string.json
+  printf '{"commitTrailers":["SECRETWORD",7]}\n' > trailers-mixed.json
+  printf '{"baseBranchOverride":["SECRETWORD"]}\n' > override-list.json
+  for bad in missing.json folder empty.json string.json list.json broken.json two.json unknown.json trailers-string.json trailers-mixed.json override-list.json; do
+    probe --dir "$T" --values-file "$bad"
+    [ "$status" -eq 1 ] || { echo "$bad: status $status"; false; }
+    [ -z "$output" ] || { echo "$bad: a report: $output"; false; }
+    [[ "$stderr" == *"$bad"* ]] || { echo "$bad: the path is not named: $stderr"; false; }
+    [[ "$stderr" != *SECRETWORD* ]] || { echo "$bad: a value was printed: $stderr"; false; }
+  done
+  probe --dir "$T" --values-file
+  [ "$status" -ne 0 ]
+}
