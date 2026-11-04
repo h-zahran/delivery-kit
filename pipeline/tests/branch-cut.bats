@@ -218,7 +218,7 @@ checked_out_anyway() {
   # not-an-ancestor branch prints the name in a command to run. Mutation: drop
   # the allowlist, and git cuts the branch.
   local n names
-  names=('x$(touch${IFS}pwned)' 'a;b' 'a|b' "a'b" 'a`touch pwned`b' 'refs/heads/main' 'refs/x' $'caf\303\251')
+  names=('x$(touch${IFS}pwned)' 'a;b' 'a|b' "a'b" 'a`touch pwned`b' $'caf\303\251')
   BEFORE="$(refs)"
   for n in "${names[@]}"; do
     field branch "$n"

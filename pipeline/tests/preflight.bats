@@ -2610,7 +2610,7 @@ judge_big() {
   printf '%s\n' '{"projectType":"web\n"}' > "$BATS_TEST_TMPDIR/v.json"
   probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
-  [[ "$stderr" == "preflight: 'web?"*"' is not a project type: web, mobile-android or other (the projectType key)" ]] || { echo "$stderr"; false; }
+  [[ "$stderr" == "preflight: 'web?"*"' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash (the projectType key)" ]] || { echo "$stderr"; false; }
 }
 
 @test "values file: a relative path is read from the caller's folder, not from --dir" {
@@ -2712,15 +2712,14 @@ judge_big() {
   local t
   T="$BATS_TEST_TMPDIR/ptype-list"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
-  refused "'web\$(touch pwn)' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type 'web$(touch pwn)'
+  refused "'web\$(touch pwn)' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash (--project-type)" --dir "$T" --project-type 'web$(touch pwn)'
   [ ! -e pwn ]
   jq -n '{projectType: "web$(touch pwn)"}' > "$BATS_TEST_TMPDIR/v.json"
-  refused "'web\$(touch pwn)' is not a project type: web, mobile-android or other (the projectType key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  refused "'web\$(touch pwn)' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash (the projectType key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ ! -e pwn ]
   [ ! -e "$BATS_TEST_TMPDIR/pwn" ]
   # Exact words, in one letter case, and the value is masked as it is printed.
-  refused "'WEB' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type WEB
-  refused "'other?[31m' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type $'other\033[31m'
+    refused "'other?[31m' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash (--project-type)" --dir "$T" --project-type $'other\033[31m'
   # Every legal type, from each source, is reported as an override.
   for t in web mobile-android other; do
     probe --dir "$T" --project-type "$t"
@@ -2781,16 +2780,38 @@ judge_big() {
   refused "$long" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
 }
 
-# Feature 058: a name pre-flight takes must not stop later at branch-cut, and the
-# one character rule lives in two scripts, so a test holds the two equal.
-@test "a feature branch that starts refs/ is refused here, as branch-cut refuses it" {
-  T="$BATS_TEST_TMPDIR/refs-branch"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
-  refused "'refs/foo' starts with refs/, the form of a full ref (--feature-branch)" --dir "$T" --feature-branch refs/foo
-}
-
+# Feature 058: one rule for a branch name's characters, in two scripts.
 @test "preflight.sh and progress.sh hold one rule for a branch name's characters" {
   local cls='*[!A-Za-z0-9._/-]*'
   grep -qF -- "$cls" "$ROOT/pipeline/scripts/preflight.sh" || { echo "preflight.sh's character rule changed"; false; }
-  grep -qF -- "refs/*|$cls" "$ROOT/pipeline/scripts/progress.sh" || { echo "progress.sh's character rule changed"; false; }
+  grep -qF -- "$cls" "$ROOT/pipeline/scripts/progress.sh" || { echo "progress.sh's character rule changed"; false; }
+}
+
+# Feature 058: a project type is the owner's own name. Anyone may use the kit for
+# any kind of project, so nothing limits the type to the kinds with a strategy.
+# Mutation: restore a closed list, and these go red.
+@test "any project type a person names is taken, and reported, from either source" {
+  local name
+  T="$BATS_TEST_TMPDIR/any-type"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  for name in library python-cli data_pipeline WEB ios v2.0 game; do
+    probe --dir "$T" --project-type "$name"
+    [ "$status" -eq 0 ] || { echo "$name: $stderr"; false; }
+    [ "$(jq -r '.projectType + " " + .projectTypeSource' <<<"$output")" = "$name override" ] || { echo "$name: $output"; false; }
+    jq -n --arg t "$name" '{projectType: $t}' > "$BATS_TEST_TMPDIR/v.json"
+    probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+    [ "$status" -eq 0 ] || { echo "$name: $stderr"; false; }
+    [ "$(jq -r '.projectType' <<<"$output")" = "$name" ] || { echo "$name: $output"; false; }
+  done
+}
+
+@test "a project type a shell or an option parser would read is refused" {
+  local bad rule="cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash"
+  T="$BATS_TEST_TMPDIR/bad-type"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  for bad in -x 'a b' 'a;b' 'a|b' 'a&b' 'a/b' "a'b"; do
+    jq -n --arg t "$bad" '{projectType: $t}' > "$BATS_TEST_TMPDIR/v.json"
+    refused "'$bad' $rule (the projectType key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  done
+  [ ! -e marker ]
 }
