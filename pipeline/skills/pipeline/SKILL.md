@@ -101,7 +101,7 @@ the layers" in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 | `codeRoots` | from project type | Where implementation lives: the scope of I's `simplify` lens, where a late commit may add a new file, and the boundary K stops at under `--auto` |
 | `baseBranch` | worked out | See "Base branch" under Pre-flight |
 | `baseBranchOverride` | unset | Beats `origin/HEAD` |
-| `projectType` | detected | `web`, `mobile-android`, `other` |
+| `projectType` | detected | `web`, `mobile-android`, `other` or your own name |
 | `commitStyle` | `conventional` | The message shape of every commit the run makes |
 | `commitTrailers` | unset | Trailers on every commit the run makes |
 | `maxClarifyPasses` | 3 | Phase C cap |

@@ -140,12 +140,14 @@ if [ -n "$values_file" ]; then
     file_value ptype_override projectType; ptype_label="the projectType key"
   fi
 fi
-# A project type picks a runtime strategy and is printed and recorded, so it is
-# one of the three that have a strategy, whichever way it came.
+# A project type is the owner's own name for the project: web and mobile-android
+# pick a runtime strategy, and any other name uses the verify command. The run
+# types the value into `progress.sh init`, so only what a shell or an option
+# parser reads is refused, whichever way the value came.
 case "$ptype_override" in
-  ""|web|mobile-android|other) ;;
-  *) shown pt_s "$ptype_override"
-     die "'$pt_s' is not a project type: web, mobile-android or other ($ptype_label)" ;;
+  -*|*[!A-Za-z0-9._-]*)
+    shown pt_s "$ptype_override"
+    die "'$pt_s' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash ($ptype_label)" ;;
 esac
 # The spec folder is handed to the spec tool, which creates it and writes
 # into it, and its last segment becomes the run's name under
@@ -633,9 +635,6 @@ if [ -n "$fb" ] && [ -n "$base" ]; then
     die "'$fb_s' is the base branch '$base_s'; the feature branch needs its own name ($fb_arg)"
   fi
 fi
-# A full ref as a branch's name: branch-cut refuses it at B, so it stops here,
-# before the spec tool runs.
-case "$fb" in refs/*) shown fb_s "$fb"; die "'$fb_s' starts with refs/, the form of a full ref ($fb_arg)" ;; esac
 if [ -n "$fb" ] && [ "$git_usable" = true ]; then
   hit="$(branch_like "$fb")"
   shown fb_s "$fb"; shown hit_s "$hit"

@@ -3380,7 +3380,7 @@ PINS
   docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   pins_in "$docs" 'configuration.md' <<'PINS'
 A value a tracked file set never goes through a shell: a quote in it breaks the command, and `'$(...)` in it runs code, before any check can read it.
-To `preflight.sh`: `--values-file <path>`, one JSON object with the optional keys `commitTrailers` (a list of strings), `baseBranchOverride` (a name), `baseBranch` (a name) and `projectType` (`web`, `mobile-android` or `other`). Write only the keys that hold a value: the file refuses a `null`. Each value gets the same checks as its flag, and a typed flag beats the file.
+To `preflight.sh`: `--values-file <path>`, one JSON object with the optional keys `commitTrailers` (a list of strings), `baseBranchOverride` (a name), `baseBranch` (a name) and `projectType` (a name). Write only the keys that hold a value: the file refuses a `null`. Each value gets the same checks as its flag, and a typed flag beats the file.
 To the state file: `progress.sh state-set <feature> <key> [<sub-key>] --json-file <path>`, one JSON document. B's record of `config` goes this way, because `testCommand` and `analyzeCommand` can hold a quote.
 It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers --json-file <path>`, and each entry's layer, in the same order, as `config.commitTrailersFrom`, the same way.
 On a fresh run it hands `preflight.sh` the key's trailers in the values file

@@ -79,7 +79,7 @@ before it spends it.
 | `codeRoots` | Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
-| `projectType` | Overrides detection, with `web`, `mobile-android` or `other`; any other value stops pre-flight. The detector's source is reported either way. |
+| `projectType` | Overrides detection. Name any kind of project, in letters, digits, `.`, `_` and `-`: `web` and `mobile-android` pick a runtime strategy, and any other name uses `verifyCommand`. The detector's source is reported either way. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `commitTrailers` | Trailers on every commit the run makes, as a list of `<token>: <value>` lines. See "Commit trailers" below. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
@@ -444,8 +444,7 @@ command, and hands over the path:
 
 - To `preflight.sh`: `--values-file <path>`, one JSON object with the
   optional keys `commitTrailers` (a list of strings), `baseBranchOverride`
-  (a name), `baseBranch` (a name) and `projectType` (`web`, `mobile-android`
-  or `other`). Write only the keys that hold a value: the file refuses a `null`.
+  (a name), `baseBranch` (a name) and `projectType` (a name). Write only the keys that hold a value: the file refuses a `null`.
   Each value gets the same checks as its flag, and a typed flag beats the file.
   A value typed at the keyboard goes as its flag. The file is for a fresh run
   only. On a resume the run passes none, so a tracked key moved since cannot stop

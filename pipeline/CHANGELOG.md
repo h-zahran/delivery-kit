@@ -28,9 +28,9 @@ All notable changes to the `pipeline` plugin.
 
 ### Changed
 
-- **`projectType` must be `web`, `mobile-android` or `other`.** Any other value
-  stops pre-flight. The run types it into a later command, and nothing checked
-  it before.
+- **A `projectType` is checked for what a shell reads.** Any name works, in
+  letters, digits, `.`, `_` and `-`, with no leading dash. The run types it into
+  a later command, and nothing checked it before.
 - **`suite-base <feature> start` exits 3 when the run's own record cannot serve
   it:** no usable `config.testCommand`, or no spec file at `artifacts.spec`. It
   used to exit 0, the status of a legal "not started", so a run could pass over

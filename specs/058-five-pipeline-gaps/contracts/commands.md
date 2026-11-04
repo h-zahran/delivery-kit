@@ -40,7 +40,7 @@ The inline form does not change.
 
 ## `preflight.sh --values-file <path>`
 
-The file is one JSON object: `{"commitTrailers": ["<token>: <value>"], "baseBranchOverride": "<name>", "baseBranch": "<name>", "projectType": "web"}`. Every key is optional. `projectType` is `web`, `mobile-android` or `other`, from any source.
+The file is one JSON object: `{"commitTrailers": ["<token>: <value>"], "baseBranchOverride": "<name>", "baseBranch": "<name>", "projectType": "web"}`. Every key is optional. `projectType` is any name in letters, digits, `.`, `_` and `-`, with no leading dash, from any source.
 
 - Trailers: the file's first, then each `--trailer`, whatever the command-line order. Each goes through `trailer-check.sh`.
 - Override and the rest: a typed flag beats the file's value. A file value gets the same checks as the flag, and a refusal names the key it came from.

@@ -265,14 +265,14 @@ init_metrics() {
 # branch_name_ok <value> — git takes the value as a branch name and does not
 # expand it: `check-ref-format --branch` prints @{-1} as the branch it means,
 # and refuses a leading dash. It also passes what this command must not take:
-# a lone @, which git reads as HEAD everywhere else, a full ref, and $ ( ) ; | a
+# a lone @, which git reads as HEAD everywhere else, and $ ( ) ; | a
 # quote, a backtick and any byte past 0x7f, in a name a refusal prints as a
 # command to run (measured). So a name is a letter, a digit, '.', '_', '-' or
-# '/' throughout, as branch_ok has it in preflight.sh, and never starts refs/.
+# '/' throughout, as branch_ok has it in preflight.sh.
 # The C locale, or a range in the pattern can take in an accented letter.
 branch_name_ok() {
   local LC_ALL=C
-  case "$1" in refs/*|*[!A-Za-z0-9._/-]*) return 1 ;; esac
+  case "$1" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
   [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]
 }
 
