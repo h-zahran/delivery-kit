@@ -143,3 +143,23 @@ Each mutation was checked to have changed the file (a no-op refused), and
 each file was restored from its copy and `cmp` identical. After the rig:
 prose.bats + skills.bats + tests/readme.bats, `1..131`, 131 ok, 0 not ok,
 0 skipped.
+
+## macOS CI fix, 2026-11-04
+
+PR #113's CI failed on macOS only: `pipeline/tests` stopped at
+`setup_file failed`, "line 2389: syntax error near unexpected token `('".
+Reproduced locally with bash 3.2.57 (`docker run … bash:3.2 bash -n` over
+the file bats preprocesses): the branch failed, main passed. Bisected to the
+joint test's `absent_in "$(…) $(…) $(…)" <<'OLD'` line: bash 3.2 scans a
+heredoc that starts on a line holding `$( )` as part of that line, so the
+apostrophe in "guide's" in the heredoc opened a quote, and the parse broke
+220 lines further on. Fix: build the text into a variable on its own line,
+then `absent_in "$hay" <<'OLD'`.
+
+- bash 3.2 `bash -n` over all 21 preprocessed suite files: 0 failures (the
+  unfixed file failed the same check). Over all 15 tracked `*.sh`: 0.
+- The guard still bites: "K and L stop once, not twice, here." appended to
+  SKILL.md turned the joint test red ("old wording is back"); restored,
+  `cmp` identical. (The same line appended to rare-paths.md stayed green:
+  it lands in the last section, which the guard does not read — the place
+  was wrong, not the guard.)
