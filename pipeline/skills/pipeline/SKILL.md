@@ -336,7 +336,8 @@ recorded) with the seed FIRST — the spec tool names the feature
 in the spec-tool verification document. With `--spec-dir`, follow B's
 rule in `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`. The feature now has its name:
 run `progress.sh init <feature> <branch> <base> <projectType>` (the
-branch argument is the branch name about to be created —
+branch argument is the branch about to be cut, named `--branch`, else
+the feature's name —
 `init` is idempotent, so a resume re-running it finds the run rather
 than clobbering it). A state file `init` finds already there is checked
 first, as Resume says, before anything in it is used. Then take the lock
@@ -346,11 +347,9 @@ tracking with `phase-start <feature> B`. A constitution answer held
 aside at pre-flight is written into `gates.constitution` here, in the
 same breath as the seed. A `.gitignore` answer held aside at pre-flight
 is written into `gates.gitignore` the same way. Record `config` here if it
-is still empty, as Configuration says: `suite-base` reads it. THEN create
-the feature branch
-off the detected base branch, named `--branch`, else the feature's
-name: the spec files are still uncommitted, and uncommitted work
-travels with `git checkout -b`. Record `artifacts.spec`. Then run
+is still empty, as Configuration says: `suite-base` reads it. THEN run
+`progress.sh branch-cut <feature>`, safe to run again: uncommitted work
+travels with it. Record `artifacts.spec`. Then run
 `progress.sh suite-base <feature> start` and print the one line it
 prints: on a fresh run whose base commit has no green suite result, it
 starts the full suite on that commit in the background, in a separate

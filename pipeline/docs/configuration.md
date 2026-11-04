@@ -222,7 +222,10 @@ What the run does with the two flags:
   written anywhere else stops the run, naming both paths.
 - B runs `progress.sh init` with the branch name about to be created:
   `--branch` when it was typed, else the feature's name. B cuts the
-  feature branch with that name.
+  feature branch with that name, with `progress.sh branch-cut <feature>`,
+  which reads the branch and the base from the state file. Run again, it
+  finds the branch rather than failing: on the branch it says so, and from
+  elsewhere it switches only when the base is the branch's ancestor.
 - B records the branch in the state file, and the folder through
   `artifacts.spec`, which holds the path of `<folder>/spec.md`. A resume
   uses the record. A `--branch` or `--spec-dir` on a resume that differs

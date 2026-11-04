@@ -63,7 +63,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|branch-cut|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
 
 # tap-check alone needs no jq: it reads a TAP file with awk, and the
 # repository's scripts/check-suite.sh calls it, which needs only bash and awk.
@@ -250,6 +250,47 @@ init_metrics() {
   mf="$(run_dir "$1")/pipeline-run.json"
   [ ! -e "$mf" ] || return 0
   ( metrics_write "$1" "$2" ) > /dev/null || warn "could not make $mf now; progress.sh metrics makes it"
+}
+
+# branch_name_ok <value> — git takes the value as a branch name and does not
+# expand it: `check-ref-format --branch` prints @{-1} as the branch it means,
+# and refuses a leading dash, but it passes a lone @, which git reads as HEAD
+# everywhere else and which `checkout -b` takes as a new branch (measured).
+branch_name_ok() { [ "$1" != @ ] && [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]; }
+
+# branch-cut <feature> — phase B's branch cut, safe to run again, as init is.
+# The branch and the base come from the state file. Full refs in every git
+# call, so a tag of the same name is never read in place of a branch. It never
+# deletes a branch, moves a branch's commit or discards work: git refuses a
+# switch that would overwrite a file, and that refusal is this command's.
+cmd_branch_cut() {
+  local f="$1" b base rc=0 err
+  [ $# -eq 1 ] || die "usage: branch-cut <feature>"
+  need_git_top
+  sf="$(cmd_validate "$f")"
+  b="$(jqs '.branch? | strings' "$sf")" || b=''
+  base="$(jqs '.baseBranch? | strings' "$sf")" || base=''
+  [ -n "$b" ] || die "$sf records no branch"
+  [ -n "$base" ] || die "$sf records no base branch"
+  branch_name_ok "$b" || die "'$b' in $sf is not a branch name"
+  branch_name_ok "$base" || die "'$base' in $sf is not a branch name"
+  if [ "$(git symbolic-ref -q HEAD || true)" = "refs/heads/$b" ]; then
+    printf 'already on branch %s\n' "$b"; return 0
+  fi
+  git rev-parse --verify --quiet "refs/heads/$base^{commit}" > /dev/null \
+    || die "the base branch '$base' has no commit here"
+  if ! git rev-parse --verify --quiet "refs/heads/$b^{commit}" > /dev/null; then
+    err="$(git checkout -q -b "$b" "refs/heads/$base" 2>&1)" || die "git could not cut branch '$b': $err"
+    printf 'branch %s cut from %s\n' "$b" "$base"; return 0
+  fi
+  git merge-base --is-ancestor "refs/heads/$base" "refs/heads/$b" || rc=$?
+  case "$rc" in
+    0) ;;
+    1) die "branch '$b' exists, and the base '$base' is not its ancestor, so nothing shows it is this run's. Nothing changed. To use it anyway, run: git checkout $b" ;;
+    *) die "git merge-base failed with status $rc on '$base' and '$b'" ;;
+  esac
+  err="$(git checkout -q "$b" 2>&1)" || die "git could not switch to branch '$b', and nothing changed: $err"
+  printf 'switched to branch %s\n' "$b"
 }
 
 cmd_phase_start() {
@@ -3067,7 +3108,8 @@ case "$cmd" in validate|read) ;; *) jq_b_probe ;; esac
 not_abandoned "$feature_arg"
 case "$cmd" in
   init)          shift 2; cmd_init "$feature_arg" "$@" ;;
-  read)          cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;
+  branch-cut)    shift 1; cmd_branch_cut "$@" ;;
+  read)         cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;
   validate)      cmd_validate "$feature_arg" >/dev/null ;;
   phase-start)   cmd_phase_start "$feature_arg" "${3:-}" ;;
   phase-done)    cmd_phase_done "$feature_arg" "${3:-}" ;;
