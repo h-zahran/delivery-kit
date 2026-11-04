@@ -2,20 +2,22 @@
 
 ## R1. The wording and where it goes
 
-**Decision**: In B, directly before ``Record `artifacts.spec`.``, add:
+**Decision**: In B, directly after the sentence that writes the `.gitignore` answer, and before ``THEN create the feature branch``, add:
 
-> A fresh run records `config` here, as Configuration says: `suite-base` reads it.
+> Record `config` here if it is still empty, as Configuration says: `suite-base` reads it.
+
+Phase I changed this from "A fresh run records `config` here": a resume into B whose first attempt stopped before the record holds an empty `config`, and "fresh" told it not to write. `init` writes `config: {}` (measured), so "still empty" covers both, and a resume with a recorded `config` keeps it. Phase I's last pass also moved the sentence here from just before ``Record `artifacts.spec`.``: a stop before the record now cannot have passed the branch cut, which has no resume guard, and the window for losing flag values on a resume shrinks to `init`'s first writes.
 
 **Rationale**:
 
-- "A fresh run" and "here" answer the question the skill leaves open: when. A resume keeps the recorded `config`, which is the reason Configuration gives for recording it, so the sentence must not tell a resume to write it again.
+- "here" and "if it is still empty" answer the question the skill leaves open: when. A resume keeps a recorded `config`, which is the reason Configuration gives for recording it, so the sentence must not tell a resume to write it again.
 - "as Configuration says" points at the existing rule (FR-002).
-- The existing pin ``Record `artifacts.spec`. Then run `progress.sh suite-base <feature> start` and print ...`` stays whole, because the new sentence goes before it. No pinned text moves.
-- The sentence is about 80 bytes, against 362 free.
+- The existing pin ``Record `artifacts.spec`. Then run `progress.sh suite-base <feature> start` and print ...`` stays whole, because the new sentence does not sit inside it. No pinned text moves.
+- The sentence and Configuration's added sentence cost 141 bytes in all, against 362 free at the start.
 
 **Alternatives considered**:
 
-- Between ``Record `artifacts.spec`.`` and `Then run`: it reads well, but it breaks the existing pin for no gain.
+- Between ``Record `artifacts.spec`.`` and `Then run`: it reads well, but it breaks the existing pin for no gain, and it comes after the branch cut.
 - Change `progress.sh` so the start refuses or exits 1: the seed forbids it.
 - Have `init` take the config: a change to `progress.sh`, also forbidden.
 
@@ -29,18 +31,20 @@
 
 The cut is an assignment with no outer quotes, `before=${flat%%"$start"*}`, with the phrases in variables. Matching uses `[[ == ]]`, never `grep`: `< <(printf ...)` false-matched here (measured), and a herestring hangs at 64 KB on Git Bash.
 
-**Rationale**: Three separate messages let a failure name its fault. A contiguous pin of the two sentences would go red on the swap too, but its message would not say why, and a later rewording between them would have to change it.
+Phase I added three more checks. The text is cut at the C heading, because `prose_slice` keeps the closing line. The sentence must sit between the `.gitignore` answer and the branch cut. And nothing before it may name `suite-base`.
+
+**Rationale**: Separate messages let a failure name its fault. The between-neighbours check goes red on a sentence added beside it, which is the cost of closing the lower bound and the countermands, and this file pins whole sentences throughout.
 
 **Alternatives considered**:
 
 - Comparing byte offsets with `awk`: more code, the same verdict.
-- A runtime test that drives `suite-base start` without `config`: `tests/base-suite.bats` already covers the command's message. The gap is the skill's prose.
+- A runtime test instead of the prose test: the gap is the skill's prose. Phase I found that `pipeline/tests/base-suite.bats` did not cover the command's message on this path, as this document first claimed, so a test was added there too, to hold FR-008.
 
 ## R3. The second copy of the claim
 
 **Decision**: `pipeline/docs/phases.md`, "Reusing a suite run", says "once the state file and the feature branch exist". That is the same claim with the same hole. Change it to name `config` too.
 
-**Rationale**: Records go stale one copy at a time. The clause is not pinned by any test (checked with `grep` across the test files).
+**Rationale**: Records go stale one copy at a time. No test pinned the clause at first (checked with `grep` across the test files). Phase I added the pin to the `phases.md` test.
 
 ## R4. Release shape
 

@@ -13,10 +13,10 @@ Expected: plan line `1..1`, one `ok`.
 ## The skill reads in the right order
 
 ```bash
-awk '/^\*\*B — specify\./{f=1} /^\*\*C — clarify/{f=0} f' pipeline/skills/pipeline/SKILL.md | grep -n 'records `config` here\|suite-base <feature> start\|progress.sh suite-base'
+awk '/^\*\*B — specify\./{f=1} /^\*\*C — clarify/{f=0} f' pipeline/skills/pipeline/SKILL.md | grep -n 'Record `config` here\|progress.sh suite-base\|suite-base <feature> start'
 ```
 
-Expected: the line with `records` `config` comes before, or is the same line as, the start command.
+Expected: the line with ``Record `config` here`` comes before the start command's lines.
 
 ## The size limit holds
 
@@ -42,6 +42,6 @@ bash scripts/check-versions.sh
 
 Expected: exit 0, with pipeline at 1.9.1.
 
-## The four faults
+## The faults
 
-The results are in [measurements.md](measurements.md): swapped, record removed, start removed, and correct order only outside phase B. Each one makes the test fail.
+The results are in [measurements.md](measurements.md). Each fault makes its test fail.

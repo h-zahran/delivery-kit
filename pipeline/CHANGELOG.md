@@ -11,10 +11,15 @@ All notable changes to the `pipeline` plugin.
   said to record `config`, but not when, so a run could reach the start
   first. The command then prints "base suite not started" and exits 0,
   nothing stops, and F.5 runs the full suite again (about 6 minutes) instead
-  of citing the base commit's result. B now says that a fresh run records
-  `config` there, before the start. `docs/phases.md` states the same order,
-  and a new test goes red if the sentence leaves B or comes after the start.
-  `progress.sh` does not change.
+  of citing the base commit's result. B now records `config` with `init`'s
+  first writes, before the branch cut and the start, if it is still empty,
+  so a resume keeps what is recorded. Configuration says that B records it,
+  with `testCommand` as resolved.
+  `docs/phases.md` states the same order, and `docs/configuration.md` puts
+  the trailer write after B's, because a write of the whole key replaces it.
+  A new test goes red if the sentence leaves its place in B, and another
+  holds the command's "not started" line and its exit 0. `progress.sh` does
+  not change.
 
 ## [1.9.0] - 2026-11-04
 

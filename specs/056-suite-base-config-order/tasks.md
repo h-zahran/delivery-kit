@@ -55,4 +55,4 @@
 
 ## Implementation Strategy
 
-Phase 1 alone closes the gap. Phase 2 proves the guard. Phase 3 ships it. The owner merges and tags after the run.
+Phase 1 alone closes the gap. Phase 2 proves the guard. Phase 3 ships it. The owner merges and tags after the run. Phase I's review moved the sentence, and added Configuration's sentence, the `configuration.md` sentence and the test in `pipeline/tests/base-suite.bats`, in I's late commit (FR-011 to FR-013).

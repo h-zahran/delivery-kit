@@ -2318,6 +2318,7 @@ PINS
   flat="$(prose_slice "$ORCH" '^## Configuration$' '^## Flags$' flat 'configuration')" || return 1
   pins_in "$flat" 'configuration' <<'PINS'
 Record the merged result in the state file's `config` key so resume does not re-resolve differently — `codeRoots` as resolved, never `null`, since `late-commit` and `commit-list` read it.
+B records `config`, with `testCommand` as resolved.
 PINS
 }
 
@@ -2327,8 +2328,8 @@ PINS
 # "similar", or drops the untracked files from the key, tells the reader a
 # result stands for code it never ran on. Matched with [[ == ]], never grep
 # through a process substitution, which was measured to false-match.
-# Feature 053: B starts the base suite run once the state file and the
-# branch exist, and its one line is shown. A start that failed must not stop
+# Feature 053: B starts the base suite run once the state file, its config
+# and the branch exist, and its one line is shown. A start that failed must not stop
 # the run: the base run only saves time, and F.5 still runs the suite.
 @test "B starts the base suite run once the branch is cut" {
   local flat docs
@@ -2345,16 +2346,24 @@ PINS
 # Feature 056: the start reads config.testCommand, and without it prints "not
 # started" and exits 0, so nothing stops and F.5 runs the suite. Read in the
 # flattened phase B alone: a wrap cannot change the verdict, and the same words
-# in another section cannot satisfy it.
+# in another section cannot satisfy it. prose_slice keeps the closing line, which
+# is phase C's, so the text is cut at that heading first. The sentence stays with
+# init's first writes: earlier the state file does not exist, and later a stopped
+# run has more steps, the branch cut among them, to pass before it reaches it.
 @test "B records config before it starts the base suite run" {
-  local flat record start before
+  local flat record start spot before earlier
   flat="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
-  record='A fresh run records `config` here, as Configuration says: `suite-base` reads it.'
+  flat=${flat%%'**C — clarify'*}
+  record='Record `config` here if it is still empty, as Configuration says: `suite-base` reads it.'
   start='`progress.sh suite-base <feature> start`'
+  spot='written into `gates.gitignore` the same way. '"$record"' THEN create the feature branch'
   [[ $flat == *"$start"* ]] || { echo "phase B no longer runs the base suite start command"; false; }
-  [[ $flat == *"$record"* ]] || { echo "phase B no longer says to record config"; false; }
+  [[ $flat == *"$record"* ]] || { echo "phase B no longer holds the record sentence: $record"; false; }
   before=${flat%%"$start"*}
   [[ $before == *"$record"* ]] || { echo "phase B records config after the base suite start that reads it"; false; }
+  [[ $before == *"$spot"* ]] || { echo "phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded)"; false; }
+  earlier=${before%%"$record"*}
+  [[ $earlier != *suite-base* ]] || { echo "phase B names suite-base before it records config"; false; }
 }
 
 @test "phases.md states the suite reuse rules the state helper enforces" {
@@ -2369,6 +2378,7 @@ PINS
     'so a suite that reads HEAD'"'"'s commit or the index — a trailer in the last commit message, staged bytes through `git show :<path>` — is never told a result that does not hold.' \
     'Other refs are not in the key: the branch'"'"'s name, tags, and other branches, the base among them. A check over a range such as `main...HEAD` is safe from a new commit on HEAD, but not from `main` moving while HEAD stays.' \
     'The price: once K commits, N cannot cite the run J made before it.' \
+    'In B, once the state file, its `config` and the feature branch exist, `progress.sh suite-base <feature> start` runs the test command' \
     'except a new executable file where git records modes: untracked it reads `100644`, and committed `100755`, so that reuse is lost.' \
     'What the key cannot see, a reuse assumes unchanged: git'"'"'s refs other than HEAD'"'"'s commit — the branch'"'"'s name, tags, and other branches, the base among them, so a branch-range check against a base that moved can be reused' \
     '**`files`**: the files alone. A change committed, staged or only in the working tree counts the same, so N can cite J'"'"'s run after K commits the files it ran on' \
@@ -2717,6 +2727,8 @@ ROWS
     || { echo "the reserved-token rule altered"; false; }
   [[ $docs == *'On a fresh run it passes `--trailer <text>` to `preflight.sh` once per trailer: the key'"'"'s first, then the flags'"'"', in order.'* ]] \
     || { echo "the pre-flight argument for trailers altered"; false; }
+  [[ $docs == *'It follows B'"'"'s record of `config`, because a write of the whole key replaces it.'* ]] \
+    || { echo "configuration.md no longer orders the trailer write after B's record of config"; false; }
   [[ $docs == *'It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers '"'"'<json array>'"'"'`, and each entry'"'"'s layer, in the same order, as `config.commitTrailersFrom`.'* ]] \
     || { echo "the recorded shape altered"; false; }
   [[ $docs == *'This record replaces the key'"'"'s own list in `config`: it holds the key'"'"'s trailers and the flags'"'"', never the key'"'"'s alone.'* ]] \

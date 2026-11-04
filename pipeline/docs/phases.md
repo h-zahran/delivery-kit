@@ -173,8 +173,8 @@ outside the repository has no spec directory to leave out.
 
 The record `--base` looks up is made by the run itself. In B, once the
 state file, its `config` and the feature branch exist, `progress.sh
-suite-base <feature> start` runs the test command in the background on a detached `git
-worktree` of HEAD's commit — the base commit, since the branch has no
+suite-base <feature> start` runs the test command in the background on a
+detached `git worktree` of HEAD's commit — the base commit, since the branch has no
 commit yet — in a temporary folder outside the working tree. A worktree
 shares the repository's configuration, so its files hold the same bytes
 and its key is the one F.5 computes; a checkout inside the tree would put a

@@ -16,28 +16,49 @@ Exit status 1. It is red for the right reason: the sentence is absent.
 
 ## T004: faults and controls
 
-Run on commit `34c8742` in a detached worktree outside the repository, removed after the run. The rig stops unless each mutation's old text occurs exactly once and the file changes. It then checks the plan line `1..1`, the verdict, the exit status and the exact message. Unexpected results: 0 of 8.
+Run first on commit `34c8742`, and again after phase I's fixes, on the fixed tree. This table is the second run. It ran in a detached worktree outside the repository, removed after the run. The rig stops unless each mutation's old text occurs exactly once and the file changes. It checks the verdict, the exit status and the expected message. Rows that name a test other than the new one run that test's file. Unexpected results on the final expectations: 0 of 24.
 
-| Case | Mutation landed | Verdict | Message |
+| Case | Test | Verdict | Message |
 |---|---|---|---|
-| control: shipped text | n/a | ok (rc 0) | - |
-| control: sentence rewrapped | yes | ok (rc 0) | - |
-| fault: swapped | yes | not ok (rc 1) | phase B records config after the base suite start that reads it |
-| fault: record removed | yes | not ok (rc 1) | phase B no longer says to record config |
-| fault: start removed | yes | not ok (rc 1) | phase B no longer runs the base suite start command |
-| fault: record only in Configuration | yes | not ok (rc 1) | phase B no longer says to record config |
-| fault: both only in phase A's place | yes | not ok (rc 1) | phase B no longer runs the base suite start command |
-| fault: start also named before record | yes | not ok (rc 1) | phase B records config after the base suite start that reads it |
+| control: shipped text | new | ok (rc 0) | - |
+| control: sentence rewrapped | new | ok (rc 0) | - |
+| fault: swapped | new | not ok (rc 1) | phase B records config after the base suite start that reads it |
+| fault: record removed | new | not ok (rc 1) | phase B no longer holds the record sentence |
+| fault: start removed | new | not ok (rc 1) | phase B no longer runs the base suite start command |
+| fault: record only in Configuration | new | not ok (rc 1) | phase B no longer holds the record sentence |
+| fault: both only before phase B | new | not ok (rc 1) | phase B no longer runs the base suite start command |
+| fault: both only on phase C's first line | new | not ok (rc 1) | phase B no longer runs the base suite start command |
+| fault: start only on phase C's first line | new | not ok (rc 1) | phase B no longer runs the base suite start command |
+| fault: start also named before record | new | not ok (rc 1) | phase B records config after the base suite start that reads it |
+| fault: other spelling of start right before record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: other spelling of start far before record | new | not ok (rc 1) | phase B names suite-base before it records config |
+| fault: record moved before init | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: record first in phase B | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: countermand after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: second definition after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: inverted (does not record) | new | not ok (rc 1) | phase B no longer holds the record sentence |
+| fault: phase B heading renamed | new | not ok (rc 1) | the slice helper's own failure |
+| fault: phase C heading renamed | new | not ok (rc 1) | the slice helper's own failure |
+| fault: trailer order removed from `configuration.md` | new | not ok (rc 1) | configuration.md no longer orders the trailer write after B's record of config |
+| fault: `phases.md` clause reverted | phases.md states the suite reuse rules | not ok (rc 1) | that test's pin |
+| fault: Configuration loses the write's moment | the commit mechanics test | not ok (rc 1) | that test's pin |
+| fault: the start's not-started path exits 1 | no usable test command, in `base-suite.bats` | not ok (rc 1) | exit 1, expected 0 |
+| fault: the start's not-started message changed | no usable test command, in `base-suite.bats` | not ok (rc 1) | start said ... |
 
-The spec's four faults are the first four faults, with "correct order only outside phase B" as the fifth row of faults. The two extra cases are the record moved outside alone, and a second start named before the record (SC-001).
+The spec's four faults are rows "swapped", "record removed", "start removed" and "both only before phase B". The others came from phase I's review. Two rows first came back red with another check's message than the rig expected, because an earlier check caught them. Their expectations were corrected, and "other spelling of start far before record" was added so that the `suite-base` check is seen to fire.
+
+Known limit: a start worded with no `suite-base`, such as "Start the base suite now", placed far before the record, stays green. A substring pin cannot list prose, and this file's header says so.
 
 ## T005: bash 3.2
 
 Docker image `bash:3.2`, GNU bash 3.2.57, read-only root, no network, with a stand-in `git` that answers only `rev-parse --show-toplevel`.
 
-| Tree | `bash -n` on the preprocessed file | Test |
+| Tree | Check | Result |
 |---|---|---|
-| Commit `34c8742` | exit 0 | `1..1`, ok, rc 0 |
-| The same, with the sentence swapped | exit 0 | `1..1`, not ok, rc 1: phase B records config after the base suite start that reads it |
+| Commit `34c8742` | the new test | `1..1`, ok, rc 0 |
+| The same, with the sentence swapped | the new test | not ok, rc 1: phase B records config after the base suite start that reads it |
+| The fixed tree | `bash -n` on preprocessed `prose.bats` and `base-suite.bats` | exit 0, both |
+| The fixed tree | the new test and the `phases.md` test | `1..2`, both ok, rc 0 |
+| The fixed tree, with the start only on phase C's first line | the new test | not ok, rc 1: phase B no longer runs the base suite start command |
 
-The `${flat%%"$start"*}` cut works on bash 3.2 in both directions.
+`base-suite.bats` needs a real git, so on bash 3.2 it was parsed and not run. CI's macOS job runs it.
