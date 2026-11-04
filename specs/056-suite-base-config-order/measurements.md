@@ -16,7 +16,7 @@ Exit status 1. It is red for the right reason: the sentence is absent.
 
 ## T004: faults and controls
 
-Run first on commit `34c8742`, and again after phase I's fixes, on the fixed tree. This table is the second run. It ran in a detached worktree outside the repository, removed after the run. The rig stops unless each mutation's old text occurs exactly once and the file changes. It checks the verdict, the exit status and the expected message. Rows that name a test other than the new one run that test's file. Unexpected results on the final expectations: 0 of 24.
+Run first on commit `34c8742`, and again after each round of phase I's fixes. This table is the last run, on the final text. It ran in a detached worktree outside the repository, removed after the run. The rig stops unless each mutation's old text occurs exactly once and the file changes. It checks the verdict, the exit status and the expected message. Rows that name a test other than the new one run that test's file. Unexpected results: 0 of 25.
 
 | Case | Test | Verdict | Message |
 |---|---|---|---|
@@ -30,18 +30,19 @@ Run first on commit `34c8742`, and again after phase I's fixes, on the fixed tre
 | fault: both only on phase C's first line | new | not ok (rc 1) | phase B no longer runs the base suite start command |
 | fault: start only on phase C's first line | new | not ok (rc 1) | phase B no longer runs the base suite start command |
 | fault: start also named before record | new | not ok (rc 1) | phase B records config after the base suite start that reads it |
-| fault: other spelling of start right before record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: other spelling of start right before record | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
 | fault: other spelling of start far before record | new | not ok (rc 1) | phase B names suite-base before it records config |
-| fault: record moved before init | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
-| fault: record first in phase B | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
-| fault: countermand after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
-| fault: second definition after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the branch cut and artifacts.spec |
+| fault: record moved before init | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
+| fault: record moved after the branch cut | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
+| fault: record first in phase B | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
+| fault: countermand after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
+| fault: second definition after the record | new | not ok (rc 1) | phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded) |
 | fault: inverted (does not record) | new | not ok (rc 1) | phase B no longer holds the record sentence |
 | fault: phase B heading renamed | new | not ok (rc 1) | the slice helper's own failure |
 | fault: phase C heading renamed | new | not ok (rc 1) | the slice helper's own failure |
-| fault: trailer order removed from `configuration.md` | new | not ok (rc 1) | configuration.md no longer orders the trailer write after B's record of config |
+| fault: trailer order removed from `configuration.md` | the commit trailers test | not ok (rc 1) | configuration.md no longer orders the trailer write after B's record of config |
 | fault: `phases.md` clause reverted | phases.md states the suite reuse rules | not ok (rc 1) | that test's pin |
-| fault: Configuration loses the write's moment | the commit mechanics test | not ok (rc 1) | that test's pin |
+| fault: Configuration loses `testCommand` | the commit mechanics test | not ok (rc 1) | that test's pin |
 | fault: the start's not-started path exits 1 | no usable test command, in `base-suite.bats` | not ok (rc 1) | exit 1, expected 0 |
 | fault: the start's not-started message changed | no usable test command, in `base-suite.bats` | not ok (rc 1) | start said ... |
 
@@ -57,8 +58,8 @@ Docker image `bash:3.2`, GNU bash 3.2.57, read-only root, no network, with a sta
 |---|---|---|
 | Commit `34c8742` | the new test | `1..1`, ok, rc 0 |
 | The same, with the sentence swapped | the new test | not ok, rc 1: phase B records config after the base suite start that reads it |
-| The fixed tree | `bash -n` on preprocessed `prose.bats` and `base-suite.bats` | exit 0, both |
-| The fixed tree | the new test and the `phases.md` test | `1..2`, both ok, rc 0 |
-| The fixed tree, with the start only on phase C's first line | the new test | not ok, rc 1: phase B no longer runs the base suite start command |
+| The final text | `bash -n` on preprocessed `prose.bats` and `base-suite.bats` | exit 0, both |
+| The final text | the new test | `1..1`, ok, rc 0 |
+| The final text, with the start only on phase C's first line | the new test | not ok, rc 1: phase B no longer runs the base suite start command |
 
 `base-suite.bats` needs a real git, so on bash 3.2 it was parsed and not run. CI's macOS job runs it.
