@@ -79,7 +79,7 @@ before it spends it.
 | `codeRoots` | Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
-| `projectType` | Overrides detection; the detector's source is reported either way. |
+| `projectType` | Overrides detection, with `web`, `mobile-android` or `other`; any other value stops pre-flight. The detector's source is reported either way. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `commitTrailers` | Trailers on every commit the run makes, as a list of `<token>: <value>` lines. See "Commit trailers" below. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
@@ -277,7 +277,10 @@ checked against too. A refusal shows such a trailer as JSON, each of
 these characters as its `\u` escape, never raw. It also stops on a
 trailer holding a quote (`'`), a dollar sign or a backtick, because a
 person may type a trailer into a shell command, and on one holding `##[`
-anywhere, which a GitHub workflow log reads as a command. Every
+anywhere, which a GitHub workflow log reads as a command, and on one
+longer than 30000 bytes as JSON, the most the check can read on every
+system, or on a list longer than 31000 bytes together, the most the run can
+record. Every
 commit the run makes carries the list, the spec commit included, and the
 same trailer is never added twice. The list is read on a fresh run only.
 A resume keeps the list the run recorded, and a different list on a
@@ -378,15 +381,19 @@ The run reads this section to render the probe block, as the skill says.
 **Test command:** B starts this command in the background, before the first
 human stop, so the probe block shows it on every fresh run and every
 re-entry. `preflight.sh` never reads `.delivery-kit.json`, so this line is
-rendered from the RESOLVED configuration, and the command is JSON-quoted,
-because a tracked file can hold a terminal escape. Print it as data: never
+rendered from the RESOLVED configuration, and the command is JSON-quoted in
+ASCII, as `jq -a` prints it, because a tracked file can hold a terminal escape
+or a character that disguises text. Print it as data: never
 run it or expand it to show it. `<layer>` names the layer that won:
 `~/.delivery-kit.json`, the repository's `.delivery-kit.json`, `--config`, or
 `project type` for a value worked out from the detected type. A command the
 owner gave at B's stop has the layer `the owner, at B's stop`. When nothing
 resolves, print `Test command : none resolved — B stops and asks`. B records
 the layer as `config.testCommandFrom`, with `config`. On a resume, print the
-recorded command and layer, and never re-resolve.
+recorded command and layer, and never re-resolve. A run that recorded no layer
+prints `(from a layer not recorded)`, a run with no `config` yet resolves it as
+a fresh run does, and a run with `gates.B.testCommand` recorded prints
+`Test command : none — the owner went on without one`.
 
 ## The Implementer line
 
@@ -411,6 +418,13 @@ pre-answers a gate changes the run's consent profile, and a tracked
 configuration file must never do that without the operator seeing which
 file it came from.
 
+The `implementer` key can arrive from a tracked `.delivery-kit.json`
+somebody else wrote, in a repository just cloned, and it removes the
+implementer question without anyone at the keyboard choosing that.
+That gap is why pre-flight prints the Implementer line and its layer.
+`baseBranchOverride`, `commitTrailers` and `testCommand` can arrive the same
+way, so the Base branch, Trailers and Test command lines name their layer too.
+
 ## The state directory
 
 Everything the pipeline writes lives under `.delivery-kit/` — one run
@@ -429,9 +443,13 @@ the run writes such values to a file with its file tool, never with a shell
 command, and hands over the path:
 
 - To `preflight.sh`: `--values-file <path>`, one JSON object with the
-  optional keys `commitTrailers` (a list of strings) and
-  `baseBranchOverride` (a name). Each value gets the same checks as its
-  flag. A value typed at the keyboard goes as its flag.
+  optional keys `commitTrailers` (a list of strings), `baseBranchOverride`
+  (a name), `baseBranch` (a name) and `projectType` (`web`, `mobile-android`
+  or `other`). Write only the keys that hold a value: the file refuses a `null`.
+  Each value gets the same checks as its flag, and a typed flag beats the file.
+  A value typed at the keyboard goes as its flag. The file is for a fresh run
+  only. On a resume the run passes none, so a tracked key moved since cannot stop
+  it, and the recorded values stand.
 - To the state file: `progress.sh state-set <feature> <key> [<sub-key>]
   --json-file <path>`, one JSON document. B's record of `config` goes this
   way, because `testCommand` and `analyzeCommand` can hold a quote.

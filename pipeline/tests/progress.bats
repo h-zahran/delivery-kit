@@ -1714,7 +1714,8 @@ board_vs_lock_take() {
   bash "$PROG" state-set 001-demo config commitTrailers --json-file list.json
   want="$(jq -c . list.json)"
   [ "$(jq -c '.config.commitTrailers' "$sf")" = "$want" ] || { jq -c '.config' "$sf"; false; }
-  [ ! -e marker ] && [ ! -e marker2 ]
+  [ ! -e marker ]
+  [ ! -e marker2 ]
   printf '%s\n' '{"planFile":"it'"'"'s.md","commitTrailers":[]}' > whole.json
   bash "$PROG" state-set 001-demo config --json-file whole.json
   [ "$(jq -c '.config' "$sf")" = '{"planFile":"it'"'"'s.md","commitTrailers":[]}' ]
@@ -1731,7 +1732,7 @@ board_vs_lock_take() {
 }
 
 @test "state-set --json-file refuses what is not one JSON document, writes nothing, prints no content" {
-  local sf=.delivery-kit/runs/001-demo/progress.json bad
+  local sf=.delivery-kit/runs/001-demo/progress.json bad want
   bash "$PROG" init 001-demo b main web
   cp "$sf" before.json
   mkdir folder
@@ -1742,13 +1743,82 @@ board_vs_lock_take() {
     run --separate-stderr bash "$PROG" state-set 001-demo config --json-file "$bad"
     [ "$status" -eq 1 ] || { echo "$bad: status $status"; false; }
     [ -z "$output" ] || { echo "$bad: stdout: $output"; false; }
-    [[ "$stderr" == *"$bad"* ]] || { echo "$bad: the path is not named: $stderr"; false; }
-    [[ "$stderr" != *SECRETWORD* ]] || { echo "$bad: the content was printed: $stderr"; false; }
+    # The whole line: bash's own redirect error also names the path.
+    case "$bad" in
+      missing.json|folder) want="progress.sh: no readable file at $bad" ;;
+      *) want="progress.sh: $bad does not hold one JSON document" ;;
+    esac
+    [ "$stderr" = "$want" ] || { echo "$bad: stderr: $stderr"; false; }
     cmp before.json "$sf"
   done
-  # A flag with no path is a usage fault.
+}
+
+@test "state-set --json-file with no path, or an empty one, is a usage fault" {
+  # Mutation: read the flag as the inline value, and these are JSON faults.
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  local want='progress.sh: usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
   run --separate-stderr bash "$PROG" state-set 001-demo config --json-file
   [ "$status" -eq 1 ]
+  [ "$stderr" = "$want" ] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file ""
+  [ "$status" -eq 1 ]
+  [ "$stderr" = "$want" ] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" state-set 001-demo config sub --json-file
+  [ "$status" -eq 1 ]
+  [ "$stderr" = "$want" ] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" state-set 001-demo config sub --json-file ""
+  [ "$status" -eq 1 ]
+  [ "$stderr" = "$want" ] || { echo "$stderr"; false; }
+  cmp before.json "$sf"
+}
+
+@test "state-set --json-file refuses an empty sub-key" {
+  # Mutation: drop the check, and the value lands under an empty name.
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
+  printf '"x"\n' > x.json
+  run --separate-stderr bash "$PROG" state-set 001-demo config '' --json-file x.json
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: the sub-key is empty' ] || { echo "$stderr"; false; }
+  cmp before.json "$sf"
+}
+
+@test "state-set --json-file says a value is too large, never that it is bad JSON" {
+  # A valid file over one argument's limit: 128 KiB an argument on Linux, 32 KB
+  # a command line on Windows, 1 MiB a whole list on macOS, so 2 MiB is over all
+  # three. Mutation: drop the file form's own line, and it blames the JSON.
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
+  { printf '"SECRETWORD'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > big.json
+  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file big.json
+  [ "$status" -eq 1 ]
+  [ -z "$output" ] || { echo "stdout: ${output:0:200}"; false; }
+  [ "$stderr" = "progress.sh: big.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
+  cmp before.json "$sf"
+}
+
+@test "state-set --json-file prints a path masked in each refusal" {
+  # Mutation: print the path raw in any one of the three refusals.
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  cp "$sf" before.json
+  # A control byte cannot be in a file name on Windows, so a file that exists
+  # has a non-ASCII name, and the ESC is on a path that does not exist.
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'a\033[31m.json'
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: no readable file at a?[31m.json' ] || { echo "$stderr" | od -c | head -5; false; }
+  printf '{"a":\n' > $'caf\303\251.json'
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'caf\303\251.json'
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: caf??.json does not hold one JSON document' ] || { echo "$stderr" | od -c | head -5; false; }
+  { printf '"'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > $'caf\303\251.json'
+  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file $'caf\303\251.json'
+  [ "$status" -eq 1 ]
+  [ "$stderr" = "progress.sh: caf??.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
   cmp before.json "$sf"
 }
 

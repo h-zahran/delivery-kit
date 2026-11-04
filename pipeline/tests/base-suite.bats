@@ -96,18 +96,50 @@ state() {
   mv "$BATS_TEST_TMPDIR/t.json" "$sf"
 }
 
-# reuse <mode> — config.suiteReuse for $F.
-reuse() {
-  local sf=".delivery-kit/runs/$F/progress.json"
-  jq --arg m "$1" '.config.suiteReuse = $m' "$sf" > "$BATS_TEST_TMPDIR/t.json"
+# edit_state <jq filter> [<jq args>...] — one edit of $F's state file.
+edit_state() {
+  local sf=".delivery-kit/runs/$F/progress.json" filter="$1"
+  shift
+  jq "$@" "$filter" "$sf" > "$BATS_TEST_TMPDIR/t.json" || return 1
   mv "$BATS_TEST_TMPDIR/t.json" "$sf"
 }
+
+# reuse <mode> — config.suiteReuse for $F.
+reuse() { edit_state '.config.suiteReuse = $m' --arg m "$1"; }
 
 # runs <args...> — the script, stdout to $OUT, stderr to $ERR; exit 0.
 runs() {
   local rc=0
   bash "$PROG" "$@" > "$OUT" 2> "$ERR" || rc=$?
   [ "$rc" -eq 0 ] || { echo "exit $rc, expected 0: $(cat "$ERR")"; return 1; }
+}
+
+# runs3 <args...> — the same, for the exit 3 of a record that cannot serve.
+runs3() {
+  local rc=0
+  bash "$PROG" "$@" > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 3 ] || { echo "exit $rc, expected 3: $(cat "$ERR")"; return 1; }
+}
+
+# legal <exact line> — start exits 0 with the line, nothing on stderr, and no
+# bookkeeping folder: a legal "not started", which FR-003 keeps at exit 0.
+legal() {
+  runs suite-base "$F" start
+  [ "$(cat "$OUT")" = "$1" ] || { echo "start said: $(cat "$OUT")"; return 1; }
+  [ ! -s "$ERR" ] || { echo "stderr: $(cat "$ERR")"; return 1; }
+  [ ! -e "$BD" ] || { echo "a bookkeeping folder was made"; return 1; }
+  [ "$(others)" = 0 ] || { echo "a checkout was made"; return 1; }
+}
+
+# stub <name> <first line of sh that decides to fail> — a command on $BIN that
+# fails when the line says so and hands every other call to the real one.
+stub() {
+  local real
+  real="$(command -v "$1")"
+  BIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$BIN"
+  printf '#!/bin/sh\n%s\nexec "%s" "$@"\n' "$2" "$real" > "$BIN/$1"
+  chmod +x "$BIN/$1"
 }
 
 # outcome_wait [<feature>] — polls the runner's outcome file every 0.2 s
@@ -167,14 +199,11 @@ others() { git worktree list --porcelain | grep -c '^worktree ' | awk '{ print $
   # ordering fault hid behind it. Mutation: make this path exit 0 or 1, and the
   # status check goes red; start a runner anyway, and the folder or the process
   # check goes red.
-  local sf edit rc
+  local edit
   repo
-  sf=".delivery-kit/runs/$F/progress.json"
   for edit in 'del(.config.testCommand)' '.config.testCommand = null' '.config.testCommand = ""' '.config.testCommand = 42'; do
-    jq "$edit" "$sf" > "$BATS_TEST_TMPDIR/t.json"
-    mv "$BATS_TEST_TMPDIR/t.json" "$sf"
-    rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
-    [ "$rc" -eq 3 ] || { echo "status $rc, after $edit: $(cat "$ERR")"; false; }
+    edit_state "$edit"
+    runs3 suite-base "$F" start
     [[ "$(cat "$OUT")" == "base suite not started: config.testCommand is not recorded as a string in "* ]] \
       || { echo "start said, after $edit: $(cat "$OUT")"; false; }
     [ ! -e "$BD" ] || { echo "a bookkeeping folder was made, after $edit"; false; }
@@ -533,60 +562,190 @@ waits() {
 
 # Feature 058: exit 3 is the run's own record failing the start.
 @test "an artifacts.spec that names no spec file exits 3, absent or stale" {
-  local sf rc edit
+  local edit
   repo
-  sf=".delivery-kit/runs/$F/progress.json"
   for edit in 'del(.artifacts.spec)' '.artifacts.spec = "specs/001-demo/gone.md"'; do
-    jq "$edit" "$sf" > "$BATS_TEST_TMPDIR/t.json"
-    mv "$BATS_TEST_TMPDIR/t.json" "$sf"
-    rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
-    [ "$rc" -eq 3 ] || { echo "status $rc, after $edit: $(cat "$ERR")"; false; }
+    edit_state "$edit"
+    runs3 suite-base "$F" start
     [[ "$(cat "$OUT")" == "base suite not started: artifacts.spec in "*" names no spec file that exists" ]] \
       || { echo "start said, after $edit: $(cat "$OUT")"; false; }
     [ ! -e "$BD" ] || { echo "a bookkeeping folder was made, after $edit"; false; }
   done
 }
 
+@test "a folder at artifacts.spec exits 3" {
+  # Mutation: test the path with -e, and a folder reads as the spec file.
+  repo
+  edit_state '.artifacts.spec = "specs/001-demo"'
+  runs3 suite-base "$F" start
+  [ "$(cat "$OUT")" = "base suite not started: artifacts.spec in .delivery-kit/runs/$F/progress.json names no spec file that exists" ] || { echo "start said: $(cat "$OUT")"; false; }
+  [ ! -e "$BD" ] || { echo "a bookkeeping folder was made"; false; }
+}
+
 @test "a start after exit 3 starts, once the record is fixed" {
   # Mutation: leave a marker behind at exit 3, and the second start refuses.
-  local sf rc
   repo
-  sf=".delivery-kit/runs/$F/progress.json"
-  jq 'del(.config.testCommand)' "$sf" > "$BATS_TEST_TMPDIR/t.json"
-  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
-  rc=0; bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
-  [ "$rc" -eq 3 ]
-  jq --arg c "$GREEN" '.config.testCommand = $c' "$sf" > "$BATS_TEST_TMPDIR/t.json"
-  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  edit_state 'del(.config.testCommand)'
+  runs3 suite-base "$F" start
+  edit_state '.config.testCommand = $c' --arg c "$GREEN"
   runs suite-base "$F" start
   [[ "$(cat "$OUT")" == "base suite started on commit "* ]] || { echo "start said: $(cat "$OUT")"; false; }
   outcome_wait
   [ "$OUTCOME" = green ]
 }
 
+# Precedence: a line that needs no record comes before the record's own checks.
+@test "an abandoned run with no test command exits 0 with the abandoned line" {
+  # Mutation: read the record before the abandoned check, and this exits 3.
+  repo
+  bash "$PROG" abandon "$F" > /dev/null
+  edit_state 'del(.config.testCommand)'
+  legal "base suite not started: the run was abandoned"
+}
+
+@test "suiteReuse off with no spec file exits 0 with the off line" {
+  # Mutation: read the spec before suiteReuse, and this exits 3.
+  repo
+  reuse off
+  edit_state 'del(.artifacts.spec)'
+  legal "base suite not started: config.suiteReuse is off: no suite result is kept or reused"
+}
+
+@test "already started, with the record broken afterwards, exits 0 with its line" {
+  # Mutation: read the record before the started check, and this exits 3.
+  repo
+  runs suite-base "$F" start
+  outcome_wait
+  [ "$OUTCOME" = green ]
+  edit_state 'del(.config.testCommand)'
+  runs suite-base "$F" start
+  [ "$(cat "$OUT")" = "base suite already started on commit $(git rev-parse HEAD)" ] || { echo "start said: $(cat "$OUT")"; false; }
+}
+
+# FR-003: each legal line that has no test above, its fixture as in
+# suite-cache.bats.
+@test "a spec file at the top level exits 0 with its line" {
+  repo
+  printf '# spec\n' > spec.md
+  edit_state '.artifacts.spec = "spec.md"'
+  legal "base suite not started: the spec file sits at the repository's top level, so there is no spec directory to leave out"
+}
+
+@test "a spec file under the state directory exits 0 with its line" {
+  repo
+  mkdir -p .delivery-kit/specs
+  printf '# spec\n' > .delivery-kit/specs/spec.md
+  edit_state '.artifacts.spec = ".delivery-kit/specs/spec.md"'
+  legal "base suite not started: the spec file sits under .delivery-kit/, which is left out already, so there is no spec directory to leave out"
+}
+
+@test "a spec file outside the repository exits 0 with its line, and names no path" {
+  repo
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere"
+  printf '# spec\n' > "$BATS_TEST_TMPDIR/elsewhere/spec.md"
+  edit_state '.artifacts.spec = $s' --arg s "$BATS_TEST_TMPDIR/elsewhere/spec.md"
+  legal "base suite not started: artifacts.spec in .delivery-kit/runs/$F/progress.json names a spec file outside this repository"
+}
+
+@test "an index entry hidden from git status exits 0 with its line" {
+  local want="base suite not started: an index entry is marked assume-unchanged or skip-worktree, which hides its changes from git status"
+  repo
+  git update-index --assume-unchanged README.md
+  legal "$want"
+  git update-index --no-assume-unchanged README.md
+  git update-index --skip-worktree README.md
+  legal "$want"
+}
+
+@test "an unmerged path exits 0 with its line" {
+  repo
+  git checkout -q -b side
+  printf 'side\n' > README.md
+  git commit -q -am side
+  git checkout -q main
+  printf 'main\n' > README.md
+  git commit -q -am main
+  git merge -q side > /dev/null 2>&1 || true
+  legal "base suite not started: the index holds an unmerged path (README.md)"
+}
+
+@test "a submodule exits 0 with its line" {
+  repo
+  git update-index --add --cacheinfo "160000,$(git rev-parse HEAD),sub"
+  git commit -q -m 'a submodule'
+  mkdir -p sub
+  legal "base suite not started: the tree holds a submodule (sub)"
+}
+
+@test "a repository nested in the tree exits 0 with its line" {
+  repo
+  mkdir -p nested
+  git -C nested init -q
+  printf 'q\n' > nested/q.txt
+  legal "base suite not started: an untracked directory holds a repository of its own (nested/)"
+}
+
+@test "HEAD with no commit exits 0 with its line" {
+  git init -q .
+  git symbolic-ref HEAD refs/heads/main
+  git config core.autocrlf false
+  state "$F" "$GREEN" specs/001-demo
+  legal "base suite not started: HEAD names no commit yet"
+}
+
+# FR-004: exit 1 is a check that could not be made. Each stub fails one call and
+# passes the rest on, so the exact line shows the fault is the one planted.
+@test "a git worktree add that fails exits 1, says so and starts nothing" {
+  # Mutation: read the failure as a legal line, and this exits 0.
+  repo
+  stub git 'if [ "$1 $2" = "worktree add" ]; then exit 1; fi'
+  local rc=0
+  PATH="$BIN:$PATH" bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "exit $rc: $(cat "$ERR")"; false; }
+  [ ! -s "$OUT" ] || { echo "stdout: $(cat "$OUT")"; false; }
+  [ "$(cat "$ERR")" = "progress.sh: base suite not started: git worktree add failed (see $BD/runner.log)" ] || { echo "stderr: $(cat "$ERR")"; false; }
+  [ ! -e "$BD/pid" ] || { echo "a runner was recorded"; false; }
+  [ "$(others)" = 0 ]
+  [ -z "$(ls -A "$TMPDIR")" ] || { echo "the temporary folder was left: $(ls -A "$TMPDIR")"; false; }
+}
+
+@test "a temporary folder that cannot be made exits 1, says so and starts nothing" {
+  # A stub, not a missing TMPDIR: BSD mktemp falls back to /tmp when TMPDIR is
+  # missing, and the key's scratch file needs mktemp to work.
+  repo
+  stub mktemp 'case "$*" in *dk-base-suite*) exit 1 ;; esac'
+  local rc=0
+  PATH="$BIN:$PATH" bash "$PROG" suite-base "$F" start > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 1 ] || { echo "exit $rc: $(cat "$ERR")"; false; }
+  [ ! -s "$OUT" ] || { echo "stdout: $(cat "$OUT")"; false; }
+  [ "$(cat "$ERR")" = "progress.sh: could not make a temporary folder for the base checkout" ] || { echo "stderr: $(cat "$ERR")"; false; }
+  [ ! -e "$BD" ] || { echo "a bookkeeping folder was made"; false; }
+  [ "$(others)" = 0 ]
+}
+
 # The classification is read from the script, so a new reason cannot arrive
-# unclassified. The legal paths' exit 0 is asserted where each is tested,
+# unclassified. Each legal reason's exit 0 is asserted in its own test above,
 # through `runs`. Mutation: add a line, or mark a third reason as a fault.
 @test "every reason the start can give is classified: two fault, the rest legal" {
-  local lines line faults=0 reasons=0
-  lines="$(grep -n 'SK_WHY="' "$PROG" | grep -v "SK_WHY='" )"
-  [ -n "$lines" ]
+  local lines line reasons=0
+  # Occurrences, not lines: a second mark on a marked line still counts.
+  [ "$(grep -o 'SK_FAULT=1' "$PROG" | wc -l)" -eq 2 ] || { echo "SK_FAULT=1 is set other than twice"; false; }
+  # Every assignment, in any quoting, but the line that sets them all empty.
+  lines="$(grep -n 'SK_WHY=' "$PROG")"
   while IFS= read -r line; do
+    case "$line" in *"SK_WHY='' SK_FAULT=''"*) continue ;; esac
     reasons=$((reasons + 1))
     case "$line" in
       *'config.testCommand is not recorded as a string'*|*'names no spec file that exists'*)
-        [[ "$line" == *'SK_FAULT=1'* ]] || { echo "not marked a fault: $line"; false; }
-        faults=$((faults + 1)) ;;
+        [[ "$line" == *'SK_FAULT=1'* ]] || { echo "not marked a fault: $line"; false; } ;;
       *'config.suiteReuse is off'*|*'none of commit, files or off'*|*'outside this repository'*|*'top level'*|*'left out already'*|*'assume-unchanged'*|*'names no commit yet'*|*'${paths##*'*)
-        [[ "$line" != *'SK_FAULT=1'* ]] || { echo "a legal reason is marked a fault: $line"; false; }
-        ;;
+        [[ "$line" != *'SK_FAULT=1'* ]] || { echo "a legal reason is marked a fault: $line"; false; } ;;
       *) echo "a reason this test does not classify: $line"; false ;;
     esac
   done <<<"$lines"
-  [ "$faults" -eq 2 ] || { echo "$faults fault reasons"; false; }
   [ "$reasons" -ge 8 ] || { echo "only $reasons reasons read"; false; }
   # base_start's own lines: every printf and die that says "not started".
-  lines="$(grep -n 'base suite not started' "$PROG" | grep -v '^[0-9]*:#')"
+  lines="$(grep -n 'base suite not started' "$PROG")"
   while IFS= read -r line; do
     case "$line" in
       *'the run was abandoned'*|*'$SK_WHY'*|*'a green result is already recorded'*|*'TMPDIR lies inside'*|*'are not these files'*) ;;
@@ -600,13 +759,26 @@ waits() {
 # the state file, JSON-quoted as the command is. Mutation: drop the read, or
 # print it raw.
 @test "the started line names the command's layer when the state file records it" {
-  local sf
+  local want
   repo
-  sf=".delivery-kit/runs/$F/progress.json"
-  jq '.config.testCommandFrom = "the repository'"'"'s .delivery-kit.json"' "$sf" > "$BATS_TEST_TMPDIR/t.json"
-  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  edit_state '.config.testCommandFrom = "the repository'"'"'s .delivery-kit.json"'
   runs suite-base "$F" start
-  [[ "$(cat "$OUT")" == *', from "the repository'"'"'s .delivery-kit.json"' ]] || { echo "start said: $(cat "$OUT")"; false; }
+  # The whole line: the command as JSON has each backslash of $GREEN doubled.
+  want="base suite started on commit $(git rev-parse HEAD) (process $(cat "$BD/pid")), command \"printf '1..1\\\\nok 1 a\\\\n'\", from \"the repository's .delivery-kit.json\""
+  [ "$(cat "$OUT")" = "$want" ] || { echo "start said: $(cat "$OUT")"; false; }
+  outcome_wait
+}
+
+@test "the started line escapes the characters a terminal can act on" {
+  # U+009B is a one-byte-long CSI, and U+202E reverses the text after it. Plain
+  # JSON quoting passes both through as they are. Mutation: drop -a on either.
+  local csi=$'\302\233' bidi=$'\342\200\256' want
+  repo "$GREEN # $csi$bidi"
+  edit_state '.config.testCommandFrom = $f' --arg f "layer $csi$bidi"
+  runs suite-base "$F" start
+  [ "$(LC_ALL=C tr -d '\000-\177' < "$OUT" | wc -c)" -eq 0 ] || { od -c "$OUT" | head -20; false; }
+  want="base suite started on commit $(git rev-parse HEAD) (process $(cat "$BD/pid")), command \"printf '1..1\\\\nok 1 a\\\\n' # \\u009b\\u202e\", from \"layer \\u009b\\u202e\""
+  [ "$(cat "$OUT")" = "$want" ] || { echo "start said: $(cat "$OUT")"; false; }
   outcome_wait
 }
 
@@ -618,11 +790,8 @@ waits() {
 }
 
 @test "the started line says no layer when the record is not a string" {
-  local sf
   repo
-  sf=".delivery-kit/runs/$F/progress.json"
-  jq '.config.testCommandFrom = 42' "$sf" > "$BATS_TEST_TMPDIR/t.json"
-  mv "$BATS_TEST_TMPDIR/t.json" "$sf"
+  edit_state '.config.testCommandFrom = 42'
   runs suite-base "$F" start
   [[ "$(cat "$OUT")" != *', from '* ]] || { echo "start said: $(cat "$OUT")"; false; }
   outcome_wait

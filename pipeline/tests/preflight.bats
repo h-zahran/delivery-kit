@@ -2503,15 +2503,26 @@ judge_big() {
 @test "values file: a report byte-identical to the same values typed as flags" {
   local by_flags
   T="$BATS_TEST_TMPDIR/values-same"
-  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch integration
-  probe --dir "$T" --trailer 'Team: one' --trailer 'Task: T-12 (second part)' --base-branch-override integration
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch integration; git branch configured
+  probe --dir "$T" --trailer 'Team: one' --trailer 'Task: T-12 (second part)' --base-branch-override integration --base-branch configured --project-type web
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
   by_flags="$output"
-  printf '%s\n' '{"commitTrailers":["Team: one","Task: T-12 (second part)"],"baseBranchOverride":"integration"}' > "$BATS_TEST_TMPDIR/v.json"
+  [ "$(jq -r '.baseBranch + " " + .baseBranchSource + " " + .projectType + " " + .projectTypeSource' <<<"$by_flags")" = 'integration override web override' ]
+  printf '%s\n' '{"commitTrailers":["Team: one","Task: T-12 (second part)"],"baseBranchOverride":"integration","baseBranch":"configured","projectType":"web"}' > "$BATS_TEST_TMPDIR/v.json"
   probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
   [ "$output" = "$by_flags" ] || { echo "file: $output"; echo "flags: $by_flags"; false; }
-  # Both keys are optional, and an empty object changes nothing.
+  # An override hides the configured base, so that key is compared alone too.
+  # This repository has no origin/HEAD, so the configured base is the base.
+  probe --dir "$T" --base-branch configured
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  by_flags="$output"
+  [ "$(jq -r '.baseBranch + " " + .baseBranchSource' <<<"$by_flags")" = 'configured configured' ]
+  printf '%s\n' '{"baseBranch":"configured"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$output" = "$by_flags" ] || { echo "file: $output"; echo "flags: $by_flags"; false; }
+  # Every key is optional, and an empty object changes nothing.
   printf '{}\n' > "$BATS_TEST_TMPDIR/v.json"
   probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
@@ -2557,11 +2568,24 @@ judge_big() {
   [[ "$stderr" == *'holds a quote ('*'(a commit trailer)' ]] || { echo "$stderr"; false; }
   [ ! -e marker ]
   jq -n '{baseBranchOverride: "x'"'"'$(touch marker)"}' > "$BATS_TEST_TMPDIR/v.json"
-  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
-  [ "$status" -eq 1 ]
-  [ -z "$output" ]
-  [[ "$stderr" == *'--base-branch-override'* ]] || { echo "$stderr"; false; }
+  refused "'x'\$(touch marker)' is not a legal branch name (the baseBranchOverride key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ ! -e marker ]
+  # The same value typed is blamed on the flag that was typed.
+  refused "'x'\$(touch marker)' is not a legal branch name (--base-branch-override)" --dir "$T" --base-branch-override 'x'"'"'$(touch marker)'
+  [ ! -e marker ]
+}
+
+@test "values file: a hostile baseBranch is refused by the configured base's own checks, naming the file" {
+  # No origin/HEAD here, or the configured base is never read.
+  T="$BATS_TEST_TMPDIR/values-hostile-base"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  jq -n '{baseBranch: "x'"'"'$(touch marker)"}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "'x'\$(touch marker)' is not a legal branch name (the baseBranch key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ ! -e marker ]
+  printf '%s\n' '{"baseBranch":"nowhere"}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "'nowhere' is not a branch here or on origin (the baseBranch key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  # The flag names the same key: it is the same setting, however it arrives.
+  refused "'nowhere' is not a branch here or on origin (the baseBranch key)" --dir "$T" --base-branch nowhere
 }
 
 @test "values file: a line break at the end of a trailer is refused, not lost" {
@@ -2573,9 +2597,20 @@ judge_big() {
   [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
   [[ "$stderr" == *'(a commit trailer)' ]] || { echo "$stderr"; false; }
   # The same for an override: the name is checked as it stands.
+  # Windows text-mode jq writes the line feed as CR LF, so one or two marks.
   printf '%s\n' '{"baseBranchOverride":"work\n"}' > "$BATS_TEST_TMPDIR/v.json"
   probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+  [[ "$stderr" == "preflight: 'work?"*"' is not a legal branch name (the baseBranchOverride key)" ]] || { echo "$stderr"; false; }
+  # And for the two keys added beside it.
+  printf '%s\n' '{"baseBranch":"work\n"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+  [[ "$stderr" == "preflight: 'work?"*"' is not a legal branch name (the baseBranch key)" ]] || { echo "$stderr"; false; }
+  printf '%s\n' '{"projectType":"web\n"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+  [[ "$stderr" == "preflight: 'web?"*"' is not a project type: web, mobile-android or other (the projectType key)" ]] || { echo "$stderr"; false; }
 }
 
 @test "values file: a relative path is read from the caller's folder, not from --dir" {
@@ -2612,4 +2647,150 @@ judge_big() {
   done
   probe --dir "$T" --values-file
   [ "$status" -ne 0 ]
+  # Each path has its own line. A bash redirect error would name the path too,
+  # and pass the loop above.
+  refused "no readable file at 'missing.json' (--values-file)" --dir "$T" --values-file missing.json
+  refused "no readable file at 'folder' (--values-file)" --dir "$T" --values-file folder
+  for bad in empty.json string.json list.json broken.json two.json; do
+    refused "'$bad' does not hold one JSON object (--values-file)" --dir "$T" --values-file "$bad"
+  done
+  refused "'unknown.json' holds a key other than commitTrailers, baseBranchOverride, baseBranch and projectType (--values-file)" --dir "$T" --values-file unknown.json
+  # The keys are read before the types.
+  printf '{"SECRETWORD":1,"baseBranch":7}\n' > both.json
+  refused "'both.json' holds a key other than commitTrailers, baseBranchOverride, baseBranch and projectType (--values-file)" --dir "$T" --values-file both.json
+}
+
+@test "values file: each key's wrong value gets the type refusal" {
+  local bad
+  T="$BATS_TEST_TMPDIR/values-types"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  cd "$BATS_TEST_TMPDIR"
+  # A NUL would be dropped on the way to a shell value, so web\u0000 would read
+  # as web, and an empty name would read as a key not there.
+  for bad in \
+    '{"commitTrailers":null}' '{"commitTrailers":"Team: one"}' '{"commitTrailers":["Team: one",7]}' \
+    '{"baseBranchOverride":""}' '{"baseBranchOverride":"a\u0000b"}' '{"baseBranchOverride":null}' '{"baseBranchOverride":7}' \
+    '{"baseBranch":""}' '{"baseBranch":"a\u0000b"}' '{"baseBranch":null}' '{"baseBranch":7}' \
+    '{"projectType":""}' '{"projectType":"web\u0000"}' '{"projectType":null}' '{"projectType":["web"]}'
+  do
+    printf '%s\n' "$bad" > v.json
+    refused "'v.json' holds a value of the wrong type: commitTrailers is a list of strings; baseBranchOverride, baseBranch and projectType are each a string, not empty and with no NUL (--values-file)" --dir "$T" --values-file v.json
+  done
+}
+
+@test "values file: a typed flag beats the file's baseBranch and projectType" {
+  T="$BATS_TEST_TMPDIR/values-typed"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed; git branch from-file; git branch typed
+  printf '%s\n' '{"baseBranch":"from-file","projectType":"web"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .projectType + " " + .projectTypeSource' <<<"$output")" = 'from-file web override' ]
+  probe --dir "$T" --base-branch typed --project-type mobile-android --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .projectType + " " + .projectTypeSource' <<<"$output")" = 'typed mobile-android override' ]
+  # The order on the command line does not matter.
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json" --base-branch typed --project-type mobile-android
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .projectType' <<<"$output")" = 'typed mobile-android' ]
+  # The losing value is still data the file must get right, as for the override:
+  # its type stops the run. Its name is not checked, as it is not used.
+  printf '%s\n' '{"baseBranch":7}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --base-branch typed --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'holds a value of the wrong type'* ]] || { echo "$stderr"; false; }
+  printf '%s\n' '{"projectType":7}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --project-type web --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'holds a value of the wrong type'* ]] || { echo "$stderr"; false; }
+  printf '%s\n' '{"projectType":"not-a-type","baseBranch":"nowhere"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --project-type web --base-branch typed --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .projectType' <<<"$output")" = 'typed web' ]
+}
+
+@test "a project type outside the list stops, from a flag or from the file, and no shell reads it" {
+  local t
+  T="$BATS_TEST_TMPDIR/ptype-list"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  refused "'web\$(touch pwn)' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type 'web$(touch pwn)'
+  [ ! -e pwn ]
+  jq -n '{projectType: "web$(touch pwn)"}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "'web\$(touch pwn)' is not a project type: web, mobile-android or other (the projectType key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ ! -e pwn ]
+  [ ! -e "$BATS_TEST_TMPDIR/pwn" ]
+  # Exact words, in one letter case, and the value is masked as it is printed.
+  refused "'WEB' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type WEB
+  refused "'other?[31m' is not a project type: web, mobile-android or other (--project-type)" --dir "$T" --project-type $'other\033[31m'
+  # Every legal type, from each source, is reported as an override.
+  for t in web mobile-android other; do
+    probe --dir "$T" --project-type "$t"
+    [ "$status" -eq 0 ] || { echo "$t: $stderr"; false; }
+    [ "$(jq -r '.projectType + " " + .projectTypeSource' <<<"$output")" = "$t override" ]
+    jq -n --arg t "$t" '{projectType: $t}' > "$BATS_TEST_TMPDIR/v.json"
+    probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+    [ "$status" -eq 0 ] || { echo "$t: $stderr"; false; }
+    [ "$(jq -r '.projectType + " " + .projectTypeSource' <<<"$output")" = "$t override" ]
+  done
+}
+
+@test "values file: a name with a leading dash is a path" {
+  T="$BATS_TEST_TMPDIR/values-dash"
+  mkdir -p "$T" "$BATS_TEST_TMPDIR/caller"; cd "$T"; git init -q -b work .; seed
+  printf '%s\n' '{"commitTrailers":["Team: dash"]}' > "$BATS_TEST_TMPDIR/caller/-v.json"
+  cd "$BATS_TEST_TMPDIR/caller"
+  probe --dir "$T" --values-file -v.json
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.commitTrailers' <<<"$output")" = '["Team: dash"]' ]
+}
+
+@test "values file: a list too long to record has a true refusal, and no value of that size goes through a command line" {
+  # About 128 KB is the limit of one argument on Linux, and about 32 KB the
+  # limit of a whole command line for a native jq on Windows. B records the list
+  # as one argument, so pre-flight refuses a list it could not record.
+  T="$BATS_TEST_TMPDIR/values-big"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  jq -n '{commitTrailers: [range(8) | "Task: " + ("a" * 26000)]}' > "$BATS_TEST_TMPDIR/v.json"
+  [ "$(wc -c < "$BATS_TEST_TMPDIR/v.json")" -gt 200000 ]
+  refused "the commit trailers are longer than 31000 bytes as JSON together, the most the run can record on every system (a commit trailer)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  # Typed trailers count too. Two of 20000 bytes pass one by one, and fail together.
+  jq -n '{commitTrailers: ["Task: " + ("a" * 20000)]}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "the commit trailers are longer than 31000 bytes as JSON together, the most the run can record on every system (a commit trailer)" --dir "$T" --trailer "Flag: $(printf 'b%.0s' {1..20000})" --values-file "$BATS_TEST_TMPDIR/v.json"
+  # A list under it is reported whole.
+  jq -n '{commitTrailers: [range(2) | "Task: " + ("a" * 10000)]}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --trailer 'Flag: typed' --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr" | cut -c1-300; false; }
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/report.json"
+  jq -e --slurpfile v "$BATS_TEST_TMPDIR/v.json" '.commitTrailers == $v[0].commitTrailers + ["Flag: typed"]' "$BATS_TEST_TMPDIR/report.json" > /dev/null
+}
+
+@test "values file: a trailer too long to check has a true refusal, with no path in it" {
+  # trailer-check.sh takes it as one argument, and jq takes it as another. Past
+  # about 32 KB on Windows a native jq would fail, and past about 128 KB on
+  # Linux bash itself would, printing this script's absolute path. So the limit
+  # is one number, read before either runs, and 30000 bytes as JSON counts the
+  # two quotes. Six bytes of token and 29992 of value is exactly 30000.
+  local long='a trailer is longer than 30000 bytes as JSON, the most the check can read on every system (a commit trailer)'
+  T="$BATS_TEST_TMPDIR/values-long"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  jq -n '{commitTrailers: ["Task: " + ("a" * 29992)]}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 0 ] || { echo "$stderr" | cut -c1-300; false; }
+  jq -n '{commitTrailers: ["Task: " + ("a" * 29993)]}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "$long" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  jq -n '{commitTrailers: ["Task: " + ("a" * 200000)]}' > "$BATS_TEST_TMPDIR/v.json"
+  refused "$long" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+}
+
+# Feature 058: a name pre-flight takes must not stop later at branch-cut, and the
+# one character rule lives in two scripts, so a test holds the two equal.
+@test "a feature branch that starts refs/ is refused here, as branch-cut refuses it" {
+  T="$BATS_TEST_TMPDIR/refs-branch"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  refused "'refs/foo' starts with refs/, the form of a full ref (--feature-branch)" --dir "$T" --feature-branch refs/foo
+}
+
+@test "preflight.sh and progress.sh hold one rule for a branch name's characters" {
+  local cls='*[!A-Za-z0-9._/-]*'
+  grep -qF -- "$cls" "$ROOT/pipeline/scripts/preflight.sh" || { echo "preflight.sh's character rule changed"; false; }
+  grep -qF -- "refs/*|$cls" "$ROOT/pipeline/scripts/progress.sh" || { echo "progress.sh's character rule changed"; false; }
 }
