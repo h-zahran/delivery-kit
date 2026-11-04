@@ -2163,7 +2163,13 @@ ROWS
   # "L asks nothing" (L's own stops still stop it), a check of the guide
   # alone (the push must match everything shown), and the stop counted
   # three times in phases.md.
-  absent_in "$(prose_flat < "$ORCH") $(rare_section 'K and L as one stop') $(prose_flat <<<"$doc")" <<'OLD'
+  # The text is built first, on a line of its own: bash 3.2 (macOS CI) scans a
+  # heredoc that starts on a line holding `$( )` as part of that line, so the
+  # apostrophe in "guide's" below opened a quote and broke the parse of the
+  # whole file, 220 lines further on.
+  local hay
+  hay="$(prose_flat < "$ORCH") $(rare_section 'K and L as one stop') $(prose_flat <<<"$doc")"
+  absent_in "$hay" <<'OLD'
 L asks nothing
 the rebuilt guide's `git hash-object`
 K and L are two gates but one stop
