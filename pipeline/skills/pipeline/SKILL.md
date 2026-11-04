@@ -27,7 +27,7 @@ are your hands, and the state file is your memory.
 - **State writes**: the phase alphabet goes through `progress.sh`
   (`phase-start` at the START of every phase, `phase-done` on
   completion); other keys go through `progress.sh state-set <feature>
-  <key> [<sub-key>] <json>`, which refuses a key it does not own and
+  <key> [<sub-key>] <json>` or `--json-file <path>`, which refuses a key it does not own and
   validates before it writes. Never edit the state file by hand —
   `validate` exists to catch corruption, not to excuse it.
 - **Commit mechanics are `progress.sh` subcommands** — `snapshot`,
@@ -147,8 +147,8 @@ this tool does, and one flag must not mean both "commit for me" and
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
 `--project-type`/`--base-branch` only when configuration set them; add
-`--base-branch-override`, `--feature-branch`, `--spec-dir` and
-`--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read
+`--base-branch-override`, `--feature-branch`, `--spec-dir`, `--trailer`
+and `--values-file` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read
 before this call — the `--base-branch` flag goes as
 `--base-branch-override`, never as `--base-branch`),
 parse its stdout as JSON, and render the probe block — the Implementer
