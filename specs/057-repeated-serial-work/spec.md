@@ -76,12 +76,12 @@ A fault script breaks the code on purpose and checks that a test goes red. The h
 - **A skipped test.** The command passes the `# skip` line through. `tap-check` refuses it, as it does today.
 - **Stray output.** A line that is neither TAP nor a `#` comment passes through unchanged, so `tap-check` refuses it, as it does today.
 - **Text that looks like a test line.** Only a test line at the start of a line is renumbered. A `#` comment that holds `ok 3` is left unchanged.
-- **The command is stopped.** `suite-base wait --limit` stops its process group. The command must leave no running child and no temporary folder behind.
-- **Tests that share `$TMPDIR`.** Files that run side by side must not collide through shared temporary paths.
+- **The command is stopped.** `suite-base wait --limit` stops its process group. The command must leave no running child and no temporary folder behind, and must show what ran.
+- **Tests that share `$TMPDIR`.** Files that run side by side must not collide through shared temporary paths, so each file has a `TMPDIR` of its own.
 - **macOS and bash 3.2.** The command runs on bash 3.2 and needs no tool that the serial command does not need, other than standard POSIX tools.
 - **Windows.** CI does not use the command, because it stays serial and sharded. The command's own tests still run in CI on all three systems, using a stand-in test runner.
 - **Run 1 itself.** B records `config.testCommand` as resolved, and `suite-key` reads that recorded value. So this run keeps the serial command in F.5, J and N. Run 2 is the first that uses the new command. The evidence for this run is direct measurement.
-- **A planted harness.** The run directory can be tracked in a cloned repository. An actor must not run a harness that git tracks. It treats that as no harness and says so.
+- **A planted harness.** A cloned repository can track the run directory, or a link or submodule that brings a file to its path. An actor must not run a harness in that case. It treats that as no harness and says so.
 - **Two reviewers at once.** Phase I's reviewers start together. So only the tests reviewer may create the harness in I. Another reviewer uses it if it exists, or names the fault in its finding, and I's fix step runs that fault.
 - **A fault that did not land.** A no-op fault makes a false green. The harness must report a fault that changed no byte, as distinct from a test that stayed green.
 - **The working tree.** A harness works only on a throwaway copy, and never edits the tree or writes to git in the repository.
@@ -98,15 +98,15 @@ A fault script breaks the code on purpose and checks that a test goes red. The h
 - **FR-001**: The repository MUST have a script that runs each `*.bats` file found on disk under `tests`, `handoff/tests`, `pipeline/tests` and `team/tests`, at the same time, each in its own test-runner process.
 - **FR-002**: `testCommand` in `.delivery-kit.json` MUST call that script.
 - **FR-003**: The script MUST print one TAP stream: one plan line first, then every test line of every file, numbered from 1 to N with each number used once. A file's other lines pass through unchanged.
-- **FR-004**: The script MUST print the report in a fixed order, whichever file ends first.
-- **FR-005**: The script MUST exit 0 only when every file's process exited 0, every file printed exactly one plan line, each file's test lines match its plan, and at least one file ran.
+- **FR-004**: The script MUST print the report in a fixed order, whichever file ends first: the roots as given, each sorted.
+- **FR-005**: The script MUST exit 0 only when every file's process exited 0, every file printed exactly one plan line, each file's test lines match its plan, each test number is used once inside the plan, at least one test ran, and the report was written.
 - **FR-006**: On any other outcome the script MUST exit non-zero and name the fault and the file on stderr, without a user name or machine path in the message beyond the repository-relative file name.
 - **FR-007**: `progress.sh tap-check` MUST accept the report of a green run, and reject the report of a run with a `not ok`, a skip, or a stray line, with no change to `tap-check`.
 - **FR-008**: The script MUST run each file with `--print-output-on-failure`, so a failing test's output reaches the report as it does in the serial command.
 - **FR-009**: The script MUST need no new dependency, and MUST run on bash 3.2.
 - **FR-010**: The script MUST use the same test runner path as the serial command, and MUST accept the override `BATS_BIN` that `scripts/context-guard/field-order-mutation.sh` already reads.
-- **FR-011**: The script MUST limit how many files run at once, from the machine's CPU count, with a fixed upper limit.
-- **FR-012**: When the script is stopped, it MUST stop its children and remove its temporary files.
+- **FR-011**: The script MUST limit how many files run at once to half the machine's CPU count, with a fixed lower and upper limit.
+- **FR-012**: When the script is stopped by TERM, INT or HUP, it MUST stop its children, print what ran, and remove its temporary files. A SIGKILL to the script cannot be trapped, and is a stated limit.
 - **FR-013**: CI MUST stay serial and sharded. The serial command in `CONTRIBUTING.md` and `README.md` stays as the plain way to run the suite. `CONTRIBUTING.md` MAY also name the new command, if no test forbids it.
 
 **Part B: one fault harness per run**
@@ -116,14 +116,14 @@ A fault script breaks the code on purpose and checks that a test goes red. The h
 - **FR-016**: The tests reviewer MUST write down its own faults BEFORE it reads the harness, so its judgement stays independent. The harness shares mechanics, never a fault list.
 - **FR-017**: The text MUST NOT cap the number of faults, and MUST NOT remove a lens.
 - **FR-018**: In phase I only the tests reviewer MAY create the harness. Another reviewer MUST use it if it exists, or else name the fault in its finding. I's fix step MUST run a fault named that way through the harness before it accepts or declines the finding, so the proof is moved and not lost.
-- **FR-019**: An actor MUST NOT run a harness that git tracks. It treats that as no harness and says so.
-- **FR-020**: A harness MUST work only on a throwaway copy, and MUST report a fault that changed no byte as a fault that did not land.
-- **FR-021**: An actor that finds a harness broken MUST repair it in place and record the fact in it.
+- **FR-019**: An actor MUST read a harness or faults file before running it, and MUST NOT write under the run directory for this, or run it, when git tracks anything under `.delivery-kit`, in any letter case, from the repository's top: a tracked link or submodule can bring a file there that git calls untracked. It says so, and the first actor keeps the harness in a temporary folder its report names.
+- **FR-020**: A harness MUST work only on a throwaway copy, and run from inside it. Each actor MUST run it once with no fault, and again after the harness or the tree changes, which must stay green. It MUST report a fault that changed no byte as a fault that did not land, and a fault counts as caught only on the failing test's own `not ok` line.
+- **FR-021**: An actor that finds a harness broken MUST repair it in place and record the fact in it. A harness is saved by writing a temporary file and renaming it. Among agents running at once, the brief names the one that owns the file, and in phase I that is the tests reviewer.
 - **FR-022**: The orchestrator's `pipeline/skills/pipeline/SKILL.md` MUST grow by no more than 100 bytes, and MUST stay under the size test's limit.
 
 **Tests and records**
 
-- **FR-023**: Automated tests MUST cover FR-003 to FR-006, FR-010 and FR-012 with a stand-in test runner, on all three systems in CI.
+- **FR-023**: Automated tests MUST cover FR-003 to FR-006, FR-010, FR-011 and FR-012 with a stand-in test runner, on all three systems in CI.
 - **FR-024**: Prose tests MUST pin FR-014 to FR-021, and a fault run MUST show each pin goes red when its rule is removed or inverted.
 - **FR-025**: `specs/057-repeated-serial-work/measurements.md` MUST record at least three passes of the final script at the repository root: wall time and the counts of ok, not ok and skip, with the serial time beside them.
 - **FR-026**: The change MUST ship as pipeline 1.10.0: the plugin's changelog, its manifest and the marketplace entry MUST all name it, and `scripts/check-versions.sh` MUST agree.
@@ -139,7 +139,7 @@ A fault script breaks the code on purpose and checks that a test goes red. The h
 
 - **SC-001**: The full suite at the repository root takes under 120 seconds on the owner's machine, in each of at least three passes. Serial takes about 561 seconds.
 - **SC-002**: Each of at least three passes reports the same test count as the serial suite on that commit, with 0 not ok and 0 skip.
-- **SC-003**: The set of test names in the new report equals the set in the serial report on the same commit.
+- **SC-003**: The set of test names in the new report equals the set in the serial report on the same commit. Phase J runs the serial command on the final commit, and nothing is written after it, so the result is in the pull request body.
 - **SC-004**: Every fault in User Story 2 gives a non-zero exit in a forced run, and none reads as green.
 - **SC-005**: Each new prose pin goes red under its fault, and a control with no fault stays green.
 - **SC-006**: `SKILL.md` grows by at most 100 bytes.

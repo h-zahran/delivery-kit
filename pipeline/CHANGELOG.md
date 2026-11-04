@@ -12,10 +12,9 @@ All notable changes to the `pipeline` plugin.
   reviewer finished last in each of four measured runs. `pipeline:spec-review`
   now defines one harness, `.delivery-kit/runs/<feature>/fault-harness.sh`: the
   first actor that needs it saves it, and later actors reuse and extend it. The
-  tests reviewer writes its own faults to `faults-tests.txt` before it reads the
-  harness, so its judgement stays independent. Nothing caps the faults, and no
-  lens is dropped. A harness that git tracks is not run. The orchestrator gains
-  one pointer, and `docs/phases.md` explains it.
+  tests reviewer writes its own faults first, so its judgement stays
+  independent. `pipeline:spec-review` holds the rules, and `docs/phases.md`
+  explains them.
 
 ### Notes
 
