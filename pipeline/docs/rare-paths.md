@@ -26,8 +26,7 @@ wrong cause lower down is not enough; it has to not be printed here. But
 over-marking is its own lie, so be exact:
 
 - `Base branch`: when `notRead` names `baseBranch`, the line is not a
-  fact. If this run passed pre-flight a configured base with
-  `--base-branch`, print that name, marked not confirmed: `origin/HEAD`,
+  fact. If this run passed pre-flight a configured base, print that name, marked not confirmed: `origin/HEAD`,
   which ranks above it, was not read. Otherwise print
   `— not read: git is not usable here (<gitReason>)`. When `notRead` does
   not name it, the name came from an override and IS established: print
@@ -251,24 +250,22 @@ then continue.
 ## No test command
 
 `suite-base start` exits 3 when the run's own record cannot serve it. This is
-a conditional stop, and `--auto` does not collapse it. Print the line, and act
-on its reason.
+a conditional stop, and `--auto` does not collapse it. Print the line, stop and
+ask the owner.
 
-An `artifacts.spec` that names no spec file: B has not recorded it, or the
-file moved. Record it and run the start again. Stop only if no spec file
-exists.
+An `artifacts.spec` that names no spec file: say whether the key is absent or its
+file is gone, and name the spec file the run wrote, if it exists. The owner
+confirms that file, restores it or names another. Record it and run the start
+again.
 
-A `config.testCommand` that is not recorded:
+A `config.testCommand` that is not recorded: ask the owner to give a test
+command, or to go on with none. When the configuration resolved a command, offer
+that command, with its layer, as the answer.
 
-- When the configuration resolved a command, B recorded `config` too late or
-  not at all. Record it as Configuration says, and run the start again. This
-  needs no answer.
-- When nothing resolves, stop and ask the owner: give a test command, or go on
-  with none.
-
-A command the owner gives goes into `config.testCommand`, with
-`config.testCommandFrom` as `the owner, at B's stop`, by `state-set --json-file`
-as `configuration.md` says. Then run the start again.
+A command the owner takes from the configuration keeps its layer, as
+`config.testCommandFrom`. A command the owner types has the layer `the owner, at
+B's stop`. Either goes into `config.testCommand` by `state-set --json-file`, as
+`configuration.md` says. Then run the start again.
 
 Going on with none is recorded as `gates.B`, an object whose `testCommand` is
 `none`, beside the owner's answer. From then on:

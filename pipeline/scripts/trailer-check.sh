@@ -80,9 +80,9 @@ t="${rest%$'\t'*}"; lc="${rest##*$'\t'}"
 shown="'$t'"
 # A person may type a trailer into a shell command (preflight.sh --trailer),
 # so the shell would read a quote, a dollar sign or a backtick before any
-# check here ran; the run passes tracked values by file (--values-file,
-# state-set --json-file). And a workflow that prints commit messages may read `##[`
-# anywhere in a line as a command to its log.
+# check here ran; the run hands tracked values over by file. And a workflow
+# that prints commit messages may read `##[` anywhere in a line as a command to
+# its log.
 case "$t" in
   *\'*|*\$*|*\`*) no "holds a quote ('), a dollar sign or a backtick; a trailer is typed into a shell command" ;;
   *'##['*)        no "holds '##[', which a workflow log reads as a command" ;;

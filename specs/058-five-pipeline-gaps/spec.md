@@ -15,7 +15,7 @@
 - Q: What should the run do in phase B when no test command is recorded? → A: Stop and ask. The owner gives a command, or says go on with none; F.5, J and N then say no suite ran. `--auto` does not collapse the stop.
 - Q: Who should work out the test command and its layer for the new probe line? → A: The orchestrator, as for the Implementer line. `preflight.sh` reads no configuration file.
 - Q: What should `branch-cut` do when the branch already exists and HEAD is on another branch? → A: Switch only when the base is the branch's ancestor; otherwise refuse and name both.
-- Q: Should this run also stop pre-flight from typing tracked values into a shell? → A: Yes. `preflight.sh` takes tracked trailers and a tracked `baseBranchOverride` from a JSON file, with all its checks kept.
+- Q: Should this run also stop pre-flight from typing tracked values into a shell? → A: Yes. `preflight.sh` takes tracked trailers and a tracked `baseBranchOverride` from a JSON file, with all its checks kept. Phase I's review found `baseBranch` and `projectType` typed the same way, so the file takes them too.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -181,8 +181,8 @@ Test 20 is the helper's own fixture: it records today's behaviour, and no caller
 - **FR-022**: A file that does not hold exactly one JSON document MUST be refused, with nothing written. The refusal MUST name the path and MUST NOT print the file's content.
 - **FR-023**: `pipeline/docs/configuration.md` MUST use the file form for the trailer record, and for `config.commitTrailersFrom`. It MUST also say that any value from a tracked file goes through the file form. Every other doc line that puts tracked text between single quotes MUST change too.
 - **FR-024**: The trailer refusal of a quote, a dollar sign or a backtick MUST stay, because a person may still type `--trailer`. The comment at `pipeline/scripts/trailer-check.sh:82` and the reason in `configuration.md` MUST stop naming `state-set`.
-- **FR-024a**: `preflight.sh` MUST accept `--values-file <path>`: one JSON object, with the optional keys `commitTrailers` (a list of strings) and `baseBranchOverride` (a string). It MUST refuse, by its own message and printing no value, a missing file, a folder, a file that does not hold exactly one JSON object, an unknown key, and a value of the wrong type.
-- **FR-024b**: Every value from the file MUST pass the same checks as the flag form. Trailers MUST keep the documented order: the file's first, then each `--trailer`, whatever the order on the command line. A typed `--base-branch-override` MUST beat the file's, as a flag beats a key.
+- **FR-024a**: `preflight.sh` MUST accept `--values-file <path>`: one JSON object, with the optional keys `commitTrailers` (a list of strings), `baseBranchOverride`, `baseBranch` and `projectType` (each a string). `projectType` MUST be `web`, `mobile-android` or `other`, from any source. It MUST refuse, by its own message and printing no value, a missing file, a folder, a file that does not hold exactly one JSON object, an unknown key, and a value of the wrong type.
+- **FR-024b**: Every value from the file MUST pass the same checks as the flag form. Trailers MUST keep the documented order: the file's first, then each `--trailer`, whatever the order on the command line. A typed flag MUST beat the file's value, as a flag beats a key.
 - **FR-024c**: `pipeline/docs/configuration.md` MUST tell the run to write values from configuration into that file, and to pass only values typed at the keyboard as flags.
 
 **The whole run**

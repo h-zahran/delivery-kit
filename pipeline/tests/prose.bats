@@ -19,6 +19,7 @@ setup() {
 # one bold-led line the walk legitimately holds, declared so prose_slice admits
 # that exact line and nothing else.
 pf_walk() {
+  # Plain form: the form is the caller's, and each caller says inside or why not.
   prose_slice "$ORCH" '^The script only reports; the decisions are yours' '^\*\*Base branch:\*\*' "${1-}" 'pre-flight walk' \
     '**Read item 11 before item 1.** It is the one decision that fires out of'
 }
@@ -82,7 +83,7 @@ RULES
   local flags
   flags="$(prose_slice "$ORCH" '^## Flags$' '^## Pre-flight$' raw-inside 'flags')" || return 1
   rows_in "$flags" 'the --auto flags' <<'ROWS'
-| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops, once the branch holds commits, for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, or the stop for a state file tracked in git. |
+| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops, once the branch holds commits, for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, B's exit 3, or the stop for a state file tracked in git. |
 ROWS
 }
 
@@ -903,6 +904,10 @@ prose_fixture() {
     [[ $stderr == *'prose_slice [fixture]: nothing is left inside the region once its closing line is dropped'* ]] \
       || { echo "$form: $stderr"; false; }
   done
+  # The plain forms return that region whole.
+  run --separate-stderr prose_slice "$f" '^## Open' 'Close$' raw 'fixture'
+  [ "$status" -eq 0 ] || { echo "raw: status $status: $stderr"; false; }
+  [ "$output" = '## Open and Close' ] || { echo "raw: $output"; false; }
   # A region of an opener and a closer alone still holds the opener.
   printf '%s\n' '## Open' '## Close' > "$f"
   run --separate-stderr prose_slice "$f" '^## Open$' '^## Close$' raw-inside 'fixture'
@@ -1469,7 +1474,7 @@ PINS
 
 span_f5() {
   cat <<'SPAN'
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`; an exit 1 from the wait is printed too, and F.5 goes on to the lookup. F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
+**F.5 — test baseline.** With `gates.B.testCommand` recorded, F.5, J and N follow "No test command" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`. Run `testCommand`. Record the result verbatim in `test_baseline` — the failures that exist BEFORE this feature are not this feature's failures, and J classifies against this record. Every full `testCommand` run is bracketed: `progress.sh suite-key <feature>` before it, its stdout and stderr in one file in the run directory, `suite-record <feature> <key> <file> <rc>` after (no key, or a refusal, only means nothing is kept). F.5, J and N may cite, quoting its two lines verbatim, a `suite-lookup <feature>` that exits 0 — a GREEN result for these identical files, git state as `suiteReuse` says, and command — instead of running; red or missing, run. F.5 adds `--base`, which also accepts one for these files without the run's untracked spec directory. F.5 first runs `progress.sh suite-base <feature> wait` again while it exits 2 — it waits for the run B started, and never decides reuse — then asks `suite-lookup <feature> --base`; an exit 1 from the wait is printed too, and F.5 goes on to the lookup. F.5 records in the run's metrics whether it cited a result, as `f5Cited`, a JSON boolean, and the wait's last line as `baseSuite`. **G — implementer gate.** STOP AND ASK, unless `implementer` pre-answered
 SPAN
 }
 
@@ -1761,7 +1766,7 @@ ROWS
   [[ $notread != *'baseBranchSource'* ]] \
     || { echo 'the not-read rule derives unread fields from baseBranchSource again, beside the script'; false; }
   # A configured base is a fallback below origin/HEAD, which was not read.
-  [[ $notread == *'If this run passed pre-flight a configured base with `--base-branch`, print that name, marked not confirmed: `origin/HEAD`, which ranks above it, was not read. Otherwise print `— not read: git is not usable here (<gitReason>)`.'* ]] \
+  [[ $notread == *'If this run passed pre-flight a configured base, print that name, marked not confirmed: `origin/HEAD`, which ranks above it, was not read. Otherwise print `— not read: git is not usable here (<gitReason>)`.'* ]] \
     || { echo 'the not-read rule no longer marks a configured base as not confirmed'; false; }
   # A report from an older script carries no list: fail closed, never open.
   [[ $notread == *'A report with no `notRead` comes from a script older than this page: say so, and print none of the three lines below as fact.'* ]] \
@@ -2026,9 +2031,10 @@ A pre-answered `implementer` removes the implementer question, never the review 
 No fresh run reaches DONE without a stop: on a `claude` run G stops for the review question, and on a `handoff` run the run parks at H.
 A re-entry past G asks nothing there and so can reach DONE with no gate stopping it — for example a run resumed from an older pipeline that had completed G (see G), or a run re-entered with `--from H` or later.
 A pause (H, pause mode) is a stop the developer chose, not a sixth gate, and `--auto` never collapses it.
-Nothing outside the gate table is silenced by `--auto` — the pre-flight constitution offer, every cap breach, a missing required tool, any hard failure and a failed runtime check all still stop.
-The `implementer` key can arrive from a tracked `.delivery-kit.json` somebody else wrote, in a repository just cloned, and it removes the implementer question without anyone at the keyboard choosing that.
+Nothing outside the gate table is silenced by `--auto` — the pre-flight constitution offer, every cap breach, a missing required tool, any hard failure, B's exit 3 and a failed runtime check all still stop.
 PINS
+  [[ "$(prose_flat < "$ROOT/pipeline/docs/configuration.md")" == *'The `implementer` key can arrive from a tracked `.delivery-kit.json` somebody else wrote, in a repository just cloned, and it removes the implementer question without anyone at the keyboard choosing that.'* ]] \
+    || { echo "configuration.md lost why the Implementer line names its layer"; false; }
   rows_in "$raw" 'gate table' <<'ROWS'
 | Implementer | G | Claude, or a handoff package for a cheaper model; then, for Claude, commits or pauses |
 ROWS
@@ -2456,6 +2462,10 @@ PINS
   [[ $before == *"$spot"* ]] || { echo "phase B's record sentence no longer sits between the gitignore answer and the branch cut (or a neighbour was reworded)"; false; }
   earlier=${before%%"$record"*}
   [[ $earlier != *suite-base* ]] || { echo "phase B names suite-base before it records config"; false; }
+  # Feature 058: branch-cut replaced B's own branch command.
+  [[ $flat == *'THEN run `progress.sh branch-cut <feature>`: uncommitted work travels with it.'* ]] \
+    || { echo "phase B no longer runs branch-cut"; false; }
+  [[ $flat != *'git checkout -b'* ]] || { echo "phase B still holds its own branch command"; false; }
 }
 
 @test "phases.md states the suite reuse rules the state helper enforces" {
@@ -2691,7 +2701,7 @@ ROWS
   local flat pre base
   flat="$(prose_flat < "$ORCH")"
   pre="$(prose_slice "$ORCH" '^## Pre-flight$' '^\*\*Read item 11 before item 1\.\*\*' flat-inside 'pre-flight')" || return 1
-  [[ $pre == *'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--project-type`/`--base-branch` only when configuration set them; add `--base-branch-override`, `--feature-branch`, `--spec-dir`, `--trailer` and `--values-file` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),'* ]] \
+  [[ $pre == *'Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add `--values-file`, `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read before this call — the `--base-branch` flag goes as `--base-branch-override`, never as `--base-branch`),'* ]] \
     || { echo "the pre-flight call no longer names every argument"; false; }
   [[ $pre == *'and the Branch, Spec folder and Trailers lines only when set or recorded.'* ]] \
     || { echo "a resume no longer prints the recorded Branch, Spec folder and Trailers lines"; false; }
@@ -2700,7 +2710,7 @@ ROWS
   base="$(prose_slice "$ORCH" '^\*\*Base branch:\*\*' '^\*\*Implementer:\*\*' flat-inside 'base branch')" || return 1
   [[ $base == *'`baseBranchSource` names the winner — print it, except `override`: print the layer that set it, never that word.'* ]] \
     || { echo "the Base branch line may print (from override) again"; false; }
-  [[ $flat == *'`baseBranchOverride` and `commitTrailers` can arrive the same way, so the Base branch and Trailers lines name their layer too.'* ]] \
+  [[ "$(prose_flat < "$ROOT/pipeline/docs/configuration.md")" == *'`baseBranchOverride`, `commitTrailers` and `testCommand` can arrive the same way, so the Base branch, Trailers and Test command lines name their layer too.'* ]] \
     || { echo "the tracked-file paragraph no longer covers the override and the trailers"; false; }
 }
 
@@ -2905,9 +2915,9 @@ PINS
   # and the tracked-state check, not before them.
   [[ $skill == *'On every re-entry (`--resume`, `--from`, or a resume chosen at decision item 8'"'"'s prompt), render the block from the state file, again if it was already shown, once decision item 7'"'"'s lock is held and the tracked-state check under **Resume** has run: run `progress.sh validate <feature>` and read the state file; the recorded lines come from it.'* ]] \
     || { echo "the skill no longer renders the probe block from the state file on every re-entry"; false; }
-  [[ $readme == *'`baseBranchOverride` and `commitTrailers` can arrive the same way: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
+  [[ $readme == *'`baseBranchOverride`, `commitTrailers` and `testCommand` can arrive the same way: pre-flight names the file each came from, on its `Base branch`, `Trailers` and `Test command` lines.'* ]] \
     || { echo "README.md's note no longer names the other settings a file can bring"; false; }
-  [[ $preadme == *'`baseBranchOverride` and `commitTrailers` can come from such a file too: pre-flight names the file each came from, on its `Base branch` and `Trailers` lines.'* ]] \
+  [[ $preadme == *'`baseBranchOverride`, `commitTrailers` and `testCommand` can come from such a file too: pre-flight names the file each came from, on its `Base branch`, `Trailers` and `Test command` lines.'* ]] \
     || { echo "pipeline/README.md's note no longer names the other settings a file can bring"; false; }
 }
 
@@ -2986,7 +2996,7 @@ one holding a character other than a letter, a digit, `.`, `_`, `-` or `/`, one 
 has a segment that ends with a dot, which Windows drops, or that is a name Windows keeps for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM0` to `COM9`, `LPT0` to `LPT9`, in any letter case, with or without an extension),
 A refusal names the folder as it was given, never the path a link leads to, so no user name reaches a log.
 Every value pre-flight refuses, a name, a folder, a segment or an unknown argument, is printed masked: cut to 200 bytes and marked ` [cut]`, with every byte that is not printable ASCII shown as `?`,
-It also stops on a trailer holding a quote (`'`), a dollar sign or a backtick, because a person may type a trailer into a shell command, and on one holding `##[` anywhere, which a GitHub workflow log reads as a command.
+It also stops on a trailer holding a quote (`'`), a dollar sign or a backtick, because a person may type a trailer into a shell command, and on one holding `##[` anywhere, which a GitHub workflow log reads as a command, and on one longer than 30000 bytes as JSON, the most the check can read on every system, or on a list longer than 31000 bytes together, the most the run can record.
 PINS
   while IFS= read -r s; do
     [ -n "$s" ] || continue
@@ -3224,7 +3234,7 @@ PINS
 rare_spans() {
   cat <<'SPANS'
 ## The probe block without git
-When `capabilities.gitUsable` is false, mark the parts of that block that came from git reads which did not run, or ran and failed — and only those parts. The report's `notRead` list names them: mark as not read what it names, and nothing else. A report with no `notRead` comes from a script older than this page: say so, and print none of the three lines below as fact. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: when `notRead` names `baseBranch`, the line is not a fact. If this run passed pre-flight a configured base with `--base-branch`, print that name, marked not confirmed: `origin/HEAD`, which ranks above it, was not read. Otherwise print `— not read: git is not usable here (<gitReason>)`. When `notRead` does not name it, the name came from an override and IS established: print it with its layer named, and add that it was not checked against the repository. - `Remote`: when `notRead` names `remote.kind`, print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: mark as not established each entry `notRead` names as `willSkip.<phase>`: `no git remote` reads as though a remote had been looked for and not found, and no git that works here ever looked. Print every other entry as it stands — an `N.5` entry comes from looking for a device tool.
+When `capabilities.gitUsable` is false, mark the parts of that block that came from git reads which did not run, or ran and failed — and only those parts. The report's `notRead` list names them: mark as not read what it names, and nothing else. A report with no `notRead` comes from a script older than this page: say so, and print none of the three lines below as fact. This block is the FIRST thing the operator reads, so suppressing a wrong cause lower down is not enough; it has to not be printed here. But over-marking is its own lie, so be exact: - `Base branch`: when `notRead` names `baseBranch`, the line is not a fact. If this run passed pre-flight a configured base, print that name, marked not confirmed: `origin/HEAD`, which ranks above it, was not read. Otherwise print `— not read: git is not usable here (<gitReason>)`. When `notRead` does not name it, the name came from an override and IS established: print it with its layer named, and add that it was not checked against the repository. - `Remote`: when `notRead` names `remote.kind`, print it as not read. `ghPresent` on the same line is not: it comes from looking for `gh` and is unaffected. Keep it. - `Will skip`: mark as not established each entry `notRead` names as `willSkip.<phase>`: `no git remote` reads as though a remote had been looked for and not found, and no git that works here ever looked. Print every other entry as it stands — an `N.5` entry comes from looking for a device tool.
 ## An orphaned constitution write
 An accepted write orphaned before B exists (the session dies at pre-flight) leaves dirt no artefact claims; the next run's item 5 rightly stops there, and clearing it is the owner's call — the offer buys no exception to the dirty-tree gate.
 ## An illegal implementer value
@@ -3248,7 +3258,7 @@ K and L are one stop when `<base>..HEAD` holds a commit and K has nothing left t
 ## No runtime strategy
 If no server command resolves for a web project, say so and fall through to the `verifyCommand` strategy rather than guessing — an invented command that appears to hang is worse than an honest skip. If no strategy applies and `verifyCommand` is unset, print what could not be verified and why, then continue.
 ## No test command
-`suite-base start` exits 3 when the run's own record cannot serve it. This is a conditional stop, and `--auto` does not collapse it. Print the line, and act on its reason. An `artifacts.spec` that names no spec file: B has not recorded it, or the file moved. Record it and run the start again. Stop only if no spec file exists. A `config.testCommand` that is not recorded: - When the configuration resolved a command, B recorded `config` too late or not at all. Record it as Configuration says, and run the start again. This needs no answer. - When nothing resolves, stop and ask the owner: give a test command, or go on with none. A command the owner gives goes into `config.testCommand`, with `config.testCommandFrom` as `the owner, at B's stop`, by `state-set --json-file` as `configuration.md` says. Then run the start again. Going on with none is recorded as `gates.B`, an object whose `testCommand` is `none`, beside the owner's answer. From then on: - F.5 runs no suite and waits for none. It records `no test command: no suite ran` in `test_baseline`. - J and N run `analyzeCommand`, say that no suite ran, and never report a pass. - The pull-request body says that no suite ran. A re-entered B that finds `gates.B.testCommand` recorded does not ask again.
+`suite-base start` exits 3 when the run's own record cannot serve it. This is a conditional stop, and `--auto` does not collapse it. Print the line, stop and ask the owner. An `artifacts.spec` that names no spec file: say whether the key is absent or its file is gone, and name the spec file the run wrote, if it exists. The owner confirms that file, restores it or names another. Record it and run the start again. A `config.testCommand` that is not recorded: ask the owner to give a test command, or to go on with none. When the configuration resolved a command, offer that command, with its layer, as the answer. A command the owner takes from the configuration keeps its layer, as `config.testCommandFrom`. A command the owner types has the layer `the owner, at B's stop`. Either goes into `config.testCommand` by `state-set --json-file`, as `configuration.md` says. Then run the start again. Going on with none is recorded as `gates.B`, an object whose `testCommand` is `none`, beside the owner's answer. From then on: - F.5 runs no suite and waits for none. It records `no test command: no suite ran` in `test_baseline`. - J and N run `analyzeCommand`, say that no suite ran, and never report a pass. - The pull-request body says that no suite ran. A re-entered B that finds `gates.B.testCommand` recorded does not ask again.
 ## The tracked-state check
 Before any recorded answer is used, the run asks git whether the state file is tracked, with `git ls-files --error-unmatch -- ':(literal,icase)<state file>'` — `literal` so no character in the path is read as a pattern, `icase` so a copy tracked under other letter case is found on a file system that ignores case: at pre-flight, before decision item 5 accepts a state file's claim on the dirt, on every re-entry (`--resume`, `--from`, or a resume chosen at the resume prompt); and in B, straight after an `init` that finds a state file already there. Exit 0 means tracked: the run stops, names the tracked state file, shows every answer recorded under `gates`, and waits for the developer to confirm them, once, for all of them; `--auto` never collapses this stop. Exit 1 means untracked, and the run goes on; any other exit status is a hard failure, never read as untracked. The confirmation is recorded under `gates.trackedState`, and a recorded confirmation never suppresses the next re-entry's stop — the file travels with the repository, and a yes written into it is a yes nobody at the next keyboard gave. Without the confirmation the run goes no further: the lock is released if this session took it, and the state file is left intact. Within one invocation, the confirmation given at the first check stands for the later ones on the same state file; only a new invocation, or another state file, asks again.
 SPANS
@@ -3370,15 +3380,24 @@ PINS
   docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
   pins_in "$docs" 'configuration.md' <<'PINS'
 A value a tracked file set never goes through a shell: a quote in it breaks the command, and `'$(...)` in it runs code, before any check can read it.
-To `preflight.sh`: `--values-file <path>`, one JSON object with the optional keys `commitTrailers` (a list of strings) and `baseBranchOverride` (a name).
+To `preflight.sh`: `--values-file <path>`, one JSON object with the optional keys `commitTrailers` (a list of strings), `baseBranchOverride` (a name), `baseBranch` (a name) and `projectType` (`web`, `mobile-android` or `other`). Write only the keys that hold a value: the file refuses a `null`. Each value gets the same checks as its flag, and a typed flag beats the file.
 To the state file: `progress.sh state-set <feature> <key> [<sub-key>] --json-file <path>`, one JSON document. B's record of `config` goes this way, because `testCommand` and `analyzeCommand` can hold a quote.
 It records the list pre-flight reports with `progress.sh state-set <feature> config commitTrailers --json-file <path>`, and each entry's layer, in the same order, as `config.commitTrailersFrom`, the same way.
 On a fresh run it hands `preflight.sh` the key's trailers in the values file
 PINS
-  [[ $docs != *"'<json array>'"* ]] || { echo "configuration.md still puts the list between single quotes"; false; }
+  # Any state-set whose JSON sits between single quotes, on any page. Mutation:
+  # add `state-set <feature> config commitTrailers '["Team: one"]'` to phases.md.
+  local page hits
+  for page in "$ROOT"/pipeline/docs/*.md "$ROOT/pipeline/README.md" "$ORCH"; do
+    hits="$(LC_ALL=C grep -nE -- "state-set [^|]*'[[{\"<]" "$page" || true)"
+    [ -z "$hits" ] || { echo "$page holds JSON between single quotes:"; echo "$hits"; false; }
+  done
   flat="$(prose_flat < "$ORCH")"
-  [[ $flat == *'`--trailer` and `--values-file` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says'* ]] \
+  [[ $flat == *'(add `--values-file`, `--base-branch-override`, `--feature-branch`, `--spec-dir` and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says'* ]] \
     || { echo "the skill no longer sends pre-flight's values to the page"; false; }
+  # No tracked value is named as a typed flag any more.
+  [[ $flat != *'only when configuration set them'* ]] || { echo "the skill still types configured values into the pre-flight call"; false; }
+  [[ $flat != *'`--project-type`'* ]] || { echo "the skill still names --project-type"; false; }
   [[ $flat == *'<key> [<sub-key>] <json>` or `--json-file <path>`'* ]] \
     || { echo "the state-write rule no longer names the file form"; false; }
 }
@@ -3399,13 +3418,14 @@ PINS
     || { echo 'the skill no longer sends the run to "The Test command line"'; false; }
   [[ $flat == *'with `testCommand` as resolved and its layer as `testCommandFrom`.'* ]] \
     || { echo 'B no longer records the layer'; false; }
-  docs="$(prose_flat < "$ROOT/pipeline/docs/configuration.md")"
+  docs="$(prose_slice "$ROOT/pipeline/docs/configuration.md" '^## The Test command line$' '^## The Implementer line$' flat-inside 'the Test command line' '**Test command:** B starts this command in the background, before the first')" || return 1
   pins_in "$docs" 'The Test command line' <<'PINS'
 **Test command:** B starts this command in the background, before the first human stop, so the probe block shows it on every fresh run and every re-entry.
-`preflight.sh` never reads `.delivery-kit.json`, so this line is rendered from the RESOLVED configuration, and the command is JSON-quoted, because a tracked file can hold a terminal escape.
+`preflight.sh` never reads `.delivery-kit.json`, so this line is rendered from the RESOLVED configuration, and the command is JSON-quoted in ASCII, as `jq -a` prints it, because a tracked file can hold a terminal escape or a character that disguises text.
 `<layer>` names the layer that won: `~/.delivery-kit.json`, the repository's `.delivery-kit.json`, `--config`, or `project type` for a value worked out from the detected type.
 When nothing resolves, print `Test command : none resolved — B stops and asks`.
 B records the layer as `config.testCommandFrom`, with `config`. On a resume, print the recorded command and layer, and never re-resolve.
+A run that recorded no layer prints `(from a layer not recorded)`, a run with no `config` yet resolves it as a fresh run does, and a run with `gates.B.testCommand` recorded prints `Test command : none — the owner went on without one`.
 PINS
   [[ "$(cat "$ROOT/pipeline/README.md")" == *'Test command : "npm test"  (from the repository'"'"'s .delivery-kit.json)'* ]] \
     || { echo 'the README sample lost the line'; false; }
@@ -3416,11 +3436,17 @@ PINS
 # helper through `run`, and the walk skips them. Mutation: drop one reason.
 @test "a region test on a plain form says why, on the line above" {
   local bad plain
-  bad="$(awk -v q="'" '
+  # Any call on a document that does not spell an inside form counts as plain,
+  # whatever its quoting or layout. A fixture slices its own temporary file,
+  # named $f or $d, which is how the walk knows it. Mutation: drop one reason,
+  # or add a plain call in any shape.
+  bad="$(awk '
     /^ *#/ { prev = $0; next }
-    /pf_walk (raw|flat)\)/ || (/prose_slice "/ && !/run --separate-stderr/ && !/printf / && $0 ~ (" (raw|flat) [" q "\"]")) {
-      plain++
-      if (prev !~ /# Plain form: /) print NR ": " $0
+    /pf_walk [a-z$"]/ || (/prose_slice "/ && !/printf / && !/prose_slice "\$[fd]"/) {
+      if ($0 !~ /-inside/) {
+        plain++
+        if (prev !~ /# Plain form: / || length(prev) < 34) print NR ": " $0
+      }
     }
     { prev = $0 }
     END { print "plain=" plain + 0 }' "$BATS_TEST_FILENAME")"

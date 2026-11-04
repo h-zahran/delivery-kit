@@ -139,9 +139,9 @@ did not read.
 
 A repository you clone can carry this file, and some pipeline keys answer a
 question for you. When `implementer` is set, pre-flight prints an `Implementer`
-line naming the file or flag it came from. `baseBranchOverride` and
-`commitTrailers` can arrive the same way: pre-flight names the file each came
-from, on its `Base branch` and `Trailers` lines.
+line naming the file or flag it came from. `baseBranchOverride`,
+`commitTrailers` and `testCommand` can arrive the same way: pre-flight names the
+file each came from, on its `Base branch`, `Trailers` and `Test command` lines.
 
 Every key: [handoff](handoff/docs/configuration.md) ·
 [pipeline](pipeline/docs/configuration.md).

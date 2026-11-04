@@ -43,6 +43,16 @@ SCRIPT_PATH="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
+# shown <name> <value> sets the named variable to a copy of a value that is safe
+# to print in a refusal: under the C locale, cut to 200 bytes then ` [cut]`, with
+# every byte that is not printable ASCII shown as `?`. The same shape as shown()
+# in preflight.sh. printf -v sets the copy without a process.
+shown() {
+  local LC_ALL=C s=$2 c=
+  [ "${#s}" -le 200 ] || { s=${s:0:200}; c=" [cut]"; }
+  s=${s//[![:print:]]/?}
+  printf -v "$1" '%s' "$s$c"
+}
 
 # HIDDEN_CHARS: the characters that can disguise text, one list for this
 # script and trailer-check.sh. A copy of this script made without it stops
@@ -254,17 +264,37 @@ init_metrics() {
 
 # branch_name_ok <value> — git takes the value as a branch name and does not
 # expand it: `check-ref-format --branch` prints @{-1} as the branch it means,
-# and refuses a leading dash, but it passes a lone @, which git reads as HEAD
-# everywhere else and which `checkout -b` takes as a new branch (measured).
-branch_name_ok() { [ "$1" != @ ] && [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]; }
+# and refuses a leading dash. It also passes what this command must not take:
+# a lone @, which git reads as HEAD everywhere else, a full ref, and $ ( ) ; | a
+# quote, a backtick and any byte past 0x7f, in a name a refusal prints as a
+# command to run (measured). So a name is a letter, a digit, '.', '_', '-' or
+# '/' throughout, as branch_ok has it in preflight.sh, and never starts refs/.
+# The C locale, or a range in the pattern can take in an accented letter.
+branch_name_ok() {
+  local LC_ALL=C
+  case "$1" in refs/*|*[!A-Za-z0-9._/-]*) return 1 ;; esac
+  [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]
+}
+
+# checkout_landed <branch> <git's output> — after a failed git checkout: a
+# post-checkout hook's non-zero exit is git's, with HEAD already moved. When HEAD
+# is on the branch, this says so and stops, as no later line would be true.
+checkout_landed() {
+  local err_s
+  if [ "$(git symbolic-ref -q HEAD || true)" = "refs/heads/$1" ]; then
+    shown err_s "$2"
+    die "branch '$1' is checked out, but a later step failed, such as a git hook: $err_s"
+  fi
+}
 
 # branch-cut <feature> — phase B's branch cut, safe to run again, as init is.
 # The branch and the base come from the state file. Full refs in every git
 # call, so a tag of the same name is never read in place of a branch. It never
 # deletes a branch, moves a branch's commit or discards work: git refuses a
-# switch that would overwrite a file, and that refusal is this command's.
+# switch that would overwrite a file, and that refusal is this command's. The
+# state file's text reaches a refusal only through shown, until both names pass.
 cmd_branch_cut() {
-  local f="$1" b base rc=0 err
+  local f="$1" b base b_low base_low rc=0 err err_s shown_name
   [ $# -eq 1 ] || die "usage: branch-cut <feature>"
   need_git_top
   sf="$(cmd_validate "$f")"
@@ -272,24 +302,36 @@ cmd_branch_cut() {
   base="$(jqs '.baseBranch? | strings' "$sf")" || base=''
   [ -n "$b" ] || die "$sf records no branch"
   [ -n "$base" ] || die "$sf records no base branch"
-  branch_name_ok "$b" || die "'$b' in $sf is not a branch name"
-  branch_name_ok "$base" || die "'$base' in $sf is not a branch name"
+  if ! branch_name_ok "$b"; then shown shown_name "$b"; die "'$shown_name' in $sf is not a branch name"; fi
+  if ! branch_name_ok "$base"; then shown shown_name "$base"; die "'$shown_name' in $sf is not a branch name"; fi
+  # Any letter case: a file system that ignores case reads the two as one ref.
+  b_low="$(printf '%s' "$b" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  base_low="$(printf '%s' "$base" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  [ "$b_low" != "$base_low" ] || die "the branch in $sf is the base branch '$base': a run cuts a branch of its own"
   if [ "$(git symbolic-ref -q HEAD || true)" = "refs/heads/$b" ]; then
     printf 'already on branch %s\n' "$b"; return 0
   fi
   git rev-parse --verify --quiet "refs/heads/$base^{commit}" > /dev/null \
     || die "the base branch '$base' has no commit here"
   if ! git rev-parse --verify --quiet "refs/heads/$b^{commit}" > /dev/null; then
-    err="$(git checkout -q -b "$b" "refs/heads/$base" 2>&1)" || die "git could not cut branch '$b': $err"
+    if ! err="$(git checkout -q -b "$b" "refs/heads/$base" 2>&1)"; then
+      checkout_landed "$b" "$err"
+      shown err_s "$err"
+      die "git could not cut branch '$b': $err_s"
+    fi
     printf 'branch %s cut from %s\n' "$b" "$base"; return 0
   fi
   git merge-base --is-ancestor "refs/heads/$base" "refs/heads/$b" || rc=$?
   case "$rc" in
     0) ;;
-    1) die "branch '$b' exists, and the base '$base' is not its ancestor, so nothing shows it is this run's. Nothing changed. To use it anyway, run: git checkout $b" ;;
+    1) die "branch '$b' exists, and the base '$base' is not its ancestor. Nothing changed. To use it anyway, run: git checkout $b" ;;
     *) die "git merge-base failed with status $rc on '$base' and '$b'" ;;
   esac
-  err="$(git checkout -q "$b" 2>&1)" || die "git could not switch to branch '$b', and nothing changed: $err"
+  if ! err="$(git checkout -q "$b" 2>&1)"; then
+    checkout_landed "$b" "$err"
+    shown err_s "$err"
+    die "git could not switch to branch '$b', and nothing changed: $err_s"
+  fi
   printf 'switched to branch %s\n' "$b"
 }
 
@@ -2115,13 +2157,20 @@ metrics_write() {
 # or is never written, and is refused.
 STATE_SET_KEYS=" gates artifacts measurements config analyze_changelog test_baseline last_task "
 cmd_state_set() {
-  feature="$1"; local key="${2:-}" sub='' json='' file='' want k ok=1
+  feature="$1"; local key="${2:-}" sub='' json='' file='' file_s='' want k ok=1
   local usage='usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'
   case $# in
-    3) json="$3" ;;
-    4) if [ "$3" = --json-file ]; then file="$4"; else sub="$3"; json="$4"; [ -n "$sub" ] || die "the sub-key is empty"; fi ;;
+    3) [ "$3" != --json-file ] || die "$usage"
+       json="$3" ;;
+    4) if [ "$3" = --json-file ]; then
+         file="$4"; [ -n "$file" ] || die "$usage"
+       else
+         [ "$4" != --json-file ] || die "$usage"
+         sub="$3"; json="$4"; [ -n "$sub" ] || die "the sub-key is empty"
+       fi ;;
     5) [ "$4" = --json-file ] || die "$usage"
-       sub="$3"; file="$5"; [ -n "$sub" ] || die "the sub-key is empty" ;;
+       sub="$3"; file="$5"; [ -n "$file" ] || die "$usage"
+       [ -n "$sub" ] || die "the sub-key is empty" ;;
     *) die "$usage" ;;
   esac
   ok=0
@@ -2135,14 +2184,22 @@ cmd_state_set() {
   if [ -n "$sub" ] && [ "$want" != object ]; then die "'$key' holds a $want, which has no sub-keys"; fi
   # --json-file: a value from a tracked file reaches this script with no shell
   # reading it. A redirect, so a leading dash is a path, after the checks, so a
-  # failed redirect cannot print a raw one. jq's stderr is dropped: a parse
-  # error can quote the file. From here on the value is the inline form's.
+  # failed redirect cannot print a raw one. jq's stderr is dropped, before the
+  # file is opened: a parse error can quote the file, and the shell's own error
+  # names the path. A refusal prints the path through shown. jq has just written
+  # this value, so the validity check below fails on it only for its size, as the
+  # value travels as one argument, or its depth, as --argjson nests less far. From there on the
+  # value is the inline form's.
   if [ -n "$file" ]; then
-    { [ -f "$file" ] && [ -r "$file" ]; } || die "no readable file at $file"
-    json="$(jq ${JQB:+"$JQB"} -c -s 'if length == 1 then .[0] else error("not one document") end' < "$file" 2>/dev/null)" \
-      || die "$file does not hold one JSON document"
+    shown file_s "$file"
+    { [ -f "$file" ] && [ -r "$file" ]; } || die "no readable file at $file_s"
+    json="$(jq ${JQB:+"$JQB"} -c -s 'if length == 1 then .[0] else error("not one document") end' 2>/dev/null < "$file")" \
+      || die "$file_s does not hold one JSON document"
   fi
-  jq -n --argjson v "$json" '$v' >/dev/null 2>&1 || die "the value is not one valid JSON document: ${file:-$json}"
+  if ! jq -n --argjson v "$json" '$v' >/dev/null 2>&1; then
+    [ -z "$file" ] || die "$file_s holds a value this script cannot pass: too large for one argument, or nested too deep"
+    die "the value is not one valid JSON document: $json"
+  fi
   if [ -z "$sub" ]; then
     # shellcheck disable=SC2016 # a jq program: its $ names are jq's
     [ "$(jqs -n --argjson v "$json" '$v | type')" = "$want" ] || die "'$key' must be a JSON $want"
@@ -2927,11 +2984,12 @@ base_start() {
   pid="$(cat "$bd/pid")"
   # The command is shown here, JSON-quoted, as F.5's own call used to show it:
   # it now runs from inside this script. The layer that set it, as B recorded
-  # it, is quoted too: its text can come from a tracked path.
+  # it, is quoted too: its text can come from a tracked path. -a, because JSON
+  # quoting alone passes U+009B and U+202E through as they are.
   from="$(jqs '.config.testCommandFrom? | strings' "$sf")" || from=''
   printf 'base suite started on commit %s (process %s), command %s%s\n' "$commit" "$pid" \
-    "$(jq ${JQB:+"$JQB"} -cn --arg c "$SK_CMD" '$c')" \
-    "${from:+, from $(jq ${JQB:+"$JQB"} -cn --arg c "$from" '$c')}"
+    "$(jq ${JQB:+"$JQB"} -acn --arg c "$SK_CMD" '$c')" \
+    "${from:+, from $(jq ${JQB:+"$JQB"} -acn --arg c "$from" '$c')}"
 }
 
 # base_run <feature> — the runner, started by base_start and by nothing
@@ -3132,8 +3190,8 @@ case "$cmd" in validate|read) ;; *) jq_b_probe ;; esac
 not_abandoned "$feature_arg"
 case "$cmd" in
   init)          shift 2; cmd_init "$feature_arg" "$@" ;;
-  branch-cut)    shift 1; cmd_branch_cut "$@" ;;
-  read)         cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;
+  branch-cut)    shift 2; cmd_branch_cut "$feature_arg" "$@" ;;
+  read)          cmd_validate "$feature_arg" >/dev/null; cat "$(state_file "$feature_arg")" ;;
   validate)      cmd_validate "$feature_arg" >/dev/null ;;
   phase-start)   cmd_phase_start "$feature_arg" "${3:-}" ;;
   phase-done)    cmd_phase_done "$feature_arg" "${3:-}" ;;

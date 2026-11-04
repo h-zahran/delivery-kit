@@ -35,7 +35,7 @@ shown() {
   s=${s//[![:print:]]/?}
   printf -v "$1" '%s' "$s$c"
 }
-arg_s='' vf_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
+arg_s='' vf_s='' pt_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 
@@ -45,19 +45,28 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 # script: progress.sh runs the same file before every commit, so the two
 # can never disagree. A trailer may come from the commitTrailers key or the
 # --trailer flag; this script cannot tell which, so its errors name neither.
+# The list is held as one JSON string per line and reaches the report on
+# standard input, since a long list would not fit one argument. One trailer
+# must fit one, twice over: to trailer-check.sh and from there to jq. A native
+# jq on Windows takes about 32 KB of command line, and past about 128 KB on
+# Linux bash itself fails and prints this script's absolute path, so the one
+# limit below is read first, in bytes under this script's C locale.
 here="${BASH_SOURCE[0]}"
 case "$here" in */*) here="${here%/*}" ;; *) here=. ;; esac
 here="$(cd -P -- "$here" && pwd -P)" || die "cannot find the folder that holds preflight.sh"
 add_trailer_json() {
   local j="$1" ok
+  [ "${#j}" -le 30000 ] \
+    || die "a trailer is longer than 30000 bytes as JSON, the most the check can read on every system (a commit trailer)"
   ok="$("$BASH" "$here/trailer-check.sh" "$j" 2>&1 >/dev/null)" \
     || die "$ok (a commit trailer)"
-  trailers="$(jq -n --argjson a "$trailers" --argjson t "$j" '$a + [$t]')"
+  trailers="$trailers$j"$'\n'
 }
 add_trailer() { add_trailer_json "$(jq -jn --arg t "$1" '$t | tojson')"; }
 
 dir="."; ptype_override=""; base_configured=""; base_override=""
-feature_branch=""; spec_dir=""; trailers='[]'; values_file=""
+feature_branch=""; spec_dir=""; trailers=""; values_file=""
+ptype_label="--project-type"; override_label="--base-branch-override"; base_label="the baseBranch key"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir)          dir="${2:?--dir needs a path}"; shift 2 ;;
@@ -73,36 +82,71 @@ while [ $# -gt 0 ]; do
 done
 # --values-file: the values a tracked file set reach this script with no shell
 # reading them on the way. Each then takes the path a flag's value takes, with
-# the same checks. Read here, before --dir's cd, so a relative path is the
-# caller's. The file's trailers go first and a typed override wins, whatever
-# the command line's order. A trailer stays JSON to trailer-check.sh, as a
-# value taken through $( ) would lose a trailing line feed. An override must
-# become a shell value, so a NUL, which bash would drop, is refused first, and
-# the x keeps a trailing line feed for the name checks to refuse.
+# the same checks, and a refusal names the file. Read here, before --dir's cd,
+# so a relative path is the caller's. The file's trailers go first and a typed
+# flag wins, whatever the command line's order. jq reads the file by redirect
+# each time, as a value of any size may be in it and one argument holds about
+# 128 KB on Linux. One program judges the file and answers with the rule that
+# broke; a file jq cannot parse has no answer. A trailer stays JSON to
+# trailer-check.sh, as a value taken through $( ) would lose a trailing line
+# feed. The other three must become shell values, so the program refuses a NUL,
+# which bash would drop, and an empty one, which would read as a key not there,
+# and the x keeps a trailing line feed for their checks to refuse.
+# file_value <name> <key> sets the named variable to the key's value, or to
+# nothing when the key is not there.
+file_value() {
+  local v
+  v="$(jq -j --arg k "$2" '.[$k] // empty' < "$values_file" && printf x)" \
+    || die "'$vf_s' could not be read (--values-file)"
+  printf -v "$1" '%s' "${v%x}"
+}
 if [ -n "$values_file" ]; then
   shown vf_s "$values_file"
   { [ -f "$values_file" ] && [ -r "$values_file" ]; } || die "no readable file at '$vf_s' (--values-file)"
-  values="$(jq -c -s 'if length == 1 and (.[0] | type) == "object" then .[0] else error("not one object") end' < "$values_file" 2>/dev/null)" \
-    || die "'$vf_s' does not hold one JSON object (--values-file)"
-  jq -en --argjson v "$values" '$v | (keys - ["commitTrailers", "baseBranchOverride"]) == []' > /dev/null \
-    || die "'$vf_s' holds a key other than commitTrailers and baseBranchOverride (--values-file)"
-  jq -en --argjson v "$values" '$v
-    | ((has("commitTrailers") | not) or ((.commitTrailers | type) == "array" and (.commitTrailers | all(type == "string"))))
-    and ((has("baseBranchOverride") | not) or ((.baseBranchOverride | type) == "string" and (.baseBranchOverride | length > 0 and (explode | all(. != 0)))))' > /dev/null \
-    || die "'$vf_s' holds a value of the wrong type: commitTrailers is a list of strings, baseBranchOverride a name (--values-file)"
-  typed_trailers="$trailers"; trailers='[]'
-  n="$(jq -n --argjson v "$values" '$v.commitTrailers // [] | length')"
+  rule="$(jq -j -s '
+    def name($k): (has($k) | not)
+      or (.[$k] | type == "string" and length > 0 and (explode | all(. != 0)));
+    if length != 1 or (.[0] | type) != "object" then "object"
+    else .[0]
+      | if (keys - ["commitTrailers", "baseBranchOverride", "baseBranch", "projectType"]) != [] then "keys"
+        elif ((has("commitTrailers") | not) or (.commitTrailers | type == "array" and all(type == "string")))
+          and name("baseBranchOverride") and name("baseBranch") and name("projectType") then "ok"
+        else "types" end
+    end' < "$values_file" 2>/dev/null)" || rule=object
+  case "$rule" in
+    ok) ;;
+    keys) die "'$vf_s' holds a key other than commitTrailers, baseBranchOverride, baseBranch and projectType (--values-file)" ;;
+    types) die "'$vf_s' holds a value of the wrong type: commitTrailers is a list of strings; baseBranchOverride, baseBranch and projectType are each a string, not empty and with no NUL (--values-file)" ;;
+    *) die "'$vf_s' does not hold one JSON object (--values-file)" ;;
+  esac
+  typed_trailers="$trailers"; trailers=""
+  n="$(jq '.commitTrailers // [] | length' < "$values_file")"
   i=0
   while [ "$i" -lt "$n" ]; do
-    add_trailer_json "$(jq -cn --argjson v "$values" --argjson i "$i" '$v.commitTrailers[$i]')"
+    add_trailer_json "$(jq -c --argjson i "$i" '.commitTrailers[$i]' < "$values_file")"
     i=$((i + 1))
   done
-  trailers="$(jq -n --argjson a "$trailers" --argjson b "$typed_trailers" '$a + $b')"
-  if [ -z "$base_override" ] && [ "$(jq -n --argjson v "$values" '$v | has("baseBranchOverride")')" = true ]; then
-    base_override="$(jq -jn --argjson v "$values" '$v.baseBranchOverride'; printf x)"
-    base_override="${base_override%x}"
+  trailers="$trailers$typed_trailers"
+  # B records the list as one argument, so the whole list has the one limit.
+  [ "${#trailers}" -le 31000 ] \
+    || die "the commit trailers are longer than 31000 bytes as JSON together, the most the run can record on every system (a commit trailer)"
+  if [ -z "$base_override" ]; then
+    file_value base_override baseBranchOverride; override_label="the baseBranchOverride key"
+  fi
+  if [ -z "$base_configured" ]; then
+    file_value base_configured baseBranch
+  fi
+  if [ -z "$ptype_override" ]; then
+    file_value ptype_override projectType; ptype_label="the projectType key"
   fi
 fi
+# A project type picks a runtime strategy and is printed and recorded, so it is
+# one of the three that have a strategy, whichever way it came.
+case "$ptype_override" in
+  ""|web|mobile-android|other) ;;
+  *) shown pt_s "$ptype_override"
+     die "'$pt_s' is not a project type: web, mobile-android or other ($ptype_label)" ;;
+esac
 # The spec folder is handed to the spec tool, which creates it and writes
 # into it, and its last segment becomes the run's name under
 # .delivery-kit/runs/ and, without --feature-branch, the branch's name. So
@@ -229,8 +273,8 @@ branch_like() {
           l = tolower(r)
           if (r != "HEAD" && (l == n || index(l, n "/") == 1 || index(n, l "/") == 1)) { print r; exit } }'
 }
-# base_usable <name> <label> — B runs `git checkout -b <feature> <base>` and
-# later phases read `<base>..HEAD`, so the base must be a legal name
+# base_usable <name> <label> — B runs `progress.sh branch-cut`, which runs
+# `git checkout -b <feature> refs/heads/<base>`, and later phases read `<base>..HEAD`, so the base must be a legal name
 # (branch_ok, first, so a name it refuses is never looked up), a LOCAL
 # branch that names a commit, and a name git reads as that branch and as
 # nothing else. One function serves every source (Principle IV): the
@@ -285,7 +329,7 @@ base_usable() {
 # run, so it is checked rather than trusted, here where it is parsed. A tag,
 # a commit id, origin/main or refs/heads/main is not a branch's name.
 if [ -n "$base_override" ] && [ "$git_usable" = true ]; then
-  base_usable "$base_override" --base-branch-override
+  base_usable "$base_override" "$override_label"
 fi
 # The feature branch B will cut: --feature-branch, else the spec folder's
 # last segment, which B names the branch after. It must be a legal name;
@@ -553,7 +597,7 @@ fi
 if [ "$git_usable" = true ] && [ "$base_source" != override ]; then
   case "$base_source" in
     origin/HEAD) base_usable "$base" "origin/HEAD; pass a base branch with the run's --base-branch flag" ;;
-    configured) base_usable "$base" "the baseBranch key" ;;
+    configured) base_usable "$base" "$base_label" ;;
     *) base_usable "$base" "the $base_source; check out another branch, or pass a base branch" ;;
   esac
 fi
@@ -589,6 +633,9 @@ if [ -n "$fb" ] && [ -n "$base" ]; then
     die "'$fb_s' is the base branch '$base_s'; the feature branch needs its own name ($fb_arg)"
   fi
 fi
+# A full ref as a branch's name: branch-cut refuses it at B, so it stops here,
+# before the spec tool runs.
+case "$fb" in refs/*) shown fb_s "$fb"; die "'$fb_s' starts with refs/, the form of a full ref ($fb_arg)" ;; esac
 if [ -n "$fb" ] && [ "$git_usable" = true ]; then
   hit="$(branch_like "$fb")"
   shown fb_s "$fb"; shown hit_s "$hit"
@@ -703,7 +750,7 @@ elif [ "$gh_present" = false ]; then
   add_git_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
 fi
 
-jq -n \
+printf '%s' "$trailers" | jq -s \
   --arg  ptype "$ptype" --arg ptype_source "$ptype_source" \
   --argjson sk_present "$sk_present" --arg sk_version "$sk_version" \
   --argjson sk_in_range "$sk_in_range" --arg sk_script "$sk_script" \
@@ -711,14 +758,13 @@ jq -n \
   --argjson sk_const "$sk_const" \
   --arg  base "$base" --arg base_source "$base_source" \
   --arg  feature_branch "$feature_branch" --arg spec_dir "$spec_dir" \
-  --argjson trailers "$trailers" \
   --arg  remote "$remote" --argjson gh "$gh_present" --arg gh_command "$gh_command" \
   --argjson adb "$adb_present" \
   --argjson git "$git_present" --argjson git_usable "$git_usable" \
   --arg git_reason "$git_reason" --arg not_read "$not_read" \
   --argjson dirty "$dirty" --argjson runs_live "$runs_live" \
   --argjson live_runs "$live_runs" --argjson unreadable_runs "$unreadable_runs" \
-  --argjson skips "$skips" '{
+  --argjson skips "$skips" '. as $trailers | {
   projectType: $ptype, projectTypeSource: $ptype_source,
   speckit: {
     present: $sk_present, version: $sk_version, versionInRange: $sk_in_range,

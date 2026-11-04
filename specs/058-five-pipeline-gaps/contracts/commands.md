@@ -6,7 +6,7 @@ Stdout carries the answer. Stderr carries the reason. Tests assert the exact sta
 
 | Status | Meaning | Stdout |
 |---|---|---|
-| 0 | Started | `base suite started on commit <id> (process <pid>), command <json>`, then `, from <json>` when `config.testCommandFrom` is recorded |
+| 0 | Started | `base suite started on commit <id> (process <pid>), command <json>`, then `, from <json>` when `config.testCommandFrom` is recorded; both JSON values in ASCII, as `jq -a` prints them |
 | 0 | Started before | `base suite already started on commit <id>` |
 | 0 | Legally not started | `base suite not started: <reason>`: abandoned; `suiteReuse` off or another value; a green result recorded; a spec file at the top level, under the state directory or outside the repository; a hidden index entry; an unmerged path, a submodule or a nested repository; HEAD with no commit; `TMPDIR` inside the tree; base files that differ |
 | 1 | A check could not be made | nothing; the reason on stderr |
@@ -24,7 +24,8 @@ Reads `branch` and `baseBranch` from the state file. Takes no other argument.
 | HEAD on the branch | 0 | `already on branch <name>` | none |
 | Branch exists, HEAD elsewhere, base is its ancestor | 0 | `switched to branch <name>` | `git checkout`; uncommitted work stays, or git refuses |
 | Branch exists, base is not its ancestor | 1 | nothing | none; stderr names both and the `git checkout` command |
-| Empty or illegal name in the state file; base absent when it is needed; git refuses | 1 | nothing | none |
+| Empty or illegal name in the state file; a branch equal to the base; base absent when it is needed; git refuses | 1 | nothing | none |
+| A hook fails after the checkout succeeds | 1 | nothing | HEAD on the branch; stderr says so, and a second run says `already on branch <name>` |
 | Abandoned run | 1 | nothing | none |
 
 It never deletes a branch, moves a branch's commit or discards work.
@@ -39,10 +40,10 @@ The inline form does not change.
 
 ## `preflight.sh --values-file <path>`
 
-The file is one JSON object: `{"commitTrailers": ["<token>: <value>"], "baseBranchOverride": "<name>"}`. Both keys are optional.
+The file is one JSON object: `{"commitTrailers": ["<token>: <value>"], "baseBranchOverride": "<name>", "baseBranch": "<name>", "projectType": "web"}`. Every key is optional. `projectType` is `web`, `mobile-android` or `other`, from any source.
 
 - Trailers: the file's first, then each `--trailer`, whatever the command-line order. Each goes through `trailer-check.sh`.
-- Override: a typed `--base-branch-override` beats the file's. A file value gets the same checks as the flag.
+- Override and the rest: a typed flag beats the file's value. A file value gets the same checks as the flag, and a refusal names the key it came from.
 - Refused, status 1, naming the path and printing no value: a missing file, a folder, an unreadable file, anything but one JSON object, an unknown key, a wrong type.
 
 ## `prose_slice <file> <open> <close> <form> <name> [<declared-line>...]`
@@ -61,6 +62,8 @@ One line, on every fresh run and every re-entry, between `Base branch` and `Bran
 ```
 Test command : <JSON-quoted command>  (from <layer>)
 ```
+
+JSON-quoted in ASCII, as `jq -a` prints it.
 
 or, when nothing resolves:
 

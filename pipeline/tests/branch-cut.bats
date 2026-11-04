@@ -57,15 +57,68 @@ refused() {
   [ "$(refs)" = "$BEFORE" ] || { echo "a ref moved"; return 1; }
 }
 
-@test "branch-cut cuts an absent branch from the recorded base, and uncommitted work stays" {
-  local base; base="$(git rev-parse main)"
+# tracked — a committed file for dirty to change. Run before the branch exists,
+# so the branch holds it too.
+tracked() {
+  printf 'one\n' > tracked.txt
+  git add tracked.txt
+  git commit -q -m tracked
+}
+
+# dirty — uncommitted work of all three kinds: a modified tracked file, a staged
+# new file and an untracked file. kept — all three are still as dirty left them.
+# Mutation: `git reset --hard` or `git checkout --force` loses the first two.
+dirty() {
+  printf 'edit\n' >> tracked.txt
+  printf 'staged\n' > staged.txt
+  git add staged.txt
   printf 'draft\n' > spec.md
+}
+kept() {
+  [ "$(git status --porcelain)" = $'A  staged.txt\n M tracked.txt\n?? spec.md' ] || { git status --porcelain; return 1; }
+  [ "$(cat tracked.txt)" = $'one\nedit' ] || { echo "tracked.txt changed"; return 1; }
+  [ "$(cat staged.txt)" = staged ] || { echo "staged.txt changed"; return 1; }
+  [ "$(cat spec.md)" = draft ] || { echo "spec.md changed"; return 1; }
+}
+
+# no_esc <text> — the text holds no raw ESC byte, read from its bytes.
+no_esc() {
+  printf '%s' "$1" > "$BATS_TEST_TMPDIR/bytes"
+  [ -z "$(od -An -c "$BATS_TEST_TMPDIR/bytes" | grep -F -- 033)" ] || { echo "a raw ESC reached stderr"; return 1; }
+}
+
+# failing_hook — a real post-checkout hook, which runs after git has moved HEAD,
+# and whose non-zero exit becomes git checkout's. Call it after the test's own
+# checkouts: it fails those too.
+failing_hook() {
+  mkdir -p "$BATS_TEST_TMPDIR/hooks"
+  printf '#!/bin/sh\necho "the hook says no" >&2\nexit 7\n' > "$BATS_TEST_TMPDIR/hooks/post-checkout"
+  chmod +x "$BATS_TEST_TMPDIR/hooks/post-checkout"
+  git config core.hooksPath "$BATS_TEST_TMPDIR/hooks"
+}
+
+# checked_out_anyway — a failed checkout that moved HEAD: exit 1, the true line,
+# HEAD on the branch, and the next run answers that it is on the branch.
+checked_out_anyway() {
+  [ "$status" -eq 1 ] || { echo "status $status: $stderr"; return 1; }
+  [ -z "$output" ] || { echo "stdout: $output"; return 1; }
+  [ "$stderr" = "progress.sh: branch '$F' is checked out, but a later step failed, such as a git hook: the hook says no" ] || { echo "stderr: $stderr"; return 1; }
+  [ "$(git symbolic-ref HEAD)" = "refs/heads/$F" ] || { echo "HEAD is elsewhere"; return 1; }
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  [ "$status" -eq 0 ] || { echo "second run, status $status: $stderr"; return 1; }
+  [ "$output" = "already on branch $F" ] || { echo "second run, stdout: $output"; return 1; }
+}
+
+@test "branch-cut cuts an absent branch from the recorded base, and uncommitted work stays" {
+  tracked
+  local base; base="$(git rev-parse main)"
+  dirty
   run --separate-stderr bash "$PROG" branch-cut "$F"
   [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
   [ "$output" = "branch $F cut from main" ] || { echo "stdout: $output"; false; }
   [ "$(git symbolic-ref HEAD)" = "refs/heads/$F" ]
   [ "$(git rev-parse "refs/heads/$F")" = "$base" ]
-  [ "$(cat spec.md)" = draft ]
+  kept
 }
 
 @test "branch-cut cuts from the recorded base, whatever HEAD is on" {
@@ -82,7 +135,6 @@ refused() {
   local tip
   printf 'draft\n' > spec.md
   bash "$PROG" branch-cut "$F" > /dev/null
-  tip="$(git rev-parse HEAD)"
   git commit -q --allow-empty -m 'work on the branch'
   tip="$(git rev-parse HEAD)"
   local n
@@ -98,17 +150,18 @@ refused() {
 
 @test "branch-cut switches to the branch from elsewhere when the base is its ancestor" {
   local tip
+  tracked
   bash "$PROG" branch-cut "$F" > /dev/null
   git commit -q --allow-empty -m 'work on the branch'
   tip="$(git rev-parse HEAD)"
   git checkout -q main
-  printf 'draft\n' > spec.md
+  dirty
   run --separate-stderr bash "$PROG" branch-cut "$F"
   [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
   [ "$output" = "switched to branch $F" ] || { echo "stdout: $output"; false; }
   [ "$(git symbolic-ref HEAD)" = "refs/heads/$F" ]
   [ "$(git rev-parse HEAD)" = "$tip" ]
-  [ "$(cat spec.md)" = draft ]
+  kept
 }
 
 @test "branch-cut treats a detached HEAD as elsewhere" {
@@ -127,7 +180,8 @@ refused() {
   BEFORE="$(refs)"
   run --separate-stderr bash "$PROG" branch-cut "$F"
   refused "git checkout $F"
-  [[ "$stderr" == *"'$F'"* && "$stderr" == *"'main'"* ]] || { echo "stderr: $stderr"; false; }
+  # The line claims only what the check shows.
+  [ "$stderr" = "progress.sh: branch '$F' exists, and the base 'main' is not its ancestor. Nothing changed. To use it anyway, run: git checkout $F" ] || { echo "stderr: $stderr"; false; }
 }
 
 @test "branch-cut refuses an empty branch or base in the state file, and guesses no name" {
@@ -157,6 +211,96 @@ refused() {
     run --separate-stderr bash "$PROG" branch-cut "$F"
     refused 'not a branch name'
   done
+}
+
+@test "branch-cut refuses a name outside the allowlist, or a full ref, and no shell reads it" {
+  # git takes every one of these as a branch name, and the refusal of a
+  # not-an-ancestor branch prints the name in a command to run. Mutation: drop
+  # the allowlist, and git cuts the branch.
+  local n names
+  names=('x$(touch${IFS}pwned)' 'a;b' 'a|b' "a'b" 'a`touch pwned`b' 'refs/heads/main' 'refs/x' $'caf\303\251')
+  BEFORE="$(refs)"
+  for n in "${names[@]}"; do
+    field branch "$n"
+    run --separate-stderr bash "$PROG" branch-cut "$F"
+    refused 'not a branch name'
+    [ ! -e pwned ]
+  done
+  field branch "$F"
+  for n in "${names[@]}"; do
+    field baseBranch "$n"
+    run --separate-stderr bash "$PROG" branch-cut "$F"
+    refused 'not a branch name'
+    [ ! -e pwned ]
+  done
+}
+
+@test "branch-cut prints a refused name masked: no raw byte, and cut to 200 bytes" {
+  # Mutation: print the name as it is, and the ESC reaches the terminal.
+  local long
+  BEFORE="$(refs)"
+  field branch $'a\033[31mb'
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused 'not a branch name'
+  no_esc "$stderr"
+  [ "$stderr" = "progress.sh: 'a?[31mb' in $SF is not a branch name" ] || { echo "stderr: $stderr"; false; }
+  # One ? a byte, whatever the locale.
+  field branch $'caf\303\251'
+  # A system without this locale adds its own warning line, so the end is read.
+  LC_ALL=C.UTF-8 run --separate-stderr bash "$PROG" branch-cut "$F"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"progress.sh: 'caf??' in $SF is not a branch name" ]] || { echo "stderr: $stderr"; false; }
+  long="$(printf '%0300d' 0)"
+  field branch "$long;"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  [ "$stderr" = "progress.sh: '${long:0:200} [cut]' in $SF is not a branch name" ] || { echo "stderr: $stderr"; false; }
+  field branch "$F"
+  field baseBranch $'a\033[31mb'
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused 'not a branch name'
+  no_esc "$stderr"
+  [ "$stderr" = "progress.sh: 'a?[31mb' in $SF is not a branch name" ] || { echo "stderr: $stderr"; false; }
+}
+
+@test "branch-cut refuses a branch equal to the base, on it or elsewhere" {
+  # Mutation: drop the check, and on the base it answers "already on branch".
+  field branch main
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused "'main'"
+  [ "$stderr" = "progress.sh: the branch in $SF is the base branch 'main': a run cuts a branch of its own" ] || { echo "stderr: $stderr"; false; }
+  git checkout -q -b elsewhere
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused "'main'"
+  [ "$stderr" = "progress.sh: the branch in $SF is the base branch 'main': a run cuts a branch of its own" ] || { echo "stderr: $stderr"; false; }
+}
+
+@test "branch-cut checks the names before it answers that it is on the branch" {
+  # Mutation: move the on-branch answer above the name checks.
+  git checkout -q -b "$F"
+  field baseBranch 'a;b'
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused "'a;b' in $SF is not a branch name"
+}
+
+@test "branch-cut refuses a subdirectory, where the state directory is not" {
+  # Mutation: drop need_git_top, and the refusal is another one's.
+  mkdir -p sub/dir
+  cd sub/dir
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused "run this from the repository's top level"
+}
+
+@test "branch-cut reads a branch that is not a string as no branch" {
+  # Mutation: read .branch without `strings`, and 42 is a name git takes.
+  jq '.branch = 42' "$SF" > "$BATS_TEST_TMPDIR/t.json"
+  mv "$BATS_TEST_TMPDIR/t.json" "$SF"
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused 'records no branch'
 }
 
 @test "branch-cut refuses a base with no commit here, when it needs the base" {
@@ -196,6 +340,39 @@ refused() {
   [ "$(git symbolic-ref HEAD)" = "refs/heads/$F" ]
 }
 
+@test "branch-cut tests the ancestor on the branch, never a tag of the same name" {
+  # refs/heads/main is the branch's ancestor; the tag main, which git reads first
+  # for a bare name, is not. Mutation: a bare base in merge-base, and it refuses.
+  local side
+  bash "$PROG" branch-cut "$F" > /dev/null
+  git commit -q --allow-empty -m 'work on the branch'
+  git checkout -q main
+  git checkout -q -b side
+  git commit -q --allow-empty -m 'not on the branch'
+  side="$(git rev-parse HEAD)"
+  git tag main "$side"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
+  [ "$output" = "switched to branch $F" ] || { echo "stdout: $output"; false; }
+  [ "$(git symbolic-ref HEAD)" = "refs/heads/$F" ]
+}
+
+@test "branch-cut says what happened when a hook fails after the cut moved HEAD" {
+  # Mutation: drop the second read of HEAD, and it says it could not cut.
+  failing_hook
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  checked_out_anyway
+}
+
+@test "branch-cut says what happened when a hook fails after the switch moved HEAD" {
+  # Mutation: drop the second read of HEAD, and it says nothing changed.
+  bash "$PROG" branch-cut "$F" > /dev/null
+  git checkout -q main
+  failing_hook
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  checked_out_anyway
+}
+
 @test "branch-cut keeps uncommitted work when git refuses the switch" {
   bash "$PROG" branch-cut "$F" > /dev/null
   printf 'theirs\n' > spec.md
@@ -230,4 +407,26 @@ refused() {
   BEFORE="$(refs)"
   run --separate-stderr bash "$PROG" branch-cut "$F"
   refused 'was abandoned'
+}
+
+@test "branch-cut refuses a branch that is the base in another letter case" {
+  # A file system that ignores case reads refs/heads/MAIN as main's ref. Mutation:
+  # compare the names exactly.
+  field branch MAIN
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused "is the base branch 'main'"
+}
+
+@test "branch-cut masks what git prints when a checkout fails" {
+  # A tracked hook can print a terminal escape. Mutation: print $err raw.
+  local hooks="$BATS_TEST_TMPDIR/hooks"
+  mkdir -p "$hooks"
+  printf '#!/bin/sh\nprintf "\\033]0;PWN\\007" >&2\nexit 1\n' > "$hooks/post-checkout"
+  chmod +x "$hooks/post-checkout"
+  git config core.hooksPath "$hooks"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  [ "$status" -eq 1 ] || { echo "status $status"; false; }
+  [ "$(printf '%s' "$stderr" | LC_ALL=C tr -d '[:print:]\n' | wc -c | tr -d ' ')" = 0 ] || { echo "a raw byte reached stderr"; false; }
+  [[ "$stderr" == *'PWN'* ]] || { echo "stderr: $stderr"; false; }
 }

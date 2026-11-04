@@ -128,7 +128,7 @@ rather than silent.
 |---|---|
 | `--config <path>` | Merge a JSON file over the resolved configuration. Beats both config files. |
 | `--dry-run` | Run the spec phases A–F.5 normally, then print what H–O would do and stop. Releases the lock on the way out. |
-| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops, once the branch holds commits, for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, or the stop for a state file tracked in git. |
+| `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops, once the branch holds commits, for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, B's exit 3, or the stop for a state file tracked in git. |
 | `--auto-release` | Collapse O as well. Typed on purpose, never implied by `--auto`. |
 | `--until <phase>` | Stop cleanly after the named phase: state file intact, lock released, resumable. |
 | `--from <phase>` | Offered by the resume prompt; validated by `progress.sh from-validate` against which artefacts exist. |
@@ -146,9 +146,8 @@ this tool does, and one flag must not mean both "commit for me" and
 ## Pre-flight
 
 Run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/preflight.sh"` (add
-`--project-type`/`--base-branch` only when configuration set them; add
-`--base-branch-override`, `--feature-branch`, `--spec-dir`, `--trailer`
-and `--values-file` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read
+`--values-file`, `--base-branch-override`, `--feature-branch`, `--spec-dir`
+and `--trailer` as `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md` says, read
 before this call — the `--base-branch` flag goes as
 `--base-branch-override`, never as `--base-branch`),
 parse its stdout as JSON, and render the probe block — the Implementer
@@ -346,8 +345,7 @@ aside at pre-flight is written into `gates.constitution` here, in the
 same breath as the seed. A `.gitignore` answer held aside at pre-flight
 is written into `gates.gitignore` the same way. Record `config` here if it
 is still empty, as Configuration says: `suite-base` reads it. THEN run
-`progress.sh branch-cut <feature>`, safe to run again: uncommitted work
-travels with it. Record `artifacts.spec`. Then run
+`progress.sh branch-cut <feature>`: uncommitted work travels with it. Record `artifacts.spec`. Then run
 `progress.sh suite-base <feature> start` and print the one line it
 prints: on a fresh run whose base commit has no green suite result, it
 starts the full suite on that commit in the background, in a separate
@@ -387,7 +385,9 @@ findings still open and the text the last fixes changed, never a fresh
 full pass. A cap breach is a conditional stop. Log each iteration in
 `analyze_changelog`.
 
-**F.5 — test baseline.** Run `testCommand`. Record the result verbatim
+**F.5 — test baseline.** With `gates.B.testCommand` recorded, F.5, J and N
+follow "No test command" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
+Run `testCommand`. Record the result verbatim
 in `test_baseline` — the failures that exist BEFORE this feature are not
 this feature's failures, and J classifies against this record.
 
@@ -935,17 +935,10 @@ pipeline that had completed G (see G), or a run re-entered with
 `--from H` or later. Nothing outside
 the gate table is silenced by
 `--auto` — the pre-flight constitution offer, every cap breach, a
-missing required tool, any hard failure and a failed runtime check all
-still stop.
+missing required tool, any hard failure, B's exit 3 and a failed runtime
+check all still stop.
 
-The `implementer` key can arrive from a tracked `.delivery-kit.json`
-somebody else wrote, in a repository just cloned, and it removes the
-implementer question without anyone at the keyboard choosing that.
-That gap is why pre-flight prints the Implementer line and its layer.
-`baseBranchOverride` and `commitTrailers` can arrive the same way, so
-the Base branch and Trailers lines name their layer too.
-`--auto-release` is
-still required before anything publishes unasked.
+`--auto-release` is still required before anything publishes unasked.
 
 A gate is a safe handoff point: the state file records which gate waits.
 

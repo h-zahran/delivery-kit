@@ -19,12 +19,18 @@ All notable changes to the `pipeline` plugin.
   `config.testCommandFrom`, and the base suite's `started` line names it.
 - **`state-set --json-file <path>` and `preflight.sh --values-file <path>`.**
   A value a tracked file set no longer goes through a shell, where a quote broke
-  the command and `'$(...)` ran code. Each value gets the same checks as the
-  inline form or the flag. The refusal of a quote, a dollar sign or a backtick
+  the command and `'$(...)` ran code. The values file holds `commitTrailers`,
+  `baseBranchOverride`, `baseBranch` and `projectType`. Each value gets the same
+  checks as the inline form or the flag. A trailer longer than 30000 bytes as
+  JSON, or a list longer than 31000 together, is refused: the most the check and
+  the record can read on every system. The refusal of a quote, a dollar sign or a backtick
   in a trailer stays, because a person may still type `--trailer`.
 
 ### Changed
 
+- **`projectType` must be `web`, `mobile-android` or `other`.** Any other value
+  stops pre-flight. The run types it into a later command, and nothing checked
+  it before.
 - **`suite-base <feature> start` exits 3 when the run's own record cannot serve
   it:** no usable `config.testCommand`, or no spec file at `artifacts.spec`. It
   used to exit 0, the status of a legal "not started", so a run could pass over
