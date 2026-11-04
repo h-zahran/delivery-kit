@@ -2342,6 +2342,21 @@ PINS
     || { echo "configuration.md no longer says suiteReuse off starts no base suite run"; false; }
 }
 
+# Feature 056: the start reads config.testCommand, and without it prints "not
+# started" and exits 0, so nothing stops and F.5 runs the suite. Read in the
+# flattened phase B alone: a wrap cannot change the verdict, and the same words
+# in another section cannot satisfy it.
+@test "B records config before it starts the base suite run" {
+  local flat record start before
+  flat="$(prose_slice "$ORCH" '^\*\*B — specify\.\*\*' '^\*\*C — clarify' flat 'phase B')" || return 1
+  record='A fresh run records `config` here, as Configuration says: `suite-base` reads it.'
+  start='`progress.sh suite-base <feature> start`'
+  [[ $flat == *"$start"* ]] || { echo "phase B no longer runs the base suite start command"; false; }
+  [[ $flat == *"$record"* ]] || { echo "phase B no longer says to record config"; false; }
+  before=${flat%%"$start"*}
+  [[ $before == *"$record"* ]] || { echo "phase B records config after the base suite start that reads it"; false; }
+}
+
 @test "phases.md states the suite reuse rules the state helper enforces" {
   local doc="$ROOT/pipeline/docs/phases.md" flat rows
   [ -f "$doc" ] && [ -r "$doc" ] || { echo "cannot read $doc"; false; }
