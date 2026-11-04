@@ -2,6 +2,20 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.9.1] - 2026-11-04
+
+### Fixed
+
+- **Phase B says when to record `config`.** `progress.sh suite-base
+  <feature> start` reads `config.testCommand` from the state file. The skill
+  said to record `config`, but not when, so a run could reach the start
+  first. The command then prints "base suite not started" and exits 0,
+  nothing stops, and F.5 runs the full suite again (about 6 minutes) instead
+  of citing the base commit's result. B now says that a fresh run records
+  `config` there, before the start. `docs/phases.md` states the same order,
+  and a new test goes red if the sentence leaves B or comes after the start.
+  `progress.sh` does not change.
+
 ## [1.9.0] - 2026-11-04
 
 ### Highlights

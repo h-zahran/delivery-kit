@@ -39,8 +39,8 @@
 
 **Independent Test**: `bash scripts/check-versions.sh` exits 0.
 
-- [ ] T006 In `pipeline/CHANGELOG.md`, add the `[1.9.1] - 2026-11-04` section above `[1.9.0]`, with the fix and its test.
-- [ ] T007 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.9.1`. Run `bash scripts/check-versions.sh`.
+- [X] T006 In `pipeline/CHANGELOG.md`, add the `[1.9.1] - 2026-11-04` section above `[1.9.0]`, with the fix and its test.
+- [X] T007 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, change the pipeline version to `1.9.1`. Run `bash scripts/check-versions.sh`.
 
 **Checkpoint**: the versions agree.
 
