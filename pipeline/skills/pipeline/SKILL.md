@@ -52,6 +52,7 @@ are your hands, and the state file is your memory.
   artefact already exists and is current; an in-place update or a
   fresh write are the only two shapes (phase G names the one cleanup
   exception).
+- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`.
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
   entry is its own board item. The board is surfaced in replies.

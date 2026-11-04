@@ -146,6 +146,9 @@ refused() {
   # R4: two plan lines.
   tap_fixture a/1.bats '1..1' 'ok 1 one' '1..1'
   refused R4 1 'a/1.bats: 2 plan lines' a b
+  # Only the first is dropped, so the second reaches tap-check as well.
+  run bash "$ROOT/pipeline/scripts/progress.sh" tap-check "$OUT"
+  [[ $status -ne 0 && $output == *'second plan line'* ]] || { echo "R4: tap-check said: $output"; false; }
 
   # R5: fewer and more test lines than the plan.
   tap_fixture a/1.bats '1..2' 'ok 1 one'
@@ -223,10 +226,13 @@ refused() {
   mkdir a/deep
   tap_fixture a/deep/x.bats '1..1' 'ok 1 three'
   printf 'not a test file\n' > a/deep/notes.txt
+  # As bats -r does, a link to a folder is followed. Git Bash copies, which reads the same.
+  tap_fixture b/1.bats '1..1' 'ok 1 four'
+  ln -s ../b a/link
   export RS_LOG="$TEST_DIR/log"
   suite a
   [ "$rc" -eq 0 ] || { echo "status $rc: $(cat "$ERR")"; false; }
-  [ "$(LC_ALL=C sort "$RS_LOG")" = "$(printf '%s\n' '--print-output-on-failure a/1.bats' '--print-output-on-failure a/deep/x.bats' '--print-output-on-failure a/sub.bats')" ] \
+  [ "$(LC_ALL=C sort "$RS_LOG")" = "$(printf '%s\n' '--print-output-on-failure a/1.bats' '--print-output-on-failure a/deep/x.bats' '--print-output-on-failure a/link/1.bats' '--print-output-on-failure a/sub.bats')" ] \
     || { echo "the runner was called as:"; cat "$RS_LOG"; false; }
 }
 

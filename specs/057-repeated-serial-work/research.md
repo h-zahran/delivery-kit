@@ -48,7 +48,7 @@
 
 ## R9. Where the harness rules live
 
-- **Decision**: A new section "The fault harness" at the end of `pipeline/skills/spec-review/SKILL.md`. Phase I already loads that skill, so I's reviewers and fix step meet the rule. H and J meet it through one bullet under "Ground rules" in the orchestrator, about 80 bytes.
+- **Decision**: A new section "The fault harness" in `pipeline/skills/spec-review/SKILL.md`, directly before "## Output". Phase I already loads that skill, so I's reviewers and fix step meet the rule. H and J meet it through one bullet under "Ground rules" in the orchestrator, about 80 bytes.
 - **Rationale**: The orchestrator has 221 bytes free, and run 2's gaps need them. `spec-review` has no size pressure.
 - **Fixed names**: `.delivery-kit/runs/<feature>/fault-harness.sh`, and the tests reviewer's own list at `.delivery-kit/runs/<feature>/faults-tests.txt`, written before it reads the harness.
 
