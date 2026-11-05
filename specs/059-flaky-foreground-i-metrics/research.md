@@ -124,3 +124,5 @@ In run 1, the runner was alive in a later Bash call, so it outlives the call tha
 | The holders check inverted, with `SIGINT` ignored | the stop test | RED |
 
 The first form of the arm's check used `kill -0` on the script. The probe-inverted fault stayed green: `kill -0` also succeeds on a child that ended and was not waited for. The check now reads the holding processes.
+
+**Faults on the foreground rule**, each through the harness with a green control: the rule gone from either skill; each of seven required phrases removed in turn; the rule inverted; the rule naming phases; a new sentence that tells agents to run in the background; the base suite's sentence gone. All RED. `SKILL.md` after this piece: 65,364 bytes.

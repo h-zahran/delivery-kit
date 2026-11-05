@@ -17,6 +17,8 @@ all four arrive in the invocation.
 
 ## The three lenses
 
+**Test runs in a brief:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.
+
 Run all three as independent reviewers: three agents, one per lens,
 dispatched together in one message, each given the same inputs and none
 shown another's findings. That is what the pipeline's "three reviewers
