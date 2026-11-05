@@ -405,5 +405,5 @@ probe() {
 # because bash versions print trap -p differently for a signal ignored on entry.
 # A background job with no job control ignores INT on entry, and no bash under it
 # can catch or reset it.
-# shellcheck disable=SC2034 # read by the suites that load this file
+# shellcheck disable=SC2034,SC2016 # read by the suites that load this file; a program
 INT_PROBE='r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r"'
