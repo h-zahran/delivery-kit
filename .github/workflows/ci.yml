@@ -132,22 +132,19 @@ jobs:
     #
     # Per OS, because the legs differ by an order of magnitude.
     #
-    # WINDOWS: 40. Measured 2026-10-11 in review, from the bats step of the
-    # last ten green UNSHARDED runs: the whole suite took 1028-1566 s, and the
-    # pipeline/tests part of it alone 763-1168 s (the 1168 s is run
-    # 38139381767). pipeline/tests is the slowest shard, so 1168 s (19.5 min)
-    # is the governing figure; 40 minutes is about 2x it, with room for setup.
-    # The first sharded run, 38167376375, took 11.6 min for its slowest
-    # Windows job. An earlier version of this comment quoted 275-511 s for the
-    # whole Windows suite; that figure was wrong, and the 20-minute limit
-    # derived from it sat at 97% of a measured shard.
+    # The limit is there to catch a hang, so it sits well above an honest run. The
+    # slowest shard, pipeline/tests, governs each. Re-derive them from the sharded
+    # runs' own durations whenever a shard comes near its limit.
     #
-    # macOS and ubuntu: 10. Their figures are carried from the earlier comment,
-    # not re-measured here: whole suite, ten runs before 2026-10-06, macOS
-    # 83-159 s and ubuntu 30-45 s. On them, 10 minutes is about 3.8x the
-    # slowest whole macOS suite, which bounds every macOS shard, and it absorbs
-    # a bats cache miss and the jq download. Re-derive all three limits from
-    # the sharded runs' own durations once a few have accumulated.
+    # WINDOWS: 60. Measured 2026-11-05 on runs of the same code: 1764, 1943, 1985 and
+    # 2186 s green, and one run past the old limit of 40 minutes.
+    #
+    # macOS: 20. Measured on the same runs: 466, 547 and 599 s green, and three runs
+    # past the old limit of 10 minutes, with 365 to 535 s on main over the two days
+    # before. No run past 10 minutes left a log to read, so what those runs would have
+    # taken is unknown until one passes under this limit.
+    #
+    # ubuntu: 10. Measured on the same runs: 199, 244, 250 and 270 s.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -158,9 +155,9 @@ jobs:
           - os: ubuntu-24.04
             timeout: 10
           - os: macos-26
-            timeout: 10
+            timeout: 20
           - os: windows-2025
-            timeout: 40
+            timeout: 60
     env:
       # bats-core v1.11.0.
       #
