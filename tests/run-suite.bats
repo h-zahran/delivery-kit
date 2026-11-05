@@ -505,15 +505,15 @@ stop_run() {
 }
 
 @test "run-suite: with INT ignored at entry the stop still ends in time, and only INT changes" {
-  # A subshell a shell with no job control starts in the background has INT ignored,
-  # so this runs the path above in that state on every run. Mutation: remove the
+  # Set by trap, so that the state does not rest on how a bash version treats a
+  # background subshell: on ubuntu-24.04 CI one started by this test did not ignore
+  # INT. So this runs the path above in that state on every run. Mutation: remove the
   # path, and the wait holds until the 60 s limit, the old failure. HUP in the same
   # state stays HUP: the comment appears once.
   fixture a/1.bats 'sleep 60 & p=$!; printf "%s %s\n" "$$" "$p" >> "$RS_PIDS"; wait "$p"'
   fixture a/2.bats 'sleep 60 & p=$!; printf "%s %s\n" "$$" "$p" >> "$RS_PIDS"; wait "$p"'
-  ( stop_run INT 2 && stop_run HUP 2 ) > "$TEST_DIR/ignored" 2>&1 3>&1 < /dev/null &
-  local job=$! rc=0
-  wait "$job" || rc=$?
+  local rc=0
+  ( trap '' INT; stop_run INT 2 && stop_run HUP 2 ) > "$TEST_DIR/ignored" 2>&1 3>&1 < /dev/null || rc=$?
   [ "$rc" -eq 0 ] || { echo "status $rc: $(cat "$TEST_DIR/ignored")"; false; }
   [ "$(grep -c '^# INT is ignored at entry' "$TEST_DIR/ignored")" -eq 1 ] || { cat "$TEST_DIR/ignored"; false; }
 }
