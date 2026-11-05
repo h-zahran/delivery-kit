@@ -23,18 +23,8 @@ warn() { printf 'preflight: %s\n' "$*" >&2; }
 die()  { printf 'preflight: %s\n' "$*" >&2; exit 1; }
 # A value a refusal prints comes from the command line, a tracked key or
 # git, so it may hold a terminal escape, a bidi character or a line break.
-# shown <name> <value> sets the named variable to a copy safe to print:
-# under the C locale, cut to 200 bytes then ` [cut]`, with every byte that
-# is not printable ASCII shown as `?`. The same shape as shown() in
-# scripts/check-versions.sh. printf -v sets the copy without a process, and
-# the value is never the format. Every refusal below prints a value only
-# through one of these copies, each named here once.
-shown() {
-  local LC_ALL=C s=$2 c=
-  [ "${#s}" -le 200 ] || { s=${s:0:200}; c=" [cut]"; }
-  s=${s//[![:print:]]/?}
-  printf -v "$1" '%s' "$s$c"
-}
+# Every refusal below prints a value only through a copy from shown(), in
+# names.sh, each copy named here once.
 arg_s='' vf_s='' pt_s='' sd_s='' seg_s='' dir_s='' br_s='' fb_s='' p_s='' run_s='' base_s='' hit_s='' scr_s='' ver_s=''
 
 command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
@@ -54,6 +44,11 @@ command -v jq >/dev/null 2>&1 || die "jq is required and was not found on PATH"
 here="${BASH_SOURCE[0]}"
 case "$here" in */*) here="${here%/*}" ;; *) here=. ;; esac
 here="$(cd -P -- "$here" && pwd -P)" || die "cannot find the folder that holds preflight.sh"
+for f in hidden-chars.sh names.sh; do
+  [ -r "$here/$f" ] || die "$f is missing beside preflight.sh"
+  # shellcheck source=/dev/null # the two files beside this script
+  . "$here/$f"
+done
 add_trailer_json() {
   local j="$1" ok
   [ "${#j}" -le 30000 ] \
@@ -172,9 +167,10 @@ if [ -n "$spec_dir" ]; then
   rest="$spec_dir"; first=1
   while :; do
     seg="${rest%%/*}"; shown seg_s "$seg"
+    [ "${seg#-}" != "$seg" ] || run_name_ok "$seg" \
+      || die "'$sd_s' has the segment '$seg_s'; a folder name holds letters of any language, digits, dot, dash, underscore only (--spec-dir)"
     case "$seg" in
       -*) die "'$sd_s' has the segment '$seg_s', which starts with a dash (--spec-dir)" ;;
-      *[!A-Za-z0-9._-]*) die "'$sd_s' has the segment '$seg_s'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ;;
       .[Gg][Ii][Tt]) die "'$sd_s' is inside git's own directory .git (--spec-dir)" ;;
       # Win32 drops a trailing dot, so .git. is .git there, and it reads
       # a device name (nul, con, com1, nul.txt) as the device.
@@ -257,11 +253,11 @@ branch_ok() {
   # git accepts $ ( ) ; & | < > a quote, a backtick and any byte past 0x7f
   # in a name (measured, review 4), and a branch's name is printed in
   # refusals and typed into commands: the one that fixes an origin-only
-  # override ran a name like x$(touch${IFS}PWNED). So a name is a letter, a
-  # digit, '.', '_', '-' or '/' throughout, the spec folder's own discipline.
-  case "$1" in
-    *[!A-Za-z0-9._/-]*) die "'$br_s' holds a character other than a letter, a digit, '.', '_', '-' or '/' ($2)" ;;
-  esac
+  # override ran a name like x$(touch${IFS}PWNED). names.sh holds the rule, one
+  # for this script and progress.sh, and a name in any language passes it.
+  local problem
+  problem="$(name_problem "$1")"
+  [ -z "$problem" ] || die "'$br_s' $problem ($2)"
 }
 # branch_like <name> — the local or origin branch that <name> collides
 # with, or nothing: one equal to it in any letter case (a file system that

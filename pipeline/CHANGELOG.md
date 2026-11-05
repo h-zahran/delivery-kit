@@ -28,6 +28,14 @@ All notable changes to the `pipeline` plugin.
 
 ### Changed
 
+- **A branch, a run and a spec folder can be named in any language.** Anyone may
+  use the kit. A branch may now hold letters of any language, and `#`, `+`, `=`,
+  `@`, `,` or `%`, so `fix#12` and `feature/الدفع` work. It may not start with `+`,
+  which `git push` reads as a forced update. A run's name and a spec folder take
+  letters of any language, digits, dot, dash and underscore. A name is refused only
+  for what a shell reads, what can disguise text on a terminal, or bytes that are
+  not text. One file, `scripts/names.sh`, holds the rule for both
+  scripts. A refusal shows a name in any language as itself.
 - **A `projectType` is checked for what a shell reads.** Any name works, in
   letters, digits, `.`, `_` and `-`, with no leading dash. The run types it into
   a later command, and nothing checked it before.

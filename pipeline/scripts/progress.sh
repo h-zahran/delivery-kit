@@ -43,23 +43,15 @@ SCRIPT_PATH="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
 
 warn() { printf 'progress.sh: %s\n' "$*" >&2; }
 die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
-# shown <name> <value> sets the named variable to a copy of a value that is safe
-# to print in a refusal: under the C locale, cut to 200 bytes then ` [cut]`, with
-# every byte that is not printable ASCII shown as `?`. The same shape as shown()
-# in preflight.sh. printf -v sets the copy without a process.
-shown() {
-  local LC_ALL=C s=$2 c=
-  [ "${#s}" -le 200 ] || { s=${s:0:200}; c=" [cut]"; }
-  s=${s//[![:print:]]/?}
-  printf -v "$1" '%s' "$s$c"
-}
-
 # HIDDEN_CHARS: the characters that can disguise text, one list for this
 # script and trailer-check.sh. A copy of this script made without it stops
 # here, saying so: bash's own error would name the copy's full path.
 [ -r "$SCRIPT_DIR/hidden-chars.sh" ] || die "hidden-chars.sh is missing beside progress.sh"
 # shellcheck source-path=SCRIPTDIR source=hidden-chars.sh
 . "$SCRIPT_DIR/hidden-chars.sh"
+[ -r "$SCRIPT_DIR/names.sh" ] || die "names.sh is missing beside progress.sh"
+# shellcheck source-path=SCRIPTDIR source=names.sh
+. "$SCRIPT_DIR/names.sh"
 
 # Every invocation removes what it made, on any exit: suite-key's scratch
 # file, a text file's checked copy, with_trailers' message copy and its
@@ -100,16 +92,19 @@ jq_b_probe() { if jq -b -n 1 >/dev/null 2>&1; then JQB=-b; else JQB=''; fi; }
 # preflight.sh refuses such a spec folder segment for the same reason. One
 # rule covers both, since a name made only of dots ends in one.
 feature_ok() {
-  case "$1" in ''|*[!A-Za-z0-9._-]*|*.) return 1 ;; esac
+  run_name_ok "$1" || return 1
+  case "$1" in *.) return 1 ;; esac
   return 0
 }
 need_feature() {
   feature_ok "$1" && return 0
+  local shown_f
+  shown shown_f "$1"
+  run_name_ok "$1" || die "feature name '$shown_f' — letters of any language, digits, dot, dash, underscore only"
   case "$1" in
-    ''|*[!A-Za-z0-9._-]*) die "feature name '$1' — letters, digits, dot, dash, underscore only" ;;
-    *[!.]*) die "feature name '$1' ends with a dot, which Windows drops from a folder name" ;;
+    *[!.]*) die "feature name '$shown_f' ends with a dot, which Windows drops from a folder name" ;;
   esac
-  die "feature name '$1' is only dots, which names a directory that already exists, not a run"
+  die "feature name '$shown_f' is only dots, which names a directory that already exists, not a run"
 }
 
 state_file() { printf '%s/runs/%s/progress.json' "$STATE_ROOT" "$1"; }
@@ -263,17 +258,10 @@ init_metrics() {
 }
 
 # branch_name_ok <value> — git takes the value as a branch name and does not
-# expand it: `check-ref-format --branch` prints @{-1} as the branch it means,
-# and refuses a leading dash. It also passes what this command must not take:
-# a lone @, which git reads as HEAD everywhere else, and $ ( ) ; | a
-# quote, a backtick and any byte past 0x7f, in a name a refusal prints as a
-# command to run (measured). So a name is a letter, a digit, '.', '_', '-' or
-# '/' throughout, as branch_ok has it in preflight.sh.
-# The C locale, or a range in the pattern can take in an accented letter.
+# expand it: `check-ref-format --branch` prints @{-1} as the branch it means. The
+# rest of the rule is names.sh's, one for this script and preflight.sh.
 branch_name_ok() {
-  local LC_ALL=C
-  case "$1" in *[!A-Za-z0-9._/-]*) return 1 ;; esac
-  [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]
+  [ -z "$(name_problem "$1")" ] && [ "$(git check-ref-format --branch "$1" 2>/dev/null)" = "$1" ]
 }
 
 # checkout_landed <branch> <git's output> — after a failed git checkout: a

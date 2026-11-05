@@ -213,12 +213,12 @@ checked_out_anyway() {
   done
 }
 
-@test "branch-cut refuses a name outside the allowlist, or a full ref, and no shell reads it" {
+@test "branch-cut refuses a name a shell reads or a terminal is fooled by, and no shell reads it" {
   # git takes every one of these as a branch name, and the refusal of a
   # not-an-ancestor branch prints the name in a command to run. Mutation: drop
-  # the allowlist, and git cuts the branch.
+  # the rule in names.sh, and git cuts the branch.
   local n names
-  names=('x$(touch${IFS}pwned)' 'a;b' 'a|b' "a'b" 'a`touch pwned`b' $'caf\303\251')
+  names=('x$(touch${IFS}pwned)' 'a;b' 'a|b' "a'b" 'a"b' 'a&b' 'a<b>' 'a{b}' 'a!b' '#12' '+main' 'a`touch pwned`b' $'feat\342\200\256gnp')
   BEFORE="$(refs)"
   for n in "${names[@]}"; do
     field branch "$n"
@@ -244,12 +244,12 @@ checked_out_anyway() {
   refused 'not a branch name'
   no_esc "$stderr"
   [ "$stderr" = "progress.sh: 'a?[31mb' in $SF is not a branch name" ] || { echo "stderr: $stderr"; false; }
-  # One ? a byte, whatever the locale.
-  field branch $'caf\303\251'
+  # One ? a byte, whatever the locale, for a name that is not plain text.
+  field branch $'a\342\200\256b'
   # A system without this locale adds its own warning line, so the end is read.
   LC_ALL=C.UTF-8 run --separate-stderr bash "$PROG" branch-cut "$F"
   [ "$status" -eq 1 ]
-  [[ "$stderr" == *"progress.sh: 'caf??' in $SF is not a branch name" ]] || { echo "stderr: $stderr"; false; }
+  [[ "$stderr" == *"progress.sh: 'a???b' in $SF is not a branch name" ]] || { echo "stderr: $stderr"; false; }
   long="$(printf '%0300d' 0)"
   field branch "$long;"
   run --separate-stderr bash "$PROG" branch-cut "$F"
@@ -429,4 +429,46 @@ checked_out_anyway() {
   [ "$status" -eq 1 ] || { echo "status $status"; false; }
   [ "$(printf '%s' "$stderr" | LC_ALL=C tr -d '[:print:]\n' | wc -c | tr -d ' ')" = 0 ] || { echo "a raw byte reached stderr"; false; }
   [[ "$stderr" == *'PWN'* ]] || { echo "stderr: $stderr"; false; }
+}
+
+# Feature 058: anyone may use the kit, in any language. Mutation: restore an
+# ASCII allowlist in names.sh.
+@test "branch-cut cuts and switches to a name in any language, or with # + = @" {
+  local n
+  for n in 'fix#12' 'a+b=c' 'a@b' 'a,b%c' 'feature/الدفع' 'café'; do
+    n="$(printf '%b' "$n")"
+    field branch "$n"
+    run --separate-stderr bash "$PROG" branch-cut "$F"
+    [ "$status" -eq 0 ] || { echo "$n: status $status: $stderr"; false; }
+    [ "$output" = "branch $n cut from main" ] || { echo "stdout: $output"; false; }
+    [ "$(git symbolic-ref HEAD)" = "refs/heads/$n" ]
+    git checkout -q main
+    run --separate-stderr bash "$PROG" branch-cut "$F"
+    [ "$status" -eq 0 ] || { echo "$n: status $status: $stderr"; false; }
+    [ "$output" = "switched to branch $n" ] || { echo "stdout: $output"; false; }
+    git checkout -q main
+  done
+}
+
+@test "branch-cut takes a base in any language, or with # in it, and refuses a byte that is not text" {
+  # A newly legal base, from a state file. Mutation: restrict the base in names.sh.
+  local n c
+  for n in 'rel#1' 'أساس'; do
+    git branch "$n"
+    git checkout -q "$n"
+    field baseBranch "$n"
+    field branch "from-$(printf '%s' "$n" | cksum | cut -d' ' -f1)"
+    run --separate-stderr bash "$PROG" branch-cut "$F"
+    [ "$status" -eq 0 ] || { echo "$n: status $status: $stderr"; false; }
+    [ "$output" = "branch from-$(printf '%s' "$n" | cksum | cut -d' ' -f1) cut from $n" ] || { echo "stdout: $output"; false; }
+    git checkout -q main
+  done
+  # A raw byte written to the state file, as field cannot: jq reads it as U+FFFD.
+  field baseBranch main
+  field branch REPLACEME
+  c="$(cat "$SF")"
+  printf '%s' "${c/REPLACEME/$'a\377b'}" > "$SF"
+  BEFORE="$(refs)"
+  run --separate-stderr bash "$PROG" branch-cut "$F"
+  refused 'not a branch name'
 }
