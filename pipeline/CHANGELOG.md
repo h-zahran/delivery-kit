@@ -8,13 +8,14 @@ All notable changes to the `pipeline` plugin.
 
 - **`progress.sh i-measure <feature>`, and `phaseI` in `pipeline-run.json`.**
   Phase I is the largest part of a run, and nobody could say which part of it
-  costs the most. The skill asked for the numbers in prose, and runs 056, 057
-  and 058 recorded none. The new subcommand records each lens's seconds, the
-  fixes, the recheck, and each lens's findings by severity and outcome. See
-  "Measuring phase I" in `docs/phases.md`.
-- **`phase-done I` refuses a part with no record, or findings not read**, so the
-  numbers cannot depend on memory. `unmeasured <part>` is the way past a part
-  with no number. A phase I already completed is past the gate.
+  costs the most. The skill asked for the numbers in prose: runs 056 and 057 kept
+  some by hand, and run 058 kept none. The new subcommand records each lens's
+  seconds, the fixes, the recheck, and each lens's findings by severity and
+  outcome. See "Measuring phase I" in `docs/phases.md`.
+- **`phase-done I` refuses a part with no finished record, or findings not read**,
+  so the numbers cannot depend on memory. `unmeasured <part>` and `unmeasured
+  findings` are the way past what has no number. `state-set` no longer writes
+  `measurements.i`.
 - **A foreground rule in every agent brief.** A reviewer in run 058 waited on its
   own background test run, and that run lost 5 hours of wall time, part of it the
   machine asleep. Each brief now says: foreground only, no background run, wait
@@ -30,12 +31,15 @@ All notable changes to the `pipeline` plugin.
 
 - **A base suite gets `SIGINT` as its caller has it.** A background job with no
   job control starts with `SIGINT` ignored, and no bash under it can undo that.
-  `suite-base start` and its runner started the test command that way on any
-  system with `setsid`. So a suite that tests its own `SIGINT` went red in the
-  base suite and green in the foreground, every time, and F.5 ran the whole suite
-  itself: 155 s against 10 s, on every run since 1.10.0's stop test. The runner
-  and the command now each lead a process group by job control, and a stop
-  signals both.
+  `suite-base start` and its runner started the test command that way. So a suite
+  that tests its own `SIGINT` went red in the base suite and green in the
+  foreground, every time, and F.5 ran the whole suite itself: 155 s against 10 s,
+  on every run since 1.10.0's stop test. The runner and the command now each lead
+  a process group by job control. `setsid` is gone, so a suite started by hand from
+  a terminal stays in that terminal's session.
+- **A stop ends a command that ignores TERM.** It reported the stop as done and
+  left the command running. The runner now sends KILL to what still runs 8 seconds
+  after TERM.
 
 ## [1.11.0] - 2026-11-04
 

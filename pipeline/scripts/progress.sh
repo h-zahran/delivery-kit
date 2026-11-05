@@ -8,7 +8,8 @@
 # plain text that is the answer and nothing else: piece-next prints two
 # lines, a heading and its task ids; the commit commands print the commit
 # id they recorded; --list prints paths, one per line; guide prints the
-# review guide and commit-list prints K's list; suite-key prints a key,
+# review guide and commit-list prints K's list; i-measure prints what it
+# recorded; suite-key prints a key,
 # suite-record a verdict, suite-lookup a record's path and a summary,
 # tap-check one summary line, and get the value it was asked for. board is
 # JSON, as the contract says: the phase board and the repository lock.
@@ -123,6 +124,13 @@ PHASES=" preflight A B C C.5 D E F F.5 G H H.5 H.7 I J K L M N N.5 O DONE "
 phase_known() {
   local p
   for p in $PHASES; do [ "$p" = "$1" ] && return 0; done
+  return 1
+}
+
+# word_in <word> <space-separated words> — word by word, so "a b" is no word.
+word_in() {
+  local w
+  for w in $2; do [ "$w" != "$1" ] || return 0; done
   return 1
 }
 
@@ -2082,11 +2090,9 @@ cmd_show_message() {
 # --- metrics ------------------------------------------------------------------
 # .delivery-kit/runs/<feature>/pipeline-run.json, derived from the state file:
 # phases with their timestamps and seconds, gates, the commits by kind, and
-# the analyze iterations, and phaseI, from i-measure. Keys the orchestrator
-# wrote itself are kept; derived keys are rewritten. Running it twice writes the
-# same file. In phaseI a measure not taken is missing or null, never 0: a lens
-# that ran and found nothing has zeros, and one that did not run has null. The
-# lenses run at once, so accountedSeconds takes the longest of them.
+# the analyze iterations, and phaseI, from i-measure, as "Measuring phase I" in
+# docs/phases.md says. Keys the orchestrator wrote itself are kept; derived keys
+# are rewritten. Running it twice writes the same file.
 # shellcheck disable=SC2016 # a jq program: $m, $d and $s are jq's
 METRICS_JQ='
   def secs: try fromdateiso8601 catch null;
@@ -2102,15 +2108,15 @@ METRICS_JQ='
          parts: $parts,
          findings: (if ($i.findings.status? // "") == "read" then
              {status: "read",
-              byLens: ($ls | map(. as $l | ($i.findings.byLens[$l] // null) as $c | {key: $l, value:
-                  (if $parts[$l].status == "done" then $c
-                   elif $c == null then null
-                   elif ([$c[]] | add) > 0 then $c
-                   else null end)}) | from_entries),
+              byLens: ($ls | map(. as $l | {key: $l, value:
+                  ($i.findings.byLens[$l] // (if $parts[$l].status == "done"
+                    then {CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, fixed: 0, deferred: 0, declined: 0}
+                    else null end))}) | from_entries),
+              unreadableLines: ($i.findings.unreadableLines // 0),
               unreadable: ($i.findings.unreadable // [])}
            else {status: "missing"} end),
          accountedSeconds: (if ([$parts[] | .status] | all(. == "done" or . == "skipped")) then
-             (([$ls[] as $l | $parts[$l] | select(.status == "done") | .seconds] | max) // 0)
+             ([$ls[] as $l | $parts[$l] | select(.status == "done") | .seconds] | max)
              + ($parts.fixes.seconds // 0) + ($parts.recheck.seconds // 0)
            else null end),
          earlier: ($i.earlier // [])}
@@ -2164,15 +2170,27 @@ metrics_write() {
 }
 
 # --- i-measure ----------------------------------------------------------------
-# i-measure <feature> dispatch | start <part> | done <part> | skip <part> <reason>
-# | unmeasured <part> | findings — phase I's times and counts, in
-# measurements.i, for metrics to show. The orchestrator calls it: it alone sees
-# every lens return, and a subagent's write may be denied. A record is never
-# overwritten in silence: a new one moves the old one to earlier, and a second
-# done is refused. phase-done I refuses a part with no record (i_gate), so the
-# numbers cannot depend on memory; the prose alone never got them.
+# i-measure <feature> dispatch | start <part> | done <part> [--seconds <n>]
+# | skip <part> <reason> | unmeasured <part> | unmeasured findings | findings —
+# phase I's times and counts, in measurements.i, for metrics to show. See
+# "Measuring phase I" in docs/phases.md. The orchestrator calls it: it alone sees
+# every lens return. A result is never overwritten in silence: a new record moves
+# it to earlier, and a second done is refused. phase-done I refuses a part with no
+# record (i_gate), so the numbers cannot depend on memory.
 I_PARTS='contract security tests bugs simplify fixes recheck'
 I_LENSES='contract security tests bugs simplify'
+# What a rule may leave out. The skill: no other lens is ever skipped.
+I_SKIPPABLE='bugs simplify fixes recheck'
+# A finding is a line or two. Far past any real round, and it keeps a file that is
+# not one of these out of the state file.
+I_FINDINGS_MAX=262144
+# The jq that says a part holds a result: a number, or a rule that left it out. A
+# part only started, or missing, holds none.
+# shellcheck disable=SC2016 # a jq program: its $ names are jq's
+I_HOLDS='def holds: (.status? // "") as $s | $s == "done" or $s == "skipped";'
+# The jq that drops a findings record, at the level of measurements.i, and keeps it
+# under earlier when it was read.
+I_KEEP_FINDINGS='(if .findings.status? == "read" then .earlier = ((.earlier // []) + [{part: "findings"} + .findings]) else . end) | del(.findings)'
 
 # i_reason_ok <reason> — 1 to 40 of a to z, digits and dash. LC_ALL for the
 # range, so that a locale cannot widen it.
@@ -2182,32 +2200,78 @@ i_reason_ok() {
   [ "${#1}" -le 40 ]
 }
 
-# i_put <state file> <parts, space-separated> <record as JSON> — writes the record
-# to each part, and keeps any record it replaces. The caller holds the lock.
-i_put() {
-  local sf="$1" list="$2" rec="$3" moved p
-  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  moved="$(jqs --arg l "$list" '(.measurements.i.parts // {}) as $h | ($l | split(" "))[] | select($h[.])' "$sf")" \
+# i_held <state file> <parts, space-separated> — prints those that hold a result.
+# shellcheck disable=SC2016 # jq programs: their $ names are jq's
+i_held() {
+  jqs --arg l "$2" "$I_HOLDS"' (.measurements.i.parts // {}) as $h | ($l | split(" "))[] | select($h[.] | holds)' "$1" \
     || die "could not read measurements.i from the state file"
-  for p in $moved; do printf '%s: the earlier record is kept\n' "$p"; done
-  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  state_write "$sf" '.measurements = ((.measurements // {}) | .i = ((.i // {})
-    | reduce ($l | split(" "))[] as $p (.;
-        (if .parts[$p]? then .earlier = ((.earlier // []) + [{part: $p} + .parts[$p]]) else . end)
-        | .parts = ((.parts // {}) | .[$p] = $r))))' --arg l "$list" --argjson r "$rec"
 }
 
-# i_findings <state file> <feature> — counts findings-I.txt, each lens by severity
-# and outcome. The finding is the free text between the file:line and the outcome,
-# so a bar in it does no harm, and it never leaves the file. A line that does not
-# read is named by number, never counted as nothing.
-i_findings() {
-  local sf="$1" file tmp
-  file="$(run_dir "$2")/findings-I.txt"
-  { [ -f "$file" ] && [ -r "$file" ]; } || die "findings-I.txt is not in the run directory"
-  tmp="$(mktemp "$file.XXXXXX")" || die "could not make a temporary file in the run directory"
-  # Single quotes hold this whole program, so its comments hold no apostrophe.
-  if ! LC_ALL=C awk -v lenses="$I_LENSES" '
+# i_kept <parts, whitespace-separated> — says what i_put or dispatch moved.
+i_kept() {
+  local p
+  for p in $1; do printf '%s: the earlier record is kept\n' "$p"; done
+}
+
+# i_put <state file> <part> <record as JSON> — writes the record to the part, and
+# keeps a result it replaces. The caller holds the lock.
+# shellcheck disable=SC2016 # jq programs: their $ names are jq's
+i_put() {
+  local sf="$1" part="$2" rec="$3" moved
+  moved="$(i_held "$sf" "$part")"
+  state_write "$sf" "$I_HOLDS"' .measurements.i |= ((. // {})
+      | (if (.parts[$p] | holds) then .earlier = ((.earlier // []) + [{part: $p} + .parts[$p]]) else . end)
+      | .parts[$p] = $r)' --arg p "$part" --argjson r "$rec"
+  i_kept "$moved"
+}
+
+# i_dispatch <state file> <epoch> — one round begins, in one write: each result and
+# a findings read move to earlier, the five lenses start, and the fixes, the recheck
+# and the findings are asked for afresh.
+# shellcheck disable=SC2016 # jq programs: their $ names are jq's
+i_dispatch() {
+  local sf="$1" moved had
+  moved="$(i_held "$sf" "$I_PARTS")"
+  had="$(i_had "$sf")"
+  state_write "$sf" "$I_HOLDS"' .measurements.i |= ((. // {})
+      | reduce ($all | split(" "))[] as $p (.;
+          (if (.parts[$p] | holds) then .earlier = ((.earlier // []) + [{part: $p} + .parts[$p]]) else . end)
+          | del(.parts[$p]))
+      | '"$I_KEEP_FINDINGS"'
+      | reduce ($l | split(" "))[] as $p (.; .parts[$p] = {status: "started", started: $t}))' \
+    --arg all "$I_PARTS" --arg l "$I_LENSES" --argjson t "$2"
+  i_kept "$moved"
+  [ "$had" != read ] || i_kept findings
+}
+
+# i_had <state file> — the findings record's status, or nothing.
+i_had() {
+  jqs '.measurements.i.findings.status? // ""' "$1" || die "could not read measurements.i from the state file"
+}
+
+# i_set_findings <state file> <record as JSON> — writes it, and keeps a read it replaces.
+i_set_findings() {
+  local had
+  had="$(i_had "$1")"
+  state_write "$1" ".measurements.i |= ((. // {}) | $I_KEEP_FINDINGS | .findings = \$f)" --argjson f "$2"
+  [ "$had" != read ] || i_kept findings
+}
+
+# i_findings_read <feature> — counts findings-I.txt into I_READ, as JSON, each lens
+# with a line by severity and outcome. Before the lock: this is the one slow read.
+# The finding is free text between the file:line and the outcome, so a bar in it
+# does no harm, and it never leaves the file. A line that does not read is counted
+# and named by number, at most the first 100 of them. A link is refused: the name
+# is fixed, and the run writes to it.
+I_READ=''
+i_findings_read() {
+  local file
+  file="$(run_dir "$1")/findings-I.txt"
+  if [ -L "$file" ] || [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    die "findings-I.txt is not a readable file in the run directory"
+  fi
+  [ "$(( $(wc -c < "$file") ))" -le "$I_FINDINGS_MAX" ] || die "findings-I.txt is over $I_FINDINGS_MAX bytes"
+  I_READ="$(LC_ALL=C awk -v lenses="$I_LENSES" '
     BEGIN {
       nl = split(lenses, L, " ")
       ns = split("CRITICAL HIGH MEDIUM LOW", S, " ")
@@ -2217,13 +2281,14 @@ i_findings() {
       for (i = 1; i <= no; i++) iso[O[i]] = 1
     }
     {
-      sub(/\r$/, "")
+      sub(/[ \t\r]+$/, "")
       if ($0 ~ /^[ \t]*$/ || $0 ~ /^[ \t]*#/) next
       n = split($0, a, " [|] ")
       if (n < 5 || !(a[1] in iss) || !(a[2] in isl) || !(a[n] in iso)) {
-        bad = bad sep NR; sep = ","
+        if (++nbad <= 100) { bad = bad sep NR; sep = "," }
         next
       }
+      seen[a[2]] = 1
       c[a[2], a[1]]++
       c[a[2], a[n]]++
       read++
@@ -2231,94 +2296,114 @@ i_findings() {
     END {
       printf "{\"status\":\"read\",\"lines\":%d,\"byLens\":{", read
       for (i = 1; i <= nl; i++) {
-        printf "%s\"%s\":{", (i > 1 ? "," : ""), L[i]
+        if (!(L[i] in seen)) continue
+        printf "%s\"%s\":{", s2, L[i]
+        s2 = ","
         for (j = 1; j <= ns; j++) printf "%s\"%s\":%d", (j > 1 ? "," : ""), S[j], c[L[i], S[j]]
         for (j = 1; j <= no; j++) printf ",\"%s\":%d", O[j], c[L[i], O[j]]
         printf "}"
       }
-      printf "},\"unreadable\":[%s]}\n", bad
-    }' "$file" > "$tmp"; then
-    rm -f "$tmp"
-    die "findings-I.txt could not be read"
-  fi
-  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  state_write "$sf" '.measurements = ((.measurements // {}) | .i = ((.i // {}) | .findings = $fd[0]))' --slurpfile fd "$tmp"
-  printf 'findings: %s lines read, %s unreadable\n' "$(jqs '.lines' "$tmp")" "$(jqs '.unreadable | length' "$tmp")"
-  jqs '.unreadable[] | "unreadable line: \(.)"' "$tmp"
-  rm -f "$tmp"
+      printf "},\"unreadableLines\":%d,\"unreadable\":[%s]}\n", nbad, bad
+    }' "$file")" || die "findings-I.txt could not be read"
 }
 
+# shellcheck disable=SC2016 # jq programs: their $ names are jq's
 cmd_i_measure() {
   feature="$1"
   shift
-  local verb="${1:-}" part="${2:-}" reason="${3:-}" sf st secs t
-  local usage='usage: i-measure <feature> dispatch | start <part> | done <part> | skip <part> <reason> | unmeasured <part> | findings'
+  local verb="${1:-}" part="${2:-}" reason="${3:-}" sf st val t secs='' elapsed
+  local usage='usage: i-measure <feature> dispatch | start <part> | done <part> [--seconds <n>] | skip <part> <reason> | unmeasured <part> | unmeasured findings | findings'
   case "$verb" in
     dispatch|findings) [ $# -eq 1 ] || die "$usage" ;;
-    start|done|unmeasured) [ $# -eq 2 ] || die "$usage" ;;
+    start|unmeasured) [ $# -eq 2 ] || die "$usage" ;;
+    done)
+      if [ $# -eq 4 ] && [ "$3" = --seconds ]; then
+        secs="$4"
+        case "$secs" in ''|*[!0-9]*) die "--seconds takes a whole number" ;; esac
+        [ "${#secs}" -le 10 ] || die "--seconds takes a whole number of at most 10 digits"
+        secs=$((10#$secs))
+      else
+        [ $# -eq 2 ] || die "$usage"
+      fi ;;
     skip) [ $# -eq 3 ] || die "$usage" ;;
     *) die "$usage" ;;
   esac
-  case "$verb" in
-    dispatch|findings) ;;
-    *)
-      case " $I_PARTS " in
-        *" $part "*) case "$part" in ''|*' '*) die "'$part' is not a part: $I_PARTS" ;; esac ;;
-        *) die "'$part' is not a part: $I_PARTS" ;;
-      esac ;;
-  esac
-  if [ "$verb" = skip ]; then i_reason_ok "$reason" || die "a reason is 1 to 40 of a to z, digits and dash"; fi
+  if [ $# -ge 2 ] && [ "$verb $part" != 'unmeasured findings' ] && ! word_in "$part" "$I_PARTS"; then
+    shown val "$part"
+    die "'$val' is not a part: $I_PARTS"
+  fi
+  if [ "$verb" = skip ]; then
+    word_in "$part" "$I_SKIPPABLE" || die "$part is never skipped: no rule leaves it out. Use unmeasured $part if it has no number"
+    i_reason_ok "$reason" || die "a reason is 1 to 40 of a to z, digits and dash"
+  fi
   sf="$(cmd_validate "$feature")"
+  case "$verb" in
+    findings) i_findings_read "$feature" ;;
+    # The run writes to this name next, with a file tool that would follow a link.
+    dispatch) [ ! -L "$(run_dir "$feature")/findings-I.txt" ] || die "findings-I.txt is a link: remove it from the run directory" ;;
+  esac
   state_lock "$sf"
   t="$(date +%s)"
   case "$verb" in
     dispatch)
-      i_put "$sf" "$I_LENSES" "{\"status\":\"started\",\"started\":$t}"
+      i_dispatch "$sf" "$t"
       printf 'dispatched\n' ;;
     start)
       i_put "$sf" "$part" "{\"status\":\"started\",\"started\":$t}"
       printf '%s: started\n' "$part" ;;
     done)
-      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      st="$(jqs --arg p "$part" '.measurements.i.parts[$p].status? // "none"' "$sf")"
+      val="$(jqs --arg p "$part" '.measurements.i.parts[$p] | "\(.status? // "none") \(.seconds? // .started? // "")"' "$sf")" \
+        || die "could not read measurements.i from the state file"
+      st="${val%% *}"
+      val="${val#* }"
       case "$st" in
-        done)
-          # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-          secs="$(jqs --arg p "$part" '.measurements.i.parts[$p].seconds' "$sf")"
-          die "$part is already recorded: $secs s" ;;
-        started) ;;
+        done|started) case "$val" in ''|*[!0-9]*) die "the record of $part is not a number: use unmeasured $part" ;; esac ;;
         *) die "no start is recorded for $part: run i-measure $feature start $part, or unmeasured $part" ;;
       esac
-      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      state_write "$sf" '.measurements.i.parts[$p] |= (. + {status: "done", seconds: ($t - .started)})' --arg p "$part" --argjson t "$t"
-      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      printf '%s: %s s\n' "$part" "$(jqs --arg p "$part" '.measurements.i.parts[$p].seconds' "$sf")" ;;
+      [ "$st" = started ] || die "$part is already recorded: $val s"
+      elapsed=$((t - val))
+      [ "$elapsed" -ge 0 ] || die "the clock moved back since $part started: use unmeasured $part"
+      if [ -z "$secs" ]; then secs="$elapsed"; fi
+      [ "$secs" -le "$elapsed" ] || die "--seconds $secs is more than the $elapsed s since $part started"
+      state_write "$sf" '.measurements.i.parts[$p] += {status: "done", seconds: $s}' --arg p "$part" --argjson s "$secs"
+      printf '%s: %s s\n' "$part" "$secs" ;;
     skip)
       i_put "$sf" "$part" "{\"status\":\"skipped\",\"reason\":\"$reason\"}"
       printf '%s: skipped, %s\n' "$part" "$reason" ;;
     unmeasured)
-      i_put "$sf" "$part" '{"status":"missing"}'
+      if [ "$part" = findings ]; then
+        i_set_findings "$sf" '{"status":"missing"}'
+      else
+        i_put "$sf" "$part" '{"status":"missing"}'
+      fi
       printf '%s: missing\n' "$part" ;;
     findings)
-      i_findings "$sf" "$feature" ;;
+      i_set_findings "$sf" "$I_READ"
+      jqs -n --argjson f "$I_READ" '"findings: \($f.lines) lines read, \($f.unreadableLines) unreadable", "unreadable line: \($f.unreadable[])"'
+      printf '\n' ;;
   esac
   state_unlock
 }
 
-# i_gate <state file> <feature> — phase-done I refuses a part with no record, or
-# findings not read. A phase I already completed is past it: that run may be an
-# older pipeline's. The caller holds the lock.
+# i_gate <state file> <feature> — phase-done I refuses a part with no finished
+# record, and findings not read, or read with a line that does not read. Past it:
+# a phase I an older pipeline completed, with no measure at all. The caller holds
+# the lock.
+# shellcheck disable=SC2016 # a jq program: its $ names are jq's
 i_gate() {
-  local sf="$1" absent found
-  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  [ "$(jqs '(.completed_phases // []) | index("I") != null' "$sf")" != true ] || return 0
-  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-  absent="$(jqs --arg l "$I_PARTS" '[($l | split(" "))[] as $p
-    | select((.measurements.i.parts[$p].status? // "") as $s | ($s == "done" or $s == "skipped" or $s == "missing") | not)
-    | $p] | join(" ")' "$sf")"
-  found="$(jqs '.measurements.i.findings.status? // ""' "$sf")"
-  [ -n "$absent" ] || [ "$found" != read ] || return 0
-  die "phase I is not measured:${absent:+ no record for: $absent;}$([ "$found" = read ] || printf ' the findings are not read;') use progress.sh i-measure $2, as \"Measuring phase I\" in docs/phases.md says"
+  local gap
+  gap="$(jqs --arg l "$I_PARTS" 'if ((.completed_phases // []) | index("I")) != null and .measurements.i == null then "" else
+      ([($l | split(" "))[] as $p
+        | select((.measurements.i.parts[$p].status? // "") as $s | ($s == "done" or $s == "skipped" or $s == "missing") | not)
+        | $p] | join(" ")) as $a
+      | (.measurements.i.findings? // {}) as $f
+      | (if $a != "" then " no finished record for: \($a);" else "" end)
+        + (if $f.status == "missing" then ""
+           elif $f.status != "read" then " the findings are not read;"
+           elif ($f.unreadableLines // 0) > 0 then " \($f.unreadableLines) lines of findings-I.txt do not read;"
+           else "" end)
+    end' "$1")" || die "could not read measurements.i from the state file"
+  [ -z "$gap" ] || die "phase I is not measured:$gap use progress.sh i-measure $2, as \"Measuring phase I\" in docs/phases.md says"
 }
 
 # --- state-set ----------------------------------------------------------------
@@ -2332,7 +2417,7 @@ i_gate() {
 # or is never written, and is refused.
 STATE_SET_KEYS=" gates artifacts measurements config analyze_changelog test_baseline last_task "
 cmd_state_set() {
-  feature="$1"; local key="${2:-}" sub='' json='' file='' file_s='' want k ok=1
+  feature="$1"; local key="${2:-}" sub='' json='' file='' file_s='' want
   local usage='usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'
   case $# in
     3) [ "$3" != --json-file ] || die "$usage"
@@ -2348,9 +2433,7 @@ cmd_state_set() {
        [ -n "$sub" ] || die "the sub-key is empty" ;;
     *) die "$usage" ;;
   esac
-  ok=0
-  for k in $STATE_SET_KEYS; do if [ "$k" = "$key" ]; then ok=1; fi; done
-  [ "$ok" -eq 1 ] || die "state-set does not write '$key' (it writes:${STATE_SET_KEYS% })"
+  word_in "$key" "$STATE_SET_KEYS" || die "state-set does not write '$key' (it writes:${STATE_SET_KEYS% })"
   case "$key" in
     analyze_changelog) want=array ;;
     test_baseline|last_task) want=string ;;
@@ -2390,6 +2473,16 @@ cmd_state_set() {
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
       jq -e --argjson v "$json" '((.gates | has("pending")) == ($v | has("pending"))) and (.gates.pending == $v.pending)' "$sf" > /dev/null \
         || die "a whole-gates write must keep gates.pending as it is: it is written only by ask-later and answer"
+    fi
+  fi
+  # measurements.i belongs to i-measure: a write here could forge a passing record
+  # past phase-done I, or drop a recorded number in silence.
+  if [ "$key" = measurements ]; then
+    [ "$sub" != i ] || die "measurements.i is written only by i-measure"
+    if [ -z "$sub" ]; then
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      jq -e --argjson v "$json" '.measurements.i == $v.i' "$sf" > /dev/null \
+        || die "a whole-measurements write must keep measurements.i as it is: it is written only by i-measure"
     fi
   fi
   if [ -n "$sub" ]; then
@@ -3141,12 +3234,11 @@ base_start() {
   base_put "$bd/admin" "$admin"
   base_put "$bd/started" "$(date +%s)"
   # The runner in a process group of its own, by job control, so the wait can
-  # stop it. Job control and not setsid: a background job with no job control
-  # ignores INT on entry, no bash under it can undo that, and a suite that
-  # tests its own INT then holds until its limit. A setsid under job control
-  # forks, so $! would name a process already gone. Every descriptor is closed
-  # or redirected: a runner holding the caller's output open would keep the
-  # caller (and bats, through its descriptor 3) waiting for it.
+  # stop it. Job control and not setsid, as "Reusing a suite run" in
+  # docs/phases.md says: a setsid under job control forks, so $! would name a
+  # process already gone. Every descriptor is closed or redirected: a runner
+  # holding the caller's output open would keep the caller (and bats, through
+  # its descriptor 3) waiting for it.
   if ! (
     set -m
     bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
@@ -3172,7 +3264,7 @@ base_start() {
 # else. It reads the configuration in the main tree, takes the key in the
 # checkout before and after the command, and writes the record into the
 # main tree's suite directory with the one writer.
-BR_TOP='' BR_BD='' BR_TREE='' BR_ADMIN='' BR_HB='' BR_CHILD='' BR_DONE=''
+BR_TOP='' BR_BD='' BR_TREE='' BR_ADMIN='' BR_HB='' BR_CHILD='' BR_PENDING='' BR_DONE=''
 base_run() {
   local f="$1" rel key0 rc tmpd v
   need_git_top
@@ -3208,10 +3300,14 @@ base_run() {
   tmpd="$(mktemp -d "${BR_TREE%/tree}/tmp.XXXXXX")" || die "could not make the runner's TMPDIR"
   # Job control here too, or the command alone would start with INT ignored. So
   # the command leads a process group of its own: every stop signals that group.
+  # A TERM waits out these few lines, so that the exit trap has the id to signal.
+  trap 'BR_PENDING=1' TERM
   set -m
   TMPDIR="$tmpd" bash -c "$SK_CMD" > "$BR_BD/suite.tap" 2>&1 < /dev/null &
   BR_CHILD=$!
   set +m
+  trap 'BR_DONE="${BR_DONE:-stopped}"; exit 0' TERM
+  if [ -n "$BR_PENDING" ]; then BR_DONE="${BR_DONE:-stopped}"; exit 0; fi
   printf '%s\n' "$BR_CHILD" > "$BR_BD/child"
   rc=0; wait "$BR_CHILD" || rc=$?
   # The command has ended: its id is no longer ours to signal.
@@ -3233,12 +3329,18 @@ base_run() {
 # folders, write the outcome last unless the wait wrote one, then the
 # script's own clean-up. A runner that died without saying why says so.
 base_run_exit() {
+  local n
   trap '' TERM
   if [ -n "$BR_HB" ]; then kill "$BR_HB" 2>/dev/null || true; fi
-  # A command still running is stopped with all it started: it leads its own
-  # process group. Where there is no such group, the command's id alone.
+  # A command still running is stopped with all it started: TERM to its group, and
+  # KILL at 8 s to what ignores TERM, in time for base_stop's fallback at 10 s. The
+  # id goes with the group, so that nothing later signals it.
   if [ -n "$BR_CHILD" ]; then
-    kill -TERM -- "-$BR_CHILD" 2>/dev/null || kill -TERM "$BR_CHILD" 2>/dev/null || true
+    kill_group TERM "$BR_CHILD"
+    n=0
+    while group_alive "$BR_CHILD" && [ "$n" -lt 40 ]; do n=$((n + 1)); sleep 0.2; done
+    if group_alive "$BR_CHILD"; then kill_group KILL "$BR_CHILD"; fi
+    rm -f "$BR_BD/child"
   fi
   cd "$BR_TOP" 2>/dev/null || true
   base_remove_tree "$BR_TREE" "$BR_ADMIN"
@@ -3333,6 +3435,11 @@ base_wait() {
   done
 }
 
+# kill_group <signal> <id> — the signal to the process group the id leads, or to
+# the id alone where it leads none. group_alive <id> looks the same way.
+kill_group() { kill "-$1" -- "-$2" 2>/dev/null || kill "-$1" "$2" 2>/dev/null || true; }
+group_alive() { kill -0 -- "-$1" 2>/dev/null || kill -0 "$1" 2>/dev/null; }
+
 # base_stop <dir> <limit> — the limit passed with the runner alive and its
 # heartbeat fresh: TERM to its process group, or to its own id where the
 # group cannot be signalled; its trap stops the command and cleans up. Only
@@ -3342,12 +3449,12 @@ base_wait() {
 base_stop() {
   local bd="$1" limit="$2" pid child out n=0
   pid="$(base_pid "$bd/pid")" || return 0
-  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  kill_group TERM "$pid"
   while [ ! -f "$bd/outcome" ] && [ "$n" -lt 10 ]; do n=$((n + 1)); sleep 1; done
   if [ ! -f "$bd/outcome" ]; then
-    kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    kill_group KILL "$pid"
     child="$(base_pid "$bd/child" || true)"
-    if [ -n "$child" ]; then kill -KILL -- "-$child" 2>/dev/null || kill -KILL "$child" 2>/dev/null || true; fi
+    if [ -n "$child" ]; then kill_group KILL "$child"; fi
     base_remove_tree "$(cat "$bd/tree" 2>/dev/null || true)" "$(cat "$bd/admin" 2>/dev/null || true)"
   fi
   out="$(cat "$bd/outcome" 2>/dev/null || true)"

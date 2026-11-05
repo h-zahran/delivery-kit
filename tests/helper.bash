@@ -400,3 +400,10 @@ probe() {
   if [ "${1:-}" = "--path" ] && [ "$#" -ge 2 ]; then searchpath="$2"; shift 2; fi
   run --separate-stderr env PATH="$searchpath" "$BASH_ABS" "$PROBE" "$@"
 }
+
+# What a bash started here does with INT, as a word: caught or ignored. A behaviour,
+# because bash versions print trap -p differently for a signal ignored on entry.
+# A background job with no job control ignores INT on entry, and no bash under it
+# can catch or reset it.
+# shellcheck disable=SC2034 # read by the suites that load this file
+INT_PROBE='r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r"'

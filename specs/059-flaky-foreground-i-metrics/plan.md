@@ -6,7 +6,7 @@
 
 ## Summary
 
-Three small changes, shipped as pipeline 1.12.0. `suite-base start` and its runner start the test command with `SIGINT` not ignored, by job control in place of `setsid`, and the stop test gives a correct answer when it is itself started with `SIGINT` ignored. Every agent brief requires foreground test runs. A new `progress.sh i-measure` records phase I's parts, `phase-done I` refuses until each part has a record, and `progress.sh metrics` shows them in `pipeline-run.json`.
+Three small changes, shipped as pipeline 1.12.0. `suite-base start` and its runner add no ignore of `SIGINT`, by job control in place of `setsid`, and the stop test still sends a real `SIGINT` when it is itself started with `SIGINT` ignored: it must do nothing, and `TERM` then ends the script (FR-002). Every agent brief requires foreground test runs. A new `progress.sh i-measure` records phase I's parts, `phase-done I` refuses until each part has a record, and `progress.sh metrics` shows them in `pipeline-run.json`. The orchestrator records each lens's return (FR-012). A new record moves the old one to `earlier`, and a second `done` is refused (FR-016).
 
 ## Technical Context
 
@@ -36,7 +36,7 @@ Three small changes, shipped as pipeline 1.12.0. `suite-base start` and its runn
 | II. Measure; never assert | The cause was reproduced before the plan. The start methods were measured one by one in `research.md`. The fix runs at least 500 passes under load. |
 | III. A gate must be shown able to go red | New tests go red under planted faults: a runner back on `setsid`, a child with no job control, a gate removed, a missing measure written as 0. Inverted mutants as well as deleted ones. |
 | IV. One implementation, many callers | `i-measure` is the one writer of `measurements.i`. `metrics` reads it through its one jq program. |
-| V. Derive coverage; never enumerate it | The gate's list of parts and the doc's list are one list, tested against each other. The rule test reads the units in "Parallel agents" and holds the rule to all of them. |
+| V. Derive coverage; never enumerate it | The gate's list of parts and the doc's list are one list, tested against each other. The rule names no phase, so a new unit in "Parallel agents" is bound with no list to go stale, and the test pins the rule's whole line. |
 
 No violations. Re-checked after design: no change.
 

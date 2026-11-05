@@ -360,38 +360,72 @@ TEXT
 
 # The rule, whole. It says "each agent brief" and names no phase, so a new unit of
 # work in "Parallel agents" is bound with no change here.
-FOREGROUND_RULE='**Test runs in a brief:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.'
+FOREGROUND_RULE='**Test runs:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.'
 
 @test "foreground: the orchestrator's ground rules hold the rule, whole" {
+  # The whole line: a sentence added to it, or a carve-out, goes red.
   local s
   s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
   printf '%s\n' "$FOREGROUND_RULE" | pins_in "$s" 'the ground rules'
+  tr -d '\r' < "$ORCH" | grep -qxF -- "- $FOREGROUND_RULE" || { echo "the rule's line is not the rule alone"; return 1; }
 }
 
 @test "foreground: spec-review's lenses hold the rule, whole" {
   local s
   s="$(span "$REVIEW" '^## The three lenses$' '^1[.] ')" || return 1
   printf '%s\n' "$FOREGROUND_RULE" | pins_in "$s" 'the three lenses'
+  tr -d '\r' < "$REVIEW" | grep -qxF -- "$FOREGROUND_RULE" || { echo "the rule's line is not the rule alone"; return 1; }
 }
 
-@test "foreground: the only background run the orchestrator names is its own base suite" {
-  # A sentence that told an agent to run in the background would undo the rule.
-  # Each line that says the word is the rule itself, or phase B's base suite.
-  local l n=0
-  while IFS= read -r l; do
-    case "$l" in
-      *'**Test runs in a brief:**'*|*'starts the full suite on that commit in the background, in a separate'*) n=$((n + 1)) ;;
-      *) echo "a new line says background: $l"; return 1 ;;
-    esac
-  done < <(tr -d '\r' < "$ORCH" | grep -i -- 'background')
-  [ "$n" -eq 2 ] || { echo "expected the rule and the base suite, found $n lines"; return 1; }
+@test "foreground: the only background run the briefs' sources name is the base suite" {
+  # A sentence that told an agent to run in the background would undo the rule. So
+  # every skill and doc of the plugin is read, each line that says the word is one
+  # of these, by the exact words around it, and each stays once.
+  local f l seen='' allowed=(
+    '**Test runs:** each agent brief says: foreground only, no background run'
+    'starts the full suite on that commit in the background, in a separate'
+    "or a result the run's own background run recorded on the base commit"
+    'suite-base <feature> start` runs the test command in the background on a'
+    'control. A background job with no job control starts with `SIGINT` ignored,'
+    'J and N run it, and B starts it in the background on the base commit.'
+    '**Test command:** B starts this command in the background, before the first'
+  )
+  local a n=0 found
+  for f in "$ROOT"/pipeline/skills/*/SKILL.md "$ROOT"/pipeline/docs/*.md; do
+    while IFS= read -r l; do
+      found=0
+      for a in "${allowed[@]}"; do
+        if [[ "$l" == *"$a"* ]]; then found=1; break; fi
+      done
+      [ "$found" = 1 ] || { echo "a new line says background, in $f: $l"; return 1; }
+      n=$((n + 1))
+    done < <(tr -d '\r' < "$f" | grep -i -- 'background')
+  done
+  # The rule is in two skills, and each other line in one place.
+  [ "$n" -eq 8 ] || { echo "expected 8 lines that say background, found $n"; return 1; }
+}
+
+@test "the doc tells the orchestrator how to measure phase I" {
+  local s
+  s="$(span "$ROOT/pipeline/docs/phases.md" '^## Measuring phase I$' '^## Using them with the flags$')" || return 1
+  pins_in "$s" 'Measuring phase I' <<'PINS'
+| First in the message that sends the lenses | `dispatch`: starts the five lenses |
+| As each lens returns | `done <lens>`, with `--seconds <n>` when the return states its own duration |
+| Before the fixes | `start fixes` |
+| After the fixes | `done fixes`, or `skip fixes no-findings` when there were none |
+| Before the `bugs` lens reads the fixes | `start recheck` |
+| When every finding has an outcome | write `findings-I.txt`, then `findings` |
+`SEVERITY | lens | file:line | finding | outcome`. The outcome is `fixed`, `deferred` or `declined`,
+write the file with the file tool, never through a shell command, and put each finding on one line.
+A measure not taken reads `missing` or `null`, never 0.
+PINS
 }
 
 @test "the fault harness is pointed at from the ground rules and explained in phases.md, whole" {
   local s
   s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
   pins_in "$s" 'the ground rules' <<'PINS'
-- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it. - **Test runs in a brief:**
+- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it. - **Test runs:**
 PINS
   s="$(span "$ROOT/pipeline/docs/phases.md" '^## One fault harness per run$' '^## Questions that wait$')" || return 1
   exactly "$s" 'the phases.md section' <<'TEXT'

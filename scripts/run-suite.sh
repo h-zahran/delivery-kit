@@ -187,8 +187,8 @@ EOF
 
 # xargs runs in a process group of its own, so a stop reaches the test processes
 # too. TERM to the group, else to its own id, as progress.sh's base_stop does. A
-# process that ignores TERM gets KILL after 3 s, because base_stop allows this
-# script 10 s. A SIGKILL to this script itself cannot be trapped: its test files
+# process that ignores TERM gets KILL after 3 s, because base_run_exit allows this
+# script 8 s. A SIGKILL to this script itself cannot be trapped: its test files
 # then run on, in their own group.
 end_group() {
   local pid="$1" t=0
@@ -202,7 +202,7 @@ end_group() {
 }
 
 # `${!:-}` covers a stop in the gap between starting xargs and reading its id. The
-# second TERM of a pair is ignored: base_run sends one straight after another. Once
+# second TERM is ignored: the first has begun the stop. Once
 # xargs has ended its id is no longer this script's to signal, and a report already
 # printed is not printed again. stderr comes back first: the wait below silences it,
 # and a trap runs inside that silence.

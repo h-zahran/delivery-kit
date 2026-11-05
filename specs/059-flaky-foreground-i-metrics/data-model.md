@@ -8,7 +8,7 @@
     "contract": {"status": "done", "started": 1762340000, "seconds": 812},
     "bugs": {"status": "skipped", "reason": "no-code-review-skill"},
     "fixes": {"status": "started", "started": 1762341000},
-    "recheck": {"status": "missing", "reason": "not-recorded"}
+    "recheck": {"status": "missing"}
   },
   "findings": {
     "status": "read",
@@ -16,6 +16,7 @@
       "contract": {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 0, "fixed": 3, "deferred": 0, "declined": 0}
     },
     "lines": 3,
+    "unreadableLines": 1,
     "unreadable": [7]
   },
   "earlier": [
@@ -32,7 +33,7 @@
 |---|---|---|
 | `started` | `dispatch` or `start` | Clock running. The gate does not accept it. |
 | `done` | `done` | `seconds` holds whole wall seconds. |
-| `skipped` | `skip <reason>` | It did not run, by rule. No seconds. |
+| `skipped` | `skip <reason>` | It did not run, by rule. No seconds. Only `bugs`, `simplify`, `fixes` and `recheck` can be skipped. |
 | `missing` | `unmeasured` | It ran or may have run, and nobody has a number. No seconds. |
 | no entry | nothing | Not recorded. The gate refuses. |
 
@@ -51,6 +52,7 @@
   "findings": {
     "status": "read",
     "byLens": {"contract": {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 0, "fixed": 3, "deferred": 0, "declined": 0}, "bugs": null},
+    "unreadableLines": 0,
     "unreadable": []
   },
   "accountedSeconds": 2100,
@@ -60,9 +62,9 @@
 
 - With no `measurements.i`: `{"status": "missing"}`. So a run from an older pipeline stays valid and reads as missing.
 - Every part of the list appears. A part with no record reads `{"status": "missing", "seconds": null}`.
-- `findings.status` is `read` or `missing`. A lens with status `done` has its counts, and zeros when it found nothing. Any other lens has `null`, never zeros, unless it reported findings: then the counts stand, so a lens with no clock keeps what it found.
+- `findings.status` is `read` or `missing`. The state file holds counts only for a lens with a line. In `phaseI`, a lens with status `done` and no line has zeros. Any other lens with no line has `null`, never zeros. A lens with a line keeps its counts, so a lens with no clock keeps what it found.
 - `accountedSeconds`: the longest of the five lenses, because they run at once, plus `fixes`, plus `recheck`. A skipped part adds nothing. It is `null` when any part is not `done` or `skipped`. Read it against `phases.I.seconds`.
 
 ## In the run directory: `findings-I.txt`
 
-One line per finding: `SEVERITY | lens | file:line | finding | outcome`. Blank lines and lines that start with `#` are allowed. An empty file is a real zero.
+One line per finding: `SEVERITY | lens | file:line | finding | outcome`. Blank lines and lines that start with `#` are allowed. An empty file is a real zero. The file may not be a link, and may not pass 262,144 bytes. `unreadable` names at most the first 100 bad lines, and `unreadableLines` counts them all.
