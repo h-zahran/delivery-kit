@@ -111,3 +111,9 @@ Each phase is one review piece. The order frees the skill's bytes first, and lea
 ## Implementation Strategy
 
 Phase 1 alone fixes the failing resume. Phases 2 to 4 close the two silent paths. Phase 5 makes the tests honest about their region. The owner merges, and the tag follows the merge. DONE reports each phase's minutes against run 056 and run 057 (FR-027); it needs no task, and it writes nothing to the branch.
+
+---
+
+## Note: names in any language
+
+Phase J made this change, on the owner's answer at gate K (FR-024d to FR-024g), so it has no piece. `pipeline/scripts/names.sh` holds the one rule. Each refusal that became legal in `pipeline/tests/preflight.bats`, `pipeline/tests/progress.bats` and `pipeline/tests/branch-cut.bats` is now an acceptance test, and each refusal that stays keeps a test.

@@ -311,7 +311,7 @@ stub() {
   git symbolic-ref HEAD refs/heads/work
   probe --dir "$T" --base-branch 'a$b'
   [ "$status" -eq 1 ] || { echo "configured a\$b: exit $status: $output"; false; }
-  [ "$stderr" = "preflight: 'a\$b' holds a character other than a letter, a digit, '.', '_', '-' or '/' (the baseBranch key)" ] \
+  [ "$stderr" = "preflight: 'a\$b' holds a character a shell reads: one of \$ \` ; & | ( ) < > quotes { } ! (the baseBranch key)" ] \
     || { echo "configured a\$b: $stderr"; false; }
   git update-ref refs/remotes/origin/-dash HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/-dash
@@ -404,7 +404,7 @@ stub() {
       ./*|*//*)     want='has an empty or . segment' ;;
       *\\*)        want='holds a backslash' ;;
       .delivery-*)  want='is inside the state directory' ;;
-      *)            want='a folder name holds letters, digits, dot, dash, underscore only' ;;
+      *)            want='a folder name holds letters of any language, digits, dot, dash, underscore only' ;;
     esac
     probe --dir "$T" --spec-dir "$bad"
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
@@ -771,7 +771,7 @@ stub() {
       .[Dd]elivery-[Kk]it/*) want='inside the state directory' ;;
       *.[Gg][Ii][Tt]/*)      want="inside git's own directory" ;;
       -*|*/-*)               want='starts with a dash' ;;
-      *)                     want='a folder name holds letters, digits, dot, dash, underscore only' ;;
+      *)                     want='a folder name holds letters of any language, digits, dot, dash, underscore only' ;;
     esac
     probe --dir "$T" --spec-dir "$bad"
     [ "$status" -ne 0 ] || { echo "accepted: $bad"; false; }
@@ -2243,26 +2243,25 @@ judge_big() {
   [ "$stderr" = "preflight: '/x?]0;pwned?' is not relative to the repository root (--spec-dir)" ] || { echo "absolute: $stderr"; false; }
   probe --dir "$T" --spec-dir $'specs/a\xe2\x80\xaeb'
   [ "$status" -eq 1 ] || { echo "segment: status $status"; false; }
-  [ "$stderr" = "preflight: 'specs/a???b' has the segment 'a???b'; a folder name holds letters, digits, dot, dash, underscore only (--spec-dir)" ] \
+  [ "$stderr" = "preflight: 'specs/a???b' has the segment 'a???b'; a folder name holds letters of any language, digits, dot, dash, underscore only (--spec-dir)" ] \
     || { echo "segment: $stderr"; false; }
 }
 
-@test "branch names: a character other than a letter, a digit, dot, underscore, dash or slash is refused" {
+@test "branch names: a character a shell reads, or a hidden one, is refused" {
   # Review 4, blocking 1 and non-blocking 4: git accepts $ ( ) ; & | < > a
   # quote, a backtick and any byte past 0x7f in a branch name, and the name
   # is printed in refusals and typed into commands. Only the safe set passes.
   T="$BATS_TEST_TMPDIR/branch-charset"; mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   local bad want
-  for bad in 'y$(id)' 'a;b' 'a`b`' "a'b" 'a"b' 'a&b' 'a|b' 'a<b>' 'a{b}' 'a+b' $'feat\xe2\x80\xaegnp'; do
-    want="${bad//$'\xe2\x80\xae'/???}"
+  for bad in 'y$(id)' 'a$b' 'a;b' 'a`b' "a'b" 'a"b' 'a&b' 'a|b' 'a(b' 'a)b' 'a<b' 'a>b' 'a{b' 'a}b' 'a!b'; do
     probe --dir "$T" --feature-branch "$bad"
     [ "$status" -eq 1 ] || { echo "status $status: $bad"; false; }
-    [ "$stderr" = "preflight: '$want' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--feature-branch)" ] \
+    [ "$stderr" = "preflight: '$bad' holds a character a shell reads: one of \$ \` ; & | ( ) < > quotes { } ! (--feature-branch)" ] \
       || { echo "wrong reason: $bad: $stderr"; false; }
   done
   probe --dir "$T" --base-branch-override 'x;y'
   [ "$status" -eq 1 ] || { echo "override: status $status"; false; }
-  [ "$stderr" = "preflight: 'x;y' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)" ] \
+  [ "$stderr" = "preflight: 'x;y' holds a character a shell reads: one of \$ \` ; & | ( ) < > quotes { } ! (--base-branch-override)" ] \
     || { echo "override: $stderr"; false; }
   probe --dir "$T" --feature-branch 'Team_1/a.b-C9'
   [ "$status" -eq 0 ] || { echo "refused a safe name: $stderr"; false; }
@@ -2291,7 +2290,7 @@ judge_big() {
       (cd "$T/repo" && bash -c "$cmd") >/dev/null 2>&1 || true ;;
   esac
   [ ! -e "$T/repo/PWNED" ] && [ ! -e "$T/PWNED" ] || { echo "the refusal's command ran the name: $stderr"; false; }
-  [ "$stderr" = "preflight: '$name' holds a character other than a letter, a digit, '.', '_', '-' or '/' (--base-branch-override)" ] \
+  [ "$stderr" = "preflight: '$name' holds a character a shell reads: one of \$ \` ; & | ( ) < > quotes { } ! (--base-branch-override)" ] \
     || { echo "wrong reason: $stderr"; false; }
 }
 
@@ -2780,11 +2779,60 @@ judge_big() {
   refused "$long" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
 }
 
-# Feature 058: one rule for a branch name's characters, in two scripts.
-@test "preflight.sh and progress.sh hold one rule for a branch name's characters" {
-  local cls='*[!A-Za-z0-9._/-]*'
-  grep -qF -- "$cls" "$ROOT/pipeline/scripts/preflight.sh" || { echo "preflight.sh's character rule changed"; false; }
-  grep -qF -- "$cls" "$ROOT/pipeline/scripts/progress.sh" || { echo "progress.sh's character rule changed"; false; }
+# Feature 058: one rule for a name, in one file both scripts read.
+@test "preflight.sh and progress.sh read names.sh, and neither holds a copy of its rule" {
+  local f
+  for f in preflight.sh progress.sh; do
+    if grep -qE '^[[:space:]]*(function[[:space:]]+)?(shown|text_ok|name_problem|run_name_ok)[[:space:]]*(\(\)|\{)' "$ROOT/pipeline/scripts/$f"; then
+      echo "$f holds its own copy"; false
+    fi
+  done
+  grep -qxF '  . "$here/$f"' "$ROOT/pipeline/scripts/preflight.sh" || { echo "preflight.sh no longer sources its files"; false; }
+  grep -qF 'for f in hidden-chars.sh names.sh; do' "$ROOT/pipeline/scripts/preflight.sh" || { echo "preflight.sh no longer reads names.sh"; false; }
+  grep -qxF '. "$SCRIPT_DIR/names.sh"' "$ROOT/pipeline/scripts/progress.sh" || { echo "progress.sh no longer reads names.sh"; false; }
+}
+
+# Feature 058: anyone may use the kit, in any language. Mutation: restore an ASCII
+# allowlist in names.sh.
+@test "a branch or a spec folder in any language is taken, and # + = @ in a branch" {
+  local n
+  T="$BATS_TEST_TMPDIR/any-name"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  for n in 'fix#12' 'a+b=c' 'a@b' 'a,b%c' 'feature/الدفع'; do
+    probe --dir "$T" --feature-branch "$n"
+    [ "$status" -eq 0 ] || { echo "$n: $stderr"; false; }
+    [ "$(jq -r '.featureBranch' <<<"$output")" = "$n" ] || { echo "$n: $output"; false; }
+  done
+  git branch 'rel#1'
+  probe --dir "$T" --base-branch-override 'rel#1'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.baseBranch' <<<"$output")" = 'rel#1' ]
+  probe --dir "$T" --spec-dir 'specs/001-الدفع'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -r '.specDir' <<<"$output")" = 'specs/001-الدفع' ]
+}
+
+@test "a name in any language still reads as itself in a refusal, and what is not plain text does not" {
+  T="$BATS_TEST_TMPDIR/name-shown"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  # Mutation: mask every non-ASCII byte, and the Arabic reads as question marks.
+  refused "'الدفع;x' holds a character a shell reads: one of \$ \` ; & | ( ) < > quotes { } ! (--feature-branch)" --dir "$T" --feature-branch 'الدفع;x'
+  refused "'specs/ال دفع' has the segment 'ال دفع'; a folder name holds letters of any language, digits, dot, dash, underscore only (--spec-dir)" --dir "$T" --spec-dir 'specs/ال دفع'
+  # A bidi character, a C1 control and a byte that is not UTF-8 are not plain text.
+  refused "'a???b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xe2\x80\xaeb'
+  refused "'a??b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xc2\x9bb'
+  refused "'a?b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xffb'
+  refused "'specs/a???b' has the segment 'a???b'; a folder name holds letters of any language, digits, dot, dash, underscore only (--spec-dir)" --dir "$T" --spec-dir $'specs/a\xe2\x80\xaeb'
+}
+
+@test "a copy of preflight.sh without names.sh beside it stops, saying so and naming no path" {
+  local d="$BATS_TEST_TMPDIR/copy"
+  mkdir -p "$d"
+  cp "$PROBE" "$d/preflight.sh"
+  cp "$ROOT/pipeline/scripts/hidden-chars.sh" "$d/"
+  run --separate-stderr bash "$d/preflight.sh" --dir "$FIX/web"
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'preflight: names.sh is missing beside preflight.sh' ] || { echo "$stderr"; false; }
 }
 
 # Feature 058: a project type is the owner's own name. Anyone may use the kit for
@@ -2814,4 +2862,115 @@ judge_big() {
     refused "'$bad' $rule (the projectType key)" --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
   done
   [ ! -e marker ]
+}
+
+# Feature 058, the review of the names change. Mutation for each: drop its rule.
+@test "a branch that starts with + is refused, because git push reads it as a forced update" {
+  T="$BATS_TEST_TMPDIR/plus-name"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  refused "'+main' starts with +, which git push reads as a forced update (--feature-branch)" --dir "$T" --feature-branch +main
+  git branch 'a+b'
+  probe --dir "$T" --base-branch-override 'a+b'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+}
+
+@test "a look-alike space, a format character or a private-use character is not plain text" {
+  local n rule="holds a control or hidden character, or is not text (--feature-branch)"
+  T="$BATS_TEST_TMPDIR/look-alike"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  # U+00A0, U+3000, U+0600, U+E000, U+2800, U+FFFC.
+  for n in $'\xc2\xa0' $'\xe3\x80\x80' $'\xd8\x80' $'\xee\x80\x80' $'\xe2\xa0\x80' $'\xef\xbf\xbc'; do
+    probe --dir "$T" --feature-branch "x${n}y"
+    [ "$status" -eq 1 ] || { echo "accepted: $(printf '%s' "$n" | od -c | head -1)"; false; }
+    [[ "$stderr" == *"$rule" ]] || { echo "$stderr"; false; }
+  done
+}
+
+@test "a spec folder takes letters and marks of any language, and no other non-ASCII character" {
+  local n
+  T="$BATS_TEST_TMPDIR/folder-letters"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  for n in 'الدفع' 'भुगतान' 'การชำระเงิน' '支付' 'cafe\xcc\x81'; do
+    n="$(printf '%b' "$n")"
+    probe --dir "$T" --spec-dir "specs/$n"
+    [ "$status" -eq 0 ] || { echo "$n: $stderr"; false; }
+  done
+  # A fullwidth dot and slash, a symbol, a superscript digit Windows reads as a device.
+  for n in '．．' 'x＄' 'x💥' 'COM¹'; do
+    probe --dir "$T" --spec-dir "specs/$n"
+    [ "$status" -eq 1 ] || { echo "accepted: $n"; false; }
+    [[ "$stderr" == *'a folder name holds letters of any language'* ]] || { echo "$n: $stderr"; false; }
+  done
+}
+
+@test "a refusal's cut keeps whole characters in plain text" {
+  # Mutation: drop the backing-up loop, and the line ends in half a character.
+  local long
+  T="$BATS_TEST_TMPDIR/name-cut"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  # A two-byte and a three-byte letter, from every offset, so the cut falls on each
+  # byte of a character. Valid UTF-8 from end to end: jq hands back what it is given.
+  for long in "x$(printf 'ب%.0s' {1..150})" "xx$(printf 'ب%.0s' {1..150})" \
+              "x$(printf '支%.0s' {1..100})" "xx$(printf '支%.0s' {1..100})" "xxx$(printf '支%.0s' {1..100})"; do
+    probe --dir "$T" --feature-branch "$long;"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *'[cut]'* ]] || { echo "$stderr"; false; }
+    [ "$(jq -jn --arg t "$stderr" '$t')" = "$stderr" ] || { echo "half a character reached stderr"; false; }
+  done
+  # Exactly 200 bytes is not cut. Mutation: cut at 199 or 200 with -ge.
+  long="$(printf 'a%.0s' {1..199});"
+  probe --dir "$T" --feature-branch "$long"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" != *'[cut]'* ]] || { echo "$stderr"; false; }
+  # The mode is judged on the whole value: an escape past the cut still masks what
+  # is before it. Mutation: judge the cut copy.
+  long="$(printf 'ب%.0s' {1..150})"$'\033'
+  probe --dir "$T" --feature-branch "$long"
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *'????'* && "$stderr" != *'ب'* ]] || { echo "$stderr"; false; }
+}
+
+# A failing jq must read as not safe, never as safe. Mutation: compare != true, or
+# take empty output as a pass. jq is a function here, so nothing depends on which
+# jq the machine has. Each case is the value that reaches jq: non-ASCII.
+@test "text_ok reads a failing jq as not safe, whichever call fails" {
+  local v
+  v="$(printf 'caf\303\251')"
+  HC="$ROOT/pipeline/scripts/hidden-chars.sh" NS="$ROOT/pipeline/scripts/names.sh" V="$v" bash -c '
+    . "$HC"; . "$NS"
+    jq() { return 1; }
+    if text_ok "$V"; then echo "every call failed, and it passed"; exit 1; fi
+    jq() { case "$*" in *test*) return 1 ;; *) printf "%s" "$V" ;; esac; }
+    if text_ok "$V"; then echo "the second call failed, and it passed"; exit 1; fi
+    jq() { case "$*" in *test*) : ;; *) printf "%s" "$V" ;; esac; }
+    if text_ok "$V"; then echo "the second call printed nothing, and it passed"; exit 1; fi
+    jq() { case "$*" in *test*) echo false ;; *) printf "%s" "$V" ;; esac; }
+    text_ok "$V" || { echo "a clean answer read as not safe"; exit 1; }
+    # Plain ASCII needs no jq at all.
+    jq() { return 1; }
+    text_ok "plain-ascii" || { echo "ASCII reached jq"; exit 1; }
+    run_name_ok "plain_ascii.1" || { echo "ASCII run name reached jq"; exit 1; }
+    if run_name_ok "$V"; then echo "a run name passed on a failing jq"; exit 1; fi
+    # Only the letters test fails: the name is plain text, and still not safe.
+    jq() { case "$*" in *"p{L}"*) return 1 ;; *test*) echo false ;; *) printf "%s" "$V" ;; esac; }
+    if run_name_ok "$V"; then echo "a run name passed when the letters test failed"; exit 1; fi
+  '
+}
+
+@test "a run name and a segment take an underscore, a dot, a dash and a digit" {
+  T="$BATS_TEST_TMPDIR/run-chars"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  probe --dir "$T" --spec-dir 'specs/a_b.c-1'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  probe --dir "$T" --spec-dir 'specs/أ_ب.ج-1'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+}
+
+@test "a replacement character from a values file is not a name" {
+  T="$BATS_TEST_TMPDIR/replacement"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
+  printf '{"baseBranchOverride":"a\377b"}\n' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$T" --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$status" -eq 1 ] || { echo "accepted: $output"; false; }
+  [[ "$stderr" == *'holds a control or hidden character, or is not text (the baseBranchOverride key)' ]] || { echo "$stderr"; false; }
 }

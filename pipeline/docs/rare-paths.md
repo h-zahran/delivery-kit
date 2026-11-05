@@ -284,7 +284,9 @@ file is tracked, with
 `git ls-files --error-unmatch -- ':(literal,icase)<state file>'` —
 `literal` so no character in the path is read as a pattern, `icase` so a
 copy tracked under other letter case is found on a file system that
-ignores case: at pre-flight, before decision item 5 accepts a state
+ignores case. `icase` folds ASCII only, so for a run's name that holds another
+alphabet the run asks about the whole `.delivery-kit/runs` folder instead:
+at pre-flight, before decision item 5 accepts a state
 file's claim on the dirt, on every re-entry (`--resume`, `--from`, or a
 resume chosen at the resume prompt); and in B, straight after an `init`
 that finds a state file already there. Exit 0 means tracked: the run

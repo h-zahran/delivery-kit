@@ -135,7 +135,7 @@ setup() {
 @test "a feature name that could escape the runs directory is refused by name" {
   run bash "$PROG" init '../escape' b main web
   [ "$status" -ne 0 ]
-  [[ "$output" == *"letters, digits, dot, dash, underscore"* ]]
+  [[ "$output" == *"letters of any language, digits, dot, dash, underscore"* ]]
 }
 
 # "." and ".." pass the character rule and name directories that already
@@ -1694,7 +1694,7 @@ board_vs_lock_take() {
 @test "an empty feature name and one ending in a dot are refused, each by its own message" {
   run bash "$PROG" init '' b main web
   [ "$status" -ne 0 ]
-  [[ "$output" == *"feature name '' — letters, digits, dot, dash, underscore only"* ]] || { echo "$output"; false; }
+  [[ "$output" == *"feature name '' — letters of any language, digits, dot, dash, underscore only"* ]] || { echo "$output"; false; }
   run bash "$PROG" init a. b main web
   [ "$status" -ne 0 ]
   [[ "$output" == *"feature name 'a.' ends with a dot"* ]] || { echo "$output"; false; }
@@ -1811,14 +1811,14 @@ board_vs_lock_take() {
   run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'a\033[31m.json'
   [ "$status" -eq 1 ]
   [ "$stderr" = 'progress.sh: no readable file at a?[31m.json' ] || { echo "$stderr" | od -c | head -5; false; }
-  printf '{"a":\n' > $'caf\303\251.json'
-  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'caf\303\251.json'
+  printf '{"a":\n' > $'a\342\200\256b.json'
+  run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'a\342\200\256b.json'
   [ "$status" -eq 1 ]
-  [ "$stderr" = 'progress.sh: caf??.json does not hold one JSON document' ] || { echo "$stderr" | od -c | head -5; false; }
-  { printf '"'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > $'caf\303\251.json'
-  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file $'caf\303\251.json'
+  [ "$stderr" = 'progress.sh: a???b.json does not hold one JSON document' ] || { echo "$stderr" | od -c | head -5; false; }
+  { printf '"'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > $'a\342\200\256b.json'
+  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file $'a\342\200\256b.json'
   [ "$status" -eq 1 ]
-  [ "$stderr" = "progress.sh: caf??.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
+  [ "$stderr" = "progress.sh: a???b.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
   cmp before.json "$sf"
 }
 
@@ -1856,4 +1856,35 @@ board_vs_lock_take() {
   run --separate-stderr bash "$PROG" state-set 001-demo gates C D E
   [ "$status" -eq 1 ]
   [[ "$stderr" == *'usage: state-set <feature> <key> [<sub-key>] <json> | --json-file <path>'* ]] || { echo "$stderr"; false; }
+}
+
+# Feature 058: a run's name is also a folder. Letters of any language are legal.
+# Mutation: restore the ASCII class in names.sh.
+@test "a feature name in any language is a run, and a hidden character or a space is refused" {
+  local sf
+  bash "$PROG" init '001-الدفع' b main web > /dev/null
+  sf='.delivery-kit/runs/001-الدفع/progress.json'
+  [ -f "$sf" ]
+  [ "$(jq -r .feature "$sf")" = '001-الدفع' ]
+  bash "$PROG" phase-start '001-الدفع' B
+  [ "$(bash "$PROG" get '001-الدفع' current_phase)" = B ]
+  run --separate-stderr bash "$PROG" init '001-ال دفع' b main web
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"feature name '001-ال دفع' — letters of any language, digits, dot, dash, underscore only"* ]] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" init $'a\342\200\256b' b main web
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"feature name 'a???b' — letters of any language"* ]] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" init $'a\377b' b main web
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"feature name 'a?b' — letters of any language"* ]] || { echo "$stderr"; false; }
+}
+
+@test "a copy of progress.sh without names.sh beside it stops, saying so and naming no path" {
+  local d="$BATS_TEST_TMPDIR/copy"
+  mkdir -p "$d"
+  cp "$PROG" "$d/progress.sh"
+  cp "$ROOT/pipeline/scripts/hidden-chars.sh" "$d/"
+  run --separate-stderr bash "$d/progress.sh" read 001-demo
+  [ "$status" -eq 1 ]
+  [ "$stderr" = 'progress.sh: names.sh is missing beside progress.sh' ] || { echo "$stderr"; false; }
 }

@@ -17,6 +17,8 @@
 - Q: What should `branch-cut` do when the branch already exists and HEAD is on another branch? → A: Switch only when the base is the branch's ancestor; otherwise refuse and name both.
 - Q: Should this run also stop pre-flight from typing tracked values into a shell? → A: Yes. `preflight.sh` takes tracked trailers and a tracked `baseBranchOverride` from a JSON file, with all its checks kept. Phase I's review found `baseBranch` and `projectType` typed the same way, so the file takes them too.
 
+- Q (gate K): The kit refused non-English names, and `#` in a branch. Should this run open that? → A: Yes. "I wanted anyone for any reason to be able to use delivery kit." A name is refused only for what a shell reads, what can disguise text on a terminal, or bytes that are not text.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A base suite that cannot start says so with its own status (Priority: P1)
@@ -184,6 +186,13 @@ Test 20 is the helper's own fixture: it records today's behaviour, and no caller
 - **FR-024a**: `preflight.sh` MUST accept `--values-file <path>`: one JSON object, with the optional keys `commitTrailers` (a list of strings), `baseBranchOverride`, `baseBranch` and `projectType` (each a string). `projectType` MUST be refused only for what a shell or an option parser reads: it holds letters, digits, `.`, `_` and `-`, with no leading dash, from any source. Any such name is legal, as the owner said at gate K: anyone may use the kit for any reason. It MUST refuse, by its own message and printing no value, a missing file, a folder, a file that does not hold exactly one JSON object, an unknown key, and a value of the wrong type.
 - **FR-024b**: Every value from the file MUST pass the same checks as the flag form. Trailers MUST keep the documented order: the file's first, then each `--trailer`, whatever the order on the command line. A typed flag MUST beat the file's value, as a flag beats a key.
 - **FR-024c**: `pipeline/docs/configuration.md` MUST tell the run to write values from configuration into that file, and to pass only values typed at the keyboard as flags.
+
+**Names, from the owner's answer at gate K**
+
+- **FR-024d**: A branch's name MUST be legal when git takes it and it holds no character a shell reads (`$`, a backtick, `;`, `&`, `|`, `(`, `)`, `<`, `>`, a quote, `{`, `}`, `!`), does not start with `-`, `#` or `+`, is not a lone `@`, and is plain text: valid UTF-8 with no control, hidden or look-alike character. So `fix#12` and an Arabic name are legal.
+- **FR-024e**: A run's name and a spec folder's segment MUST take letters of any language with their marks, digits, dot, dash and underscore, and no other non-ASCII character. Their other checks stay.
+- **FR-024f**: `preflight.sh` and `progress.sh` MUST read one file for this rule, and neither MUST hold a copy.
+- **FR-024g**: A refused value that is plain text MUST print as itself. One that is not MUST print with every byte past printable ASCII as `?`.
 
 **The whole run**
 

@@ -790,7 +790,7 @@ The body carries the review guide, shown in full with the rest of the
 body. The title, the body and every rebuild of it follow the
 no-attribution ground rule, under `--auto` too.
 Degradations: no remote — stop after K and say so. Non-GitHub remote, or
-no `gh` — push, print the comparison URL, and skip M (there is no pull
+no `gh` — push, print the comparison URL, its branch percent-encoded, and skip M (there is no pull
 request to review). Ask any waiting questions before building the body;
 before the push, `progress.sh pending-check <feature>` must exit 0 (see
 Gates).

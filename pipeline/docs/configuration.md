@@ -135,10 +135,9 @@ as well is refused too: git would read the tag. So is a branch whose name
 git reads as anything else, such as `refs/<name>`, a remote's branch or
 `ORIG_HEAD`, as `git rev-parse --symbolic-full-name` tells: git cannot tell
 the two apart. So is a branch named as a full commit id, which git reads
-as the commit. So is a name holding a character other than a letter, a digit,
-`.`, `_`, `-` or `/`, though git would accept it: pre-flight prints the
-name in a command a person may run. A refused name is printed masked,
-as the next section says. A branch that exists only on `origin`, as in
+as the commit. So is a name a shell or a terminal would misread, though git would accept
+it: see "Feature branch and spec folder". A refused name is printed as the next
+section says. A branch that exists only on `origin`, as in
 a fresh clone, is refused with the command that creates it, `git branch
 --track <name> origin/<name>`: B cuts the feature branch from the local
 branch. Like
@@ -169,19 +168,25 @@ branch, the spec folder and the run's name all follow that name. Two
 flags change it for one run: `--branch <name>` names the feature branch,
 and `--spec-dir <path>` names the spec folder, relative to the
 repository root. The spec folder's last segment becomes the run's name,
-so it holds letters, digits, dot, dash and underscore only; the branch
-name may hold `/`. They are flags only, with no configuration key: each
+so it holds letters of any language with their marks, digits, dot, dash and
+underscore only.
+The branch name may be anything git takes, in any language, with `#`, `+`, `=`,
+`@`, `,` or `%` in it, except what a shell reads, what `git push` reads, or what a
+terminal is fooled by. Letter case is compared in ASCII: on a file system that
+ignores case, git itself refuses two names that differ in another alphabet's case. They are flags only, with no configuration key: each
 names one feature, so a value set once would name the same feature on
 every run. A caller that builds the names from its own settings passes
 them as flags. Pre-flight stops on a bad value, naming it: a branch name
-git would not accept or would expand, one holding a character other than
-a letter, a digit, `.`, `_`, `-` or `/`, one that is a tag as well, which
+git would not accept or would expand, one holding a character a shell reads
+(`$`, a backtick, `;`, `&`, `|`, `(`, `)`, `<`, `>`, a quote, `{`, `}` or `!`), one
+that starts with `-`, `#` or `+`, which `git push` reads as a forced update, one
+holding a control, hidden or look-alike character or bytes that are not text, one that is a tag as well, which
 git would read in its place, the base branch's own name in any
 letter case or behind `origin/`, `heads/` or `refs/heads/`, or a branch
 that already exists here or on `origin`, in any letter case, or that
 clashes with one as a folder (`team` and `team/x`); a spec folder that
 is absolute, climbs out with `..`, has a segment that starts with a dash
-or holds a character other than letters, digits, dot, dash and
+or holds a character other than letters of any language, digits, dot, dash and
 underscore, has a segment that ends with a dot, which Windows drops, or
 that is a name Windows keeps for a device (`CON`, `PRN`, `AUX`, `NUL`,
 `COM0` to `COM9`, `LPT0` to `LPT9`, in any letter case, with or without
@@ -190,10 +195,11 @@ leads through a symbolic link out of the repository or into either of
 those two, already exists, or whose run name already has a state file.
 A refusal names the folder as it was given, never the path a link leads
 to, so no user name reaches a log. Every value pre-flight refuses, a
-name, a folder, a segment or an unknown argument, is printed masked: cut
-to 200 bytes and marked ` [cut]`, with every byte that is not printable
-ASCII shown as `?`, so a value from a tracked file cannot put a terminal
-escape on the screen.
+name, a folder, a segment or an unknown argument, is cut to 200 bytes and marked ` [cut]`. A value that is
+not plain text, because it holds a control or hidden character or bytes that are
+not UTF-8, also has every byte that is not printable ASCII shown as `?`, so a
+value from a tracked file cannot put a terminal escape on the screen, and a name
+in any language still reads as itself.
 Without `--branch`, the folder's last segment names the branch, so it
 gets the branch checks too. Both are read on a fresh run only. A resume
 keeps the branch and the folder the run recorded, and a different value
