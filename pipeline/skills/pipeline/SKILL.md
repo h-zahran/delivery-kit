@@ -53,6 +53,7 @@ are your hands, and the state file is your memory.
   fresh write are the only two shapes (phase G names the one cleanup
   exception).
 - **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it.
+- **Test runs in a brief:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
   entry is its own board item. The board is surfaced in replies.

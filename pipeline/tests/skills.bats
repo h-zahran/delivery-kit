@@ -358,11 +358,40 @@ not apply.
 TEXT
 }
 
+# The rule, whole. It says "each agent brief" and names no phase, so a new unit of
+# work in "Parallel agents" is bound with no change here.
+FOREGROUND_RULE='**Test runs in a brief:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.'
+
+@test "foreground: the orchestrator's ground rules hold the rule, whole" {
+  local s
+  s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
+  printf '%s\n' "$FOREGROUND_RULE" | pins_in "$s" 'the ground rules'
+}
+
+@test "foreground: spec-review's lenses hold the rule, whole" {
+  local s
+  s="$(span "$REVIEW" '^## The three lenses$' '^1[.] ')" || return 1
+  printf '%s\n' "$FOREGROUND_RULE" | pins_in "$s" 'the three lenses'
+}
+
+@test "foreground: the only background run the orchestrator names is its own base suite" {
+  # A sentence that told an agent to run in the background would undo the rule.
+  # Each line that says the word is the rule itself, or phase B's base suite.
+  local l n=0
+  while IFS= read -r l; do
+    case "$l" in
+      *'**Test runs in a brief:**'*|*'starts the full suite on that commit in the background, in a separate'*) n=$((n + 1)) ;;
+      *) echo "a new line says background: $l"; return 1 ;;
+    esac
+  done < <(tr -d '\r' < "$ORCH" | grep -i -- 'background')
+  [ "$n" -eq 2 ] || { echo "expected the rule and the base suite, found $n lines"; return 1; }
+}
+
 @test "the fault harness is pointed at from the ground rules and explained in phases.md, whole" {
   local s
   s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
   pins_in "$s" 'the ground rules' <<'PINS'
-- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it. - **The task board is live.**
+- **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it. - **Test runs in a brief:**
 PINS
   s="$(span "$ROOT/pipeline/docs/phases.md" '^## One fault harness per run$' '^## Questions that wait$')" || return 1
   exactly "$s" 'the phases.md section' <<'TEXT'
