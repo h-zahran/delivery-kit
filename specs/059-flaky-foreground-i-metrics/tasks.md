@@ -58,7 +58,7 @@ Each phase is one review piece. No setup or foundational phase is needed: no new
 
 **Purpose**: pipeline 1.12.0 (FR-020).
 
-- [ ] T014 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, set the pipeline's version to 1.12.0. In `pipeline/CHANGELOG.md`, add `## [1.12.0] - 2026-11-05` with what changed, written so that it does not call the test flaky. Run `bash scripts/check-versions.sh`.
+- [X] T014 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, set the pipeline's version to 1.12.0. In `pipeline/CHANGELOG.md`, add `## [1.12.0] - 2026-11-05` with what changed, written so that it does not call the test flaky. Run `bash scripts/check-versions.sh`.
 
 ---
 

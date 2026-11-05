@@ -2,6 +2,41 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.12.0] - 2026-11-05
+
+### Added
+
+- **`progress.sh i-measure <feature>`, and `phaseI` in `pipeline-run.json`.**
+  Phase I is the largest part of a run, and nobody could say which part of it
+  costs the most. The skill asked for the numbers in prose, and runs 056, 057
+  and 058 recorded none. The new subcommand records each lens's seconds, the
+  fixes, the recheck, and each lens's findings by severity and outcome. See
+  "Measuring phase I" in `docs/phases.md`.
+- **`phase-done I` refuses a part with no record, or findings not read**, so the
+  numbers cannot depend on memory. `unmeasured <part>` is the way past a part
+  with no number. A phase I already completed is past the gate.
+- **A foreground rule in every agent brief.** A reviewer in run 058 waited on its
+  own background test run, and that run lost 5 hours of wall time, part of it the
+  machine asleep. Each brief now says: foreground only, no background run, wait
+  loop or monitor, and to split a run over 600 s. The rule names no phase, so a
+  new unit of work is bound with no change.
+
+### Changed
+
+- **The metrics ground rule no longer asks for numbers with `jq`.** Keys you add
+  still stay.
+
+### Fixed
+
+- **A base suite gets `SIGINT` as its caller has it.** A background job with no
+  job control starts with `SIGINT` ignored, and no bash under it can undo that.
+  `suite-base start` and its runner started the test command that way on any
+  system with `setsid`. So a suite that tests its own `SIGINT` went red in the
+  base suite and green in the foreground, every time, and F.5 ran the whole suite
+  itself: 155 s against 10 s, on every run since 1.10.0's stop test. The runner
+  and the command now each lead a process group by job control, and a stop
+  signals both.
+
 ## [1.11.0] - 2026-11-04
 
 ### Added
