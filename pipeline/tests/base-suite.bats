@@ -798,63 +798,96 @@ waits() {
 }
 
 @test "the base suite's command gets INT as its caller has it" {
-  # A job that a shell with no job control starts in the background has INT
-  # ignored, and no bash under it can catch or reset it. Runs 058 and 059 lost
-  # their base suite to that: a test that sends INT held until its limit. The
-  # probe is a behaviour, since bash versions print trap -p differently.
-  local probe="$BATS_TEST_TMPDIR/probe.sh" rec="$BATS_TEST_TMPDIR/rec" here="$BATS_TEST_TMPDIR/here"
-  printf '%s\n' 'r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r" > "$1"' > "$probe"
-  bash "$probe" "$here"
-  repo "bash '$probe' '$rec'; $GREEN"
+  # A job that a shell with no job control starts in the background has INT ignored,
+  # and no bash under it can catch or reset it: a suite that tests its own INT then
+  # holds until its limit. Started with INT ignored itself, this test can only say so.
+  local probe="$BATS_TEST_TMPDIR/probe.sh" rec="$BATS_TEST_TMPDIR/rec" here
+  printf '%s\n' "$INT_PROBE" > "$probe"
+  here="$(bash "$probe")"
+  [ "$here" = caught ] || printf '# INT is ignored at entry here: this test proves nothing\n' >&3
+  repo "bash '$probe' > '$rec'; $GREEN"
   runs suite-base "$F" start
   outcome_wait
   [ -s "$rec" ] || { echo "the command never ran: $(cat "$BD/outcome")"; false; }
-  [ "$(cat "$rec")" = "$(cat "$here")" ] || { echo "here: $(cat "$here"), in the command: $(cat "$rec")"; false; }
+  [ "$(cat "$rec")" = "$here" ] || { echo "here: $here, in the command: $(cat "$rec")"; false; }
 }
 
-# holder_repo <file> — a run whose command starts a process, writes its id to the
-# file, and waits, so a test can look past the command to what it started.
-holder_repo() {
-  repo "sleep 60 3>&- & printf '%s\\n' \"\$!\" > '$1'; wait"
-}
-
-# held <file> — waits for the holder's id and the runner's record of the command.
+# held <file> — waits for the id the command wrote, and the runner's record of it.
 held() {
   local n=0
   while [ ! -s "$1" ] || [ ! -s "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "the command never started"; return 1; }; sleep 0.2; done
 }
 
-# stop_at_limit — calls the wait until the limit has stopped the run.
-stop_at_limit() {
-  local i=0
+# stop_now — the limit passed long ago, so one wait stops the run.
+stop_now() {
+  printf '%s\n' "$(( $(date +%s) - 100 ))" > "$BD/wait-started"
   waits --slice 1 --limit 2
-  while [ "$WRC" = 2 ] && [ "$i" -lt 20 ]; do i=$((i + 1)); waits --slice 1 --limit 2; done
   [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; return 1; }
   [ "$(cat "$OUT")" = "base suite stopped at the 2 s limit" ] || { echo "wait said: $(cat "$OUT")"; return 1; }
 }
 
-@test "a stop ends what the base suite's command started" {
+@test "a stop sends TERM to what the base suite's command started" {
   # The command leads a process group of its own, so the runner's group no longer
   # holds it. Mutation: signal the command's id alone, and the holder lives on.
-  local holder="$BATS_TEST_TMPDIR/holder"
-  holder_repo "$holder"
+  # Mutation: send KILL for TERM, and the holder's clean-up never runs.
+  local holder="$BATS_TEST_TMPDIR/holder" term="$BATS_TEST_TMPDIR/term"
+  repo "bash -c 'trap \"echo term > \\\"$term\\\"; exit 0\" TERM; echo \$\$ > \"$holder\"; sleep 60 3>&- & wait' & wait"
   runs suite-base "$F" start
   held "$holder"
-  stop_at_limit
+  stop_now
   gone "$(cat "$holder")" || { echo "the process the command started is still alive"; false; }
+  [ -s "$term" ] || { echo "the process never saw TERM"; false; }
+  [ ! -e "$BD/child" ] || { echo "the id of a command that has ended is still recorded"; false; }
   [ "$(others)" = 0 ] || { git worktree list; false; }
 }
 
-@test "the stop's KILL reaches what the base suite's command started" {
-  # A stopped runner runs no trap, so only the 10 s fallback can end the command.
-  # Mutation: KILL the command's id alone, and the holder lives on.
-  local holder="$BATS_TEST_TMPDIR/holder" runner
-  holder_repo "$holder"
-  runs suite-base "$F" start
+@test "a stop ends a command that ignores TERM" {
+  # Mutation: drop the KILL after the wait, and the stop reports done with both
+  # alive. The runner's sleep is stubbed, so its 8 s pass at once, and the command
+  # holds with the real one.
+  local holder="$BATS_TEST_TMPDIR/holder" real child
+  real="$(command -v sleep)"
+  repo "trap '' TERM; '$real' 60 3>&- & printf '%s\\n' \"\$!\" > '$holder'; wait"
+  stub sleep 'exit 0'
+  PATH="$BIN:$PATH" runs suite-base "$F" start
   held "$holder"
-  runner="$(cat "$BD/pid")"
-  kill -STOP "$runner"
-  stop_at_limit
+  child="$(cat "$BD/child")"
+  stop_now
+  gone "$(cat "$holder")" || { echo "the process the command started is still alive"; false; }
+  gone "$child" || { echo "the command is still alive"; false; }
+}
+
+@test "the stop's KILL reaches both groups, and removes the checkout" {
+  # A runner stuck past its TERM runs no trap, so only the fallback can end the
+  # command and remove the checkout. A real start makes the checkout, then stand-ins
+  # take over, so no other process has to wait 10 s: sleep is stubbed for the wait
+  # alone. Mutations: KILL the command's id alone, and the holder lives on; drop the
+  # removal, and the checkout stays.
+  local holder="$BATS_TEST_TMPDIR/holder" runner child n=0
+  repo "exec sleep 60"
+  runs suite-base "$F" start
+  while [ ! -s "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "the command never started"; false; }; sleep 0.2; done
+  kill -KILL "$(cat "$BD/pid")" "$(cat "$BD/child")"
+  gone "$(cat "$BD/pid")"
+  [ "$(others)" = 1 ] || { git worktree list; false; }
+  set -m
+  bash -c 'trap "" TERM; while :; do sleep 1; done' > /dev/null 2>&1 < /dev/null 3>&- &
+  runner=$!
+  bash -c "sleep 60 3>&- & printf '%s\\n' \"\$!\" > '$holder'; wait" > /dev/null 2>&1 < /dev/null 3>&- &
+  child=$!
+  set +m
+  OWN+=("$runner" "$child")
+  printf '%s\n' "$runner" > "$BD/pid"
+  printf '%s\n' "$child" > "$BD/child"
+  printf '%s\n' "$(date +%s)" > "$BD/heartbeat"
+  printf '%s\n' "$(( $(date +%s) - 100 ))" > "$BD/wait-started"
+  n=0
+  while [ ! -s "$holder" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "the holder never started"; false; }; sleep 0.2; done
+  stub sleep 'exit 0'
+  WRC=0
+  PATH="$BIN:$PATH" bash "$PROG" suite-base "$F" wait --slice 1 --limit 2 > "$OUT" 2> "$ERR" || WRC=$?
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; false; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 2 s limit" ] || { echo "wait said: $(cat "$OUT")"; false; }
   gone "$runner" || { echo "the runner is still alive"; false; }
   gone "$(cat "$holder")" || { echo "the process the command started is still alive"; false; }
   [ "$(others)" = 0 ] || { git worktree list; false; }

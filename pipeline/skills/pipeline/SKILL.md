@@ -53,7 +53,7 @@ are your hands, and the state file is your memory.
   fresh write are the only two shapes (phase G names the one cleanup
   exception).
 - **A fault to plant** uses "The fault harness" in `pipeline:spec-review`; each brief names it.
-- **Test runs in a brief:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.
+- **Test runs:** each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with `bats -f`.
 - **The task board is live.** All twenty phases are tasks on the board,
   updated as each starts and completes; inside Phase H, each tasks-file
   entry is its own board item. The board is surfaced in replies.
@@ -624,7 +624,8 @@ working tree alone, which in the piece flow holds almost nothing. H.7
 changes no file and makes no commit; a run begun on an older pipeline
 that already made H.7's late commit keeps it.
 
-**I — deep review, one round.** Every lens runs at once, in one message,
+**I — deep review, one round.** Measure it as "Measuring phase I" in
+`${CLAUDE_PLUGIN_ROOT}/docs/phases.md` says. Every lens runs at once, in one message,
 and every lens is read-only until all have reported. Load
 `pipeline:spec-review` first, then send that one message. Three
 reviewers in one message — contract compliance, security, tests — per
@@ -655,9 +656,7 @@ fixes made: the diff from <mark> to the working tree, and these
 untracked files the fixes added: <each path, or none>`, never `--fix` or
 `--comment`. Its findings are fixed or deferred with their reason; that
 is the last review pass, and J checks what it fixed. I ends with its
-late commit (see H.5). Measure I as "Measuring phase I" in
-`${CLAUDE_PLUGIN_ROOT}/docs/phases.md` says: `phase-done I` refuses a
-part with no record.
+late commit (see H.5).
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
 `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against

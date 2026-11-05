@@ -62,14 +62,14 @@ Fixing only the first leaves the second, and the command still starts with `SIGI
 
 **Rationale**: A single ground rule binds every brief the orchestrator writes: F, H, H.5, I, J and M. The `bugs` lens is the built-in code-review skill. Measured in an earlier run, it reads git only, takes no brief text beyond its arguments, and runs no suite. The handoff package goes to an external tool with its own limits, so it is not a brief in this sense.
 
-**Text**: `Test runs in a brief: each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with bats -f.`
+**Text**: `Test runs: each agent brief says: foreground only, no background run, wait loop or monitor; over 600 s, split it, as with bats -f.`
 
 ## R5. How phase I is measured
 
 **Decision**: A subcommand, `progress.sh i-measure`, called by the orchestrator, and a gate in `phase-done I`.
 
 **Rationale**:
-- `SKILL.md` already asked for these numbers in prose, and runs 056, 057 and 058 did not record them. A gate that refuses is the only form a run cannot forget.
+- `SKILL.md` already asked for these numbers in prose. Runs 056 and 057 kept partial numbers by hand under `reviewI`, and run 058 kept none. A gate that refuses is the only form a run cannot forget.
 - The orchestrator is the one actor that sees all five lenses return, the forked `bugs` lens included.
 - The earlier memory on auto mode says `progress.sh` subcommands were not blocked, where a whole-file write was. A subagent stamps nothing, so no subagent write can be denied.
 
@@ -78,7 +78,7 @@ Fixing only the first leaves the second, and the command still starts with `SIGI
 - Reading subagent transcripts afterwards: depends on the harness's private files.
 - A lens stamping itself: a subagent's write may be denied, and a read-only lens must stay read-only.
 
-**Time source**: `date +%s` at each stamp, so seconds are wall time. A lens's seconds run from `dispatch` to the moment the orchestrator records its return. That is a few seconds late at most, and it is stated in the doc.
+**Time source**: `date +%s` at each stamp, so seconds are wall time. A lens's seconds run from `dispatch` to the moment the orchestrator records its return. Measured in this run, that overstates the agent's own duration by 49 to 191 s, because the stamp waits for the orchestrator's turn. So `done --seconds <n>` takes the duration a return states when it states one.
 
 ## R6. The severity counts' one source
 
@@ -90,7 +90,7 @@ Fixing only the first leaves the second, and the command still starts with `SIGI
 
 ## R7. Re-entry
 
-**Decision**: A second `start` of a part moves the old record to `measurements.i.earlier`, and says so. A second `done` refuses and prints the recorded value. So no number is silently doubled or lost.
+**Decision**: A record that holds a result, `done` or `skipped`, and a findings read, move to `measurements.i.earlier` when something replaces them, and the command says so. A second `done` refuses and prints the recorded value. `dispatch` starts a round in one state write: it also clears the fixes, the recheck and the findings, so the gate asks for each afresh and no old number joins a new round. So no number is silently doubled or lost.
 
 ## R8. Proof runs
 
@@ -128,3 +128,9 @@ The first form of the arm's check used `kill -0` on the script. The probe-invert
 **Faults on the foreground rule**, each through the harness with a green control: the rule gone from either skill; each of seven required phrases removed in turn; the rule inverted; the rule naming phases; a new sentence that tells agents to run in the background; the base suite's sentence gone. All RED. `SKILL.md` after this piece: 65,364 bytes.
 
 **Faults on the measure**, 24 through the harness with a green control: the gate gone, taking `started`, ignoring the findings, and holding a phase already completed; a missing measure as 0, and a part with no record as done; a skipped lens as zeros, and a lens with findings as null; `accountedSeconds` as a sum, and never null; a second `done` overwriting; `earlier` dropped or silent; an unreadable line silent; the metrics key gone; the reason, severity and lens unchecked; `dispatch` starting all parts; the outcome read from the fifth field; an absent file made empty; seconds as a string; a part gone from the doc. All RED. `SKILL.md` after this piece: 65,413 bytes, 199 more than at the start, 123 free.
+
+**After phase I's fixes.** Faults through the harness: 69 RED and 3 green controls on the first round of fixes, then 15 RED and 1 green control on the fixes from the recheck, the checkout's removal among them. Two rules for whoever runs them. A fault that tests the runner's `SIGINT` state must run in the foreground: a background job hands the test `SIGINT` ignored, and the test then says it proves nothing. A code path that runs only with `SIGINT` ignored is now run by the suite itself: a subshell started in the background.
+
+**What a stamp is worth**, measured on this run's five lenses: the orchestrator's stamps ran 49 to 191 s over each agent's own duration. So `done --seconds` takes the return's own number, and refuses one past the time since the part's start. The recheck's number here, 7692 s, holds a pause by the owner and says nothing about what a recheck costs.
+
+**Not reproduced, stated:** the terminal limit in the contract was measured by three lenses under a pty, and was not run again after the fixes. No test exercises the fallback of `group_alive` to a bare id, because every system this suite runs on gives the command a group.

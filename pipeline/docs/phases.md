@@ -209,7 +209,12 @@ The runner and the command each lead a process group of their own, by job
 control. A background job with no job control starts with `SIGINT` ignored,
 and no bash under it can undo that, so a suite that tests its own `SIGINT`
 would go red here and green in the foreground. The command gets `SIGINT` in
-the state the caller had. A stop signals both groups.
+the state the caller had, and bash cannot undo a caller's ignore. A stop sends
+TERM to the runner's group; the runner sends TERM to the command's group, and
+KILL to what still runs 8 seconds later. A pipeline run has no controlling
+terminal, so its suite cannot wait on one. Started by hand from a terminal, the
+command stays in that terminal's session, as it always has where `setsid` is
+absent, and one that reads the terminal stops until the limit.
 
 It costs a second full run of the suite during C to F, and at worst F.5
 waits the whole 900 seconds and then runs the suite itself. The checkout
@@ -271,39 +276,52 @@ write it, and `state-set` refuses to.
 Phase I is the largest part of a run, so the run records where its time goes.
 `progress.sh i-measure <feature>` writes it, `progress.sh metrics` shows it as
 `phaseI` in `pipeline-run.json`, and `phase-done I` refuses while a part has no
-record or the findings are not read. The orchestrator makes every call: it
-alone sees each lens return, and a lens stays read-only.
+finished record, or the findings are not read. Only `i-measure` writes this
+record, and `state-set` refuses to. The orchestrator makes every call: it alone
+sees each lens return, and a lens stays read-only.
 
 The parts, in order: `contract`, `security`, `tests`, `bugs`, `simplify`, `fixes`, `recheck`.
 
 | When | Call |
 |---|---|
-| Just before the message that sends the lenses | `dispatch`: starts the five lenses |
-| As each lens returns | `done <lens>` |
-| A lens that does not run, by the phase's rule | `skip <lens> <reason>`, such as `no-code-review-skill` or `no-code-roots` |
+| First in the message that sends the lenses | `dispatch`: starts the five lenses |
+| As each lens returns | `done <lens>`, with `--seconds <n>` when the return states its own duration |
+| A lens the phase's rule leaves out, `bugs` or `simplify` | `skip <lens> <reason>`, such as `no-code-review-skill` or `no-code-roots` |
 | Before the fixes | `start fixes` |
 | After the fixes | `done fixes`, or `skip fixes no-findings` when there were none |
 | Before the `bugs` lens reads the fixes | `start recheck` |
 | When that read returns | `done recheck`, or `skip recheck no-fix-changed-a-file` |
 | When every finding has an outcome | write `findings-I.txt`, then `findings` |
-| A part that ran and has no number, such as after a lost session | `unmeasured <part>` |
+| A part that ran and has no number, such as after a lost session | `unmeasured <part>`, or `unmeasured findings` |
+
+`dispatch` refuses a link at `findings-I.txt`.
+
+`contract`, `security` and `tests` are never skipped: without a number they are
+`unmeasured`.
 
 `findings-I.txt` sits in the run directory, one finding on each line:
-`SEVERITY | lens | file:line | finding | outcome`. It is the finding's line with
-its outcome added: `fixed`, `deferred` or `declined`. The lens is one of the five;
-what the recheck finds is lens `bugs`. Blank lines and lines that start with `#`
-are allowed, and an empty file is a real zero. A line that does not read is named
-by its number, and it stays in the record as unreadable.
+`SEVERITY | lens | file:line | finding | outcome`. The outcome is `fixed`,
+`deferred` or `declined`, and a reason goes in the finding, before it. The lens is
+one of the five; what the recheck finds is lens `bugs`. A finding comes from the
+reviewed code, so it can hold anything: write the file with the file tool, never
+through a shell command, and put each finding on one line. A re-entered phase I
+writes the file whole. Blank lines and lines that start with `#` are allowed, an
+empty file is a real zero, and the file may not be a link or pass 262,144 bytes.
+`phase-done I` refuses while a line does not read; `findings` names each by number.
 
-Seconds are wall time, stamped when the orchestrator records a return, so they
-hold whatever the machine did in that time, sleep included. A measure not taken
-reads `missing` or `null`, never 0. A lens that ran and found nothing has zeros.
-A lens that did not run has `null`, unless it reported findings. A second `start`
-or `dispatch` keeps the old record under `earlier` and says so, and a second
-`done` is refused, so a re-entered phase I loses and doubles nothing.
-`accountedSeconds` is the longest lens, because the lenses run at once, plus the
-fixes and the recheck; read it against `phases.I.seconds`. It is `null` while any
-part is neither done nor skipped.
+Seconds are wall time, so they hold whatever the machine did in that time, sleep
+included. Without `--seconds` a `done` is stamped when the orchestrator records
+the return, which can be minutes late if it was busy. A measure not taken reads
+`missing` or `null`, never 0. A lens that finished and reported nothing has zeros.
+Any other lens has `null`, unless it reported findings. A result is a number, or a
+rule that left the part out. A second `start` or `dispatch`, a `skip` or
+`unmeasured` over a result, and a second read of the findings each keep the old
+result under `earlier` and say so; a part only started holds no result, so its
+clock is simply replaced. A second `done` is refused. A `dispatch` also asks afresh
+for the fixes, the recheck and the findings, so a re-entered phase I reuses no old
+number. `--seconds` may not pass the time since the part's start. `accountedSeconds` is the longest lens, because the lenses
+run at once, plus the fixes and the recheck; read it against `phases.I.seconds`.
+It is `null` while any part is neither done nor skipped.
 
 ## Using them with the flags
 

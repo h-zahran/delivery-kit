@@ -436,13 +436,7 @@ at_once() {
   [ ! -s "$ERR" ] || { echo "stderr: $(cat "$ERR")"; false; }
 }
 
-# What a bash started here does with INT, as a word: caught or ignored. A behaviour,
-# because bash versions print trap -p differently for a signal ignored on entry.
-INT_PROBE='r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r"'
-
-# A background job with no job control ignores INT on entry, and no bash under it
-# can catch or reset it. So a caller's background job (a run's base suite did this
-# until 1.12.0) hands this whole test file that state.
+# A caller's background job hands this whole test file INT ignored.
 int_ignored() { [ "$(bash -c "$INT_PROBE")" = ignored ]; }
 
 # stop_run <signal> <holders>: start the script on a/, wait for that many holding
@@ -479,7 +473,7 @@ stop_run() {
   fi
   kill "-$signal" "$script"
   wait "$script" || rc_stop=$?
-  # base_stop sends KILL at 10 s: the report must be out by then.
+  # base_run_exit sends KILL at 8 s: the report must be out by then.
   [ "$SECONDS" -lt 8 ] || { echo "$signal: the stop took $SECONDS s"; return 1; }
   i=0
   for p in $(cat "$RS_PIDS"); do
@@ -508,6 +502,20 @@ stop_run() {
   stop_run TERM 2
   stop_run INT 2
   stop_run HUP 2
+}
+
+@test "run-suite: with INT ignored at entry the stop still ends in time, and only INT changes" {
+  # A subshell a shell with no job control starts in the background has INT ignored,
+  # so this runs the path above in that state on every run. Mutation: remove the
+  # path, and the wait holds until the 60 s limit, the old failure. HUP in the same
+  # state stays HUP: the comment appears once.
+  fixture a/1.bats 'sleep 60 & p=$!; printf "%s %s\n" "$$" "$p" >> "$RS_PIDS"; wait "$p"'
+  fixture a/2.bats 'sleep 60 & p=$!; printf "%s %s\n" "$$" "$p" >> "$RS_PIDS"; wait "$p"'
+  ( stop_run INT 2 && stop_run HUP 2 ) > "$TEST_DIR/ignored" 2>&1 3>&1 < /dev/null &
+  local job=$! rc=0
+  wait "$job" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "status $rc: $(cat "$TEST_DIR/ignored")"; false; }
+  [ "$(grep -c '^# INT is ignored at entry' "$TEST_DIR/ignored")" -eq 1 ] || { cat "$TEST_DIR/ignored"; false; }
 }
 
 @test "run-suite: the INT probe tells the two states apart" {

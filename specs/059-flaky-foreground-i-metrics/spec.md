@@ -57,7 +57,7 @@ The pipeline's agents run tests. In run 058, a reviewer started a test run in th
 
 ### User Story 3 - The owner can see which part of the deep review costs the most (Priority: P1)
 
-Deep review (phase I) is 60% or more of a run's time without the owner's waits, and nobody can say which part of it costs the most. The pipeline's own instructions already tell the orchestrator to add findings and agent counts to the run's metrics file, and no run of 056, 057 or 058 did it. The owner wants the numbers to arrive without depending on memory, so the next speed choice is a measured one.
+Deep review (phase I) is 60% or more of a run's time without the owner's waits, and nobody can say which part of it costs the most. The pipeline's own instructions already tell the orchestrator to add findings and agent counts to the run's metrics file. Runs 056 and 057 kept some by hand, and run 058 kept none. The owner wants the numbers to arrive without depending on memory, so the next speed choice is a measured one.
 
 **Why this priority**: The next speed work cannot be chosen without it.
 
@@ -124,7 +124,7 @@ Deep review (phase I) is 60% or more of a run's time without the owner's waits, 
 - **SC-002**: On the next run, whose base commit holds the fix, the test-baseline phase cites the base suite and takes under 30 seconds, against 155 seconds in run 058. This run's own base commit does not hold the fix, so this run's base suite is red and this run cannot show it. A real base suite on the fixed code, run by hand, shows the cause is gone.
 - **SC-003**: Every brief named in FR-006 carries the rule, and removing it from any one of them turns a test red.
 - **SC-004**: The first run on the new release holds, in its metrics file, a time for each lens that ran, a fix time, and each lens's counts per severity and per outcome, with no hand edit.
-- **SC-005**: The sum of the lens times and the fix time can be read against phase I's total, so the owner can see which part costs the most.
+- **SC-005**: The longest lens time, plus the fix and recheck times, can be read against phase I's total, because the lenses run at once. Each lens's own time is there as well, so the owner can see which part costs the most.
 - **SC-006**: No phase takes longer because of this change by more than the seconds that recording itself takes. No check is removed.
 
 ## Assumptions
