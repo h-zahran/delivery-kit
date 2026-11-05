@@ -436,10 +436,21 @@ at_once() {
   [ ! -s "$ERR" ] || { echo "stderr: $(cat "$ERR")"; false; }
 }
 
+# What a bash started here does with INT, as a word: caught or ignored. A behaviour,
+# because bash versions print trap -p differently for a signal ignored on entry.
+INT_PROBE='r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r"'
+
+# A background job with no job control ignores INT on entry, and no bash under it
+# can catch or reset it. So a caller's background job (a run's base suite did this
+# until 1.12.0) hands this whole test file that state.
+int_ignored() { [ "$(bash -c "$INT_PROBE")" = ignored ]; }
+
 # stop_run <signal> <holders>: start the script on a/, wait for that many holding
 # fixtures, signal it, and require status 143 with no process left. The script runs
 # with fd 3 closed, or a stand-in that outlived the stop would hold bats open. Its
-# job control is on, because a background job without it ignores INT on entry.
+# job control is on, because a background job without it ignores INT on entry. With
+# INT ignored here too, job control cannot help: the real INT must do nothing, and
+# TERM then ends the script, under the same checks.
 stop_run() {
   local signal="$1" holders="$2" p script i=0 rc_stop=0
   export RS_PIDS="$TEST_DIR/pids"
@@ -455,6 +466,17 @@ stop_run() {
     sleep 0.1
   done
   SECONDS=0
+  if [ "$signal" = INT ] && int_ignored; then
+    printf '# INT is ignored at entry here: the script must outlive it, and TERM ends it\n' >&3
+    kill -INT "$script"
+    sleep 0.5
+    # The holders, not the script: kill -0 also succeeds on a child that ended and
+    # has not been waited for, and a stop ends the holders first.
+    for p in $(cat "$RS_PIDS"); do
+      kill -0 "$p" 2> /dev/null || { echo "INT: process $p ended on a signal the script had ignored"; return 1; }
+    done
+    signal=TERM
+  fi
   kill "-$signal" "$script"
   wait "$script" || rc_stop=$?
   # base_stop sends KILL at 10 s: the report must be out by then.
@@ -486,6 +508,22 @@ stop_run() {
   stop_run TERM 2
   stop_run INT 2
   stop_run HUP 2
+}
+
+@test "run-suite: the INT probe tells the two states apart" {
+  # A shell with no job control starts its background job with INT ignored. That
+  # holds whatever state this test itself has.
+  bash -c 'bash -c "$0" > "$1" & wait $!' "$INT_PROBE" "$TEST_DIR/background"
+  [ "$(cat "$TEST_DIR/background")" = ignored ] || { echo "background: $(cat "$TEST_DIR/background")"; false; }
+  # With job control on, the job has what this test has.
+  local want=caught
+  if int_ignored; then want=ignored; fi
+  set -m
+  bash -c "$INT_PROBE" > "$TEST_DIR/job" < /dev/null 3>&- &
+  local job=$!
+  set +m
+  wait "$job"
+  [ "$(cat "$TEST_DIR/job")" = "$want" ] || { echo "job: $(cat "$TEST_DIR/job"), wanted $want"; false; }
 }
 
 @test "run-suite: a stop keeps what ran, and KILLs what ignores TERM" {
