@@ -2902,7 +2902,7 @@ cmd_suite_base() {
 # must not read as a legal "not started", and B stops on it. SK_FAULT marks
 # those two.
 base_start() {
-  local f="$1" bd sf commit base_key tmp tree admin top pid pre='' from
+  local f="$1" bd sf commit base_key tmp tree admin top pid from
   need_git_top
   bd="$(base_dir "$f")"
   if [ -f "$bd/pid" ]; then
@@ -2953,15 +2953,16 @@ base_start() {
   base_put "$bd/tree" "$tree"
   base_put "$bd/admin" "$admin"
   base_put "$bd/started" "$(date +%s)"
-  # The runner in a process group of its own — setsid where it exists, job
-  # control (set -m) where it does not — so the wait can stop it and what it
-  # started together. Every descriptor is closed or redirected: a runner
-  # holding the caller's output open would keep the caller (and bats, through
-  # its descriptor 3) waiting for it.
-  if command -v setsid > /dev/null 2>&1; then pre=setsid; fi
+  # The runner in a process group of its own, by job control, so the wait can
+  # stop it. Job control and not setsid: a background job with no job control
+  # ignores INT on entry, no bash under it can undo that, and a suite that
+  # tests its own INT then holds until its limit. A setsid under job control
+  # forks, so $! would name a process already gone. Every descriptor is closed
+  # or redirected: a runner holding the caller's output open would keep the
+  # caller (and bats, through its descriptor 3) waiting for it.
   if ! (
-    [ -n "$pre" ] || set -m
-    ${pre:+"$pre"} bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
+    set -m
+    bash "$SCRIPT_PATH" suite-base-run "$f" < /dev/null > /dev/null 2>> "$bd/runner.log" 3>&- &
     printf '%s\n' "$!" > "$bd/pid.tmp"
   ); then
     base_remove_tree "$tree" "$admin"
@@ -3018,8 +3019,12 @@ base_run() {
   # A TMPDIR of its own, beside the checkout: the suite's temporary files
   # never meet the live session's.
   tmpd="$(mktemp -d "${BR_TREE%/tree}/tmp.XXXXXX")" || die "could not make the runner's TMPDIR"
+  # Job control here too, or the command alone would start with INT ignored. So
+  # the command leads a process group of its own: every stop signals that group.
+  set -m
   TMPDIR="$tmpd" bash -c "$SK_CMD" > "$BR_BD/suite.tap" 2>&1 < /dev/null &
   BR_CHILD=$!
+  set +m
   printf '%s\n' "$BR_CHILD" > "$BR_BD/child"
   rc=0; wait "$BR_CHILD" || rc=$?
   # The command has ended: its id is no longer ours to signal.
@@ -3043,11 +3048,10 @@ base_run() {
 base_run_exit() {
   trap '' TERM
   if [ -n "$BR_HB" ]; then kill "$BR_HB" 2>/dev/null || true; fi
-  # A command still running is stopped with all it started: the runner
-  # leads its own process group, and ignores this TERM itself. Where there
-  # is no group of its own, the command's id alone.
+  # A command still running is stopped with all it started: it leads its own
+  # process group. Where there is no such group, the command's id alone.
   if [ -n "$BR_CHILD" ]; then
-    kill -TERM -- "-$$" 2>/dev/null || kill -TERM "$BR_CHILD" 2>/dev/null || true
+    kill -TERM -- "-$BR_CHILD" 2>/dev/null || kill -TERM "$BR_CHILD" 2>/dev/null || true
   fi
   cd "$BR_TOP" 2>/dev/null || true
   base_remove_tree "$BR_TREE" "$BR_ADMIN"
@@ -3145,8 +3149,8 @@ base_wait() {
 # base_stop <dir> <limit> — the limit passed with the runner alive and its
 # heartbeat fresh: TERM to its process group, or to its own id where the
 # group cannot be signalled; its trap stops the command and cleans up. Only
-# when that has not happened in 10 s: KILL, the command by the id the runner
-# still holds, and the checkout. An outcome the runner wrote meanwhile with
+# when that has not happened in 10 s: KILL, the command's group by the id the
+# runner recorded, and the checkout. An outcome the runner wrote meanwhile with
 # a verdict stands: the run ended before the stop reached it.
 base_stop() {
   local bd="$1" limit="$2" pid child out n=0
@@ -3156,7 +3160,7 @@ base_stop() {
   if [ ! -f "$bd/outcome" ]; then
     kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     child="$(base_pid "$bd/child" || true)"
-    if [ -n "$child" ]; then kill -KILL "$child" 2>/dev/null || true; fi
+    if [ -n "$child" ]; then kill -KILL -- "-$child" 2>/dev/null || kill -KILL "$child" 2>/dev/null || true; fi
     base_remove_tree "$(cat "$bd/tree" 2>/dev/null || true)" "$(cat "$bd/admin" 2>/dev/null || true)"
   fi
   out="$(cat "$bd/outcome" 2>/dev/null || true)"

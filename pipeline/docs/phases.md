@@ -205,6 +205,12 @@ still ends. The wait never decides reuse; `suite-lookup <feature> --base`
 does, as above. A cited line names the record's commit (its tree under
 `files`, which keys no commit) and its command.
 
+The runner and the command each lead a process group of their own, by job
+control. A background job with no job control starts with `SIGINT` ignored,
+and no bash under it can undo that, so a suite that tests its own `SIGINT`
+would go red here and green in the foreground. The command gets `SIGINT` in
+the state the caller had. A stop signals both groups.
+
 It costs a second full run of the suite during C to F, and at worst F.5
 waits the whole 900 seconds and then runs the suite itself. The checkout
 holds no file git ignores — no dependency folder, no build output, no

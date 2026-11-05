@@ -94,4 +94,33 @@ Fixing only the first leaves the second, and the command still starts with `SIGI
 
 ## R8. Proof runs
 
-To be filled in at the end of piece 1: the passes under load, the load used, and a real base suite on the fixed code.
+**The stop test under load**, on the fixed runner, 2026-11-05: 500 passes, 0 red. Every CPU (16) was held busy, with 8 test processes at once. Load average 30 to 43. 150 passes took 174 s, and 350 took 342 s, in two foreground calls. No test code in the foreground path changed after these passes; the later edits are inside the `SIGINT`-ignored arm.
+
+**The stop test with `SIGINT` ignored at entry**: 10 passes, 0 red, about 5 s each. Before the fix: red in 60 s.
+
+**A real base suite on the fixed code**, in a throwaway clone:
+
+| Run | Load | Outcome | Time | `suite-lookup --base` |
+|---|---|---|---|---|
+| 1 | The 500 passes above, at the same time | red: `values file: a list too long to record…` timed out at 60 s. The stop test was `ok`. | 411 s | not citable |
+| 2 | None | green, 1102 of 1102 | 109 s | exit 0, citable |
+
+Run 1's red is another test, `pipeline/tests/preflight.bats`. Alone it takes 16 s, 3 of 3. It reached 60 s under a load this run made on purpose. It is not this feature's cause, and it is reported at DONE as a separate fact.
+
+In run 1, the runner was alive in a later Bash call, so it outlives the call that starts it with job control and no `setsid`.
+
+**Faults planted through the run's harness**, each with a green control:
+
+| Fault | Test | Result |
+|---|---|---|
+| Runner back on `setsid` | `the base suite's command gets INT as its caller has it` | RED |
+| The command's start with no `set -m` | the same | RED |
+| The exit trap's TERM to the command's id alone | `a stop ends what the base suite's command started` | RED |
+| The stop's KILL to the command's id alone | `the stop's KILL reaches what the base suite's command started` | RED |
+| The stop leaves the temporary folder | the stop test | RED |
+| The stop leaves a process alive | the stop test | RED, in both signal states |
+| The probe inverted | the stop test and the probe's test | RED, both |
+| The `SIGINT`-ignored arm removed, with `SIGINT` ignored | the stop test | RED, `# timeout after 60s`: the old failure |
+| The holders check inverted, with `SIGINT` ignored | the stop test | RED |
+
+The first form of the arm's check used `kill -0` on the script. The probe-inverted fault stayed green: `kill -0` also succeeds on a child that ended and was not waited for. The check now reads the holding processes.

@@ -796,3 +796,66 @@ waits() {
   [[ "$(cat "$OUT")" != *', from '* ]] || { echo "start said: $(cat "$OUT")"; false; }
   outcome_wait
 }
+
+@test "the base suite's command gets INT as its caller has it" {
+  # A job that a shell with no job control starts in the background has INT
+  # ignored, and no bash under it can catch or reset it. Runs 058 and 059 lost
+  # their base suite to that: a test that sends INT held until its limit. The
+  # probe is a behaviour, since bash versions print trap -p differently.
+  local probe="$BATS_TEST_TMPDIR/probe.sh" rec="$BATS_TEST_TMPDIR/rec" here="$BATS_TEST_TMPDIR/here"
+  printf '%s\n' 'r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r" > "$1"' > "$probe"
+  bash "$probe" "$here"
+  repo "bash '$probe' '$rec'; $GREEN"
+  runs suite-base "$F" start
+  outcome_wait
+  [ -s "$rec" ] || { echo "the command never ran: $(cat "$BD/outcome")"; false; }
+  [ "$(cat "$rec")" = "$(cat "$here")" ] || { echo "here: $(cat "$here"), in the command: $(cat "$rec")"; false; }
+}
+
+# holder_repo <file> — a run whose command starts a process, writes its id to the
+# file, and waits, so a test can look past the command to what it started.
+holder_repo() {
+  repo "sleep 60 3>&- & printf '%s\\n' \"\$!\" > '$1'; wait"
+}
+
+# held <file> — waits for the holder's id and the runner's record of the command.
+held() {
+  local n=0
+  while [ ! -s "$1" ] || [ ! -s "$BD/child" ]; do n=$((n + 1)); [ "$n" -le 50 ] || { echo "the command never started"; return 1; }; sleep 0.2; done
+}
+
+# stop_at_limit — calls the wait until the limit has stopped the run.
+stop_at_limit() {
+  local i=0
+  waits --slice 1 --limit 2
+  while [ "$WRC" = 2 ] && [ "$i" -lt 20 ]; do i=$((i + 1)); waits --slice 1 --limit 2; done
+  [ "$WRC" = 0 ] || { echo "exit $WRC: $(cat "$OUT") $(cat "$ERR")"; return 1; }
+  [ "$(cat "$OUT")" = "base suite stopped at the 2 s limit" ] || { echo "wait said: $(cat "$OUT")"; return 1; }
+}
+
+@test "a stop ends what the base suite's command started" {
+  # The command leads a process group of its own, so the runner's group no longer
+  # holds it. Mutation: signal the command's id alone, and the holder lives on.
+  local holder="$BATS_TEST_TMPDIR/holder"
+  holder_repo "$holder"
+  runs suite-base "$F" start
+  held "$holder"
+  stop_at_limit
+  gone "$(cat "$holder")" || { echo "the process the command started is still alive"; false; }
+  [ "$(others)" = 0 ] || { git worktree list; false; }
+}
+
+@test "the stop's KILL reaches what the base suite's command started" {
+  # A stopped runner runs no trap, so only the 10 s fallback can end the command.
+  # Mutation: KILL the command's id alone, and the holder lives on.
+  local holder="$BATS_TEST_TMPDIR/holder" runner
+  holder_repo "$holder"
+  runs suite-base "$F" start
+  held "$holder"
+  runner="$(cat "$BD/pid")"
+  kill -STOP "$runner"
+  stop_at_limit
+  gone "$runner" || { echo "the runner is still alive"; false; }
+  gone "$(cat "$holder")" || { echo "the process the command started is still alive"; false; }
+  [ "$(others)" = 0 ] || { git worktree list; false; }
+}
