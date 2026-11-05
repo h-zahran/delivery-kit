@@ -2821,7 +2821,11 @@ judge_big() {
   # A bidi character, a C1 control and a byte that is not UTF-8 are not plain text.
   refused "'a???b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xe2\x80\xaeb'
   refused "'a??b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xc2\x9bb'
-  refused "'a?b' holds a control or hidden character, or is not text (--feature-branch)" --dir "$T" --feature-branch $'a\xffb'
+  # On Windows git refuses this byte first (measured on CI), so the reason there is
+  # git's. The byte is refused and shown masked on both.
+  local byte_reason='holds a control or hidden character, or is not text'
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) byte_reason='is not a legal branch name' ;; esac
+  refused "'a?b' $byte_reason (--feature-branch)" --dir "$T" --feature-branch $'a\xffb'
   refused "'specs/a???b' has the segment 'a???b'; a folder name holds letters of any language, digits, dot, dash, underscore only (--spec-dir)" --dir "$T" --spec-dir $'specs/a\xe2\x80\xaeb'
 }
 
