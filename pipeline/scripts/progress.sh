@@ -65,7 +65,7 @@ on_exit() {
   if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; fi
 }
 trap on_exit EXIT
-usage() { die "usage: progress.sh <init|branch-cut|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
+usage() { die "usage: progress.sh <init|branch-cut|read|validate|phase-start|phase-done|from-validate|lock-take|lock-release|commit-add|piece-next|snapshot|spec-commit|piece-commit|late-commit|remainder-commit|show-message|record-branch|guide|commit-list|metrics|i-measure|state-set|drop-stale|suite-key|suite-record|suite-lookup|suite-base|tap-check|ask-later|pending|answer|pending-check|abandon|get|board> <feature> [args]"; }
 
 # tap-check alone needs no jq: it reads a TAP file with awk, and the
 # repository's scripts/check-suite.sh calls it, which needs only bash and awk.
@@ -347,6 +347,7 @@ cmd_phase_done() {
   phase_known "$phase" || die "unknown phase '$phase'"
   sf="$(cmd_validate "$feature")"
   state_lock "$sf"
+  if [ "$phase" = I ]; then i_gate "$sf" "$feature"; fi
   tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
   if ! jq ${JQB:+"$JQB"} --arg p "$phase" --arg t "$(now)" \
      '.completed_phases = (if (.completed_phases | index($p)) then .completed_phases else .completed_phases + [$p] end)
@@ -2081,13 +2082,41 @@ cmd_show_message() {
 # --- metrics ------------------------------------------------------------------
 # .delivery-kit/runs/<feature>/pipeline-run.json, derived from the state file:
 # phases with their timestamps and seconds, gates, the commits by kind, and
-# the analyze iterations. Keys the orchestrator wrote itself (findings fixed,
-# agents dispatched, loop iterations) are kept; derived keys are rewritten.
-# Running it twice writes the same file.
+# the analyze iterations, and phaseI, from i-measure. Keys the orchestrator
+# wrote itself are kept; derived keys are rewritten. Running it twice writes the
+# same file. In phaseI a measure not taken is missing or null, never 0: a lens
+# that ran and found nothing has zeros, and one that did not run has null. The
+# lenses run at once, so accountedSeconds takes the longest of them.
 # shellcheck disable=SC2016 # a jq program: $m, $d and $s are jq's
 METRICS_JQ='
   def secs: try fromdateiso8601 catch null;
+  def phase_i($ps; $ls):
+    (.measurements.i? // null) as $i
+    | if ($i | type) != "object" then {status: "missing"} else
+      ($ps | map(. as $p | {key: $p, value: (($i.parts[$p] // {status: "missing"}) as $r
+          | {status: $r.status}
+            + (if $r.reason then {reason: $r.reason} else {} end)
+            + {seconds: (if $r.status == "done" then $r.seconds else null end)})})
+       | from_entries) as $parts
+      | {status: "measured",
+         parts: $parts,
+         findings: (if ($i.findings.status? // "") == "read" then
+             {status: "read",
+              byLens: ($ls | map(. as $l | ($i.findings.byLens[$l] // null) as $c | {key: $l, value:
+                  (if $parts[$l].status == "done" then $c
+                   elif $c == null then null
+                   elif ([$c[]] | add) > 0 then $c
+                   else null end)}) | from_entries),
+              unreadable: ($i.findings.unreadable // [])}
+           else {status: "missing"} end),
+         accountedSeconds: (if ([$parts[] | .status] | all(. == "done" or . == "skipped")) then
+             (([$ls[] as $l | $parts[$l] | select(.status == "done") | .seconds] | max) // 0)
+             + ($parts.fixes.seconds // 0) + ($parts.recheck.seconds // 0)
+           else null end),
+         earlier: ($i.earlier // [])}
+      end;
   ($m | if length > 0 then .[0] else {} end) + {
+    phaseI: phase_i(($iparts | split(" ")); ($ilenses | split(" "))),
     feature,
     current_phase,
     completed_phases,
@@ -2126,12 +2155,170 @@ metrics_write() {
     [ "$(jqs -s 'length == 1 and (.[0] | type) == "object"' "$mf" 2>/dev/null)" = true ] \
       || die "$mf is not one JSON object — not overwriting it"
     tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf — it is unchanged"
-    jq ${JQB:+"$JQB"} --slurpfile m "$mf" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
+    jq ${JQB:+"$JQB"} --slurpfile m "$mf" --arg iparts "$I_PARTS" --arg ilenses "$I_LENSES" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed — $mf is unchanged"; }
   else
     tmp="$(mktemp "$mf.XXXXXX")" || die "could not make a temporary file beside $mf"
-    jq ${JQB:+"$JQB"} --argjson m '[]' "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
+    jq ${JQB:+"$JQB"} --argjson m '[]' --arg iparts "$I_PARTS" --arg ilenses "$I_LENSES" "$METRICS_JQ" "$2" > "$tmp" || { rm -f "$tmp"; die "metrics: the write failed"; }
   fi
   mv "$tmp" "$mf"
+}
+
+# --- i-measure ----------------------------------------------------------------
+# i-measure <feature> dispatch | start <part> | done <part> | skip <part> <reason>
+# | unmeasured <part> | findings — phase I's times and counts, in
+# measurements.i, for metrics to show. The orchestrator calls it: it alone sees
+# every lens return, and a subagent's write may be denied. A record is never
+# overwritten in silence: a new one moves the old one to earlier, and a second
+# done is refused. phase-done I refuses a part with no record (i_gate), so the
+# numbers cannot depend on memory; the prose alone never got them.
+I_PARTS='contract security tests bugs simplify fixes recheck'
+I_LENSES='contract security tests bugs simplify'
+
+# i_reason_ok <reason> — 1 to 40 of a to z, digits and dash. LC_ALL for the
+# range, so that a locale cannot widen it.
+i_reason_ok() {
+  local LC_ALL=C
+  case "$1" in ''|*[!a-z0-9-]*) return 1 ;; esac
+  [ "${#1}" -le 40 ]
+}
+
+# i_put <state file> <parts, space-separated> <record as JSON> — writes the record
+# to each part, and keeps any record it replaces. The caller holds the lock.
+i_put() {
+  local sf="$1" list="$2" rec="$3" moved p
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  moved="$(jqs --arg l "$list" '(.measurements.i.parts // {}) as $h | ($l | split(" "))[] | select($h[.])' "$sf")" \
+    || die "could not read measurements.i from the state file"
+  for p in $moved; do printf '%s: the earlier record is kept\n' "$p"; done
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  state_write "$sf" '.measurements = ((.measurements // {}) | .i = ((.i // {})
+    | reduce ($l | split(" "))[] as $p (.;
+        (if .parts[$p]? then .earlier = ((.earlier // []) + [{part: $p} + .parts[$p]]) else . end)
+        | .parts = ((.parts // {}) | .[$p] = $r))))' --arg l "$list" --argjson r "$rec"
+}
+
+# i_findings <state file> <feature> — counts findings-I.txt, each lens by severity
+# and outcome. The finding is the free text between the file:line and the outcome,
+# so a bar in it does no harm, and it never leaves the file. A line that does not
+# read is named by number, never counted as nothing.
+i_findings() {
+  local sf="$1" file tmp
+  file="$(run_dir "$2")/findings-I.txt"
+  { [ -f "$file" ] && [ -r "$file" ]; } || die "findings-I.txt is not in the run directory"
+  tmp="$(mktemp "$file.XXXXXX")" || die "could not make a temporary file in the run directory"
+  # Single quotes hold this whole program, so its comments hold no apostrophe.
+  if ! LC_ALL=C awk -v lenses="$I_LENSES" '
+    BEGIN {
+      nl = split(lenses, L, " ")
+      ns = split("CRITICAL HIGH MEDIUM LOW", S, " ")
+      no = split("fixed deferred declined", O, " ")
+      for (i = 1; i <= nl; i++) isl[L[i]] = 1
+      for (i = 1; i <= ns; i++) iss[S[i]] = 1
+      for (i = 1; i <= no; i++) iso[O[i]] = 1
+    }
+    {
+      sub(/\r$/, "")
+      if ($0 ~ /^[ \t]*$/ || $0 ~ /^[ \t]*#/) next
+      n = split($0, a, " [|] ")
+      if (n < 5 || !(a[1] in iss) || !(a[2] in isl) || !(a[n] in iso)) {
+        bad = bad sep NR; sep = ","
+        next
+      }
+      c[a[2], a[1]]++
+      c[a[2], a[n]]++
+      read++
+    }
+    END {
+      printf "{\"status\":\"read\",\"lines\":%d,\"byLens\":{", read
+      for (i = 1; i <= nl; i++) {
+        printf "%s\"%s\":{", (i > 1 ? "," : ""), L[i]
+        for (j = 1; j <= ns; j++) printf "%s\"%s\":%d", (j > 1 ? "," : ""), S[j], c[L[i], S[j]]
+        for (j = 1; j <= no; j++) printf ",\"%s\":%d", O[j], c[L[i], O[j]]
+        printf "}"
+      }
+      printf "},\"unreadable\":[%s]}\n", bad
+    }' "$file" > "$tmp"; then
+    rm -f "$tmp"
+    die "findings-I.txt could not be read"
+  fi
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  state_write "$sf" '.measurements = ((.measurements // {}) | .i = ((.i // {}) | .findings = $fd[0]))' --slurpfile fd "$tmp"
+  printf 'findings: %s lines read, %s unreadable\n' "$(jqs '.lines' "$tmp")" "$(jqs '.unreadable | length' "$tmp")"
+  jqs '.unreadable[] | "unreadable line: \(.)"' "$tmp"
+  rm -f "$tmp"
+}
+
+cmd_i_measure() {
+  feature="$1"
+  shift
+  local verb="${1:-}" part="${2:-}" reason="${3:-}" sf st secs t
+  local usage='usage: i-measure <feature> dispatch | start <part> | done <part> | skip <part> <reason> | unmeasured <part> | findings'
+  case "$verb" in
+    dispatch|findings) [ $# -eq 1 ] || die "$usage" ;;
+    start|done|unmeasured) [ $# -eq 2 ] || die "$usage" ;;
+    skip) [ $# -eq 3 ] || die "$usage" ;;
+    *) die "$usage" ;;
+  esac
+  case "$verb" in
+    dispatch|findings) ;;
+    *)
+      case " $I_PARTS " in
+        *" $part "*) case "$part" in ''|*' '*) die "'$part' is not a part: $I_PARTS" ;; esac ;;
+        *) die "'$part' is not a part: $I_PARTS" ;;
+      esac ;;
+  esac
+  if [ "$verb" = skip ]; then i_reason_ok "$reason" || die "a reason is 1 to 40 of a to z, digits and dash"; fi
+  sf="$(cmd_validate "$feature")"
+  state_lock "$sf"
+  t="$(date +%s)"
+  case "$verb" in
+    dispatch)
+      i_put "$sf" "$I_LENSES" "{\"status\":\"started\",\"started\":$t}"
+      printf 'dispatched\n' ;;
+    start)
+      i_put "$sf" "$part" "{\"status\":\"started\",\"started\":$t}"
+      printf '%s: started\n' "$part" ;;
+    done)
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      st="$(jqs --arg p "$part" '.measurements.i.parts[$p].status? // "none"' "$sf")"
+      case "$st" in
+        done)
+          # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+          secs="$(jqs --arg p "$part" '.measurements.i.parts[$p].seconds' "$sf")"
+          die "$part is already recorded: $secs s" ;;
+        started) ;;
+        *) die "no start is recorded for $part: run i-measure $feature start $part, or unmeasured $part" ;;
+      esac
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      state_write "$sf" '.measurements.i.parts[$p] |= (. + {status: "done", seconds: ($t - .started)})' --arg p "$part" --argjson t "$t"
+      # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+      printf '%s: %s s\n' "$part" "$(jqs --arg p "$part" '.measurements.i.parts[$p].seconds' "$sf")" ;;
+    skip)
+      i_put "$sf" "$part" "{\"status\":\"skipped\",\"reason\":\"$reason\"}"
+      printf '%s: skipped, %s\n' "$part" "$reason" ;;
+    unmeasured)
+      i_put "$sf" "$part" '{"status":"missing"}'
+      printf '%s: missing\n' "$part" ;;
+    findings)
+      i_findings "$sf" "$feature" ;;
+  esac
+  state_unlock
+}
+
+# i_gate <state file> <feature> — phase-done I refuses a part with no record, or
+# findings not read. A phase I already completed is past it: that run may be an
+# older pipeline's. The caller holds the lock.
+i_gate() {
+  local sf="$1" absent found
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  [ "$(jqs '(.completed_phases // []) | index("I") != null' "$sf")" != true ] || return 0
+  # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+  absent="$(jqs --arg l "$I_PARTS" '[($l | split(" "))[] as $p
+    | select((.measurements.i.parts[$p].status? // "") as $s | ($s == "done" or $s == "skipped" or $s == "missing") | not)
+    | $p] | join(" ")' "$sf")"
+  found="$(jqs '.measurements.i.findings.status? // ""' "$sf")"
+  [ -n "$absent" ] || [ "$found" != read ] || return 0
+  die "phase I is not measured:${absent:+ no record for: $absent;}$([ "$found" = read ] || printf ' the findings are not read;') use progress.sh i-measure $2, as \"Measuring phase I\" in docs/phases.md says"
 }
 
 # --- state-set ----------------------------------------------------------------
@@ -3202,6 +3389,7 @@ case "$cmd" in
   guide)         shift 2; cmd_guide "$feature_arg" "$@" ;;
   commit-list)   shift 2; cmd_commit_list "$feature_arg" "$@" ;;
   metrics)       shift 2; cmd_metrics "$feature_arg" "$@" ;;
+  i-measure)     shift 2; cmd_i_measure "$feature_arg" "$@" ;;
   state-set)     shift 2; cmd_state_set "$feature_arg" "$@" ;;
   drop-stale)    shift 2; cmd_drop_stale "$feature_arg" "$@" ;;
   suite-key)     shift 2; cmd_suite_key "$feature_arg" "$@" ;;
