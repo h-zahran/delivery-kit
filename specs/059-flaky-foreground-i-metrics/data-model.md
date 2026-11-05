@@ -15,6 +15,7 @@
     "byLens": {
       "contract": {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 0, "fixed": 3, "deferred": 0, "declined": 0}
     },
+    "lines": 3,
     "unreadable": [7]
   },
   "earlier": [
@@ -59,7 +60,7 @@
 
 - With no `measurements.i`: `{"status": "missing"}`. So a run from an older pipeline stays valid and reads as missing.
 - Every part of the list appears. A part with no record reads `{"status": "missing", "seconds": null}`.
-- `findings.status` is `read` or `missing`. A lens that was skipped or missing has `null` counts, never zeros. A lens that ran and found nothing has zeros.
+- `findings.status` is `read` or `missing`. A lens with status `done` has its counts, and zeros when it found nothing. Any other lens has `null`, never zeros, unless it reported findings: then the counts stand, so a lens with no clock keeps what it found.
 - `accountedSeconds`: the longest of the five lenses, because they run at once, plus `fixes`, plus `recheck`. A skipped part adds nothing. It is `null` when any part is not `done` or `skipped`. Read it against `phases.I.seconds`.
 
 ## In the run directory: `findings-I.txt`

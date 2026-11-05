@@ -61,8 +61,7 @@ are your hands, and the state file is your memory.
   session that has lost the thread.
 - **Metrics:** at each phase boundary run `progress.sh metrics
   <feature>`: it derives `.delivery-kit/runs/<feature>/pipeline-run.json`
-  from the state file and keeps keys you add with `jq` (findings fixed
-  per severity, loop iterations, agents dispatched). `init` makes the
+  from the state file and keeps keys you add. `init` makes the
   first one. This plugin exists
   because prompts were measured; it measures itself.
 - **A missing tool is its own question.** When the run needs a tool the machine lacks, stop: name the tool, show the exact install command, and record the answer in the state file. Never install anything silently.
@@ -656,7 +655,9 @@ fixes made: the diff from <mark> to the working tree, and these
 untracked files the fixes added: <each path, or none>`, never `--fix` or
 `--comment`. Its findings are fixed or deferred with their reason; that
 is the last review pass, and J checks what it fixed. I ends with its
-late commit (see H.5).
+late commit (see H.5). Measure I as "Measuring phase I" in
+`${CLAUDE_PLUGIN_ROOT}/docs/phases.md` says: `phase-done I` refuses a
+part with no record.
 
 **J — analyzer and full suite.** Run `analyzeCommand`, then
 `testCommand` (or cite the suite, as F.5 allows, without `--base`). Classify every failure against
