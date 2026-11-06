@@ -44,3 +44,16 @@ A re-entered phase with no new end reads null until its end is stamped. A phase 
 
 1. The rule and its tests.
 2. Release records: pipeline 1.12.1.
+
+## Faults
+
+Planted through `.delivery-kit/runs/060-no-negative-phase-time/fault-harness.sh`, on a copy of the tree, with `pipeline/tests/progress-git.bats`, filter `phase time`. Each fault landed, or the harness reads NO-OP.
+
+| Label | The rule became | Result |
+|---|---|---|
+| control | A comment in the test file changed | GREEN, 2 ok |
+| strict | `$d > $s` | RED, both tests |
+| removed | No `$d >= $s` | RED, both tests |
+| inverted | `$d < $s` | RED, both tests |
+
+The two tests were first run on the old rule. Both went red, each at its null check.
