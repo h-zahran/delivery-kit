@@ -1472,6 +1472,50 @@ accept() {
   [ "$(cat "$M")" = '[1]' ]
 }
 
+@test "metrics: a phase time with its end before its start is null, and every other phase time is unchanged" {
+  repo
+  # O is run 059's shape: 10:27:14 minus 12:00:00 is -5566.
+  jq '.timestamps = {
+        O: {started: "2026-10-06T12:00:00Z", done: "2026-10-06T10:27:14Z"},
+        K: {started: "2026-10-06T10:00:00Z", done: "2026-10-06T10:00:00Z"},
+        B: {started: "2026-10-06T10:00:00Z", done: "2026-10-06T10:05:30Z"},
+        M: {started: "2026-10-06T10:00:00Z", done: "not a time"},
+        N: {started: "2026-10-06T10:00:00Z"}}' "$SF" > t.json
+  mv t.json "$SF"
+  runs metrics "$F"
+  M=".delivery-kit/runs/$F/pipeline-run.json"
+  [ "$(jq -c '.phases.O.seconds' "$M")" = null ]
+  [ "$(jq -r '.phases.O | has("seconds")' "$M")" = true ]
+  # The record of what happened stays in the file.
+  [ "$(jq -r '.phases.O.started' "$M")" = 2026-10-06T12:00:00Z ]
+  [ "$(jq -r '.phases.O.done' "$M")" = 2026-10-06T10:27:14Z ]
+  # An end in the same second is a real 0, not a missing time.
+  [ "$(jq -c '.phases.K.seconds' "$M")" = 0 ]
+  [ "$(jq -c '.phases.B.seconds' "$M")" = 330 ]
+  [ "$(jq -c '.phases.M.seconds' "$M")" = null ]
+  [ "$(jq -r '.phases.N | has("seconds")' "$M")" = false ]
+}
+
+@test "metrics: a phase time reads null after a real re-entry, and its new end gives it a number" {
+  repo
+  bash "$PROG" phase-start "$F" O
+  bash "$PROG" phase-done "$F" O
+  # Move the first pass back, so the next start is later than the old end with no sleep.
+  jq '.timestamps.O = {started: "2026-01-01T00:00:00Z", done: "2026-01-01T00:10:00Z"}' "$SF" > t.json
+  mv t.json "$SF"
+  bash "$PROG" phase-start "$F" O
+  runs metrics "$F"
+  M=".delivery-kit/runs/$F/pipeline-run.json"
+  [ "$(jq -r '.phases.O.done' "$M")" = 2026-01-01T00:10:00Z ]
+  [ "$(jq -r '.phases.O.started' "$M")" != 2026-01-01T00:00:00Z ]
+  [ "$(jq -c '.phases.O.seconds' "$M")" = null ]
+  bash "$PROG" phase-done "$F" O
+  runs metrics "$F"
+  [ "$(jq -r '.phases.O.done' "$M")" != 2026-01-01T00:10:00Z ]
+  [ "$(jq -r '.phases.O.seconds | type' "$M")" = number ]
+  [ "$(jq -c '.phases.O.seconds' "$M")" = "$(jq -c '.phases.O | (.done | fromdate) - (.started | fromdate)' "$M")" ]
+}
+
 # --- state-set ----------------------------------------------------------------
 
 @test "state-set writes a whole key, or one member of it, and prints nothing" {
