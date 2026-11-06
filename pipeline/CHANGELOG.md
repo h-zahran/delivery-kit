@@ -10,7 +10,12 @@ All notable changes to the `pipeline` plugin.
   showed phase O at -5566 s: `phase-start` keeps a phase's old end on a re-entry,
   and `metrics`, run before the new end, took the new start from the old end. A
   phase whose end is earlier than its start now reads `seconds: null`. Its
-  timestamps stay in the file, and an end in the same second stays 0.
+  timestamps stay in the file, and an end in the same second stays 0. A phase
+  with a stamp missing, or not a string, has no `seconds` key, even if the state
+  file holds one. "Reading a phase's seconds" in `docs/phases.md` gives each
+  shape, and the two limits this leaves: a phase started again in the same second
+  as its old end reads 0 until its new end, and after a clock moved back a running
+  phase can read a positive number.
 
 ## [1.12.0] - 2026-11-05
 

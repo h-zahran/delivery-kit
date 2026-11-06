@@ -29,6 +29,8 @@ The owner reads each phase's seconds in `pipeline-run.json` to choose the next s
 - A timestamp that does not parse keeps its existing result: null.
 - A phase with no end, or no start, keeps its existing result: no seconds key.
 - The phase's own timestamps stay in the file, so the record of what happened is not lost.
+- A phase started again in the same second as its old end reads 0 until its new end is stamped: one-second stamps cannot tell it from a real 0, and FR-003 holds. The plan's "Limit, stated" says more.
+- A `seconds` value the state file holds on a phase with a stamp missing, or not a string, is not kept, so FR-001 holds for any phase.
 
 ## Requirements *(mandatory)*
 

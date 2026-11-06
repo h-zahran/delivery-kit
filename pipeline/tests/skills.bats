@@ -421,6 +421,15 @@ A measure not taken reads `missing` or `null`, never 0.
 PINS
 }
 
+@test "the doc says what each shape of a phase's seconds means" {
+  pins_in "$(cat "$ROOT/pipeline/docs/phases.md")" 'a phase time' <<'PINS'
+## Reading a phase's seconds
+No key means a stamp is missing or is not a string.
+`null` means a stamp does not parse, or the end is earlier than the start.
+a phase started again in the same second as its old end reads 0,
+PINS
+}
+
 @test "the fault harness is pointed at from the ground rules and explained in phases.md, whole" {
   local s
   s="$(span "$ORCH" '^## Ground rules$' '^## Configuration$')" || return 1
