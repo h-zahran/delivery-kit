@@ -1479,41 +1479,58 @@ accept() {
         O: {started: "2026-10-06T12:00:00Z", done: "2026-10-06T10:27:14Z"},
         K: {started: "2026-10-06T10:00:00Z", done: "2026-10-06T10:00:00Z"},
         B: {started: "2026-10-06T10:00:00Z", done: "2026-10-06T10:05:30Z"},
+        J: {started: "2026-10-06T10:00:01Z", done: "2026-10-06T10:00:00Z"},
         M: {started: "2026-10-06T10:00:00Z", done: "not a time"},
-        N: {started: "2026-10-06T10:00:00Z"}}' "$SF" > t.json
+        F: {started: "not a time", done: "2026-10-06T10:00:00Z"},
+        N: {started: "2026-10-06T10:00:00Z"},
+        D: {done: "2026-10-06T10:00:00Z"},
+        E: {seconds: -999},
+        G: {started: 5, done: 1, seconds: -4},
+        H: {started: "2026-10-06T10:00:00Z", seconds: -7},
+        C: "x"}' "$SF" > t.json
   mv t.json "$SF"
-  runs metrics "$F"
   M=".delivery-kit/runs/$F/pipeline-run.json"
-  [ "$(jq -c '.phases.O.seconds' "$M")" = null ]
-  [ "$(jq -r '.phases.O | has("seconds")' "$M")" = true ]
+  # A run file that already holds the false number does not keep it.
+  printf '{"phases":{"O":{"seconds":-5566}}}' > "$M"
+  runs metrics "$F"
+  # A false time, and a stamp that does not parse at either end, read null under the key.
+  # J is one second below zero, which is as false as O's 5566.
+  [ "$(jq -r '[.phases.O, .phases.J, .phases.M, .phases.F] | map(has("seconds") and .seconds == null) | all' "$M")" = true ]
   # The record of what happened stays in the file.
   [ "$(jq -r '.phases.O.started' "$M")" = 2026-10-06T12:00:00Z ]
   [ "$(jq -r '.phases.O.done' "$M")" = 2026-10-06T10:27:14Z ]
   # An end in the same second is a real 0, not a missing time.
   [ "$(jq -c '.phases.K.seconds' "$M")" = 0 ]
   [ "$(jq -c '.phases.B.seconds' "$M")" = 330 ]
-  [ "$(jq -c '.phases.M.seconds' "$M")" = null ]
-  [ "$(jq -r '.phases.N | has("seconds")' "$M")" = false ]
+  # A stamp missing, or not a string, gives no key, and a number the state file holds does not pass.
+  [ "$(jq -r '[.phases.N, .phases.D, .phases.E, .phases.G, .phases.H] | map(has("seconds")) | unique | tostring' "$M")" = '[false]' ]
+  # Those phases keep their stamps, and an entry that is not an object passes through.
+  [ "$(jq -r '.phases.N.started' "$M")" = 2026-10-06T10:00:00Z ]
+  [ "$(jq -r '.phases.D.done' "$M")" = 2026-10-06T10:00:00Z ]
+  [ "$(jq -c '.phases.C' "$M")" = '"x"' ]
 }
 
 @test "metrics: a phase time reads null after a real re-entry, and its new end gives it a number" {
   repo
   bash "$PROG" phase-start "$F" O
   bash "$PROG" phase-done "$F" O
-  # Move the first pass back, so the next start is later than the old end with no sleep.
-  jq '.timestamps.O = {started: "2026-01-01T00:00:00Z", done: "2026-01-01T00:10:00Z"}' "$SF" > t.json
-  mv t.json "$SF"
+  old_done="$(jq -r '.timestamps.O.done' "$SF")"
+  # A stamp is a whole second, so the sleep makes the next start later than the old end.
+  sleep 1
   bash "$PROG" phase-start "$F" O
   runs metrics "$F"
   M=".delivery-kit/runs/$F/pipeline-run.json"
-  [ "$(jq -r '.phases.O.done' "$M")" = 2026-01-01T00:10:00Z ]
-  [ "$(jq -r '.phases.O.started' "$M")" != 2026-01-01T00:00:00Z ]
+  [ "$(jq -r '.phases.O.done' "$M")" = "$old_done" ]
   [ "$(jq -c '.phases.O.seconds' "$M")" = null ]
+  [ "$(jq -r '.phases.O | has("seconds")' "$M")" = true ]
+  new_start="$(jq -r '.phases.O.started' "$M")"
   bash "$PROG" phase-done "$F" O
   runs metrics "$F"
-  [ "$(jq -r '.phases.O.done' "$M")" != 2026-01-01T00:10:00Z ]
-  [ "$(jq -r '.phases.O.seconds | type' "$M")" = number ]
-  [ "$(jq -c '.phases.O.seconds' "$M")" = "$(jq -c '.phases.O | (.done | fromdate) - (.started | fromdate)' "$M")" ]
+  # The start read before the end, so this is not the file's own sum read back.
+  new_done="$(jq -r '.phases.O.done' "$M")"
+  [ "$new_done" != "$old_done" ]
+  want="$(jq -n --arg d "$new_done" --arg s "$new_start" '($d | fromdate) - ($s | fromdate)')"
+  [ "$(jq -c '.phases.O.seconds' "$M")" = "$want" ]
 }
 
 # --- state-set ----------------------------------------------------------------

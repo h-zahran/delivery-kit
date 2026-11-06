@@ -2094,7 +2094,9 @@ cmd_show_message() {
 # docs/phases.md says. Keys the orchestrator wrote itself are kept; derived keys
 # are rewritten. Running it twice writes the same file. A phase whose end is
 # earlier than its start, as a re-entered phase with no new end is, reads
-# seconds null: phase-start keeps the old end, and a false number misleads.
+# seconds null: phase-start keeps the old end, and a false number misleads. A
+# phase with a stamp missing, or not a string, has no seconds key, even one the
+# state file holds.
 # shellcheck disable=SC2016 # a jq program: $m, $d and $s are jq's
 METRICS_JQ='
   def secs: try fromdateiso8601 catch null;
@@ -2132,6 +2134,7 @@ METRICS_JQ='
       if type == "object" and (.started | type) == "string" and (.done | type) == "string"
       then (.done | secs) as $d | (.started | secs) as $s
            | . + {seconds: (if $d != null and $s != null and $d >= $s then $d - $s else null end)}
+      elif type == "object" then del(.seconds)
       else . end))),
     gates: (.gates // {}),
     commits: {

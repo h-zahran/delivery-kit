@@ -332,3 +332,17 @@ without the thing it consumes re-runs work that has nothing to work on.
 
 Both take the names in the first column exactly as written, fractional ones
 included.
+
+## Reading a phase's seconds
+
+`phases.<phase>.seconds` in `pipeline-run.json` is the phase's end minus its
+start, for its last pass: `phase-start` overwrites the old start.
+
+No key means a stamp is missing or is not a string.
+`null` means a stamp does not parse, or the end is earlier than the start.
+A phase started again keeps its old end until its new one, so it reads `null` while it runs.
+It stays `null` if no new end comes.
+
+One-second stamps cannot tell two cases from a real end, and each reads a false number until the new end:
+a phase started again in the same second as its old end reads 0,
+and after a clock moved back, a running phase can read a positive number.
