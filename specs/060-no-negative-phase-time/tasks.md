@@ -26,7 +26,7 @@ Each phase is one review piece. No setup or foundational phase is needed.
 
 **Purpose**: pipeline 1.12.1 (FR-005).
 
-- [ ] T004 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, set the pipeline's version to 1.12.1. In `pipeline/CHANGELOG.md`, add `## [1.12.1] - 2026-11-06` with the fix. Run `bash scripts/check-versions.sh`.
+- [X] T004 In `pipeline/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, set the pipeline's version to 1.12.1. In `pipeline/CHANGELOG.md`, add `## [1.12.1] - 2026-11-06` with the fix. Run `bash scripts/check-versions.sh`.
 
 ---
 

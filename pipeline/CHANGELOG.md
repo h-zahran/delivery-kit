@@ -2,6 +2,16 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.12.1] - 2026-11-06
+
+### Fixed
+
+- **`pipeline-run.json` no longer shows a negative phase time.** Run 059's file
+  showed phase O at -5566 s: `phase-start` keeps a phase's old end on a re-entry,
+  and `metrics`, run before the new end, took the new start from the old end. A
+  phase whose end is earlier than its start now reads `seconds: null`. Its
+  timestamps stay in the file, and an end in the same second stays 0.
+
 ## [1.12.0] - 2026-11-05
 
 ### Added
