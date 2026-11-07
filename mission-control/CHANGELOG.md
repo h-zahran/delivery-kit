@@ -2,7 +2,7 @@
 
 All notable changes to the `mission-control` plugin.
 
-## [Unreleased]
+## [0.9.8] - 2026-11-07
 
 ### Fixed
 
