@@ -331,7 +331,7 @@ and is validated against which artefacts actually exist — re-entering a phase
 without the thing it consumes re-runs work that has nothing to work on.
 
 Both take the names in the first column exactly as written, fractional ones
-included.
+included. The one exception is pre-flight, which the scripts spell `preflight`.
 
 ## Reading a phase's seconds
 
