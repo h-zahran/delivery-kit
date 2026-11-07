@@ -290,6 +290,40 @@ load ../../tests/helper
   [ -z "$output" ]
 }
 
+@test "a missing or read-only TMPDIR moves the bucket flag to the next temp folder" {
+  # Measured before the fix: with TMPDIR naming a folder that does not exist,
+  # the flag write failed, every call above the threshold warned again, and
+  # bash printed "No such file or directory" beside the emission. TEMP is set
+  # to a folder of the test's own, so the fallback never reaches the real
+  # /tmp, which helper.bash's isolation exists to keep out of the suite.
+  mkdir -p "$TEST_DIR/fallback"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"   # 45% -> bucket 9
+  payload="$(hook_input "$t" gone-tmpdir)"
+  run env TMPDIR="$TEST_DIR/no-such-dir" TEMP="$TEST_DIR/fallback" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  # Parsed whole: a stray stderr line beside the emission breaks the parse.
+  echo "$output" | jq -e '.decision == "block"'
+  [ -f "$TEST_DIR/fallback/ctx-warned-gone-tmpdir" ]
+  run env TMPDIR="$TEST_DIR/no-such-dir" TEMP="$TEST_DIR/fallback" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "warned again in the same bucket: $output"; false; }
+  # A folder that exists but cannot be written is passed over the same way.
+  # (Run as root, the folder is writable after all, and the flag stays in it.)
+  mkdir -p "$TEST_DIR/readonly"
+  chmod 555 "$TEST_DIR/readonly"
+  payload="$(hook_input "$t" readonly-tmpdir)"
+  run env TMPDIR="$TEST_DIR/readonly" TEMP="$TEST_DIR/fallback" bash "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  run env TMPDIR="$TEST_DIR/readonly" TEMP="$TEST_DIR/fallback" bash "$HOOK" <<< "$payload"
+  chmod 755 "$TEST_DIR/readonly"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "warned again in the same bucket: $output"; false; }
+  if [ ! -f "$TEST_DIR/readonly/ctx-warned-readonly-tmpdir" ]; then
+    [ -f "$TEST_DIR/fallback/ctx-warned-readonly-tmpdir" ]
+  fi
+}
+
 @test "fires again in the next 5% bucket" {
   t="$(transcript_with 90000 90000 90000 90000 90000)"   # 45% -> bucket 9
   run_hook "$t" growing-session
