@@ -9,6 +9,11 @@ All notable changes to the `pipeline` plugin.
 - **A crash in `progress.sh init` leaves no broken state file.** The state
   file is written to a temporary file beside it and moved into place, so a
   write that dies part way leaves nothing, and the next `init` makes it.
+- **Two writers breaking one stale write guard no longer clash.** A guard
+  left by a writer that died is renamed aside and removed there, so a writer
+  that saw it stale can no longer remove the new guard another writer has
+  just made. A stale guard holding a stray file is removed too; before, it
+  made every write wait, then stop.
 
 ## [1.13.0] - 2026-11-07
 

@@ -1240,7 +1240,7 @@ state_lock() {
   [ "${STATE_LOCK:-}" != "$l" ] || return 0
   case "$max" in ''|*[!0-9]*) max=100 ;; esac
   until mkdir "$l" 2>/dev/null && lock_own "$l"; do
-    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && lock_remove "$l"; then
+    if [ -n "$(find "$l" -maxdepth 0 -mmin +1 2>/dev/null)" ] && lock_break "$l"; then
       warn "broke a stale lock on $1: its writer has not run for over a minute"
       continue
     fi
@@ -1270,6 +1270,24 @@ lock_own() {
 lock_remove() {
   rm -f "$1/owner" 2>/dev/null || true
   rmdir "$1" 2>/dev/null
+}
+# lock_break <lock dir> — breaks a guard found stale. Removed in place, two
+# writers that both found it stale could both remove it, and the second
+# removed the guard the first had just made. It is renamed aside instead, to
+# a name of this process's own: one rename, which only one writer wins. The
+# copy moved aside is then judged again, as a rename keeps a folder's time
+# (measured): a fresh one is another writer's new guard, taken in that race,
+# and goes back while the path is free. A stale one is removed whole, a stray
+# file in it too, which rmdir alone could never remove.
+lock_break() {
+  local aside="$1.stale.$$"
+  rm -rf -- "$aside" 2>/dev/null || true
+  mv -- "$1" "$aside" 2>/dev/null || return 1
+  if [ -z "$(find "$aside" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+    { [ ! -e "$1" ] && mv -- "$aside" "$1" 2>/dev/null; } || rm -rf -- "$aside" 2>/dev/null || true
+    return 1
+  fi
+  rm -rf -- "$aside" 2>/dev/null || true
 }
 
 # state_write <state file> <jq program> [jq args] — the program's output
