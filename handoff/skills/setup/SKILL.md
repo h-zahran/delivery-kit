@@ -140,17 +140,24 @@ CFG="$HOME/.delivery-kit.json"
 # Build the answers as $PATCH, e.g.
 # {"contextGuard":{"windowTokens":1000000,"thresholdTokens":400000}}
 printf '%s\n' "$PATCH" > "$CFG.patch"
-jq -s '.[0] * .[1]' "$CFG" "$CFG.patch" > "$CFG.new" &&
-  if [ -L "$CFG" ]; then cat "$CFG.new" > "$CFG"; else mv "$CFG.new" "$CFG"; fi
-rc=$?
+rc=1
+if ! jq -s '.[0] * .[1]' "$CFG" "$CFG.patch" > "$CFG.new"; then
+  echo "merge failed; $CFG is unchanged"
+elif [ ! -L "$CFG" ]; then
+  if mv "$CFG.new" "$CFG"; then rc=0; else echo "merge failed; $CFG is unchanged"; fi
+elif cat "$CFG.new" > "$CFG"; then
+  rc=0
+else
+  mv "$CFG.new" "$CFG.merged"
+  echo "the merge worked, but $CFG is a link whose target cannot be written; the merged settings are in $CFG.merged, to apply in your dotfiles"
+fi
 rm -f "$CFG.patch" "$CFG.new"
-[ "$rc" -eq 0 ] || echo "merge failed; $CFG is unchanged"
 ```
 
 `*` is jq's recursive merge: sibling keys under `contextGuard` survive, and so
 does everything outside it.
 
-The `&&` is what makes a failed merge harmless: `$CFG` is replaced only once the
+The order is what makes a failed merge harmless: `$CFG` is replaced only once the
 merged document exists whole, so a `~/.delivery-kit.json` that will not parse
 costs the user nothing. Both temporaries are removed on either path — without
 that second name in the `rm`, a failed merge leaves a partial `$CFG.new` sitting
@@ -160,14 +167,19 @@ distinguishes a write from a no-op.
 When `$CFG` is a link (a dotfile manager such as stow or chezmoi keeps the real
 file elsewhere), the merged text is written through the link instead: `mv`
 would replace the link with a plain file, and the user's dotfiles would never
-see the change.
+see the change. A link into a read-only place (a home-manager link into the
+Nix store) cannot be written through. The link is still left alone, and the
+block says so: the merge worked, and the merged settings are kept in
+`$CFG.merged` for the user to apply where their dotfiles are kept.
 
 ## 4. Print what was written
 
 If `$rc` was 0, show the resulting file. A user who has just answered two
 questions about numbers should be able to see the numbers.
 
-If it was not, say the merge failed and that the file is unchanged. Printing it
+If it was not, give the user the line the block printed: either the merge
+failed and the file is unchanged, or the merge worked and the link's target
+could not be written, with the path of the merged result. Printing the file
 anyway shows the OLD contents under a heading claiming they were just written,
 which is worse than the failure it hides.
 
