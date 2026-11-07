@@ -13,6 +13,8 @@ All notable changes to the `mission-control` plugin.
 - **The sounds can be turned off.** A new **Sounds** option, in `/config`
   and on the install screen, turns every sound off. It is on by default, so
   nothing changes until you turn it off.
+- **The plugin's manifest names its license, home page, repository and
+  keywords**, as the other plugins' manifests do.
 
 ## [0.9.7] - 2026-11-02
 
