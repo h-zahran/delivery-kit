@@ -607,7 +607,9 @@ cmd_piece_next() {
   # recorded": that reading would offer every piece again.
   # A numbered sub-phase, `## Phase 3.1:`, is no piece, and its tasks were
   # skipped with no word, so the run ended with them unbuilt. Its slot is
-  # kept, marked sub, and one that holds a task is refused by name, first.
+  # kept, marked sub, and collects only its unticked tasks: one that holds
+  # one is refused by name, first. One whose every task is ticked, done by
+  # hand, has nothing left unbuilt and passes, as before.
   r="$(jq -r --rawfile t "$tf" '
     if ((.commits // []) | type) != "array" then "notlist" else
     [.commits[]? | objects | select(.kind == "piece" or .kind == "converge") | .piece] as $done
@@ -618,7 +620,9 @@ cmd_piece_next() {
                elif ($l | test("^## Phase [0-9]+\\.[0-9]"))
                then {h: $l, ids: [], sub: true} else null end]
         elif length > 0 and .[length-1] != null then
-          .[length-1].ids += [$l | capture("^- \\[[ xX]\\] (?<id>T[0-9]+)").id]
+          (if .[length-1].sub == true then "^- \\[ \\] (?<id>T[0-9]+)"
+           else "^- \\[[ xX]\\] (?<id>T[0-9]+)" end) as $re
+          | .[length-1].ids += [$l | capture($re).id]
         else . end))
     | [.[] | select(. != null and (.ids | length > 0))] as $all
     | [$all[] | select(.sub != true)] as $pieces
@@ -639,7 +643,7 @@ cmd_piece_next() {
     decimal)
       local sub_s
       shown sub_s "${r#*$'\x1f'}"
-      die "the heading '$sub_s' in $tf holds tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:' (a letter may follow, as '## Phase 3a:'), so its tasks would never be built; rename it, then run this again" ;;
+      die "the heading '$sub_s' in $tf holds unticked tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:' (a letter may follow, as '## Phase 3a:'), so its unticked tasks would never be built; rename it, then run this again" ;;
     bad)  die "the next piece's heading holds a control character (a CR, NUL or U+001F) that its output cannot carry, in $tf" ;;
     next)
       rest="${r#*$'\x1f'}"
