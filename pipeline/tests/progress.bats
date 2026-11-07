@@ -107,6 +107,28 @@ setup() {
   [[ "$output" == *"rm '"* ]]
 }
 
+@test "lock-take by the run and session that hold the lock succeeds quietly and leaves it as it is" {
+  # A resume takes the lock at pre-flight and again in phase B. Mutation: drop
+  # the holder check, and the second take stops on the run's own lock.
+  bash "$PROG" init 001-demo b main web
+  bash "$PROG" lock-take 001-demo session-one
+  cp .delivery-kit/lock lock.before
+  run --separate-stderr bash "$PROG" lock-take 001-demo session-one
+  [ "$status" -eq 0 ] || { echo "status $status: $stderr"; false; }
+  [ -z "$output" ] && [ -z "$stderr" ] || { echo "stdout: $output stderr: $stderr"; false; }
+  cmp lock.before .delivery-kit/lock
+  # The same run under another session, and another run under the same
+  # session, are still refused.
+  run bash "$PROG" lock-take 001-demo session-two
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"locked by a live run"* ]] && [[ "$output" == *"rm '"* ]]
+  bash "$PROG" init 002-other b main web
+  run bash "$PROG" lock-take 002-other session-one
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"locked by a live run"* ]]
+  cmp lock.before .delivery-kit/lock
+}
+
 @test "lock-take takes over a stale lock whose holder has no state file" {
   mkdir -p .delivery-kit
   jq -n '{feature: "ghost", session: "dead", taken_at: "2026-01-01T00:00:00Z"}' > .delivery-kit/lock
