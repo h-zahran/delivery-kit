@@ -243,10 +243,35 @@ stub() {
   [ "$(jq -r '.baseBranch' <<<"$output")" = "trunk" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "configured" ]
   git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/main HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   probe --dir "$T" --base-branch trunk
   [ "$(jq -r '.baseBranch' <<<"$output")" = "main" ]
   [ "$(jq -r '.baseBranchSource' <<<"$output")" = "origin/HEAD" ]
+}
+
+@test "base branch: an origin/HEAD naming a branch origin no longer has is not trusted" {
+  # Upstream renamed master to main, then `git fetch --prune` deleted
+  # origin/master and left origin/HEAD pointing at it: a stale local master
+  # became the base, labelled origin/HEAD.
+  T="$BATS_TEST_TMPDIR/base-stale-head"
+  mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base; git branch master
+  git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/master HEAD
+  git update-ref refs/remotes/origin/main HEAD
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+  git update-ref -d refs/remotes/origin/master
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .baseBranchSource' <<<"$output")" = "main configured" ]
+  [ "$stderr" = "preflight: origin/HEAD points to a branch origin no longer has, so it is not read as the base; fix it with: git remote set-head origin -a" ] \
+    || { echo "stderr: $stderr"; false; }
+  # The positive control: once origin/HEAD is repaired it is the base again.
+  git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  probe --dir "$T" --base-branch trunk
+  [ "$status" -eq 0 ] || { echo "repaired: exit $status: $stderr"; false; }
+  [ "$(jq -r '.baseBranch + " " + .baseBranchSource' <<<"$output")" = "main origin/HEAD" ]
+  [ -z "$stderr" ]
 }
 
 @test "base branch: an override beats origin/HEAD, and is reported as an override" {
@@ -256,6 +281,7 @@ stub() {
   T="$BATS_TEST_TMPDIR/base-override"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
   git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/main HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   git branch integration
   probe --dir "$T" --base-branch trunk --base-branch-override integration
@@ -734,6 +760,7 @@ stub() {
   T="$BATS_TEST_TMPDIR/branch-is-origin-head"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; main_base
   git remote add origin https://github.com/example/thing.git
+  git update-ref refs/remotes/origin/main HEAD
   git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   probe --dir "$T" --feature-branch main
   [ "$status" -ne 0 ]
