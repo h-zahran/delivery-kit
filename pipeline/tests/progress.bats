@@ -1000,6 +1000,25 @@ $(fixture_heading 'Phase 9b: ')|T007"
   pn_refuses "no piece"
 }
 
+# A numbered sub-phase, `## Phase 3.1:`, is no piece heading, and its tasks
+# were skipped with no word: piece-next offered the whole-number pieces, then
+# said every piece was done. Such a heading with a task under it is refused
+# by name, before any piece, whatever else the file holds. One with no task
+# has nothing to skip. Mutation: drop the "decimal" answer from the walk.
+@test "piece-next refuses a numbered sub-phase heading that holds tasks, naming it" {
+  pn_init
+  printf '%s\n' '# Tasks' '' '## Phase 1: Setup' '' '- [ ] T001 a task' '' \
+    '## Phase 3.1: Tests first' '' '- [ ] T002 a task under a sub-phase' > specs/tasks.md
+  pn_refuses "the heading '## Phase 3.1: Tests first' in specs/tasks.md holds tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:'"
+  printf '%s\n' '# Tasks' '' '## Phase 3.1: Tests first' '' '- [ ] T002 a task' > specs/tasks.md
+  pn_refuses "the heading '## Phase 3.1: Tests first'"
+  # With no task under it, nothing is skipped, and the pieces go on.
+  printf '%s\n' '# Tasks' '' '## Phase 3.1: Notes' '' 'Prose.' '' '## Phase 1: Setup' '' '- [ ] T001 a task' > specs/tasks.md
+  run --separate-stderr bash "$PROG" piece-next 001-demo
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "${lines[0]}" = "Phase 1: Setup" ]
+}
+
 @test "piece-next refuses a heading holding the unit separator" {
   pn_init
   printf '## Phase 1: Set\037up\n\n- [ ] T001 a task\n' > specs/tasks.md
