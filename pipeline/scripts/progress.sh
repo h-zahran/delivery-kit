@@ -241,14 +241,22 @@ cmd_init() {
     return 0
   fi
   mkdir -p "${sf%/*}"
-  jq ${JQB:+"$JQB"} -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
+  # Written to a temporary file beside it and moved into place, as every
+  # other write here is: a jq that dies part way leaves no half a file that
+  # every later command would stop on as not JSON.
+  local tmp
+  tmp="$(mktemp "$sf.XXXXXX")" || die "could not make a temporary file beside $sf — no state file is made"
+  if ! jq ${JQB:+"$JQB"} -n --arg f "$feature" --arg b "$branch" --arg bb "$base" --arg pt "$ptype" '{
     feature: $f, branch: $b, baseBranch: $bb, projectType: $pt,
     current_phase: "preflight", completed_phases: [],
     timestamps: {}, artifacts: {}, pr_url: "", commits: [],
     implementer: "", test_baseline: "", last_task: "",
     deferred_ambiguities: [], analyze_changelog: [],
     config: {}, speckit: {}, capabilities: {}, gates: {}
-  }' > "$sf"
+  }' > "$tmp"; then
+    rm -f "$tmp"; die "the write to $sf failed — no state file is made"
+  fi
+  mv "$tmp" "$sf" || { rm -f "$tmp"; die "could not move the new state file into place at $sf"; }
   init_metrics "$feature" "$sf"
   printf '%s\n' "$sf"
 }
