@@ -155,7 +155,9 @@ progress, and only then the first task not started. `origin` is read
 with `git ls-remote`, never fetched, and an origin that does not answer
 is given up after about 10 s. Pull requests are read with `gh`, probed as `gh`, `gh.exe` and
 `gh.cmd`, and given up after 30 s where a working `timeout` command is
-installed (macOS has none by default; there `gh` has no limit). The output says `originRead` and `prRead`: a source that could
+installed (macOS has none by default; there `gh` has no limit). A pull
+request is matched by its branch name, so a fork's pull request with the
+same branch name counts too. The output says `originRead` and `prRead`: a source that could
 not be read is reported as not read, never taken as "no". Without `gh`, a
 merged task never shows as done, and shows as not started when its branch
 was deleted. When one branch name carries several pull requests, a
