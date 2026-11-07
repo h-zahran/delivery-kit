@@ -127,7 +127,7 @@ rather than silent.
 | Flag | Effect |
 |---|---|
 | `--config <path>` | Merge a JSON file over the resolved configuration. Beats both config files. |
-| `--dry-run` | Run the spec phases A–F.5 normally, then print what H–O would do and stop. Releases the lock on the way out. |
+| `--dry-run` | Run A–F.5 normally, then print what G–O would do and stop. Releases the lock on the way out. |
 | `--auto` | Collapse the K and L gates to automatic. It collapses neither C, G nor O: C and O stop when they have something to ask, and G stops for the review question on every fresh `claude` run, and for the implementer question unless `implementer` pre-answered it. It never collapses a pause, K's stops for a path outside `codeRoots`, the feature's spec directory and `tasks.md` or for a commit it cannot show, L's stops for a commit it cannot show or a stale `commits` entry, B's exit 3, or the stop for a state file tracked in git. |
 | `--auto-release` | Collapse O as well. Typed on purpose, never implied by `--auto`. |
 | `--until <phase>` | Stop cleanly after the named phase: state file intact, lock released, resumable. |
@@ -198,10 +198,8 @@ through 10 keep the numbers they have always had.
    ```
 
    — and STOP. There is no degraded mode: a pipeline without specs is
-   not this product. When scripting an init, pin the version
-   (`uv tool install "specify-cli==<version>"`); `--non-interactive`
-   exists only from 0.16.x, and a 0.15.x scripted init needs an explicit
-   `--script sh|ps` or the interactive picker fires.
+   not this product. For a scripted init, read "The spec tool" in
+   `${CLAUDE_PLUGIN_ROOT}/docs/configuration.md`.
 2. **Version out of range** (`speckit.versionInRange` false): warn and
    continue. The tested range is 0.15.x through 0.16.x; untested is not
    known-broken.
@@ -223,7 +221,7 @@ through 10 keep the numbers they have always had.
    A state file's claim is accepted only after the tracked-state check
    in Resume has passed, or its stop has been confirmed.
 6. **Gitignore probe** (yours, not the script's): on the first run in a
-   repository, run `git check-ignore -q .delivery-kit` yourself. If it
+   repository, run `git check-ignore -q .delivery-kit/x` yourself. If it
    is not ignored, OFFER to append one line (`.delivery-kit/`) to
    `.gitignore`, showing exactly what you will write. Declining is fine;
    the run proceeds and the files show up as untracked. Never silently,
@@ -231,7 +229,7 @@ through 10 keep the numbers they have always had.
    The answer is recorded under `gates.gitignore`: on a fresh run it is
    held aside and written in B, as item 9's is. An accepted write, here
    or at item 9, is recorded in K's `{accepted, hash}` shape.
-7. **Lock:** take it with `progress.sh lock-take <feature> <session>`.
+7. **Lock:** take it with `progress.sh lock-take <feature> <session>`, the session id `$CLAUDE_CODE_SESSION_ID` holds.
    On a fresh run the feature has no name yet — the lock is taken in
    Phase B, immediately after `init` creates the state file, and
    nothing before B holds it. On a resume, take it here, before
@@ -888,7 +886,7 @@ the human as surely as marking it resolved would.
 
 | Project type | Strategy |
 |---|---|
-| `web` | Start the dev server (`devCommand`, else the manifest's script table: `dev`, then `start`, then `serve`), drive the browser, screenshot every changed route, read the screenshots back |
+| `web` | Start the dev server (`devCommand`, else the manifest's script table: `dev`, then `start`, then `serve`), drive the browser, screenshot every changed route, read the screenshots back, stop the server |
 | `mobile-android` | Invoke `pipeline:device-verify` (build, install, navigate, screenshot, read back; needs `adb` and one attached device, or `ANDROID_SERIAL` naming one) |
 | `other` | Run `verifyCommand`, demand an artefact, read it |
 
@@ -1004,7 +1002,7 @@ resume, in a failure.
 | Never | Because |
 |---|---|
 | `git push --force`, in any spelling | It destroys history a collaborator may already hold. Nothing this pipeline does is worth that. |
-| `git reset --hard`, `git clean`, `git checkout --` on tracked files, `git stash` | Each silently discards or hides work the pipeline did not write and cannot restore. |
+| `git reset --hard`, `git clean`, `git checkout --` on tracked files, `git stash` | Each silently discards or hides work the pipeline did not write and cannot restore. `git stash create` hides nothing. |
 | Delete a branch | The branch is the only handle on everything the run produced. |
 | `--no-verify`, or skipping a hook | The hooks are the project's own gate. A tool that routes around them is lying about what passed. |
 | `git add -A`, or staging by wildcard | Every commit names every path it stages, not only K's. A wildcard is how an unrelated file, a secret, or another session's work gets committed. |
