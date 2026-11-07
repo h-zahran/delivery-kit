@@ -2,6 +2,20 @@
 
 All notable changes to the `team` plugin.
 
+## [0.1.1] - 2026-11-07
+
+### Fixed
+
+- **`team:status` never writes its progress page through a link.** The
+  page's path was checked as text only, so a committed symbolic link on the
+  `progressView` path made the page land wherever the link led: over a
+  clone's `.git/config`, outside the repository, or as a shell startup file
+  one folder above it. The page path is now refused when any existing part of
+  it is a link, or when its folder resolves outside the repository or into its
+  `.git` or `.delivery-kit` folder, by name or by identity. A member's name
+  holding a line break no longer adds a line to the page: the heading passes it
+  through the same cleaning the table uses.
+
 ## [0.1.0] - 2026-10-15
 
 ### Highlights

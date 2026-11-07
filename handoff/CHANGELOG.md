@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - 2026-11-07
+
+### Highlights
+
+- The context guard no longer reads a turn that used the advisor tool at
+  about twice its real size.
+
+### Fixed
+
+- **An advisor turn is read at its live context.** On a turn that called
+  the advisor tool, Claude Code writes `message.usage` as the sum of the
+  turn's iterations, on every entry of the turn, and lists them in
+  `message.usage.iterations`. The guard read the sum, so its median could sit
+  at about 2x the real context: it asked for a handoff at half the real
+  context, and its WINDOW MISCONFIGURED note and `handoff:setup` could
+  propose a window about 2x too big, after which the guard stayed silent on
+  the real window. The guard and `handoff:setup` now read the last
+  `type: "message"` iteration when an entry carries one, and the top-level
+  usage otherwise.
+
 ## [2.4.2] - 2026-10-13
 
 ### Highlights
