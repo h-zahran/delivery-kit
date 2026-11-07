@@ -2,6 +2,15 @@
 
 All notable changes to the `mission-control` plugin.
 
+## [Unreleased]
+
+### Fixed
+
+- **The "done" sound plays only when the work is done.** A long main turn
+  stopped with Esc, or ended by an error or a refusal, no longer plays it. A
+  batch of helpers that ends while the main loop still works no longer plays
+  it either; the main loop's own end does, as before.
+
 ## [0.9.7] - 2026-11-02
 
 ### Highlights
