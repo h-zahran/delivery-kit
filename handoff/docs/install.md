@@ -141,8 +141,10 @@ set.
 /plugin uninstall handoff@delivery-kit
 ```
 
-The guard can leave three kinds of small state file in your temp directory:
-`ctx-warned-<session-id>`, `dk-window-warned-<session-id>`, and `dk-jq-hint`.
+The guard can leave three kinds of small state file in your temp directory
+(the first of `TMPDIR`, `TEMP` and `/tmp` that it can write):
+`ctx-warned-<session-id>`, `dk-window-warned-<session-id>`, and
+`dk-jq-hint-<user id>` (or `dk-jq-hint` when `id` cannot answer).
 Each is a few bytes. They are swept once they are eight days old — the sweep
 counts whole days, so a flag seven and a half days old is not yet due — and only
 while the plugin is installed and firing, since the sweep runs on the same path
