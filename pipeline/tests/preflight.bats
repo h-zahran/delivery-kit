@@ -294,7 +294,7 @@ kind_is() {
   d="$BATS_TEST_TMPDIR/remote-tools"
   shimdir "$d" $PROBE_TOOLS
   # A fake ssh: -G prints the host its last argument resolves to.
-  printf '%s\n' '#!/bin/sh' 'for a; do last=$a; done' \
+  printf '%s\n' '#!/bin/sh' ": > \"$d/ssh-ran\"" 'for a; do last=$a; done' \
     'case "$last" in gh-work|gh_work) h=GitHub.com ;; *) h=$last ;; esac' \
     'printf "user git\nhostname %s\nport 22\n" "$h"' > "$d/ssh"
   # A fake gh that answers yes to anything, and leaves a mark when it runs.
@@ -306,6 +306,7 @@ kind_is() {
   local c url want
   for c in \
     'https://GitHub.com/o/r.git|github' \
+    'https://www.github.com/o/r|github' \
     'https://user@github.com:443/o/r|github' \
     'ssh://git@github.com/o/r.git|github' \
     'git@github.com:o/r.git|github' \
@@ -327,6 +328,12 @@ kind_is() {
       || { echo "$url: $(jq -r '.remote.kind' <<<"$output"), want $want"; false; }
   done
   [ ! -e "$d/gh-ran" ] || { echo "pre-flight ran gh"; false; }
+  # A GitHub host needs no alias lookup, so ssh (and any Match exec) is not run.
+  # Without the user's git config: an insteadOf there rewrites git@github.com:.
+  rm -f "$d/ssh-ran"; git remote set-url origin git@github.com:o/r.git
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 probe --path "$d" --dir "$T" --base-branch main
+  [ "$(jq -r '.remote.kind' <<<"$output")" = github ]
+  [ ! -e "$d/ssh-ran" ] || { echo "pre-flight ran ssh for github.com"; false; }
   # Without ssh the alias cannot be resolved, so it reads other.
   rm "$d/ssh"
   git remote set-url origin git@gh-work:o/r.git

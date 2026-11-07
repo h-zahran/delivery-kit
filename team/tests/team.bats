@@ -341,10 +341,12 @@ CASES
 # holds it, in any spelling a reader takes for it, is refused by every
 # reader, and the pipeline line is never printed with it.
 @test "tasks: a flag that holds --auto-release is refused, and no pipeline line carries it" {
-  malformed_tasks 3 <<'CASES'
+  malformed_tasks 5 <<'CASES'
 .tasks[0].flags = ["--auto-release"]|task T-1: a flag holds --auto-release
 .tasks[1].flags = ["--auto --AUTO-RELEASE"]|task T-2: a flag holds --auto-release
 .tasks[1].flags = ["--auto-release=yes"]|type it on the /pipeline line yourself
+.tasks[0].flags = ["—auto-release"]|task T-1: a flag holds --auto-release
+.tasks[0].flags = ["‐‐auto-release"]|task T-1: a flag holds --auto-release
 CASES
   setup
   set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--implementer", "claude", "--auto-release"]'

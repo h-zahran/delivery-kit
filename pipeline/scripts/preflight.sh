@@ -710,8 +710,10 @@ url_host() {
 # ssh-over-443 host), compared whole: a substring read a gitlab path holding
 # github.com as GitHub, and GitHub.com as not. An ssh host may be an alias
 # from the user's ssh configuration (git@gh-work:o/r for a second account):
-# `ssh -G` prints what it resolves to, reading the configuration only, with
-# canonicalization off so no name is looked up. Pre-flight runs no gh: a
+# `ssh -G` prints what it resolves to, with canonicalization off so no name
+# is looked up. It also runs any `Match exec` command in the user's ssh
+# configuration, as every ssh connection does, so it runs only for a host
+# that is not a GitHub host already. Pre-flight runs no gh: a
 # GitHub Enterprise host reads other, as before, and gh's own stored login
 # was not used to tell it apart, since reading it can open a keychain prompt
 # (macOS, not measured) and the README says pre-flight only looks gh up.
@@ -720,13 +722,14 @@ remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
   remote="other"
   url_host "$url"
+  case "$rh" in github.com|ssh.github.com|www.github.com) rh_ssh=false ;; esac
   if [ -n "$rh" ] && [ "$rh_ssh" = true ] && command -v ssh >/dev/null 2>&1; then
     a="$(ssh -G -o CanonicalizeHostname=no -- "$rh" 2>/dev/null \
       | awk '$1 == "hostname" && !n { print tolower($2); n = 1 }')" || a=""
     case "$a" in ""|?|-*|*[!a-z0-9.-]*) ;; *) rh="$a" ;; esac
   fi
   case "$rh" in
-    github.com|ssh.github.com) remote="github" ;;
+    github.com|ssh.github.com|www.github.com) remote="github" ;;
   esac
 fi
 mark_not_read remote.kind
