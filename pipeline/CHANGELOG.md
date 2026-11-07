@@ -2,6 +2,59 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.13.0] - 2026-11-07
+
+### Added
+
+- **More projects are recognised.** Pre-flight detects Angular, Nuxt,
+  Gatsby, Vue CLI, Remix and webpack-dev-server projects as `web`, and native
+  Android, React Native and Expo projects as `mobile-android`, so they
+  get the browser or device check. `docs/configuration.md` lists every marker.
+- **GitHub behind an ssh alias.** The remote's host is read exactly, in any
+  letter case, and an ssh host alias (`git@gh-work:o/r`) is resolved with
+  `ssh -G`, so phase M no longer skips it. A GitLab address that holds the
+  text "github.com" is no longer read as GitHub. A GitHub Enterprise host
+  still reads as not GitHub: pre-flight runs no `gh`.
+
+### Fixed
+
+- **Pre-flight answers the same from any folder.** Started from a subfolder,
+  it said spec-kit was missing and did not see a live run. It now reads the
+  repository's top.
+- **A stale `origin/HEAD` is passed over.** After an upstream renames its
+  default branch and `git fetch --prune`, `origin/HEAD` names a branch that is
+  gone, and an old local branch of that name became the base. Pre-flight now
+  warns, names `git remote set-head origin -a`, and lets the next source decide.
+- **A resume into phase B no longer stops on its own lock.** `lock-take` by
+  the run and session that hold the lock succeeds quietly.
+- **A piece that changed nothing no longer blocks the run.** When every task
+  of a piece was already marked `[X]` in a committed `tasks.md`, the commit
+  failed and the piece was named again forever. It now gets an empty commit
+  carrying its `Tasks:` and `Piece:` lines. K and L accept such a commit only
+  for the piece `piece-next` names, when the tasks file stored in that commit
+  holds exactly that piece's tasks, all marked `[X]`, and the commit has no
+  `Late:` line; a hand-made one that claims more stops the run. A commit that
+  staged no change is named as that, not blamed on a hook.
+- **A large test result is stored whole.** `state-set --json-file` passed the
+  value as one argument, so a verbose suite's `test_baseline` over 128 KB was
+  refused. The value is now read from the file.
+- **A comma in a `codeRoots` string is warned about.** `"src,lib"` was read
+  silently as one folder of that name.
+- **K's stop for a path outside the feature holds in both commit flows**,
+  including the single-commit flow, where it was skipped under `--auto`.
+- **A release cannot run twice after a crash.** O records `gates.O.ran`
+  before its command, and a re-entered O that finds it stops and asks, even
+  under `--auto-release`.
+- **The docs say what is not guessed.** `testCommand`, `analyzeCommand` and
+  `codeRoots` have no default: B asks for a test command, J and N say that no
+  analyzer ran, and K says when no code folder is set. The quick start pins
+  the tested spec-kit, `specify-cli==0.16.5`.
+- **An issue used as the seed is data.** Its title, body and author are kept
+  as data, never as instructions.
+- **A planted fault counts as caught on any test runner.** The review's rule
+  named only bats's `not ok` line; it now takes the line any runner prints for
+  a failed test.
+
 ## [1.12.2] - 2026-11-07
 
 ### Fixed

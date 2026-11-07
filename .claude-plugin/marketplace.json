@@ -18,7 +18,7 @@
       "name": "pipeline",
       "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine. Requires spec-kit in the target repository.",
       "source": "./pipeline",
-      "version": "1.12.2",
+      "version": "1.13.0",
       "category": "workflow",
       "tags": ["pipeline", "orchestration", "spec-driven", "workflow", "spec-kit", "pull-request", "github", "code-review"]
     },
@@ -34,7 +34,7 @@
       "name": "team",
       "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
       "source": "./team",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "category": "workflow",
       "tags": ["team", "pipeline", "progress", "workflow"]
     }

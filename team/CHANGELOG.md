@@ -2,6 +2,19 @@
 
 All notable changes to the `team` plugin.
 
+## [0.1.2] - 2026-11-07
+
+### Fixed
+
+- **A merged task stays merged.** `team:status` and `team:start` read a
+  merged pull request first. A merged task with a later closed pull request
+  on the same branch name no longer reads as not started, and is not offered
+  again.
+- **A task file cannot turn off the release question.** A task whose flags
+  hold `--auto-release` is refused, with a message: the pipeline takes that
+  flag only when it is typed on purpose, so the member types it on the line
+  themselves.
+
 ## [0.1.1] - 2026-11-07
 
 ### Fixed
