@@ -580,9 +580,8 @@ entries far above the live context, and a last-entry read fires the guard
 early — seen 2026-08-07, the hook reported 45% while the session was
 genuinely at 24%.
 
-15 and not 5, because such a tool does not inflate ONE entry. The assistant
-messages that follow it read the same oversized cache, so the inflation
-persists for four to six CONSECUTIVE entries. Measured against the advisor
+15 and not 5, because such a tool does not inflate ONE entry: the inflation
+persists for several CONSECUTIVE entries. Measured against the advisor
 tool on 2026-08-15: 122774 -> 252163, 160982 -> 328729, 183166 -> 371027 —
 each about 2x, each lasting four to six readings. A 5-wide window is FILLED
 by that run, so the median is not merely dragged toward the spike, it IS the
@@ -590,6 +589,23 @@ spike: the hook reported 37% where Claude Code's own status line read 19%.
 Reading high is the fail-loud direction, so the cost was half a wasted
 session rather than a session lost — but a guard that is wrong by 2x teaches
 the user to ignore it, which ends in the same place. 15 outvotes a run of 7.
+
+The 2026-08-15 explanation, that the messages after the advisor call read the
+same oversized cache, was wrong, and the median alone did not fix it. On a
+turn that calls the advisor tool, Claude Code writes `message.usage` as the
+SUM of the turn's iterations and lists them in `message.usage.iterations`,
+each with a `type` (`message` or `advisor_message`) and its own token fields;
+the same summed usage is written on every entry of the turn, seven or eight
+of them. Measured on real transcripts: a top level of 267211 over iterations
+message 132332, advisor_message 128269, message 134879; on another, the top
+level equalled the sum of the two `message` iterations. The live context is
+the LAST `type == "message"` iteration. A turn of seven or eight entries can
+hold the majority of fifteen, so the median read about 2x the real context:
+the guard asked for a handoff at half the real context, and its WINDOW
+MISCONFIGURED note and the setup skill proposed a window about 2x too big.
+`READINGS_JQ` now reads the last `message` iteration when the entry carries
+one, and the top-level usage otherwise. The fifteen-wide median stays, for
+any other run of inflated readings.
 
 From the hook, above `READINGS_JQ`, on the line budget and the byte cap:
 
