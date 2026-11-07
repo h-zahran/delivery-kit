@@ -44,6 +44,15 @@ The mod changes what the model sees, not only what you see:
 
 ## Sound
 
+The mod plays a short sound when Claude needs you (a permission, a
+question), and one when long work is done: a main turn of a minute or more
+that answered, or a batch of helpers that ends while the main loop is idle.
+Esc, an error or a refusal plays no sound.
+
+To turn every sound off, open `/config` and set mission-control's
+**Sounds** row to off. The install screen offers the same option. Sounds
+are on by default.
+
 - Windows plays the sounds with PowerShell, by its full path. The sound's
   path goes in an environment variable, never inside the script.
 - macOS uses the built-in player.

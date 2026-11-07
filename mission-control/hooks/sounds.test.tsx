@@ -112,3 +112,29 @@ test('sounds: helpers that end with the main loop idle play "done"', ENGINE, asy
   await settle(clock)
   expect(done(played)).toBe(1)
 })
+
+// The off switch: the `sounds` option (/config). Off, no clip plays at all.
+async function everySound($: Engine, clock: MockClock): Promise<void> {
+  await $.classic.Notification({ message: 'Claude needs your permission', notification_type: 'permission_prompt' })
+  await settle(clock)
+  await longTurn($, clock, 't1', 'answer')
+  await clock.advance(11_000)
+  await $.agent.spawn(spawnArgs('find auth'))
+  await $.turn.complete(end('h1', 'answer', 'ag-1'))
+  await settle(clock)
+}
+
+test('sounds: with the sounds option off, nothing plays', { ...ENGINE, options: { sounds: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const played = setUp(on)
+  await everySound($, clock)
+  expect(played).toEqual([])
+})
+
+test('sounds: with the sounds option on, each sound plays', { ...ENGINE, options: { sounds: true } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const played = setUp(on)
+  await everySound($, clock)
+  expect(played.filter(p => p.endsWith('sounds/needs-you.wav')).length).toBe(1)
+  expect(done(played)).toBe(2)
+})
