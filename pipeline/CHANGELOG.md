@@ -29,8 +29,9 @@ All notable changes to the `pipeline` plugin.
   the tag. They now read the branch, `refs/heads/<base>`.
 - **A `## Phase 3.1:` heading in the tasks file is named, not skipped.** Its
   tasks were passed over with no word, and the run ended with them unbuilt.
-  `piece-next` now stops on such a heading that holds tasks, names it, and
-  says a piece heading must be `## Phase <whole number>:`.
+  `piece-next` now stops on such a heading that holds an unticked task,
+  names it, and says a piece heading must be `## Phase <whole number>:`.
+  One whose every task is ticked passes, as before.
 - **An untracked folder holding its own repository is not committed as a
   bare link.** The commit commands committed such a folder as a link to one
   of its commits with no `.gitmodules` entry, so a clone got an empty folder.

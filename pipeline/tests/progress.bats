@@ -1009,7 +1009,7 @@ $(fixture_heading 'Phase 9b: ')|T007"
   pn_init
   printf '%s\n' '# Tasks' '' '## Phase 1: Setup' '' '- [ ] T001 a task' '' \
     '## Phase 3.1: Tests first' '' '- [ ] T002 a task under a sub-phase' > specs/tasks.md
-  pn_refuses "the heading '## Phase 3.1: Tests first' in specs/tasks.md holds tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:'"
+  pn_refuses "the heading '## Phase 3.1: Tests first' in specs/tasks.md holds unticked tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:'"
   printf '%s\n' '# Tasks' '' '## Phase 3.1: Tests first' '' '- [ ] T002 a task' > specs/tasks.md
   pn_refuses "the heading '## Phase 3.1: Tests first'"
   # With no task under it, nothing is skipped, and the pieces go on.
@@ -1017,6 +1017,23 @@ $(fixture_heading 'Phase 9b: ')|T007"
   run --separate-stderr bash "$PROG" piece-next 001-demo
   [ "$status" -eq 0 ] || { echo "$stderr"; false; }
   [ "${lines[0]}" = "Phase 1: Setup" ]
+}
+
+# A sub-phase whose every task is ticked, done by hand on a resumed run, has
+# nothing left unbuilt: it passes, as before, and the pieces go on. One
+# unticked task among ticked ones is still refused.
+# Mutation: collect ticked tasks under a sub-phase too.
+@test "piece-next passes a numbered sub-phase heading whose every task is ticked" {
+  pn_init
+  printf '%s\n' '# Tasks' '' '## Phase 3.1: Tests first' '' '- [X] T002 done by hand' '- [x] T003 also done' '' \
+    '## Phase 1: Setup' '' '- [ ] T001 a task' > specs/tasks.md
+  run --separate-stderr bash "$PROG" piece-next 001-demo
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "${lines[0]}" = "Phase 1: Setup" ]
+  [ "${lines[1]}" = "T001" ]
+  printf '%s\n' '# Tasks' '' '## Phase 3.1: Tests first' '' '- [X] T002 done by hand' '- [ ] T003 not yet' '' \
+    '## Phase 1: Setup' '' '- [ ] T001 a task' > specs/tasks.md
+  pn_refuses "the heading '## Phase 3.1: Tests first' in specs/tasks.md holds unticked tasks"
 }
 
 @test "piece-next refuses a heading holding the unit separator" {
