@@ -448,12 +448,23 @@ cmd_commit_add() {
   case "$piece" in *$'\r'*|*$'\n'*|*$'\x1f'*)
     die "the piece name holds a control character (CR, LF or U+001F)" ;;
   esac
+  # A piece entry with no files is piece-commit's empty commit for a piece
+  # whose tasks were committed already and that changed nothing. It is taken
+  # only when git reads the commit as changing no file, so a broken caller's
+  # empty list for a commit that has files is still refused.
+  local empty_ok=0
+  if [ "$kind" = piece ] && { { [ -n "$ff" ] && [ -f "$ff" ] && [ ! -s "$ff" ]; } || { [ -z "$ff" ] && [ $# -eq 0 ]; }; }; then
+    if git cat-file -e "$sha^{commit}" 2>/dev/null \
+      && [ -z "$(git diff-tree --no-commit-id --name-only -r --diff-merges=first-parent --root "$sha" 2>/dev/null)" ]; then
+      empty_ok=1
+    fi
+  fi
   if [ -n "$ff" ]; then
     [ $# -eq 0 ] || die "commit-add --files-from takes no paths after <tasks>: the list is the file's"
     [ -f "$ff" ] || die "commit-add --files-from: no file at $ff"
   else
-    [ $# -gt 0 ] || [ "$kind" = tests ] \
-      || die "a $kind entry needs the files it changed; only a tests entry may have none"
+    [ $# -gt 0 ] || [ "$kind" = tests ] || [ "$empty_ok" -eq 1 ] \
+      || die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file, may have none"
   fi
   # An empty item is what an unset variable expands to, so it is the shape a
   # broken caller produces; a list that is merely non-empty would hide it.
@@ -474,7 +485,7 @@ cmd_commit_add() {
     ff="${sf%/*}/commit-add-files.nul"
     nul_file "$ff" "$@"
   fi
-  jqargs=(--arg sha "$sha" --arg k "$kind" --arg p "$piece" --arg t "$tasks" --rawfile f "$ff")
+  jqargs=(--arg sha "$sha" --arg k "$kind" --arg p "$piece" --arg t "$tasks" --rawfile f "$ff" --arg e "$empty_ok")
 
   # One word back: new, same, conflict or legacy — or a refusal of the file
   # list itself, which only a --files-from list can reach here.
@@ -487,7 +498,7 @@ cmd_commit_add() {
   # would otherwise swallow the type error and answer "new".
   verdict="$(jq -r "${jqargs[@]}" "$ENTRY_JQ"'
     if (files | any(. == "")) then "emptypath"
-    elif (files | length) == 0 and $k != "tests" then "nofiles"
+    elif (files | length) == 0 and $k != "tests" and $e != "1" then "nofiles"
     elif ((.commits // []) | type) != "array" then "notlist"
     else
     [.commits[]? | objects | select(.sha == $sha)] as $mine
@@ -503,7 +514,7 @@ cmd_commit_add() {
   case "$verdict" in
     new) ;;
     emptypath) die "the file list holds an empty path" ;;
-    nofiles) die "a $kind entry needs the files it changed; only a tests entry may have none" ;;
+    nofiles) die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file, may have none" ;;
     notlist) die "$sf: commits must be a list — not recording into it" ;;
     # A re-run after a crash repeats the call exactly; the work is done.
     same) return 0 ;;
@@ -1173,8 +1184,18 @@ commit_named() {
     git --literal-pathspecs add --pathspec-from-file="$add" --pathspec-file-nul >&2 \
       || die "git add refused the paths in $1 — nothing committed"
   fi
-  git --literal-pathspecs commit -q --cleanup=verbatim -F "$MF" --pathspec-from-file="$1" --pathspec-file-nul >&2 \
-    || die "the commit was rejected (a commit hook?) — nothing is committed or recorded, and the paths in $1 stay uncommitted"
+  # A failed commit is told apart afterwards, so a commit that lands costs no
+  # extra process: a dry run runs no hook and exits 1 exactly when the paths
+  # hold no change (measured, git 2.53) — a path committed already as it
+  # stands, or a submodule whose own work is uncommitted inside it, which git
+  # status lists and git add stages nothing for. Only then is it not a hook.
+  if ! git --literal-pathspecs commit -q --cleanup=verbatim -F "$MF" --pathspec-from-file="$1" --pathspec-file-nul >&2; then
+    local rc=0
+    git --literal-pathspecs commit --dry-run --porcelain --pathspec-from-file="$1" --pathspec-file-nul >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 1 ] \
+      || die "git add staged no change for the paths in $1, so git had nothing to commit — no commit hook stopped it: each path is committed already as it stands, or is a submodule whose own work is uncommitted inside it. Nothing is committed or recorded; commit or discard that work, then run this again"
+    die "the commit was rejected (a commit hook?) — nothing is committed or recorded, and the paths in $1 stay uncommitted"
+  fi
   SHA="$(git rev-parse HEAD)"
 }
 
@@ -1356,6 +1377,7 @@ piece_paths() {
   done < "$RD/piece-after.nul"
   if in_state_dir "$tf"; then have=1; fi
   if [ "$have" -eq 0 ]; then PP+=("$tf"); fi
+  PIECE_TF="$tf"
 }
 
 # hash_of <path> — `git hash-object`, or `deleted` for a path that is gone.
@@ -1649,6 +1671,30 @@ cmd_piece_commit() {
   fi
   nul_file "$RD/piece-paths.nul" ${PP[@]+"${PP[@]}"}
   printf '%s\n\nTasks: %s\nPiece: %s\n' "$MSG" "$IDS" "$HEADING" > "$RD/piece-msg.txt"
+  # A piece whose tasks were all marked [X] in a tasks.md committed already,
+  # and that changed no file, has only that unchanged tasks.md to commit: git
+  # had nothing to commit, the piece stopped, and piece-next named it for
+  # ever. It gets an empty commit carrying its Tasks: and Piece: lines, made
+  # as J's record is (--allow-empty --only: nothing staged rides along), and
+  # is recorded as a piece with no file. A commit, not an entry alone: an
+  # entry needs a commit id on the branch (drop-stale removes any other), and
+  # the commit that holds the [X] marks is recorded already under its own
+  # details. record-branch and commit-list take an empty commit only in this
+  # shape, for the piece piece-next names with every task [X].
+  if [ "${#PP[@]}" -eq 1 ] && [ "${PP[0]}" = "$PIECE_TF" ] \
+    && status_to "$RD/piece-tf.nul" "$PIECE_TF" && [ ! -s "$RD/piece-tf.nul" ] \
+    && [ -n "$(git --literal-pathspecs ls-files -- "$PIECE_TF")" ]; then
+    with_trailers "$RD/piece-msg.txt"
+    git commit -q --allow-empty --only --cleanup=verbatim -F "$MF" >&2 \
+      || die "the commit was rejected (a commit hook?) — nothing is committed or recorded"
+    SHA="$(git rev-parse HEAD)"
+    : > "$RD/piece-none.nul"
+    ( cmd_commit_add "$feature" --files-from "$RD/piece-none.nul" piece "$SHA" "$HEADING" "$IDS" ) \
+      || die "commit $SHA is made but not recorded — run record-branch $feature"
+    warn "the piece '$HEADING' changed no file and its tasks were committed already as [X]: made the empty piece commit $SHA"
+    printf '%s\n' "$SHA"
+    return 0
+  fi
   commit_named "$RD/piece-paths.nul" "$RD/piece-msg.txt"
   ( cmd_commit_add "$feature" --files-from "$RD/piece-paths.nul" piece "$SHA" "$HEADING" "$IDS" ) \
     || die "commit $SHA is made but not recorded — run record-branch $feature"
@@ -1784,7 +1830,11 @@ cmd_record_branch() {
     late="$(late_of "$msg")" || late=''
     hasp=0; h=''
     if h="$(piece_of "$msg")"; then hasp=1; else h=''; fi
-    if [ "${#CF[@]}" -eq 0 ] && [ "$late" != J ]; then
+    # An empty commit with a Piece: line and no Late: line is piece-commit's
+    # for a piece that changed nothing; the checks below still hold it to the
+    # piece piece-next names, every task [X], and commit-add to a commit that
+    # changes no file.
+    if [ "${#CF[@]}" -eq 0 ] && [ "$late" != J ] && { [ "$hasp" -eq 0 ] || [ -n "$late" ]; }; then
       die "commit $c has no file and no 'Late: J' line: it cannot be shown, so it is not recorded and this stops the run ($n recorded before it)"
     fi
     ids=''
@@ -1980,7 +2030,7 @@ cmd_commit_list() {
   RD="$(run_dir "$feature")"
   base="$(base_of "$sf" "${2:-}")"
   feature_bounds "$sf"
-  local list c msg line f rec p out roots='' r n=0
+  local list c msg line f rec p out roots='' r n=0 note
   while IFS= read -r r; do
     case "$r" in r:*) roots="$roots${roots:+, }'${r#r:}'" ;; esac
   done < <(printf '%s\n' "$ROOTS")
@@ -1991,13 +2041,19 @@ cmd_commit_list() {
     n=$((n + 1))
     msg="$(git log -1 --format=%B "$c")"
     commit_files "$c"
+    note="J's record of a waved-through red"
     if [ "${#CF[@]}" -eq 0 ] && ! has_line "$msg" 'Late: J'; then
-      die "commit $c has no file and no 'Late: J' line: K cannot show it — this stops the run"
+      # piece-commit's empty commit, for a piece whose tasks were committed
+      # already, is shown once the run records it as a piece with no file.
+      # shellcheck disable=SC2016 # a jq program: $c is jq's
+      jq -e --arg c "$c" 'any(.commits[]? | objects; .sha == $c and .kind == "piece" and ((.files // []) | length) == 0)' "$sf" > /dev/null 2>&1 \
+        || die "commit $c has no file and no 'Late: J' line: K cannot show it — this stops the run"
+      note="the piece's tasks were committed already, and the piece changed no file"
     fi
     out="$out"$'\n'"commit $n: $c"$'\n'"  message:"$'\n'
     while IFS= read -r line; do out="$out    $line"$'\n'; done < <(printf '%s\n' "$msg")
     out="$out  files:"$'\n'
-    if [ "${#CF[@]}" -eq 0 ]; then out="$out    (none: J's record of a waved-through red)"$'\n'; fi
+    if [ "${#CF[@]}" -eq 0 ]; then out="$out    (none: $note)"$'\n'; fi
     for f in ${CF[@]+"${CF[@]}"}; do
       path_ok "$f"
       mark_of "$f" "$c"
