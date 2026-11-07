@@ -9,11 +9,12 @@ All notable changes to the `pipeline` plugin.
 - **A crash in `progress.sh init` leaves no broken state file.** The state
   file is written to a temporary file beside it and moved into place, so a
   write that dies part way leaves nothing, and the next `init` makes it.
-- **Two writers breaking one stale write guard no longer clash.** A guard
-  left by a writer that died is renamed aside and removed there, so a writer
-  that saw it stale can no longer remove the new guard another writer has
-  just made. A stale guard holding a stray file is removed too; before, it
-  made every write wait, then stop.
+- **Two writers breaking one stale write guard clash far less often.** A
+  guard left by a writer that died is renamed aside, looked at again, and
+  removed there, so a writer that saw it stale is much less likely to remove
+  the new guard another writer has just made; it is not impossible, as the
+  look and the move back are two steps. A stale guard holding a stray file
+  is removed too; before, it made every write wait, then stop.
 - **`projectType` `Web` now picks the web check.** A project type spelled
   `web`, `mobile-android` or `other` in another letter case, from the
   values file or the flag, is read as that name, with a warning naming both

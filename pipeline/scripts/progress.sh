@@ -1344,8 +1344,11 @@ lock_remove() {
 # a name of this process's own: one rename, which only one writer wins. The
 # copy moved aside is then judged again, as a rename keeps a folder's time
 # (measured): a fresh one is another writer's new guard, taken in that race,
-# and goes back while the path is free. A stale one is removed whole, a stray
-# file in it too, which rmdir alone could never remove.
+# and goes back while the path is free. That look and the move back are two
+# steps, not one, so the race is much less likely, not closed: a third
+# writer that makes a guard between them leaves the copy with nowhere to go,
+# and it is removed. A stale one is removed whole, a stray file in it too,
+# which rmdir alone could never remove.
 lock_break() {
   local aside="$1.stale.$$"
   rm -rf -- "$aside" 2>/dev/null || true
