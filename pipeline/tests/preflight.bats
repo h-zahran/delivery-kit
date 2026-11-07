@@ -1324,6 +1324,36 @@ hidden_refused() {
   [ "$(jq -r '[.willSkip[].phase] | index("M") != null' <<<"$output")" = "true" ]
 }
 
+# A repository whose one remote is not named origin read "no git remote",
+# which sent the developer looking for a remote that was there. The kind is
+# still none, as every base and push path reads origin alone; the reasons
+# say why, and name the rename that fixes it. Mutation: drop the
+# other-remotes branch, so the reasons fall back to "no git remote".
+@test "willSkip says the remote is not named origin, and names the rename, when other remotes exist" {
+  T="$BATS_TEST_TMPDIR/not-origin"
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
+  git remote add upstream https://github.com/example/thing.git
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.remote.kind' <<<"$output")" = none ]
+  [ "$(jq -c '[.willSkip[].phase] | sort' <<<"$output")" = '["L","M"]' ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="L")] | .[0].reason' <<<"$output")" \
+      = "no remote named origin: this repository's remote has another name, and the run pushes to origin alone — the run stops after the commit gate and says so; to use it, run: git remote rename upstream origin" ] \
+    || { jq -r '.willSkip' <<<"$output"; false; }
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "no pull request without a remote named origin; to use the one there is, run: git remote rename upstream origin" ] \
+    || { jq -r '.willSkip' <<<"$output"; false; }
+  # Two remotes: which one to use is the developer's, so neither is named.
+  git remote add mirror https://example.invalid/x.git
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 probe --dir "$T" --base-branch main
+  [ "$(jq -r '[.willSkip[] | select(.phase=="L")] | .[0].reason' <<<"$output")" \
+      = "no remote named origin: this repository's remotes have other names, and the run pushes to origin alone — the run stops after the commit gate and says so; to use one, run: git remote rename <name> origin" ] \
+    || { jq -r '.willSkip' <<<"$output"; false; }
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "no pull request without a remote named origin; to use one of those there are, run: git remote rename <name> origin" ] \
+    || { jq -r '.willSkip' <<<"$output"; false; }
+}
+
 @test "tree reports dirty and runsLive from the facts on disk" {
   T="$BATS_TEST_TMPDIR/tree"
   mkdir -p "$T"; cd "$T"; git init -q .; main_base
