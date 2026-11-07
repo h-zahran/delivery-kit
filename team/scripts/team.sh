@@ -515,7 +515,7 @@ gather() {
     if command -v "$c" >/dev/null 2>&1; then gh_cmd="$c"; break; fi
   done
   if [ -n "$gh_cmd" ] \
-     && GH_PROMPT_DISABLED=1 "$gh_cmd" pr list --state all --limit 1000 --json headRefName,state,url > "$G/gh" 2>/dev/null </dev/null \
+     && gh_prs "$gh_cmd" > "$G/gh" 2>/dev/null </dev/null \
      && out="$(jq -c -s 'if length == 1 and (.[0] | type) == "array" then .[0] else error end' -- "$G/gh" 2>/dev/null)"; then
     pr_read=true; printf '%s\n' "$out" > "$G/prs.json"
   fi
@@ -534,6 +534,22 @@ gather() {
     printf '%s\n' "$line" >> "$G/runs.jsonl"
   done
   printf '{"originRead":%s,"prRead":%s}\n' "$remote_read" "$pr_read" > "$G/read.json"
+}
+
+# gh_prs <gh> — the pull requests, read with a time limit where the system
+# has a timeout that works. Without one, a gh that never answers holds
+# team:status and team:start forever. 30 s, not ls_remote's 10: gh reads up
+# to 1000 pull requests, 100 a request. `timeout --version` is the probe:
+# GNU's answers it, and Windows' own timeout.exe, a different program that
+# can come first on PATH, does not. With no working timeout gh runs as
+# before, with no limit. A gh that times out fails, and is reported as not
+# read, the way a missing gh is.
+gh_prs() {
+  if timeout --version >/dev/null 2>&1; then
+    GH_PROMPT_DISABLED=1 timeout 30 "$1" pr list --state all --limit 1000 --json headRefName,state,url
+  else
+    GH_PROMPT_DISABLED=1 "$1" pr list --state all --limit 1000 --json headRefName,state,url
+  fi
 }
 
 # ls_remote — origin's branches, read with a time limit. Without one, an
