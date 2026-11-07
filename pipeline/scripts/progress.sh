@@ -955,12 +955,23 @@ repo_rel() {
 # ROOT_LIST (each root stripped of a leading `./` and a trailing `/`, parsed
 # once here, never once a path), SPEC_DIR (the directory artifacts.spec sits
 # in) and TASKS_REL.
+# A string root is one root, as before. One holding a comma ("src,lib") is
+# warned about once, never split: a folder's name can hold a comma, and the
+# string most likely meant a list, under which every file read as outside.
+# The warning rides in ROOTS as a "w:" line, which no reader of ROOTS takes.
 feature_bounds() {
   local spec tf r
-  ROOTS="$(jqs '.config.codeRoots? | if type == "array" then (.[] | strings | "r:" + .) elif type == "string" then "r:" + . else empty end' "$1")"
+  ROOTS="$(jqs '.config.codeRoots? | if type == "array" then (.[] | strings | "r:" + .) elif type == "string" then ("r:" + .), (if contains(",") then "w:comma" else empty end) else empty end' "$1")"
   ROOT_LIST=()
   while IFS= read -r r; do
-    case "$r" in r:*) r="${r#r:}"; r="${r#./}"; ROOT_LIST+=("${r%/}") ;; esac
+    case "$r" in
+      r:*) r="${r#r:}"; r="${r#./}"; ROOT_LIST+=("${r%/}") ;;
+      w:comma)
+        if [ -z "${ROOTS_WARNED:-}" ]; then
+          ROOTS_WARNED=1
+          warn "config.codeRoots is one string holding a comma: codeRoots takes a JSON list (e.g. [\"src\",\"lib\"]), and the comma is read as part of one folder's name"
+        fi ;;
+    esac
   done < <(printf '%s\n' "$ROOTS")
   spec="$(jqs '(.artifacts.spec? // .artifacts.tasks? // "") | strings' "$1")"
   SPEC_DIR=''
