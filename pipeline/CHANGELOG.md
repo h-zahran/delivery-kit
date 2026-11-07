@@ -36,6 +36,13 @@ All notable changes to the `pipeline` plugin.
   of its commits with no `.gitmodules` entry, so a clone got an empty folder.
   They now stop, name the folder, and say to add it to `.gitignore` or as a
   submodule. A tracked submodule is committed as before.
+- **A committed link in `.delivery-kit` no longer takes the run's state
+  with it.** Pre-flight, and every `progress.sh` command that may write
+  there, stop when git tracks a link or a submodule anywhere under
+  `.delivery-kit/`, or any entry at `.delivery-kit`, `.delivery-kit/runs` or
+  `.delivery-kit/suite-results` themselves, in any letter case, and name
+  it. A link you made and did not commit still works, and a tracked regular
+  state file inside a real folder still goes to the tracked-state check.
 
 ## [1.13.0] - 2026-11-07
 

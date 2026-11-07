@@ -2017,3 +2017,60 @@ board_vs_lock_take() {
   [ "$(jq -r .current_phase .delivery-kit/runs/001-demo/progress.json)" = preflight ]
   [ -z "$(ls -A .delivery-kit/runs/001-demo | grep stale)" ] || { ls -A .delivery-kit/runs/001-demo; false; }
 }
+
+# A committed link or submodule under .delivery-kit, or any entry at it, its
+# runs/ or its suite-results/, took the run's state and lock wherever it
+# pointed. Every command that may write there refuses it, init, lock-take,
+# state-set and suite-record among them; a tracked regular state file inside
+# a real folder, and an untracked link, are not refused.
+# Mutation: make state_root_untracked return at once.
+@test "every writing command refuses a tracked link in the state directory, and only that" {
+  local out="$BATS_TEST_TMPDIR/elsewhere"
+  local why="is tracked in git in the run's state directory as a link, a submodule, or an entry where .delivery-kit"
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+  mkdir -p "$out"
+  git init -q .
+  gc() { git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
+  ln -s "$out" .DELIVERY-KIT
+  git add .DELIVERY-KIT; gc link
+  run --separate-stderr bash "$PROG" init 001-demo b main web
+  [ "$status" -eq 1 ] || { echo "init went ahead past a tracked link"; false; }
+  [[ "$stderr" == *"'.DELIVERY-KIT' $why"* ]] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" lock-take 001-demo s1
+  [ "$status" -eq 1 ] || { echo "lock-take went ahead past a tracked link"; false; }
+  [[ "$stderr" == *"'.DELIVERY-KIT' $why"* ]] || { echo "$stderr"; false; }
+  [ -z "$(ls -A "$out")" ] || { ls -A "$out"; false; }
+  # Untracked, the link is the developer's own: both go ahead through it.
+  # (Lower case here, so a file system that heeds case follows it too.)
+  git rm -q --cached .DELIVERY-KIT; gc 'no link'
+  mv .DELIVERY-KIT .delivery-kit
+  bash "$PROG" init 001-demo b main web > /dev/null
+  bash "$PROG" lock-take 001-demo s1
+  [ -f "$out/runs/001-demo/progress.json" ]
+  bash "$PROG" lock-release 001-demo
+  rm .delivery-kit
+  # A link at one run's folder, deep inside: a state write refuses it.
+  bash "$PROG" init 002-demo b main web > /dev/null
+  ln -s "$out" .delivery-kit/runs/001-x
+  git add .delivery-kit/runs/001-x; gc 'a run link'
+  run --separate-stderr bash "$PROG" state-set 002-demo gates C '"x"'
+  [ "$status" -eq 1 ] || { echo "state-set went ahead past a tracked run link"; false; }
+  [[ "$stderr" == *"'.delivery-kit/runs/001-x' $why"* ]] || { echo "$stderr"; false; }
+  git rm -q --cached .delivery-kit/runs/001-x; rm .delivery-kit/runs/001-x; gc 'no run link'
+  # A link at suite-results: suite-record refuses it before anything else.
+  ln -s "$out" .delivery-kit/suite-results
+  git add .delivery-kit/suite-results; gc 'a results link'
+  printf '1..1\nok 1 x\n' > t.tap
+  run --separate-stderr bash "$PROG" suite-record 002-demo k t.tap 0
+  [ "$status" -eq 1 ] || { echo "suite-record went ahead past a tracked results link"; false; }
+  [[ "$stderr" == *"'.delivery-kit/suite-results' $why"* ]] || { echo "$stderr"; false; }
+  git rm -q --cached .delivery-kit/suite-results; rm .delivery-kit/suite-results; gc 'no results link'
+  # A tracked regular state file inside a real folder is the tracked-state check's.
+  git add -f .delivery-kit/runs/002-demo/progress.json; gc state
+  run --separate-stderr bash "$PROG" init 002-demo b main web
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" lock-take 002-demo s1
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  run --separate-stderr bash "$PROG" state-set 002-demo gates C '"x"'
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+}

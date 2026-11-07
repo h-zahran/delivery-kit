@@ -795,6 +795,33 @@ if [ "$git_usable" = true ]; then
   fi
 fi
 mark_not_read tree.dirty
+# A link (mode 120000) or a submodule (160000) git tracks under the state
+# directory, at any depth and in any letter case, or any entry at
+# .delivery-kit, .delivery-kit/runs or .delivery-kit/suite-results
+# themselves, checks out pointing wherever its author chose, and would take
+# the run's state and lock with it, maybe out of the repository. A tracked
+# regular file inside a real folder is the tracked-state check's to ask
+# about, and an untracked link the developer made is theirs. The index is
+# read with its modes, `ls-files -s`, one entry a line: git quotes a path
+# holding a line feed or another control character, so each line starts
+# with its mode, and a quoted path never equals one of the three names,
+# which need no quoting. Not -z: awk cannot split on a NUL in every awk,
+# and no tool outside the probe's own set is run to turn it into one it
+# can. Read after the tree's status, so a broken index is named there.
+# STATE_ROOT_AWK is the same line in progress.sh, which runs it before
+# every write, and a test holds the two equal. awk reads every line, so git
+# is never cut off under pipefail.
+# shellcheck disable=SC2016 # an awk program: its $ names are awk's
+STATE_ROOT_AWK='!n { t = index($0, "\t"); if (t == 0) next; p = substr($0, t + 1); l = tolower(p); if ($1 == "120000" || $1 == "160000" || l == ".delivery-kit" || l == ".delivery-kit/runs" || l == ".delivery-kit/suite-results") { print p; n = 1 } }'
+if [ "$git_usable" = true ]; then
+  hit="$(git --no-literal-pathspecs ls-files -s -- ':(literal,icase).delivery-kit' 2>/dev/null \
+    | awk "$STATE_ROOT_AWK")" \
+    || die "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the state directory is tracked; run git ls-files to see why"
+  if [ -n "$hit" ]; then
+    shown hit_s "$hit"
+    die "'$hit_s' is tracked in git in the run's state directory as a link, a submodule, or an entry where .delivery-kit, its runs/ or its suite-results/ folder must be, so the run's state and lock would follow it, maybe out of this repository: remove it from git with git rm --cached, ignore .delivery-kit/, then run this again"
+  fi
+fi
 # A run is live unless its phase is DONE or `progress.sh abandon` marked it
 # (an abandoned value other than null or false): the rule progress.sh's
 # RUN_END_JQ states, copied below because this script cannot source that

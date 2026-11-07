@@ -228,6 +228,40 @@ validate_file() {
   printf '%s\n' "$sf"
 }
 
+# state_root_untracked — stops when git's index holds, under the state
+# directory in any letter case and at any depth, a link (mode 120000) or a
+# submodule (160000), or any entry at .delivery-kit, .delivery-kit/runs or
+# .delivery-kit/suite-results themselves: such an entry checks out pointing
+# wherever its author chose, and the run's state and lock would follow it.
+# A tracked regular file inside a real folder is left to the tracked-state
+# check, and an untracked link the developer made is theirs. The dispatch
+# runs it before every command that may write under the state directory.
+# STATE_ROOT_AWK judges the index's entries, read with their modes from
+# `ls-files -s`, one entry a line, and prints the first one refused: git
+# quotes a path holding a line feed or another control character, so each
+# line starts with its mode, and a quoted path never equals one of the three
+# names, which need no quoting. Not -z: awk cannot split on a NUL in every
+# awk, and preflight.sh, which holds the same line, runs no tool outside its
+# own set to turn it into one it can. A test holds the two lines equal. One
+# git process when it can read the index: only a failed read asks whether
+# this is a work tree at all, as outside one there is no index to ask. awk
+# reads every line, so git is never cut off under pipefail.
+# shellcheck disable=SC2016 # an awk program: its $ names are awk's
+STATE_ROOT_AWK='!n { t = index($0, "\t"); if (t == 0) next; p = substr($0, t + 1); l = tolower(p); if ($1 == "120000" || $1 == "160000" || l == ".delivery-kit" || l == ".delivery-kit/runs" || l == ".delivery-kit/suite-results") { print p; n = 1 } }'
+state_root_untracked() {
+  local hit rc=0 hit_s
+  command -v git >/dev/null 2>&1 || return 0
+  hit="$(git --no-literal-pathspecs ls-files -s -- ":(literal,icase)$STATE_ROOT" 2>/dev/null \
+    | LC_ALL=C awk "$STATE_ROOT_AWK")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || return 0
+    die "the index could not be read: git ls-files failed, so it cannot be told whether $STATE_ROOT is tracked; run git ls-files to see why"
+  fi
+  [ -n "$hit" ] || return 0
+  shown hit_s "$hit"
+  die "'$hit_s' is tracked in git in the run's state directory as a link, a submodule, or an entry where .delivery-kit, its runs/ or its suite-results/ folder must be, so the run's state and lock would follow it, maybe out of this repository: remove it from git with git rm --cached, ignore .delivery-kit/, then run this again"
+}
+
 cmd_init() {
   need_feature "$1"
   feature="$1"; branch="${2:-}"; base="${3:-}"; ptype="${4:-}"
@@ -3707,6 +3741,10 @@ feature_arg="$2"
 need_feature "$feature_arg"
 case "$cmd" in validate|read) ;; *) jq_b_probe ;; esac
 not_abandoned "$feature_arg"
+# Every command that may write under the state directory asks first whether
+# git tracks a link or a submodule there (state_root_untracked). Only the
+# ones that write nothing skip it.
+case "$cmd" in read|validate|get|board|piece-next) ;; *) state_root_untracked ;; esac
 case "$cmd" in
   init)          shift 2; cmd_init "$feature_arg" "$@" ;;
   branch-cut)    shift 2; cmd_branch_cut "$feature_arg" "$@" ;;
