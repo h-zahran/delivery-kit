@@ -78,7 +78,7 @@ before it spends it.
 | `planFile` | Where `Phase <N>: <title>` seeds are read from. Claude reads the file and quotes the matching section; no script parses it. [How you start it](../README.md#how-you-start-it) gives the heading shape that keeps the section unambiguous. |
 | `testCommand` | The full test suite; phases F.5, J and N run it, and B starts it in the background on the base commit. The probe block shows it and its layer first: see "The Test command line". |
 | `analyzeCommand` | Static analysis; phases J and N run it. |
-| `codeRoots` | Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
+| `codeRoots` | A JSON list of folders, such as `["src", "lib"]`; one string is one folder, and a comma in it is part of the folder's name, and the run warns about it. Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
 | `projectType` | Overrides detection. Name any kind of project, in letters, digits, `.`, `_` and `-`: `web` and `mobile-android` pick a runtime strategy, and any other name uses `verifyCommand`. The detector's source is reported either way. Detected as `web`: a `package.json` whose dependencies or devDependencies name next, vite, astro, react-scripts, @angular/core, nuxt, gatsby, @vue/cli-service, @remix-run/dev or webpack-dev-server. Detected as `mobile-android`: `pubspec.yaml` with `android/`; `settings.gradle` or `settings.gradle.kts` with `app/src/main/AndroidManifest.xml` or `android/`; or a `package.json` naming react-native or expo, with `android/`. Detection reads the repository's top, from any folder inside it. |
@@ -464,7 +464,9 @@ command, and hands over the path:
   it, and the recorded values stand.
 - To the state file: `progress.sh state-set <feature> <key> [<sub-key>]
   --json-file <path>`, one JSON document. B's record of `config` goes this
-  way, because `testCommand` and `analyzeCommand` can hold a quote.
+  way, because `testCommand` and `analyzeCommand` can hold a quote. The
+  value's size is limited only by memory, never by one command argument,
+  so a large `test_baseline` is stored whole.
 
 The shell reads only the path. The file goes in a temporary folder outside
 the repository, so it is never committed and never reads as dirt.

@@ -741,7 +741,7 @@ under `--auto`, names each such path, records them under `gates.K`, and
 waits for the answer. `commit-list` marks each path inside or outside
 by `codeRoots` as recorded in `config`; when `codeRoots` resolves to no
 root at all K says so and every path counts as outside `codeRoots`. A commit in `<base>..HEAD`
-with no file and no `Late: J` line, stops K
+with no file, no `Late: J` line and no recorded `Piece:` line, stops K
 even under `--auto`: K names it and stops the run under the `--until`
 rule — the guide cannot be built past a commit it cannot show, and the
 run never rewrites one. A no at K commits nothing more and stops the run
@@ -822,7 +822,7 @@ line, its `Piece:` line for the heading `piece-next` then names, or the
 subject `docs(spec): <feature>`, and is `other` for any other. A
 `Piece:` line on a commit without `Late: H.5` whose heading is not the
 one `piece-next` then names, or a commit with no file and no `Late: J`
-line, is never recorded, and it stops L as it stops K; a path outside
+or `Piece:` line, is never recorded, and it stops L as it stops K; a path outside
 the feature is no reason to leave a commit unrecorded. The table is
 headed with one line:
 `Read this branch commit by commit, top to bottom: each row is one commit, oldest first.`

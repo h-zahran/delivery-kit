@@ -172,6 +172,10 @@ commit is a hard stop, as for a piece: the paths stay uncommitted,
 `gates.<letter>.failure` with the `paths` and the hook's `output`,
 redacted as J's carry is, and the run stops per "When a phase fails".
 
+A commit that fails because its paths staged no change (a path already
+committed, or a submodule with uncommitted work inside it) is named as
+that, never blamed on a hook, with the way forward.
+
 ## A built piece on resume
 
 A piece is built when every task ID `piece-next` names for it
@@ -181,6 +185,12 @@ shown first with its failure entry, in either mode, and then committed
 again (commits mode) or paused (pause mode), its failure entry cleared
 once the commit lands; any other built piece is shown again in pause
 mode and committed in commits mode.
+
+A built piece whose tasks were already marked `[X]` in a committed
+`tasks.md`, and that changed no file, gets an empty commit carrying its
+`Tasks:` and `Piece:` lines, recorded as kind `piece` with no files, so
+`piece-next` moves on. `record-branch` and K accept such a commit only
+for the piece `piece-next` names, with every task `[X]`.
 
 ## A body over the GitHub limit
 
