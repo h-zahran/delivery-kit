@@ -1,7 +1,7 @@
 {
   "name": "team",
   "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Haytham Zahran"
   },
