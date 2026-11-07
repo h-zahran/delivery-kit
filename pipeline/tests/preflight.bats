@@ -1170,9 +1170,13 @@ hidden_refused() {
   mkdir -p sub/.delivery-kit; printf 'x' > sub/.delivery-kit/f
   dirty_is true "$T"
   rm -r sub/.delivery-kit
+  # GIT_LITERAL_PATHSPECS in the environment must not turn the exclusion
+  # into a file name that matches nothing, which read real dirt as clean.
+  GIT_LITERAL_PATHSPECS=1 dirty_is false "$T"
   # Any other dirt beside it still counts.
   printf 'x' > dirt.txt
   dirty_is true "$T"
+  GIT_LITERAL_PATHSPECS=1 dirty_is true "$T"
 }
 
 @test "a working tree whose status cannot be read stops pre-flight" {

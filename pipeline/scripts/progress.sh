@@ -2023,19 +2023,27 @@ cmd_commit_list() {
 # its kind and prints its id.
 # remainder-commit <feature> --list [--kind ...] — prints the paths, commits
 # nothing.
-# After K, in M and N, an untracked path outside codeRoots, the spec
-# directory and tasks.md is left uncommitted and named on stderr, as a late
-# commit leaves one for K. Those phases commit and push with no list shown,
-# so an untracked .env.local that git did not ignore reached the PR. K shows
-# its list first and takes every path.
+# After K has completed (M and N), an untracked path outside codeRoots, the
+# spec directory and tasks.md stops the commit, named, and nothing is
+# committed: those phases commit and push with no list shown, so an untracked
+# .env.local that git did not ignore reached the PR. Leaving such a path out
+# instead would push a PR without a new file a fix needs, which N tested.
+# --include-outside takes them, once the owner has seen the list. --list
+# prints the paths it would take and names the others on stderr. K shows its
+# list first and takes every path.
 cmd_remainder_commit() {
-  feature="$1"; local mf="${2:-}" k=other rec p accepted=0 ph after_k=0
-  case $# in
-    2) ;;
-    4) [ "$3" = --kind ] || die "unknown option '$3' (only --kind)"; k="$4" ;;
-    *) die "usage: remainder-commit <feature> <message-file|--list> [--kind other|constitution]" ;;
-  esac
-  [ -n "$mf" ] || die "usage: remainder-commit <feature> <message-file|--list> [--kind other|constitution]"
+  feature="${1:-}"; local mf="${2:-}" k=other rec p accepted=0 ph after_k=0 inc=0
+  local use="usage: remainder-commit <feature> <message-file|--list> [--kind other|constitution] [--include-outside]"
+  [ $# -ge 2 ] || die "$use"
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --kind) [ $# -ge 2 ] || die "$use"; k="$2"; shift 2 ;;
+      --include-outside) inc=1; shift ;;
+      *) die "unknown option '$1' (only --kind and --include-outside)" ;;
+    esac
+  done
+  [ -n "$mf" ] || die "$use"
   case "$k" in other|constitution) ;; *) die "unknown kind '$k': remainder-commit makes kind other or constitution" ;; esac
   sf="$(cmd_validate "$feature")"
   need_git_top
@@ -2047,17 +2055,19 @@ cmd_remainder_commit() {
     die "gates.constitution records no accepted pre-flight offer ({accepted: true, hash: ...}): there is no constitution commit to make"
   fi
   ph="$(jqs '.current_phase // empty | strings' "$sf")" || die "could not read current_phase from $sf"
-  case "$ph" in M|N) after_k=1; feature_bounds "$sf" ;; esac
+  if [ "$ph" != K ] && [ "$(jqs '[.completed_phases[]? | strings] | index("K") != null' "$sf")" = true ]; then
+    after_k=1; feature_bounds "$sf"
+  fi
   status_to "$RD/rest-status.nul"
-  RP=()
+  RP=(); OP=()
   while IFS= read -r -d '' rec; do
     p="${rec:3}"; path_ok "$p"
     if in_state_dir "$p"; then continue; fi
     if [ "$p" = "$CONSTITUTION" ]; then
       if [ "$k" = constitution ] || [ "$accepted" -eq 0 ]; then RP+=("$p"); fi
     elif [ "$k" = other ]; then
-      if [ "$after_k" -eq 1 ] && [ "${rec:0:2}" = '??' ] && ! inside_feature "$p"; then
-        warn "left uncommitted (untracked, outside codeRoots, the spec directory and tasks.md; phase $ph commits only the feature's new files): $p"
+      if [ "$after_k" -eq 1 ] && [ "$inc" -eq 0 ] && [ "${rec:0:2}" = '??' ] && ! inside_feature "$p"; then
+        OP+=("$p")
       else
         RP+=("$p")
       fi
@@ -2065,7 +2075,13 @@ cmd_remainder_commit() {
   done < "$RD/rest-status.nul"
   if [ "$mf" = --list ]; then
     if [ "${#RP[@]}" -gt 0 ]; then printf '%s\n' "${RP[@]}"; fi
+    for p in ${OP[@]+"${OP[@]}"}; do
+      warn "not taken without --include-outside (untracked, outside codeRoots, the spec directory and tasks.md): $p"
+    done
     return 0
+  fi
+  if [ "${#OP[@]}" -gt 0 ]; then
+    die "phase $ph would commit and push untracked paths outside codeRoots, the spec directory and tasks.md, which no list has shown: $(printf '%s, ' "${OP[@]}" | sed 's/, $//'). Show them to the owner. If they belong to the feature, run this again with --include-outside; if not, delete them or add them to .gitignore. Nothing is committed"
   fi
   if [ "${#RP[@]}" -eq 0 ]; then
     warn "nothing is left uncommitted for a kind $k commit: no commit is made"

@@ -70,12 +70,12 @@ path_ok() {
   case "/$p/" in
     */../*) die "$what '$p' climbs out with .." ;;
     */./*|*//*) die "$what '$p' has an empty or . segment" ;;
-    /.delivery-kit/*) die "$what '$p' is inside the state directory .delivery-kit/" ;;
   esac
   # In any letter case: macOS and Windows ignore it, so .GIT/x is .git/x
   # there. A progress page of .git/{member} and a member `config` wrote
   # over .git/config.
   case "/$(lower "$p")/" in
+    /.delivery-kit/*) die "$what '$p' is inside the state directory .delivery-kit/" ;;
     */.git/*) die "$what '$p' is inside a .git folder" ;;
   esac
 }
@@ -116,11 +116,17 @@ page_path_ok() {
   # Each folder on the way is also compared with .git and the state
   # directory by identity: Windows gives a folder a second, short name
   # (GIT~1), which the name check below cannot read. -ef is false for a
-  # path that does not exist.
+  # path that does not exist. A .git FILE ("gitdir: <path>", as worktrees
+  # and submodules write) makes a folder of any name the git folder, so the
+  # folders git itself names are compared too.
+  local gd="" gc=""
+  gd="$(git rev-parse --absolute-git-dir 2>/dev/null)" && gd="$(cd -P -- "$gd" 2>/dev/null && pwd -P)" || gd=""
+  gc="$(git rev-parse --git-common-dir 2>/dev/null)" && gc="$(cd -P -- "$gc" 2>/dev/null && pwd -P)" || gc=""
   d="$real"; under=""; inside=false
   while :; do
     if [ "${d:-/}" -ef "$top" ]; then inside=true; break; fi
-    if [ "${d:-/}" -ef "$top/.git" ] || [ "${d:-/}" -ef "$top/.delivery-kit" ]; then
+    if [ "${d:-/}" -ef "$top/.git" ] || [ "${d:-/}" -ef "$top/.delivery-kit" ] \
+      || { [ -n "$gd" ] && [ "${d:-/}" -ef "$gd" ]; } || { [ -n "$gc" ] && [ "${d:-/}" -ef "$gc" ]; }; then
       die "$what '$f' leads into a .git or .delivery-kit folder"
     fi
     case "$d" in */*) ;; *) break ;; esac

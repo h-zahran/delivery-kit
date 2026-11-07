@@ -329,6 +329,11 @@ commit_by_hand() {
   [ "$(files_of HEAD)" = "$(printf '%s\n' specs/001-demo/spec.md src/readme.md | sort)" ]
   [ -z "$(git ls-tree -r --name-only HEAD -- src)" ]
   [ -z "$(git status --porcelain -- README.md specs src)" ]
+  # A new link that points nowhere is not "gone": it is added and committed.
+  if ln -s ../build/out link 2>/dev/null && [ -L link ]; then
+    runs remainder-commit "$F" "$MSG"
+    [ "$(git ls-tree HEAD -- link | cut -d' ' -f1)" = 120000 ]
+  fi
 }
 
 @test "piece-commit stops when a commit hook rejects the commit, recording nothing" {
@@ -1375,10 +1380,12 @@ accept() {
   [ "$(git rev-parse HEAD)" = "$head" ]
 }
 
-@test "remainder-commit after K leaves an untracked path outside the feature uncommitted" {
+@test "remainder-commit after K stops on an untracked path outside the feature until it is taken on purpose" {
   # M and N commit their fixes with remainder-commit and push with no list
   # shown, so an untracked .env.local that git does not ignore reached the PR.
-  # K shows its list first and still takes every path (the test above).
+  # Leaving such a path out would push a PR without a file a fix needs, so
+  # the commit stops, naming it. K shows its list first and still takes
+  # every path (the test above).
   repo
   printf 'secret\n' > .env.local
   printf 'note\n' > NOTES.md
@@ -1386,23 +1393,36 @@ accept() {
   printf 'new\n' > src/new.sh
   printf 'owner\n' >> README.md
   want="$(printf '%s\n' README.md specs/001-demo/spec.md specs/001-demo/tasks.md src/keep.sh src/new.sh | sort)"
+  # In N before K has completed, nothing is held back.
+  jq '.current_phase = "N"' "$SF" > t.json; mv t.json "$SF"
+  runs remainder-commit "$F" --list
+  [ "$(grep -c . "$OUT")" -eq 7 ]
+  jq '.completed_phases += ["K"]' "$SF" > t.json; mv t.json "$SF"
   for ph in M N; do
     jq --arg p "$ph" '.current_phase = $p' "$SF" > t.json; mv t.json "$SF"
     runs remainder-commit "$F" --list
     [ "$(sort "$OUT")" = "$want" ] || { echo "phase $ph listed: $(cat "$OUT")"; false; }
-    [[ "$(cat "$ERR")" == *"left uncommitted"*".env.local"* ]]
-    [[ "$(cat "$ERR")" == *"left uncommitted"*"NOTES.md"* ]]
+    [[ "$(cat "$ERR")" == *"not taken without --include-outside"*".env.local"* ]]
+    [[ "$(cat "$ERR")" == *"not taken without --include-outside"*"NOTES.md"* ]]
   done
   msg 'fix: what review found'
-  runs remainder-commit "$F" "$MSG"
-  [ "$(files_of HEAD)" = "$want" ]
-  [ "$(git status --porcelain -- . ':(exclude).delivery-kit')" = "$(printf '%s\n' '?? .env.local' '?? NOTES.md')" ]
-  # Only what is left outside: no commit, and it says so.
-  head="$(git rev-parse HEAD)"
-  runs remainder-commit "$F" "$MSG"
-  [ ! -s "$OUT" ]
-  [[ "$(cat "$ERR")" == *"nothing is left uncommitted"* ]]
-  [ "$(git rev-parse HEAD)" = "$head" ]
+  refuses "would commit and push untracked paths outside codeRoots" remainder-commit "$F" "$MSG"
+  [[ "$(cat "$ERR")" == *".env.local, NOTES.md"*"--include-outside"* ]]
+  # The owner looks: the secret goes, the note belongs to the feature.
+  rm .env.local
+  runs remainder-commit "$F" "$MSG" --include-outside
+  [ "$(files_of HEAD)" = "$(printf '%s\n' NOTES.md "$want" | sort)" ]
+  [ -z "$(git status --porcelain -- . ':(exclude).delivery-kit')" ]
+}
+
+@test "remainder-commit after K with no code root stops on a new file rather than dropping it" {
+  repo
+  jq '.config.codeRoots = [] | .completed_phases += ["K"] | .current_phase = "N"' "$SF" > t.json; mv t.json "$SF"
+  printf 'new\n' > src/new.sh
+  printf 'more\n' >> src/keep.sh
+  msg 'fix: what review found'
+  refuses "src/new.sh" remainder-commit "$F" "$MSG"
+  [ "$(git status --porcelain -- src)" = "$(printf '%s\n' ' M src/keep.sh' '?? src/new.sh')" ]
 }
 
 @test "remainder-commit gives an accepted constitution its own commit, kind constitution, outside the remainder" {
