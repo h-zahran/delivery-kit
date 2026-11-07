@@ -571,18 +571,26 @@ cmd_piece_next() {
   # through a negative index is not dependable across the jq versions CI runs.
   # A commits value that is not a list is refused, never read as "nothing
   # recorded": that reading would offer every piece again.
+  # A numbered sub-phase, `## Phase 3.1:`, is no piece, and its tasks were
+  # skipped with no word, so the run ended with them unbuilt. Its slot is
+  # kept, marked sub, and one that holds a task is refused by name, first.
   r="$(jq -r --rawfile t "$tf" '
     if ((.commits // []) | type) != "array" then "notlist" else
     [.commits[]? | objects | select(.kind == "piece" or .kind == "converge") | .piece] as $done
     | (reduce ($t | split("\n")[] | rtrimstr("\r")) as $l ([];
         if ($l | startswith("## ")) then
           . + [if ($l | test("^## Phase [0-9]+[a-z]*:"))
-               then {h: ($l | ltrimstr("## ")), ids: []} else null end]
+               then {h: ($l | ltrimstr("## ")), ids: []}
+               elif ($l | test("^## Phase [0-9]+\\.[0-9]"))
+               then {h: $l, ids: [], sub: true} else null end]
         elif length > 0 and .[length-1] != null then
           .[length-1].ids += [$l | capture("^- \\[[ xX]\\] (?<id>T[0-9]+)").id]
         else . end))
-    | [.[] | select(. != null and (.ids | length > 0))] as $pieces
-    | if ($pieces | length) == 0 then "none"
+    | [.[] | select(. != null and (.ids | length > 0))] as $all
+    | [$all[] | select(.sub != true)] as $pieces
+    | ([$all[] | select(.sub == true)] | first) as $sub
+    | if $sub != null then "decimal\u001f" + $sub.h
+      elif ($pieces | length) == 0 then "none"
       else
         ([$pieces[] | select(.h as $h | any($done[]; . == $h) | not)] | first) as $next
         | if $next == null then "done"
@@ -594,11 +602,15 @@ cmd_piece_next() {
     done) return 0 ;;
     notlist) die "$sf: commits must be a list — cannot tell which pieces are recorded" ;;
     none) die "no piece in $tf: no '## Phase <N>:' heading with a task line under it" ;;
+    decimal)
+      local sub_s
+      shown sub_s "${r#*$'\x1f'}"
+      die "the heading '$sub_s' in $tf holds tasks, but a piece heading must be '## Phase <whole number>:', as '## Phase 3:' (a letter may follow, as '## Phase 3a:'), so its tasks would never be built; rename it, then run this again" ;;
     bad)  die "the next piece's heading holds a control character (a CR, NUL or U+001F) that its output cannot carry, in $tf" ;;
     next)
       rest="${r#*$'\x1f'}"
       printf '%s\n%s\n' "${rest%%$'\x1f'*}" "${rest#*$'\x1f'}" ;;
-    *) die "piece-next: the walk answered '$r', which is none of next, done, none, bad or notlist" ;;
+    *) die "piece-next: the walk answered '$r', which is none of next, done, none, decimal, bad or notlist" ;;
   esac
 }
 

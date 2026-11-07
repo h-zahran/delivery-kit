@@ -27,6 +27,10 @@ All notable changes to the `pipeline` plugin.
   walks.** git reads a bare name as a tag first, so `record-branch`,
   `guide`, `commit-list` and the commit commands read `<base>..HEAD` from
   the tag. They now read the branch, `refs/heads/<base>`.
+- **A `## Phase 3.1:` heading in the tasks file is named, not skipped.** Its
+  tasks were passed over with no word, and the run ended with them unbuilt.
+  `piece-next` now stops on such a heading that holds tasks, names it, and
+  says a piece heading must be `## Phase <whole number>:`.
 
 ## [1.13.0] - 2026-11-07
 
