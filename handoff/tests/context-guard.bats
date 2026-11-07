@@ -1099,6 +1099,26 @@ bad_user_file_keeps_guard() {
   [ -z "$output" ]
 }
 
+@test "with a missing TMPDIR the jq hint flag goes to the next temp folder, and the hint stays once" {
+  # The hint flag took the bare TMPDIR while the bucket flag took the first
+  # writable folder: with no jq and TMPDIR naming no folder, the hint came
+  # back on every call. TEMP is the test's own folder, never the real /tmp.
+  mkdir -p "$TEST_DIR/bin" "$TEST_DIR/fallback"
+  printf '#!/usr/bin/env bash\nexit 127\n' > "$TEST_DIR/bin/jq"
+  chmod +x "$TEST_DIR/bin/jq"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  payload="$(hook_input "$t")"
+  run env TMPDIR="$TEST_DIR/no-such-dir" TEMP="$TEST_DIR/fallback" \
+    bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.systemMessage | test("jq is not installed or cannot run")'
+  [ -f "$TEST_DIR/fallback/dk-jq-hint-$(id -u)" ]
+  run env TMPDIR="$TEST_DIR/no-such-dir" TEMP="$TEST_DIR/fallback" \
+    bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "the hint came back: $output"; false; }
+}
+
 @test "the jq hint is one per user, and keeps its old name when id cannot answer" {
   # The temp folder can be shared (/tmp, when TMPDIR is unset). With one fixed
   # name, a second user on the machine found the first user's flag and never

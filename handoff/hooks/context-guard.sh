@@ -195,20 +195,32 @@ if [ "$rc" -eq 2 ] && [ "${user_args[0]}" = --rawfile ]; then
   payload=$(jq -r --arg US "$US" --argjson ucfg null "$PAYLOAD_JQ" 2>/dev/null)
   rc=$?
 fi
+# pick_flagdir — sets flagdir to the first of TMPDIR, TEMP and /tmp that is a
+# folder this user can write, or to "" when none is. Every flag the guard
+# keeps (the bucket flag, the window note, the jq hint) lives there, so one
+# missing or read-only TMPDIR cannot strand one flag while the others move.
+pick_flagdir() {
+  flagdir=""
+  for d in "${TMPDIR:-}" "${TEMP:-}" /tmp; do
+    if [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ]; then flagdir=$d; return 0; fi
+  done
+}
 if [ "$rc" -ne 0 ]; then
   cat > /dev/null 2>&1
   if ! jq --version >/dev/null 2>&1; then
     # One hint per user: the temp folder can be shared (/tmp), and a fixed
     # name let one user's flag silence every other user's hint. An id that
     # cannot answer with a number keeps the old fixed name, so the hint
-    # still fires once.
+    # still fires once. With no writable folder there is no "once": the
+    # hint comes on every call, never not at all.
+    pick_flagdir
     hint_uid=$(id -u 2>/dev/null) || hint_uid=""
     case $hint_uid in
-      '' | *[!0-9]*) hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint" ;;
-      *) hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint-$hint_uid" ;;
+      '' | *[!0-9]*) hint_name=dk-jq-hint ;;
+      *) hint_name="dk-jq-hint-$hint_uid" ;;
     esac
-    if [ ! -f "$hint_flag" ]; then
-      : 2>/dev/null > "$hint_flag"
+    if [ -z "$flagdir" ] || [ ! -f "$flagdir/$hint_name" ]; then
+      [ -z "$flagdir" ] || : 2>/dev/null > "$flagdir/$hint_name"
       printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
     fi
     exit 0
@@ -659,16 +671,13 @@ bucket=$(( pct / 5 ))
 if [ -n "$THRESHOLD_TOKENS" ] && [ "$THRESHOLD_TOKENS" -lt $(( WINDOW / 20 )) ]; then
   bucket=$(( ctx / THRESHOLD_TOKENS ))
 fi
-# The flag folder is the first of TMPDIR, TEMP and /tmp that is a folder this
-# user can write. A TMPDIR that is missing or read-only used to take the flag
-# with it: the write failed, every call above the threshold warned again, and
-# bash printed the failed redirect beside the emission. When none of the three
-# is usable, flagdir is empty, nothing is read or written, and the warning
-# says why it repeats: a guard that went quiet instead would be the worse fault.
-flagdir=""
-for d in "${TMPDIR:-}" "${TEMP:-}" /tmp; do
-  if [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ]; then flagdir=$d; break; fi
-done
+# The flag folder comes from pick_flagdir, above. A TMPDIR that is missing or
+# read-only used to take the flag with it: the write failed, every call above
+# the threshold warned again, and bash printed the failed redirect beside the
+# emission. When none of the three is usable, flagdir is empty, nothing is
+# read or written, and the warning says why it repeats: a guard that went
+# quiet instead would be the worse fault.
+pick_flagdir
 flag=""
 noflag=""
 if [ -n "$flagdir" ]; then

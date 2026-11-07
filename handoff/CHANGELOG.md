@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TEMP` and `/tmp` it can write. Before, the flag write failed, the warning
   came back on every tool call past the threshold, and bash printed an error
   beside it. When no folder can be written, the warning still fires and says
-  why it repeats.
+  why it repeats. The "jq is missing" hint keeps its flag in the same
+  folder, so it too is shown once.
 - **The reconcile block's temporary file has a unique name.** It was always
   `.<document>.reconcile-tmp` beside the document, so a link planted under
   that name made the write land outside the repository. It now comes from
