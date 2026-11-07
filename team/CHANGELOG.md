@@ -13,7 +13,9 @@ All notable changes to the `team` plugin.
 - **A task file cannot turn off the release question.** A task whose flags
   hold `--auto-release` is refused, with a message: the pipeline takes that
   flag only when it is typed on purpose, so the member types it on the line
-  themselves.
+  themselves. Any flag whose letters spell auto-release is refused, and so is
+  a seed, branch, spec folder or trailer that holds `--auto-release`, which
+  the pipeline could read as the flag.
 
 ## [0.1.1] - 2026-11-07
 
