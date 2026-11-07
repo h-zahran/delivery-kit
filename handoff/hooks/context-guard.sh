@@ -659,9 +659,25 @@ bucket=$(( pct / 5 ))
 if [ -n "$THRESHOLD_TOKENS" ] && [ "$THRESHOLD_TOKENS" -lt $(( WINDOW / 20 )) ]; then
   bucket=$(( ctx / THRESHOLD_TOKENS ))
 fi
-flagdir="${TMPDIR:-${TEMP:-/tmp}}"
-flag="$flagdir/ctx-warned-$session"
-last_bucket=$(cat "$flag" 2>/dev/null)
+# The flag folder is the first of TMPDIR, TEMP and /tmp that is a folder this
+# user can write. A TMPDIR that is missing or read-only used to take the flag
+# with it: the write failed, every call above the threshold warned again, and
+# bash printed the failed redirect beside the emission. When none of the three
+# is usable, flagdir is empty, nothing is read or written, and the warning
+# says why it repeats: a guard that went quiet instead would be the worse fault.
+flagdir=""
+for d in "${TMPDIR:-}" "${TEMP:-}" /tmp; do
+  if [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ]; then flagdir=$d; break; fi
+done
+flag=""
+noflag=""
+if [ -n "$flagdir" ]; then
+  flag="$flagdir/ctx-warned-$session"
+else
+  noflag=" The guard cannot keep its once-per-step flag: no writable temp folder (TMPDIR '${TMPDIR:-}', TEMP '${TEMP:-}', /tmp), so this warning repeats on every call until one is writable."
+fi
+last_bucket=""
+[ -z "$flag" ] || last_bucket=$(cat "$flag" 2>/dev/null)
 # An unusable flag value means "never warned", not "stop warning". Without
 # this, an empty or corrupt flag makes the comparison error out and the
 # `|| exit 0` below silences the guard for the rest of the session.
@@ -684,7 +700,7 @@ case "$last_bucket" in ''|*[!0-9]*) last_bucket=-1 ;; esac
 # Note that a session which has never warned has last_bucket -1, so the
 # comparison is against -3 and no flag is ever created here.
 if [ "$bucket" -le $(( last_bucket - 2 )) ]; then
-  echo "$bucket" > "$flag"
+  [ -z "$flag" ] || echo "$bucket" 2>/dev/null > "$flag"
   last_bucket=$bucket
 fi
 
@@ -720,7 +736,7 @@ rel_fired=0
 [ "$pct" -ge "$THRESHOLD_PCT" ] && rel_fired=1
 [ "$abs_fired" -eq 1 ] || [ "$rel_fired" -eq 1 ] || exit 0
 [ "$bucket" -gt "$last_bucket" ] 2>/dev/null || exit 0
-echo "$bucket" > "$flag"
+[ -z "$flag" ] || echo "$bucket" 2>/dev/null > "$flag"
 
 # One flag file per session would otherwise accumulate in the temp directory
 # forever. Cleaning here, on the rare path that just wrote a flag, keeps the
@@ -736,7 +752,7 @@ echo "$bucket" > "$flag"
 # once-only contract within an outage is untouched; the hint only re-arms
 # after jq recovers and the flag ages out. The bare name dk-jq-hint is the one
 # used when id cannot answer, and the one earlier versions used for everyone.
-find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-warned-*' -o -name 'dk-jq-hint' -o -name 'dk-jq-hint-*' \) -mtime +7 -delete 2>/dev/null
+[ -z "$flagdir" ] || find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-warned-*' -o -name 'dk-jq-hint' -o -name 'dk-jq-hint-*' \) -mtime +7 -delete 2>/dev/null
 
 # A window configured larger than the model's real one never fires the guard.
 # If observed context exceeds the configured window, the configuration is
@@ -785,9 +801,11 @@ setup_hint=""
 # measurement recorded there.
 sysmsg_setup=""
 if [ "$ctx" -gt "$WINDOW" ]; then
-  wflag="$flagdir/dk-window-warned-$session"
-  if [ ! -f "$wflag" ]; then
-    : 2>/dev/null > "$wflag"
+  # With no flag folder there is no "once": the note rides every firing.
+  wflag=""
+  [ -z "$flagdir" ] || wflag="$flagdir/dk-window-warned-$session"
+  if [ -z "$wflag" ] || [ ! -f "$wflag" ]; then
+    [ -z "$wflag" ] || : 2>/dev/null > "$wflag"
     misconfig=" WINDOW MISCONFIGURED: observed context (${ctx} tokens) exceeds the configured window (${WINDOW} tokens). Your real window is therefore at least ${ctx} tokens — set contextGuard.windowTokens in .delivery-kit.json to match your model (commonly 200000 or 1000000) and the percentages above become meaningful."
     # DEFERRED, and the ordering is the whole design. This note only ever
     # rides an emission that is already telling Claude to finish the step and
@@ -846,7 +864,7 @@ reason="CONTEXT GUARD: ${headline}. Finish ONLY the current atomic step — do N
 # Deliberately shorter than `reason`. This one is read by a human mid-task, not
 # parsed by a model, and the full instruction paragraph would be noise on a
 # terminal line.
-sysmsg="handoff: ${headline}. Finish the current step, then run /handoff:handoff.${sysmsg_setup}"
+sysmsg="handoff: ${headline}. Finish the current step, then run /handoff:handoff.${sysmsg_setup}${noflag}"
 
 jq -n --arg reason "$reason" --arg sysmsg "$sysmsg" \
   '{decision:"block", reason:$reason, systemMessage:$sysmsg}'
