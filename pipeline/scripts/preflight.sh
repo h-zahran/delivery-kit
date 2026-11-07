@@ -544,9 +544,24 @@ fi
 # baseBranchOverride key or the --base-branch flag; this script cannot tell
 # which, so it reports `override` and the orchestrator names the layer.
 base=""; base_source=""
+# origin/HEAD is trusted only while the branch it names exists: when the
+# remote renames its default (master to main), `git fetch --prune` deletes
+# origin/master and leaves origin/HEAD naming it, and a stale local master
+# would become the base. Such an origin/HEAD is passed over, with a warning
+# naming the fix, and the next source decides. One that names another
+# remote's ref is not passed over: the refusal below names it.
+oh=""
+if [ -z "$base_override" ] && b="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"; then
+  case "$b" in
+    refs/remotes/origin/?*) git show-ref --verify --quiet "$b" \
+      || { warn "origin/HEAD points to a branch origin no longer has, so it is not read as the base; fix it with: git remote set-head origin -a"; b=""; } ;;
+  esac
+  oh="$b"
+fi
 if [ -n "$base_override" ]; then
   base="$base_override"; base_source="override"
-elif b="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"; then
+elif [ -n "$oh" ]; then
+  b="$oh"
   # The full ref, as for HEAD below: --short makes git choose an unambiguous
   # spelling, so with a ref named origin/main beside origin's own it printed
   # remotes/origin/main, and the old strip of `origin/` kept that as the
