@@ -525,6 +525,34 @@ commit_by_hand() {
   [[ "$(cat "$ERR")" != *"(a commit hook?)"* ]] || { cat "$ERR"; false; }
 }
 
+# An untracked folder holding a repository of its own was committed by
+# git add as a bare link to one of its commits, with no .gitmodules entry:
+# a clone gets an empty folder, and the folder's files never reach the PR.
+# Every commit walk goes through commit_named, which now refuses it by name
+# before git add runs. A tracked submodule is committed as before.
+# Mutation: drop the check, so the nested repository is committed.
+@test "a commit walk refuses an untracked folder holding its own repository, and commits a tracked submodule" {
+  repo
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  mkdir src/vendor
+  (cd src/vendor && git init -q && git config user.name t && git config user.email t@example.invalid \
+    && git config commit.gpgsign false && printf 'v\n' > f && git add f && git commit -q -m v)
+  [ "$(git status --porcelain -- src)" = '?? src/vendor/' ] || { git status --porcelain; false; }
+  msg 'chore: the rest of the feature'
+  refuses "the untracked folder 'src/vendor/' holds a git repository of its own" remainder-commit "$F" "$MSG"
+  [[ "$(cat "$ERR")" == *"add it to .gitignore, or add it as a submodule (git submodule add)"* ]] || { cat "$ERR"; false; }
+  [ -z "$(git diff --cached --name-only)" ] || { echo "the refusal left the index changed"; git diff --cached --name-only; false; }
+  # The same folder, tracked as a submodule with its .gitmodules entry: a new
+  # commit inside it is committed as the submodule's new commit.
+  printf '[submodule "src/vendor"]\n\tpath = src/vendor\n\turl = ./src/vendor\n' > .gitmodules
+  git add .gitmodules src/vendor 2> /dev/null
+  git commit -q -m 'add the vendor submodule'
+  (cd src/vendor && printf 'w\n' >> f && git commit -q -am w)
+  [ "$(git status --porcelain -- src)" = ' M src/vendor' ] || { git status --porcelain; false; }
+  runs remainder-commit "$F" "$MSG"
+  [ "$(git ls-tree HEAD src/vendor | awk '{ print $1 " " $3 }')" = "160000 $(git -C src/vendor rev-parse HEAD)" ]
+}
+
 @test "piece-commit records an unrecorded commit for the piece and never commits it again" {
   repo
   runs snapshot "$F" piece

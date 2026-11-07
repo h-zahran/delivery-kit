@@ -1218,7 +1218,15 @@ commit_named() {
   with_trailers "$2"
   local p add="$1.add" n=0
   : > "$add" || die "could not write $add — no commit is made"
+  # An untracked folder holding a repository of its own (git status lists it
+  # as `dir/`) would be added as a bare link to one of its commits, with no
+  # .gitmodules entry: a clone gets an empty folder. It is refused before any
+  # add. A tracked submodule is in the index, and is committed as before.
   while IFS= read -r -d '' p; do
+    if [ -d "${p%/}" ] && [ ! -L "${p%/}" ] && { [ -e "${p%/}/.git" ] || [ -L "${p%/}/.git" ]; } \
+       && [ -z "$(git --literal-pathspecs ls-files -- "${p%/}")" ]; then
+      die "the untracked folder '$p' holds a git repository of its own, so git would commit it as a bare link to one of its commits, with no .gitmodules entry, and a clone would get an empty folder: add it to .gitignore, or add it as a submodule (git submodule add), then run this again — nothing is committed"
+    fi
     if [ -e "$p" ] || [ -L "$p" ] || [ -n "$(git --literal-pathspecs ls-files -- "$p")" ]; then
       printf '%s\0' "$p" >> "$add"; n=$((n + 1))
     fi
