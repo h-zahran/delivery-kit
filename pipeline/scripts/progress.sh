@@ -1311,17 +1311,24 @@ built_or_die() {
 # piece [X]. The working tree's marks are not enough: they can be a built
 # piece not yet committed, which a hand empty commit would otherwise record
 # as done while its work stays uncommitted. The file is read from git on
-# stdin, so no temporary file is made.
+# stdin, so no temporary file is made. The section stored in the commit must
+# hold the very tasks the piece holds now, not a part of them: a commit whose
+# section had only T001 would otherwise stand for T001 and T002 while T002's
+# work stays uncommitted. An empty commit with any Late: line is a late
+# phase's record (J's, or a refused H.7 or I), never a piece. Every path that
+# accepts an empty piece commit asks this one function.
 empty_piece_ok() {
   local tf rel r m
   m="$(git log -1 --format=%B "$2" 2>/dev/null)" || return 1
   has_line "$m" "Piece: $3" || return 1
+  case $'\n'"$m" in *$'\n''Late: '*) return 1 ;; esac
   tf="$(jqs '.artifacts.tasks // empty | strings' "$1" 2>/dev/null)" || return 1
   { [ -n "$tf" ] && [ -f "$tf" ]; } || return 1
   rel="$(repo_rel "$tf" 2>/dev/null)" || return 1
   # shellcheck disable=SC2016 # a jq program: $t is jq's
   r="$(git show "$2:$rel" 2>/dev/null | jqs -R -s --arg h "$3" '. as $t | '"$SECTION_JQ" 2>/dev/null)" || return 1
-  case "$r" in ok$'\x1f'*$'\x1f') return 0 ;; esac
+  section_of "$1" "$3" || return 1
+  [ -n "$SEC_IDS" ] && [ "$r" = "ok"$'\x1f'"$SEC_IDS"$'\x1f' ] && return 0
   return 1
 }
 
