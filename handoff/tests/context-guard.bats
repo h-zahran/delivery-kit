@@ -598,7 +598,7 @@ bad_user_file_keeps_guard() {
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   echo "$output" | jq -e '.reason | test("past the 140000-token limit [(]50% of the 300000-token window[)]")'
-  [ ! -e "$TMPDIR/dk-jq-hint" ]
+  set -- "$TMPDIR"/dk-jq-hint*; [ ! -e "$1" ]
 }
 
 @test "bad user file, empty: the guard runs on the other layers" {
@@ -667,7 +667,7 @@ bad_user_file_keeps_guard() {
   run_hook "$t" noopen
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.reason | test("at 35% of the 200000-token window [(]threshold 30%[)]")'
-  [ ! -e "$TMPDIR/dk-jq-hint" ]
+  set -- "$TMPDIR"/dk-jq-hint*; [ ! -e "$1" ]
 }
 
 @test "unknown config keys are ignored" {
@@ -1058,8 +1058,39 @@ bad_user_file_keeps_guard() {
   # directory would still pass — both calls would simply agree — and the
   # global-not-per-session contract is the whole reason this flag is shaped
   # the way it is.
-  [ -f "$TMPDIR/dk-jq-hint" ]
+  [ -f "$TMPDIR/dk-jq-hint-$(id -u)" ]
 
+  run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "the jq hint is one per user, and keeps its old name when id cannot answer" {
+  # The temp folder can be shared (/tmp, when TMPDIR is unset). With one fixed
+  # name, a second user on the machine found the first user's flag and never
+  # got the hint, and could not remove it either. The user id in the name
+  # keeps each user's hint their own. An id that is missing or prints no
+  # number falls back to the old fixed name: the hint still fires once.
+  mkdir -p "$TEST_DIR/bin"
+  printf '#!/usr/bin/env bash\nexit 127\n' > "$TEST_DIR/bin/jq"
+  chmod +x "$TEST_DIR/bin/jq"
+  t="$(transcript_with 90000 90000 90000 90000 90000)"
+  payload="$(hook_input "$t")"
+  # Another user's hint, already there, does not silence this user's.
+  : > "$TMPDIR/dk-jq-hint-$(( $(id -u) + 1 ))"
+  : > "$TMPDIR/dk-jq-hint"
+  run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.systemMessage | test("jq is not installed or cannot run")'
+  [ -f "$TMPDIR/dk-jq-hint-$(id -u)" ]
+  # No id: the fixed name, once.
+  rm -f "$TMPDIR"/dk-jq-hint*
+  printf '#!/usr/bin/env bash\nexit 127\n' > "$TEST_DIR/bin/id"
+  chmod +x "$TEST_DIR/bin/id"
+  run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.systemMessage | test("jq is not installed or cannot run")'
+  [ -f "$TMPDIR/dk-jq-hint" ]
   run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -1732,8 +1763,8 @@ bad_user_file_keeps_guard() {
   write_config "$TEST_DIR/.delivery-kit.json" '{"windowTokens":100000}'
 
   # ALL THREE SWEPT NAME PATTERNS, on BOTH sides. The hook sweeps ctx-warned-*,
-  # dk-window-warned-* and dk-jq-hint, and its own comment argues dk-jq-hint is
-  # the one that HAS to be swept: it is global rather than per-session, so
+  # dk-window-warned-* and dk-jq-hint*, and its own comment argues dk-jq-hint is
+  # the one that HAS to be swept: it is per user rather than per session, so
   # nothing else would ever remove it, and a user who fixes jq and later loses
   # it again would get a silently dead guard and no second hint. Planting only
   # ctx-warned-* left the suite green with either of the other clauses deleted.
@@ -1743,6 +1774,8 @@ bad_user_file_keeps_guard() {
   printf '9\n' > "$TMPDIR/ctx-warned-recent"
   printf '9\n' > "$TMPDIR/dk-window-warned-ancient"
   printf '9\n' > "$TMPDIR/dk-window-warned-fresh"
+  : > "$TMPDIR/dk-jq-hint-$(id -u)"
+  # The fixed name an earlier version used is swept too.
   : > "$TMPDIR/dk-jq-hint"
   # An aged file no pattern names, and an aged DIRECTORY that one does: the
   # first shows the sweep is bounded by name rather than clearing whatever is
@@ -1755,7 +1788,7 @@ bad_user_file_keeps_guard() {
   mkdir -p "$TMPDIR/sub"
   printf '9\n' > "$TMPDIR/sub/ctx-warned-nested"
   touch -t 202001010000 "$TMPDIR/ctx-warned-ancient" "$TMPDIR/dk-window-warned-ancient" \
-                        "$TMPDIR/dk-jq-hint" "$TMPDIR/unrelated-ancient" \
+                        "$TMPDIR/dk-jq-hint-$(id -u)" "$TMPDIR/dk-jq-hint" "$TMPDIR/unrelated-ancient" \
                         "$TMPDIR/ctx-warned-adirectory" "$TMPDIR/sub/ctx-warned-nested"
   touch -t "$outside" "$TMPDIR/ctx-warned-just-outside"
   touch -t "$inside" "$TMPDIR/ctx-warned-just-inside"
@@ -1772,6 +1805,7 @@ bad_user_file_keeps_guard() {
   [ ! -f "$TMPDIR/ctx-warned-ancient" ]
   [ ! -f "$TMPDIR/ctx-warned-just-outside" ]
   [ ! -f "$TMPDIR/dk-window-warned-ancient" ]
+  [ ! -f "$TMPDIR/dk-jq-hint-$(id -u)" ]
   [ ! -f "$TMPDIR/dk-jq-hint" ]
 
   # Inside the threshold, or out of the sweep's reach: kept. Removal alone is
@@ -1786,8 +1820,8 @@ bad_user_file_keeps_guard() {
   [ -d "$TMPDIR/ctx-warned-adirectory" ]
   [ -f "$TMPDIR/sub/ctx-warned-nested" ]
 
-  # THE GLOBAL HINT'S KEPT SIDE NEEDS A SECOND RUN, because dk-jq-hint is one
-  # fixed filename: a single run can show it aged-and-removed or fresh-and-kept,
+  # THE USER'S HINT'S KEPT SIDE NEEDS A SECOND RUN, because dk-jq-hint-<uid> is
+  # one fixed filename: a single run can show it aged-and-removed or fresh-and-kept,
   # never both. Without this, moving it out of the -mtime group and deleting it
   # unconditionally would leave the suite green — and that would silently break
   # the once-per-outage contract the hook's comment describes.
@@ -1795,12 +1829,12 @@ bad_user_file_keeps_guard() {
   # A HIGHER BUCKET is what makes the guard fire again: the once-per-bucket rule
   # suppresses a second warning at the same 5% step, and a run that does not
   # warn does not sweep. 90% is bucket 18; 99% is bucket 19.
-  : > "$TMPDIR/dk-jq-hint"
+  : > "$TMPDIR/dk-jq-hint-$(id -u)"
   t2="$(transcript_with 99000 99000 99000 99000 99000)"
   run_hook "$t2" sweeper
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
-  [ -f "$TMPDIR/dk-jq-hint" ]
+  [ -f "$TMPDIR/dk-jq-hint-$(id -u)" ]
 }
 
 @test "a transcript that exists but yields no readings leaves the guard silent" {
@@ -2318,7 +2352,7 @@ EOF
   run bash -c 'PATH="$1:$PATH"; exec bash "$2"' _ "$TEST_DIR/bin" "$HOOK" <<< "$payload"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.systemMessage | test("jq is not installed or cannot run")'
-  [ -f "$TMPDIR/dk-jq-hint" ]
+  [ -f "$TMPDIR/dk-jq-hint-$(id -u)" ]
 }
 
 @test "the payload is drained on every early exit, so the writer is never killed" {

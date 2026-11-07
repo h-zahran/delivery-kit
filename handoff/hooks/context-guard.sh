@@ -198,7 +198,15 @@ fi
 if [ "$rc" -ne 0 ]; then
   cat > /dev/null 2>&1
   if ! jq --version >/dev/null 2>&1; then
-    hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint"
+    # One hint per user: the temp folder can be shared (/tmp), and a fixed
+    # name let one user's flag silence every other user's hint. An id that
+    # cannot answer with a number keeps the old fixed name, so the hint
+    # still fires once.
+    hint_uid=$(id -u 2>/dev/null) || hint_uid=""
+    case $hint_uid in
+      '' | *[!0-9]*) hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint" ;;
+      *) hint_flag="${TMPDIR:-${TEMP:-/tmp}}/dk-jq-hint-$hint_uid" ;;
+    esac
     if [ ! -f "$hint_flag" ]; then
       : 2>/dev/null > "$hint_flag"
       printf '%s\n' '{"systemMessage":"handoff: the context guard is disabled because jq is not installed or cannot run. Install it (macOS: brew install jq | Debian/Ubuntu: sudo apt-get install jq | Windows: winget install jqlang.jq) and restart the session."}'
@@ -719,15 +727,16 @@ echo "$bucket" > "$flag"
 # cost off every tool call. `-type f` so a stray directory of the same name
 # is never removed.
 #
-# dk-jq-hint is swept too, and it is the only one that has to be: it is
-# global rather than per-session, so nothing else would ever remove it, and
+# dk-jq-hint-<uid> is swept too, and it is the only one that has to be: it is
+# per user rather than per session, so nothing else would ever remove it, and
 # a user who fixes jq and later loses it again would get a silently dead
 # guard and no second hint. Including it is safe in both directions —
 # `-mtime +7` cannot touch a fresh flag, and this line sits past the jq
 # gate, so it cannot run during the outage it cleans up after. The
 # once-only contract within an outage is untouched; the hint only re-arms
-# after jq recovers and the flag ages out.
-find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-warned-*' -o -name 'dk-jq-hint' \) -mtime +7 -delete 2>/dev/null
+# after jq recovers and the flag ages out. The bare name dk-jq-hint is the one
+# used when id cannot answer, and the one earlier versions used for everyone.
+find "$flagdir" -maxdepth 1 -type f \( -name 'ctx-warned-*' -o -name 'dk-window-warned-*' -o -name 'dk-jq-hint' -o -name 'dk-jq-hint-*' \) -mtime +7 -delete 2>/dev/null
 
 # A window configured larger than the model's real one never fires the guard.
 # If observed context exceeds the configured window, the configuration is
