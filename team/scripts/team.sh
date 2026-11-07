@@ -560,7 +560,8 @@ ls_remote() (
 
 # Every task in one jq program, over the files gather wrote: one process,
 # whatever the number of tasks. A task's run is the one named by the last
-# segment of its specDir, the name the pipeline gives it. Membership is
+# segment of its specDir, the name the pipeline gives it; a trailing slash
+# is dropped first, as the pipeline's pre-flight drops it. Membership is
 # exact, by the whole name: a branch is on origin when a line of `heads`
 # is that name, and on this machine when a line of `local` is its ref.
 #
@@ -587,7 +588,7 @@ cmd_status() {
     | (reduce $runs[] as $r ({}; .[$r.name] = $r)) as $rn
     | $prs[0] as $prl
     | {team: $team, member: $m, originRead: $rd.originRead, prRead: $rd.prRead, tasks: [ .[] | . as $t
-        | ($t.specDir | split("/") | last // "") as $name
+        | ($t.specDir | sub("/+$"; "") | split("/") | last // "") as $name
         | ($rn[$name] // null) as $r
         | ($r != null) as $run
         | ($r.phase // "") as $phase | ($r.pr // "") as $runpr | ($r.end // "") as $end

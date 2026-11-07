@@ -2,6 +2,14 @@
 
 All notable changes to the `team` plugin.
 
+## [Unreleased]
+
+### Fixed
+
+- **A `specDir` with a trailing slash finds its run.** `specs/x/001-T-1/`
+  now finds the run `001-T-1` on this machine, as the pipeline names it.
+  Before, the task read as if it had no run.
+
 ## [0.1.2] - 2026-11-07
 
 ### Fixed
