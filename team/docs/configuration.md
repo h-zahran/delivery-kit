@@ -140,7 +140,8 @@ these facts for every task, and the first that answers wins:
 | None | not started | |
 
 The run is found at `.delivery-kit/runs/<last segment of specDir>/`, the
-name the pipeline gives it. Three keys of its state file are read:
+name the pipeline gives it; a trailing `/` on `specDir` is dropped first.
+Three keys of its state file are read:
 `abandoned`, `current_phase` and `pr_url`. How a run ended follows the
 pipeline's rule, `RUN_END_JQ` in `pipeline/scripts/progress.sh`, and a
 test checks that the two agree. A state file that is not one JSON object

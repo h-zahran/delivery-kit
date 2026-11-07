@@ -608,6 +608,22 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   [ "$(jq -c '.tasks[4] | [.status, .source, .pr]' <<<"$output")" = '["in review","pull request","u5o"]' ]
 }
 
+@test "status: a specDir written with a trailing slash still finds its run" {
+  # The run is named by the last segment of specDir. "specs/ann/001-T-1/"
+  # split on "/" ends in "", so the run on this machine was never found and
+  # the task read from its branch or as not started.
+  status_fixture
+  local f="$R/plan/alpha/ann/tasks.json" sd
+  for sd in 'specs/ann/001-T-1/' 'specs/ann/001-T-1//'; do
+    jq --arg sd "$sd" '.tasks[0].specDir = $sd' "$f" > "$f.new" && mv "$f.new" "$f"
+    team_fake status alpha ann
+    [ "$status" -eq 0 ]
+    [ "$(jq -c '.tasks[0] | [.status, .source, .run, .runFile]' <<<"$output")" = \
+      '["in review","run state",true,".delivery-kit/runs/001-T-1/progress.json"]' ] \
+      || { echo "specDir '$sd': $output"; false; }
+  done
+}
+
 @test "status: without origin, origin is reported as not read, never as empty" {
   status_fixture
   git -C "$R" remote remove origin
