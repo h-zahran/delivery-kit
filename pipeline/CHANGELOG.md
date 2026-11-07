@@ -2,6 +2,31 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [1.12.2] - 2026-11-07
+
+### Fixed
+
+- **Declining the `.gitignore` offer no longer stops every later run.** The
+  run's own `.delivery-kit/` folder at the repository top was read as dirt, so
+  from the second run on, pre-flight's decision 5 aborted on a "dirty tree".
+  Pre-flight now leaves that one folder out of its dirty check. A file such as
+  `.delivery-kit-notes`, or a `.delivery-kit/` folder lower down, still counts.
+- **A piece that deletes or renames a file through git now commits.** After
+  `git rm` or `git mv`, the old path is in neither the tree nor the index, and
+  `git add` refused it ("did not match any files"), so the run stopped at the
+  commit. Every commit the run makes now leaves such a path out of the add and
+  keeps it in the commit, which records the deletion.
+- **Phases M and N no longer commit and push stray untracked files.** They
+  commit their fixes with `remainder-commit` and push with no list shown, so an
+  untracked file git did not ignore, such as `.env.local`, reached the pull
+  request. Once K has completed, `remainder-commit` now stops on an untracked
+  path outside `codeRoots`, the spec directory and `tasks.md`, names it, and
+  commits nothing. Leaving such a path out instead would push a pull request
+  without a new file a fix needs. After the owner has seen the list,
+  `--include-outside` takes them; `--list` names them on stderr. An empty
+  `codeRoots` stops on every new file outside the spec directory, never drops
+  it. K shows its list first and still takes every path.
+
 ## [1.12.1] - 2026-11-06
 
 ### Fixed

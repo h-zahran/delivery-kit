@@ -10,7 +10,7 @@
       "name": "handoff",
       "description": "Warns before a session runs out of context, then writes a handoff document the next session resumes from in a single file read.",
       "source": "./handoff",
-      "version": "2.4.2",
+      "version": "2.4.3",
       "category": "workflow",
       "tags": ["context", "handoff", "session-continuity", "hooks", "workflow", "context-window", "resume"]
     },
@@ -18,7 +18,7 @@
       "name": "pipeline",
       "description": "Takes one feature from idea to reviewed pull request — spec, plan, build, review, ship — stopping to ask you at every step that leaves your machine. Requires spec-kit in the target repository.",
       "source": "./pipeline",
-      "version": "1.12.1",
+      "version": "1.12.2",
       "category": "workflow",
       "tags": ["pipeline", "orchestration", "spec-driven", "workflow", "spec-kit", "pull-request", "github", "code-review"]
     },
@@ -34,7 +34,7 @@
       "name": "team",
       "description": "Runs a team's plan through the pipeline: set up the team once, then each member starts their next task with one command, and progress is kept for the team leader.",
       "source": "./team",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "workflow",
       "tags": ["team", "pipeline", "progress", "workflow"]
     }
