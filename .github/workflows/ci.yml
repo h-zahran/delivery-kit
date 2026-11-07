@@ -552,6 +552,93 @@ jobs:
           ver=$(jq -r '.version' -- "./$plugin/.claude-plugin/plugin.json")
           [ "$tag" = "$ver" ] || { echo "tag $ref does not match $plugin $ver"; exit 1; }
 
+  # mission-control's tests are TypeScript, not bats, and only Claude Code
+  # runs them: `claude plugin test` loads each *.test.ts and *.test.tsx file
+  # the way the plugin's hooks are loaded. Until this job nothing ran them,
+  # not CI and not scripts/run-suite.sh.
+  #
+  # It needs no account and no key. Measured 2026-11-07 with the npm package
+  # at the version pinned below: HOME an empty folder, the environment
+  # emptied to PATH alone, all 147 tests passed in about 15 s, and a planted
+  # failing test made it exit 1. So the job holds no secret and asks for none.
+  #
+  # ubuntu only, for now. The test files simulate the other platforms' paths
+  # and shells themselves, and run here too; this job has not been measured
+  # on macOS or Windows.
+  mission-control:
+    name: mission-control tests
+    runs-on: ubuntu-24.04
+    # About 15 s of tests, measured locally; the npm download is network time
+    # no run has measured yet. 10 minutes catches a hang and nothing else.
+    timeout-minutes: 10
+    # PINNED, for the reason jq and shellcheck are: a version nobody chose is
+    # a version nobody can match. 2.1.311 is the package's `stable` dist-tag
+    # on 2026-11-07 and the version measured green above; the node version is
+    # the one that installed it. The step after the install refuses any other
+    # Claude Code, by name.
+    #
+    # What is NOT pinned by a checksum: npm checks each package against the
+    # integrity the registry records for it, and the executable arrives as a
+    # per-platform optional package of the same version. No hash of our own
+    # stands beside those, as one does for jq; that is the registry's word.
+    env:
+      CLAUDE_CODE_VERSION: '2.1.311'
+      NODE_VERSION: '24.22.2'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The documented install, at the pinned version.
+      - name: Install the pinned Claude Code
+        run: npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Verify the pinned Claude Code is the one on PATH
+        run: |
+          have="$(claude --version | sed -n 's/^\([0-9][0-9.]*\) (Claude Code)$/\1/p')"
+          [ "$have" = "$CLAUDE_CODE_VERSION" ] || {
+            echo "claude on PATH reports '$(claude --version)' at $(command -v claude), expected $CLAUDE_CODE_VERSION" >&2
+            exit 1
+          }
+          echo "claude is $have from $(command -v claude)"
+
+      # An exit of 0 is not taken alone as proof, for the reason the bats
+      # shards give: the summary is read back, and the step FAILS unless it
+      # ran at least one test, ran every tracked test file (the count is
+      # derived from git, never written here), and every test it ran passed.
+      # A test file that fails to load is a failed test in that summary; the
+      # kit has no skip, measured: `test.skip` stops its whole file loading.
+      - name: Run mission-control's tests
+        env:
+          DISABLE_AUTOUPDATER: '1'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+        run: |
+          out="$(mktemp)"
+          set +e
+          claude plugin test ./mission-control 2>&1 | tee "$out"
+          rc="${PIPESTATUS[0]}"
+          set -e
+          files="$(git ls-files -- 'mission-control/*.test.ts' 'mission-control/*.test.tsx' | grep -c . || true)"
+          ran="$(sed -n 's/^Ran \([0-9][0-9]*\) tests\{0,1\} across \([0-9][0-9]*\) files\{0,1\}\..*$/\1 \2/p' "$out" | tail -n 1)"
+          passed="$(sed -n 's/^ *\([0-9][0-9]*\) pass$/\1/p' "$out" | tail -n 1)"
+          failed="$(sed -n 's/^ *\([0-9][0-9]*\) fail$/\1/p' "$out" | tail -n 1)"
+          echo "mission-control: ${ran:-<no summary>} (tests, files), ${passed:-?} pass, ${failed:-?} fail, $files tracked test file(s), exit $rc"
+          if [ -z "$ran" ] || [ "${ran% *}" -eq 0 ] || [ "$files" -eq 0 ]; then
+            echo "::error title=empty run::claude plugin test ran no test, or none is tracked; a run of nothing is not a pass"
+            exit 1
+          fi
+          if [ "${ran#* }" -ne "$files" ]; then
+            echo "::error title=files missed::claude plugin test ran ${ran#* } file(s) of the $files tracked"
+            exit 1
+          fi
+          if [ "${failed:-1}" -ne 0 ] || [ "${passed:--1}" -ne "${ran% *}" ]; then
+            echo "::error title=failed tests::mission-control: ${passed:-?} of ${ran% *} passed, ${failed:-?} failed"
+            exit 1
+          fi
+          exit "$rc"
+
   shell-analysis:
     name: shell analysis
     runs-on: ubuntu-24.04

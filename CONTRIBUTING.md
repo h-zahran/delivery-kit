@@ -37,6 +37,17 @@ bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipe
 time. It is what the pipeline's `testCommand` calls in this repository. CI
 stays serial, one shard per suite, for the reason its workflow gives.
 
+`mission-control`'s tests are TypeScript, not bats, and Claude Code runs
+them. From the repository root:
+
+```bash
+claude plugin test ./mission-control
+```
+
+It needs no login and no API key. CI runs it in the `mission-control tests`
+job, on the Claude Code version that job pins in
+`.github/workflows/ci.yml`; an older Claude Code may not have the command.
+
 The tag above is the readable one, and it is deliberately NOT the commit
 the workflow pins. CI fetches an immutable commit, because an upstream
 retag would otherwise change the third-party code an automated gate
