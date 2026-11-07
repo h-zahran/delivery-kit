@@ -83,7 +83,7 @@ so a failure never leaves half a page.
 | `specDir` | yes | Passed to the pipeline as `--spec-dir`. |
 | `seed` | yes | The feature description the pipeline specifies from. One line. |
 | `trailers` | no | Each one passed to the pipeline as `--trailer`. |
-| `flags` | no | More pipeline flags for this task, passed as written. |
+| `flags` | no | More pipeline flags for this task, passed as written. A flag that holds `--auto-release` is refused. |
 | `number` | no | The task's number, as shown to people. |
 | `title` | no | The task's title, as shown to people. |
 | `blocked` | no | A note saying why the task cannot go on. A task with a note is blocked until it is in review or done. |
@@ -97,7 +97,10 @@ and the task file each hold one JSON object. The values the `/pipeline`
 line carries are one line each: `seed`, `branch`, `specDir`, each trailer
 and each flag. A line break in any of them is refused, naming the task and
 the field, so the pasted line can never become two commands. It does not check what a value
-means. The pipeline's pre-flight checks the branch name, the spec folder and
+means. One flag is the exception: a flag that holds `--auto-release`, in
+any letter case, is refused. It makes the pipeline publish with no one asked,
+and the pipeline takes it only typed on purpose, never implied. A member
+who means it types it on the line themselves. The pipeline's pre-flight checks the branch name, the spec folder and
 each trailer, so those rules live in one place.
 
 ## Who is at the keyboard

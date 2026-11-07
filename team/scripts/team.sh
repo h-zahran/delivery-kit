@@ -268,6 +268,11 @@ cmd_tasks() {
   path_ok "team '$team': task file" "$f"
   read_json "task file" "$f" >/dev/null
   [ "$(jq -r '.tasks | type' -- "$f" 2>/dev/null)" = "array" ] || die "task file '$f' has no 'tasks' list"
+  # One value is refused for what it does: --auto-release makes the
+  # pipeline publish with no one asked, and the pipeline takes it only typed
+  # on purpose, never implied. A tracked task file is not typed by the member
+  # who pastes the line, so a flag that holds it, in any letter case, is
+  # refused here, where status, next, command and render all read the tasks.
   bad="$(jq -r '
     def str($k): (.[$k] | type) == "string" and (.[$k] | test("\\S"));
     def strs($k): (has($k) | not) or ((.[$k] | type) == "array" and ([.[$k][] | type] - ["string"] | length) == 0);
@@ -288,6 +293,8 @@ cmd_tasks() {
             elif ($t | strs("flags") | not) then "task \($id): flags is not a list of strings"
             elif any($t.trailers[]?; test("[\r\n]")) then "task \($id): a trailer holds a line break; the pipeline line is one line"
             elif any($t.flags[]?; test("[\r\n]")) then "task \($id): a flag holds a line break; the pipeline line is one line"
+            elif any($t.flags[]?; ascii_downcase | contains("--auto-release"))
+              then "task \($id): a flag holds --auto-release, which publishes with no one asked; the pipeline takes it only typed on purpose, so take it out of the task file and type it on the /pipeline line yourself if you mean it"
             else empty end
         end
     ] | first // empty' -- "$f")"
@@ -626,7 +633,8 @@ cmd_next() {
 }
 
 # The /pipeline line for one task: the seed first, then the task's names,
-# its trailers, and its own flags as written. A value with anything but
+# its trailers, and its own flags as written (tasks has refused a flag that
+# holds --auto-release). A value with anything but
 # plain characters is double-quoted, with " and \ escaped. Plain is judged
 # on the whole value with \A and \z: jq's ^ and $ match at each line end,
 # so "main\n" read as plain. tasks refuses a line break first; this is

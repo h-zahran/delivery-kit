@@ -119,5 +119,10 @@ extra flags. When the flags include `--implementer` or leave out
 `--auto`, do not add or remove anything: the task's flags are the
 project's decision, passed as written.
 
+One flag is never in the line: `--auto-release`, which publishes with no
+one asked. `team.sh` refuses a task whose flags hold it. Show the refusal,
+and say that the team leader takes it out of the task file, and that the
+member types it on the line themselves if they mean it. Never add it.
+
 Stop here. The pipeline's own pre-flight checks the branch name, the spec
 folder and each trailer, and stops on a bad one.
