@@ -3,9 +3,12 @@
 bats_require_minimum_version 1.5.0
 
 # Suite for pipeline/scripts/preflight.sh — detection and probe. The fixture
-# directories are copied, once per file, into a scratch repository on branch
-# main with one commit, a GitHub origin and origin/HEAD naming main, and
-# every fixture test probes that copy. Pre-flight checks that the base branch
+# directories are copied, once per file, and each copy becomes its own
+# scratch repository on branch main with one commit, a GitHub origin and
+# origin/HEAD naming main, and every fixture test probes those copies. Each
+# fixture is a repository of its own because pre-flight detects from the
+# repository's top: fixtures sharing one repository would all read as its
+# top folder. Pre-flight checks that the base branch
 # is a local branch with a commit, and a CI pull-request checkout is detached
 # with no main at all, so a fixture probed where it sits, inside this
 # checkout, would stop in CI alone (feature 052, research R6). The copy keeps
@@ -16,13 +19,15 @@ bats_require_minimum_version 1.5.0
 load ../../tests/helper
 
 setup_file() {
-  local copy="$BATS_FILE_TMPDIR/fixtures"
+  local copy="$BATS_FILE_TMPDIR/fixtures" f
   cp -R "$ROOT/pipeline/tests/fixtures" "$copy"
   # add -f: a global excludes file must not leave a fixture file untracked.
-  ( cd "$copy" && git init -q -b main && git add -f . && commit_staged fixtures \
-    && git remote add origin https://github.com/example/thing.git \
-    && git update-ref refs/remotes/origin/main HEAD \
-    && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main )
+  for f in "$copy"/*/; do
+    ( cd "$f" && git init -q -b main && git add -f . && commit_staged fixtures \
+      && git remote add origin https://github.com/example/thing.git \
+      && git update-ref refs/remotes/origin/main HEAD \
+      && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main ) || return 1
+  done
   export FIX_REPO="$copy"
 }
 
@@ -120,6 +125,30 @@ stub() {
   [ "$status" -eq 0 ]
   [ "$(jq -r '.projectType' <<<"$output")" = "other" ]
   [ "$(jq -r '.projectTypeSource' <<<"$output")" = "default" ]
+}
+
+@test "detection reads the repository's top, from any folder inside it" {
+  # Detection read the folder pre-flight was started in, so from a subfolder
+  # a web project with the spec tool and a live run read other, absent and
+  # not live. Every answer is the top's, whichever folder starts it.
+  T="$BATS_TEST_TMPDIR/from-sub"
+  mkdir -p "$T/src/deep" "$T/.specify/templates" "$T/.specify/scripts" "$T/.delivery-kit/runs/001-x"
+  cd "$T"; git init -q .; main_base
+  printf '{"devDependencies":{"vite":"5"}}' > package.json
+  printf '{"speckit_version":"0.16.0","script":"sh"}' > .specify/init-options.json
+  printf 'k' > src/deep/.keep
+  git add -f package.json .specify/init-options.json src/deep/.keep; commit_staged files
+  printf '{"current_phase":"C"}' > .delivery-kit/runs/001-x/progress.json
+  mkdir -p specs/002-taken
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "top: exit $status: $stderr"; false; }
+  top="$output"
+  [ "$(jq -r '[.projectType, .speckit.present, .tree.runsLive] | map(tostring) | join(" ")' <<<"$top")" = "web true true" ]
+  probe --dir "$T/src/deep" --base-branch main
+  [ "$status" -eq 0 ] || { echo "subfolder: exit $status: $stderr"; false; }
+  [ "$output" = "$top" ] || { echo "top:       $top"; echo "subfolder: $output"; false; }
+  # --spec-dir is relative to the top, so a folder there is taken from anywhere.
+  refused "'specs/002-taken' already exists (--spec-dir)" --dir "$T/src/deep" --base-branch main --spec-dir specs/002-taken
 }
 
 @test "--project-type overrides detection and says so" {
