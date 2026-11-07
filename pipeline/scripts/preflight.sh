@@ -405,13 +405,30 @@ if [ -n "$spec_dir" ]; then
 fi
 
 # --- project type ----------------------------------------------------------
-# pubspec.yaml + android/ is the mobile shape; a package.json whose
-# dependencies or devDependencies name one of the four web toolchains is
-# web; everything else is other. The override always wins, and the SOURCE
-# is reported so a wrong guess is visible rather than silent.
+# Three shapes are mobile-android: Flutter (pubspec.yaml + android/), a
+# native Gradle build (settings.gradle or settings.gradle.kts, with
+# app/src/main/AndroidManifest.xml or android/), and React Native or Expo (a
+# package.json whose dependencies or devDependencies name react-native or
+# expo, + android/). They are read before web, as such a package.json may
+# name a web toolchain too. A package.json whose dependencies or
+# devDependencies name one of the four web toolchains is web; everything
+# else is other. The override always wins, and the SOURCE is reported so a
+# wrong guess is visible rather than silent.
 ptype="other"; ptype_source="default"
+gradle=""
+for f in settings.gradle settings.gradle.kts; do
+  if [ -f "$f" ]; then gradle="$f"; break; fi
+done
 if [ -f pubspec.yaml ] && [ -d android ]; then
   ptype="mobile-android"; ptype_source="pubspec.yaml + android/"
+elif [ -n "$gradle" ] && [ -f app/src/main/AndroidManifest.xml ]; then
+  ptype="mobile-android"; ptype_source="$gradle + AndroidManifest.xml"
+elif [ -n "$gradle" ] && [ -d android ]; then
+  ptype="mobile-android"; ptype_source="$gradle + android/"
+elif [ -d android ] && [ -f package.json ] && jq -e '
+    ((.dependencies // {}) + (.devDependencies // {})) | has("react-native") or has("expo")' \
+    package.json >/dev/null 2>&1; then
+  ptype="mobile-android"; ptype_source="package.json react-native or expo + android/"
 elif [ -f package.json ] && jq -e '
     ((.dependencies // {}) + (.devDependencies // {})) | keys
     | map(select(. == "next" or . == "vite" or . == "astro" or . == "react-scripts"))
