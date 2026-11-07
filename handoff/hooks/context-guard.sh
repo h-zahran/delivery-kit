@@ -674,7 +674,7 @@ noflag=""
 if [ -n "$flagdir" ]; then
   flag="$flagdir/ctx-warned-$session"
 else
-  noflag=" The guard cannot keep its once-per-step flag: no writable temp folder (TMPDIR '${TMPDIR:-}', TEMP '${TEMP:-}', /tmp), so this warning repeats on every call until one is writable."
+  noflag=" The guard cannot keep the flag that stops it repeating a warning: no writable temp folder (TMPDIR '${TMPDIR:-}', TEMP '${TEMP:-}', /tmp), so this warning repeats on every call until one is writable."
 fi
 last_bucket=""
 [ -z "$flag" ] || last_bucket=$(cat "$flag" 2>/dev/null)

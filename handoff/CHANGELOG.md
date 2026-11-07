@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dk-jq-hint-<user id>`. With one fixed name in a shared `/tmp`, one user's
   flag hid the hint from every other user on the machine.
 - **A missing or read-only `TMPDIR` no longer makes the guard warn on every
-  call.** The guard keeps its once-per-step flag in the first of `TMPDIR`,
+  call.** The guard keeps the flag that stops it repeating a warning (one
+  per 5% step of context) in the first of `TMPDIR`,
   `TEMP` and `/tmp` it can write. Before, the flag write failed, the warning
   came back on every tool call past the threshold, and bash printed an error
   beside it. When no folder can be written, the warning still fires and says
