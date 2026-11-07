@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "A side pane with robots: the main loop, every subagent and its tools, context, cost, rate limits and files touched",
   "author": { "name": "Haytham Zahran" },
   "homepage": "https://github.com/h-zahran/delivery-kit",
