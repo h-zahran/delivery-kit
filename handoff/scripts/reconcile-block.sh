@@ -202,9 +202,12 @@ EOF
 # EMPTY lines at the end are dropped (so reruns do not pile them up); a line of
 # spaces anywhere, inside a code fence included, is kept as it was. On Windows
 # the awk here reads in text mode, so a CRLF document comes back LF.
-tmp="$docdir/.$docbase.reconcile-tmp"
-cp -p "$doc" "$tmp" 2>/dev/null || die "cannot write beside the document"
+# The temporary file gets a new, unique name from mktemp (the X's last, as
+# macOS needs). A fixed name could be a planted link, and the copy and the
+# new text would follow it out of the repository.
+tmp=$(mktemp "$docdir/.$docbase.XXXXXX") || die "cannot write beside the document"
 trap 'rm -rf "$work" "$tmp"' EXIT
+cp -p "$doc" "$tmp" 2>/dev/null || die "cannot write beside the document"
 {
   awk -v b="$begin" -v e="$end" '$0 == b {skip = 1} !skip {print} $0 == e {skip = 0}' "$doc" |
     awk 'length($0) {for (; blank > 0; blank--) print ""; print; next} {blank++}'

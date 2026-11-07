@@ -295,9 +295,32 @@ has_line() {
 @test "reconcile: the record leaves no file of its own behind" {
   mkrepo
   record
-  [ -z "$(find "$REPO" -name '*reconcile-tmp*')" ]
+  # The document's folder holds the document and nothing else: no temporary
+  # file under any name is left beside it.
+  [ "$(ls -A "${DOC%/*}")" = "${DOC##*/}" ] || { ls -A "${DOC%/*}"; false; }
   run grep -c 'reconcile-tmp' "$DOC"
   [ "$output" = 0 ]
+}
+
+@test "reconcile: a link planted at the old temporary name is not written through" {
+  # The temporary file had one fixed name beside the document. A link planted
+  # there sent the copy and the new text to wherever it pointed, outside the
+  # repository, and the final rename left the document itself a link to it.
+  mkrepo
+  printf 'outside\n' > "$TEST_DIR/outside.txt"
+  ln -s "$TEST_DIR/outside.txt" "${DOC%/*}/.${DOC##*/}.reconcile-tmp"
+  chmod 644 "$DOC"
+  run record
+  # mktemp makes its file private; the copy keeps the document's own mode.
+  [ "$(ls -l "$DOC" | cut -c1-10)" = '-rw-r--r--' ]
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_DIR/outside.txt")" = outside ] || { echo "wrote through the link"; false; }
+  [ ! -L "$DOC" ] || { echo "the document became a link"; false; }
+  grep -qxF '# Session handoff' "$DOC"
+  grep -qF 'RECONCILE' "$DOC"
+  # The planted link is left as it was, and nothing else is left beside it.
+  [ -L "${DOC%/*}/.${DOC##*/}.reconcile-tmp" ]
+  [ "$(ls -A "${DOC%/*}" | grep -c .)" -eq 2 ]
 }
 
 # Review found a false MATCH: with `--untracked-files=normal` a new directory is
