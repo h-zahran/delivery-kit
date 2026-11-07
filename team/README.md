@@ -4,6 +4,16 @@ Runs a team's plan through the `pipeline` plugin. The team leader writes the
 setup once. Each member then starts their next task with one command, and the
 team's progress is kept where the team leader can read it.
 
+## Install
+
+```
+/plugin marketplace add h-zahran/delivery-kit
+/plugin install team@delivery-kit
+```
+
+Type each skill as shown below with a slash first, for example `/team:start`:
+Claude Code lists each plugin skill as `/<plugin>:<skill>`.
+
 | Skill | Who runs it | What it does |
 |---|---|---|
 | `team:setup` | the team leader, once | Writes the team block in the repository's `.delivery-kit.json`. |
@@ -22,7 +32,7 @@ team's progress is kept where the team leader can read it.
 
 ## Set up a team
 
-Run `team:setup` in the repository. It asks, one question at a time:
+Run `/team:setup` in the repository. It asks, one question at a time:
 
 1. the team's key, a short name such as `alpha`;
 2. where the team's roster file is;
@@ -46,10 +56,10 @@ publishes with no one asked, so a member types it themselves.
 
 ## Start a task
 
-Run `team:start`. The first time, it asks for your id in each team your
+Run `/team:start`. The first time, it asks for your id in each team your
 git email matches, and suggests that id. It never decides that for you.
 It asks once per team. When you are in two teams, it shows each team's
-next task and asks which one. `team:start <team>` goes straight to one
+next task and asks which one. `/team:start <team>` goes straight to one
 team, and is how you join a team your email does not match. Then it checks the working tree is clean, finds your next task, and
 prints one line:
 
@@ -63,7 +73,7 @@ in progress on this machine, it prints `/pipeline --resume` instead.
 
 ## See where the work stands
 
-Run `team:status`. Status is read from git and the pull requests each
+Run `/team:status`. Status is read from git and the pull requests each
 time, never stored, so it cannot drift from what is really there. Ask it
 to update the progress page, and it writes each member's page for you to
 commit.

@@ -74,14 +74,36 @@ flat() {
   [[ $(flat handoff/README.md) == *"The defaults assume a $dwc-token context window"* ]] || { echo "handoff/README.md does not state the default window as $dwc"; false; }
 }
 
+# The plugins the marketplace ships, read from its own file, so a new plugin's
+# README is checked the day it is listed. Prints "<name> <dir>" per plugin.
+shipped_plugins() {
+  jq -r '.plugins[] | "\(.name) \(.source | sub("^\\./"; ""))"' "$ROOT/.claude-plugin/marketplace.json" | tr -d '\r'
+}
+
+# The READMEs a reader is pointed at: the root one and each shipped plugin's.
+plugin_readmes() {
+  local name dir
+  printf '%s\n' README.md
+  while read -r name dir; do
+    [ -f "$ROOT/$dir/README.md" ] && printf '%s\n' "$dir/README.md"
+  done < <(shipped_plugins)
+}
+
+# The plugin names joined as an ERE alternation: handoff|pipeline|...
+plugin_alt() {
+  shipped_plugins | awk '{ printf "%s%s", (NR > 1 ? "|" : ""), $1 }'
+}
+
 @test "every plugin skill a README names is a shipped skill" {
   cd "$ROOT"
-  local f t miss="" n=0
-  for f in README.md handoff/README.md pipeline/README.md; do
+  local f t miss="" n=0 alt
+  alt="$(plugin_alt)"
+  [[ "$alt" == *team* ]] || { echo "the plugin list read from marketplace.json is wrong: $alt"; false; }
+  for f in $(plugin_readmes); do
     # Inline (`handoff:setup`) and as a command line of its own inside a fence
     # (mutation found the fenced quick-start step unread). Either may carry
     # the slash a reader types (`/handoff:setup`).
-    for t in $(tr -d '\r' < "$f" | grep -oE '`/?(handoff|pipeline):[a-z][a-z-]*`|^/?(handoff|pipeline):[a-z][a-z-]*( |$)' | tr -d '`/ ' | sort -u); do
+    for t in $(tr -d '\r' < "$f" | grep -oE "\`/?($alt):[a-z][a-z-]*\`|^/?($alt):[a-z][a-z-]*( |\$)" | tr -d '`/ ' | sort -u); do
       n=$((n + 1))
       [ -f "${t%%:*}/skills/${t#*:}/SKILL.md" ] || miss="$miss $f:$t"
     done
@@ -143,11 +165,13 @@ flat() {
 
 @test "a skill the READMEs tell you to type carries its slash" {
   cd "$ROOT"
-  local f bare=""
-  # A line of its own (indented or not) that starts with a bare plugin:skill
-  # is a command to type without the slash Claude Code lists it under.
-  for f in README.md handoff/README.md pipeline/README.md; do
-    if tr -d '\r' < "$f" | grep -nE -- '^[[:space:]]*(handoff|pipeline):[a-z]' > "$BATS_TEST_TMPDIR/bare"; then
+  local f bare="" alt
+  alt="$(plugin_alt)"
+  # A line of its own (indented or not) that starts with a bare plugin:skill,
+  # or a sentence that says to run one, is a command to type without the
+  # slash Claude Code lists it under.
+  for f in $(plugin_readmes); do
+    if tr -d '\r' < "$f" | grep -nE -- "^[[:space:]]*($alt):[a-z]|[Rr]un \`($alt):[a-z]" > "$BATS_TEST_TMPDIR/bare"; then
       bare="$bare $f: $(tr '\n' ' ' < "$BATS_TEST_TMPDIR/bare")"
     fi
   done
@@ -251,7 +275,7 @@ flat() {
   done
   row="$(tr -d '\r' < pipeline/README.md | awk '/^\| `--dry-run` \|/ { print; exit }')"
   [[ $row == *'Leaves a branch, a spec folder and a state file behind'* ]] || { echo "the --dry-run flag row lost its warning: $row"; false; }
-  [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'Run the spec phases A–F.5 normally'* ]] \
+  [[ $(flat pipeline/skills/pipeline/SKILL.md) == *'Run A–F.5 normally, then print what G–O would do'* ]] \
     || { echo "the skill's --dry-run no longer runs the spec phases normally, which the warning rests on"; false; }
 }
 
