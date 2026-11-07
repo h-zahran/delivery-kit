@@ -1095,8 +1095,10 @@ export const register: Register = on => {
       )
       lastBatchEndAt = at
       if (text) $.ui.toast(text, { timeoutMs: 8000 })
-      playChime($, at)
-    } else if (!owner && isLongTurn(mEnd.turnStartedAt, at)) {
+      // While the main loop still works, the work is not over: no sound yet.
+      if (!mEnd.isBusy) playChime($, at)
+    } else if (!owner && e.reason === 'answer' && isLongTurn(mEnd.turnStartedAt, at)) {
+      // Only a turn that answered: Esc ('aborted'), an API error and a refusal are no "done".
       playChime($, at)
     }
 
