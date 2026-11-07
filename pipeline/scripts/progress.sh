@@ -60,9 +60,9 @@ die()  { printf 'progress.sh: %s\n' "$*" >&2; exit 1; }
 # this process holds. Each name starts empty: one inherited from the
 # caller's environment names a file this process did not make, and an
 # inherited STATE_LOCK would also read as a lock already held.
-SK_SCRATCH='' TEXT_COPY='' TR_MSG='' TR_ERR='' SHOW_MSG='' STATE_LOCK=''
+SK_SCRATCH='' TEXT_COPY='' TR_MSG='' TR_ERR='' SHOW_MSG='' STATE_VAL='' STATE_LOCK=''
 on_exit() {
-  rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}" "${TR_MSG:-}" "${TR_ERR:-}" "${SHOW_MSG:-}"
+  rm -f "${SK_SCRATCH:-}" "${TEXT_COPY:-}" "${TR_MSG:-}" "${TR_ERR:-}" "${SHOW_MSG:-}" "${STATE_VAL:-}"
   if [ -n "${STATE_LOCK:-}" ]; then lock_remove "$STATE_LOCK" || true; fi
 }
 trap on_exit EXIT
@@ -2520,7 +2520,8 @@ i_gate() {
 # keys no other subcommand writes: gates, artifacts, measurements and config
 # (objects), analyze_changelog (a list), test_baseline and last_task
 # (strings). With a sub-key, only that member of the object is replaced. The
-# value travels as data (--argjson); the write goes to a temp file, is
+# value travels as data (--argjson, or --slurpfile for --json-file, whose
+# value can pass an argument's size limit); the write goes to a temp file, is
 # validated there, and only then replaces the state file. Every other key —
 # commits, the phase alphabet, the feature's identity — has its own command
 # or is never written, and is refused.
@@ -2553,25 +2554,43 @@ cmd_state_set() {
   # reading it. A redirect, so a leading dash is a path, after the checks, so a
   # failed redirect cannot print a raw one. jq's stderr is dropped, before the
   # file is opened: a parse error can quote the file, and the shell's own error
-  # names the path. A refusal prints the path through shown. jq has just written
-  # this value, so the validity check below fails on it only for its size, as the
-  # value travels as one argument, or its depth, as --argjson nests less far. From there on the
-  # value is the inline form's.
+  # names the path. A refusal prints the path through shown. From there on the
+  # value passes the inline form's checks.
+  # The file form's value never travels as an argument: a verbose suite's
+  # test_baseline passes Linux's 128 KiB an argument, and Windows' whole
+  # command line is far smaller. Its type is read from jq's stdin, and the
+  # writes read it with --slurpfile from a copy in the run directory, so its
+  # size is limited only by memory. VARGS and VPRE bind $v for each jq
+  # program below, in either form.
+  local vt
   if [ -n "$file" ]; then
     shown file_s "$file"
     { [ -f "$file" ] && [ -r "$file" ]; } || die "no readable file at $file_s"
     json="$(jq ${JQB:+"$JQB"} -c -s 'if length == 1 then .[0] else error("not one document") end' 2>/dev/null < "$file")" \
       || die "$file_s does not hold one JSON document"
-  fi
-  if ! jq -n --argjson v "$json" '$v' >/dev/null 2>&1; then
-    [ -z "$file" ] || die "$file_s holds a value this script cannot pass: too large for one argument, or nested too deep"
-    die "the value is not one valid JSON document: $json"
+    vt="$(printf '%s\n' "$json" | jqs type)" || die "$file_s does not hold one JSON document"
+  else
+    if ! jq -n --argjson v "$json" '$v' >/dev/null 2>&1; then
+      die "the value is not one valid JSON document: $json"
+    fi
+    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+    vt="$(jqs -n --argjson v "$json" '$v | type')"
   fi
   if [ -z "$sub" ]; then
-    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-    [ "$(jqs -n --argjson v "$json" '$v | type')" = "$want" ] || die "'$key' must be a JSON $want"
+    [ "$vt" = "$want" ] || die "'$key' must be a JSON $want"
   fi
   sf="$(cmd_validate "$feature")"
+  local -a VARGS
+  local VPRE=''
+  if [ -n "$file" ]; then
+    STATE_VAL="$(mktemp "${sf%/*}/state-set-value.XXXXXX")" || die "could not make a temporary file beside $sf — the state file is unchanged"
+    printf '%s\n' "$json" > "$STATE_VAL" || die "could not write $STATE_VAL — the state file is unchanged"
+    VARGS=(--slurpfile vs "$STATE_VAL")
+    # shellcheck disable=SC2016 # a jq program: its $ names are jq's
+    VPRE='$vs[0] as $v | '
+  else
+    VARGS=(--argjson v "$json")
+  fi
   # gates.pending belongs to ask-later and answer: a sub-key write could
   # forge or drop a question, and a whole-gates write could wipe the queue.
   # The comparison and the write are made under one hold of the lock.
@@ -2580,7 +2599,7 @@ cmd_state_set() {
     [ "$sub" != pending ] || die "gates.pending is written only by ask-later and answer"
     if [ -z "$sub" ]; then
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      jq -e --argjson v "$json" '((.gates | has("pending")) == ($v | has("pending"))) and (.gates.pending == $v.pending)' "$sf" > /dev/null \
+      jq -e "${VARGS[@]}" "$VPRE"'((.gates | has("pending")) == ($v | has("pending"))) and (.gates.pending == $v.pending)' "$sf" > /dev/null \
         || die "a whole-gates write must keep gates.pending as it is: it is written only by ask-later and answer"
     fi
   fi
@@ -2590,18 +2609,19 @@ cmd_state_set() {
     [ "$sub" != i ] || die "measurements.i is written only by i-measure"
     if [ -z "$sub" ]; then
       # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-      jq -e --argjson v "$json" '.measurements.i == $v.i' "$sf" > /dev/null \
+      jq -e "${VARGS[@]}" "$VPRE"'.measurements.i == $v.i' "$sf" > /dev/null \
         || die "a whole-measurements write must keep measurements.i as it is: it is written only by i-measure"
     fi
   fi
   if [ -n "$sub" ]; then
     # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-    state_write "$sf" '.[$k] = ((.[$k] // {}) | if type == "object" then .[$s] = $v else error("not an object") end)' \
-      --arg k "$key" --arg s "$sub" --argjson v "$json"
+    state_write "$sf" "$VPRE"'.[$k] = ((.[$k] // {}) | if type == "object" then .[$s] = $v else error("not an object") end)' \
+      --arg k "$key" --arg s "$sub" "${VARGS[@]}"
   else
     # shellcheck disable=SC2016 # a jq program: its $ names are jq's
-    state_write "$sf" '.[$k] = $v' --arg k "$key" --argjson v "$json"
+    state_write "$sf" "$VPRE"'.[$k] = $v' --arg k "$key" "${VARGS[@]}"
   fi
+  if [ -n "$STATE_VAL" ]; then rm -f "$STATE_VAL"; STATE_VAL=''; fi
 }
 
 # --- questions that wait ------------------------------------------------------
