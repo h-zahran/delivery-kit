@@ -952,6 +952,208 @@ big_fixture() {
   refused "no 'progressView'" "team:setup"
 }
 
+# --- a page path through a symbolic link -------------------------------------
+# path_ok reads only the page's text. A committed link on the path took
+# render's write elsewhere: g -> .git and a member `config` replaced
+# .git/config, and h -> .. wrote a .bashrc above the repository.
+
+# pagelink <target> <name>: a symbolic link, made as pipeline/tests/
+# preflight.bats makes one. Under Git Bash, `ln -s` without nativestrict
+# makes a COPY. `|| true`: where ln cannot make a native link it exits
+# non-zero, and under errexit that would end the test before the check.
+pagelink() {
+  (cd "$R" && MSYS=winsymlinks:nativestrict ln -s "$1" "$2" 2>/dev/null) || true
+  [ -L "$R/$2" ]
+}
+
+# link_or_file <target> <name>: the shape of preflight.bats. Makes <name>
+# a link and returns 0. Only on Windows, where a runner may not have the
+# right to make one, it writes what a checkout makes in a link's place, a
+# file holding the target, and returns 1: the caller then asserts that
+# file's own refusal. Anywhere else a link that cannot be made returns 2.
+link_or_file() {
+  if pagelink "$1" "$2"; then echo "# links: made" >&3; return 0; fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) echo "fixture: this system made no symbolic link"; return 2 ;;
+  esac
+  echo "# links: not available here" >&3
+  [ ! -e "$R/$2" ] || { echo "fixture: the failed link left $2 behind"; return 2; }
+  printf '%s' "$1" > "$R/$2"
+  return 1
+}
+
+# page_member <id> <name> — a roster member with a task file of their own,
+# so a render that got past the checks would write the page.
+page_member() {
+  local t; t="$(jq --arg id "$1" --arg n "$2" '.members += [{id: $id, name: $n}]' "$R/plan/alpha/roster.json")"
+  printf '%s\n' "$t" > "$R/plan/alpha/roster.json"
+  mkdir -p "$R/plan/alpha/$1" && cp "$R/plan/alpha/ann/tasks.json" "$R/plan/alpha/$1/"
+}
+
+@test "render: a page path through a link into .git is refused, and .git/config is left as it was" {
+  status_fixture
+  page_member config C
+  cp "$R/.git/config" "$BATS_TEST_TMPDIR/config.keep"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "g/{member}"'
+  local rc=0
+  link_or_file .git g || rc=$?
+  [ "$rc" -ne 2 ] || false
+  team_fake render alpha config
+  if [ "$rc" -eq 1 ]; then
+    refused "progress page 'g/config' runs through 'g', which is not a folder"
+  else
+    refused "progress page 'g/config' leads into a .git or .delivery-kit folder"
+  fi
+  one_line
+  cmp "$R/.git/config" "$BATS_TEST_TMPDIR/config.keep"
+  [ -z "$(find "$R" -name '.progress.*')" ]
+}
+
+@test "render: a page path through a link out of the repository is refused, and nothing is written there" {
+  status_fixture
+  mkdir -p "$BATS_TEST_TMPDIR/outside"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "views/{member}.md"'
+  local rc=0
+  link_or_file ../outside views || rc=$?
+  [ "$rc" -ne 2 ] || false
+  team_fake render alpha ann
+  if [ "$rc" -eq 1 ]; then
+    refused "progress page 'views/ann.md' runs through 'views', which is not a folder"
+  else
+    refused "progress page 'views/ann.md' leads outside the repository"
+  fi
+  one_line
+  [ -z "$(ls -A "$BATS_TEST_TMPDIR/outside")" ] || { ls -A "$BATS_TEST_TMPDIR/outside"; false; }
+}
+
+@test "render: a page path through a link to the parent, with a line break in the name, writes no file above the repository" {
+  # The review's input: h -> .., a page of h/.bash{member} and a member
+  # `rc` wrote a .bashrc one folder up, and the name's second line was a
+  # line of its own there. The payload here is harmless text.
+  status_fixture
+  page_member rc $'Ann\necho harmless-marker'
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "h/.bash{member}"'
+  local rc=0
+  link_or_file .. h || rc=$?
+  [ "$rc" -ne 2 ] || false
+  team_fake render alpha rc
+  if [ "$rc" -eq 1 ]; then
+    refused "progress page 'h/.bashrc' runs through 'h', which is not a folder"
+  else
+    refused "progress page 'h/.bashrc' leads outside the repository"
+  fi
+  one_line
+  [ ! -e "$BATS_TEST_TMPDIR/.bashrc" ]
+}
+
+@test "render: a folder that is .git or the state directory by identity, under another name, is refused" {
+  # Windows gives .git a second, short name (GIT~1) that the name check
+  # cannot read. Modelled with no link on the page's path: .git and
+  # .delivery-kit are links to folders of other names, and the page is
+  # written to those names. Where no link can be made, nothing is .git
+  # under another name, and the page is an ordinary one.
+  status_fixture
+  page_member config C
+  mv "$R/.git" "$R/realgit"
+  local rc=0
+  link_or_file realgit .git || rc=$?
+  [ "$rc" -ne 2 ] || false
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "realgit/{member}"'
+  if [ "$rc" -eq 1 ]; then
+    team_fake render alpha config
+    [ "$status" -eq 0 ]; return
+  fi
+  cp "$R/realgit/config" "$BATS_TEST_TMPDIR/config.keep"
+  team_fake render alpha config
+  refused "progress page 'realgit/config' leads into a .git or .delivery-kit folder"
+  one_line
+  cmp "$R/realgit/config" "$BATS_TEST_TMPDIR/config.keep"
+  # The state directory the same way.
+  rm -rf "$R/.delivery-kit"; mkdir -p "$R/state"
+  pagelink state .delivery-kit || { echo "fixture: the link .delivery-kit was not made"; false; }
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "state/{member}.md"'
+  team_fake render alpha ann
+  refused "progress page 'state/ann.md' leads into a .git or .delivery-kit folder"
+  [ -z "$(ls -A "$R/state")" ]
+}
+
+@test "render: a page that is itself a link is refused, and the link and its target are left as they were" {
+  status_fixture
+  printf 'keep\n' > "$R/notes.md"
+  local rc=0
+  link_or_file ../../../notes.md plan/alpha/ann/progress.md || rc=$?
+  [ "$rc" -ne 2 ] || false
+  team_fake render alpha ann
+  if [ "$rc" -eq 1 ]; then
+    # A plain file in the link's place is a page like any other.
+    [ "$status" -eq 0 ]; return
+  fi
+  refused "progress page 'plan/alpha/ann/progress.md' is a symbolic link"
+  one_line
+  [ -L "$R/plan/alpha/ann/progress.md" ] && [ "$(cat "$R/notes.md")" = keep ]
+  [ -z "$(find "$R/plan" -name '.progress.*')" ]
+}
+
+@test "render: a page path through a link that stays inside the repository is refused" {
+  status_fixture
+  local rc=0
+  link_or_file plan pages || rc=$?
+  [ "$rc" -ne 2 ] || false
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "pages/alpha/{member}/progress.md"'
+  team_fake render alpha ann
+  if [ "$rc" -eq 1 ]; then
+    refused "progress page 'pages/alpha/ann/progress.md' runs through 'pages', which is not a folder"
+    return
+  fi
+  refused "progress page 'pages/alpha/ann/progress.md' runs through 'pages', which is a symbolic link"
+  one_line
+  [ ! -e "$R/plan/alpha/ann/progress.md" ]
+}
+
+@test "render: a page path through a link that points nowhere is refused, and its target is not made" {
+  status_fixture
+  # nativestrict refuses a link to a missing target, so the target is
+  # made, linked, and then removed.
+  mkdir -p "$BATS_TEST_TMPDIR/gone"
+  local rc=0
+  link_or_file ../gone gone || rc=$?
+  [ "$rc" -ne 2 ] || false
+  rmdir "$BATS_TEST_TMPDIR/gone"
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "gone/{member}.md"'
+  team_fake render alpha ann
+  if [ "$rc" -eq 1 ]; then
+    refused "progress page 'gone/ann.md' runs through 'gone', which is not a folder"
+    return
+  fi
+  refused "progress page 'gone/ann.md' runs through 'gone', which is a symbolic link"
+  one_line
+  [ ! -e "$BATS_TEST_TMPDIR/gone" ]
+}
+
+@test "render: a nested page whose folder does not exist yet is written exactly as the default page" {
+  status_fixture
+  team_fake render alpha ann
+  [ "$status" -eq 0 ]
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "progress/{member}.md"'
+  [ ! -e "$R/progress" ]
+  team_fake render alpha ann
+  [ "$status" -eq 0 ]
+  [ "$output" = '{"written":"progress/ann.md"}' ]
+  cmp "$R/progress/ann.md" "$R/plan/alpha/ann/progress.md"
+  [ -z "$(find "$R" -name '.progress.*')" ]
+}
+
+@test "render: a line break in the member's name stays on the heading line" {
+  status_fixture
+  set_json plan/alpha/roster.json '.members[0].name = "Ann\nExample\r\nSecond"'
+  team_fake render alpha ann
+  [ "$status" -eq 0 ]
+  f="$R/plan/alpha/ann/progress.md"
+  [ "$(head -n 1 "$f")" = '# Ann Example Second — progress' ] || { head -n 3 "$f"; false; }
+  [ "$(sed -n 2p "$f")" = '' ]
+}
+
 @test "an unknown command prints the usage" {
   team frobnicate
   refused "usage: team.sh"

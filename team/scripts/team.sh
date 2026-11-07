@@ -80,6 +80,72 @@ path_ok() {
   esac
 }
 
+# page_path_ok <what> <page> — the page's path, as the file system reads it,
+# stays inside this folder, the repository root render was given, and out
+# of its .git and state directory, with no symbolic link on the way.
+# path_ok reads only the text: a committed link g -> .git with a page of
+# g/{member} and a member `config` replaced .git/config, and h -> .. wrote
+# a .bashrc one folder above the repository. Checked before any folder is
+# made or any file written.
+#
+# First the nearest folder of the path that exists, followed through any
+# link, must be inside the root, by the rule and for the reasons of the
+# --spec-dir check in pipeline/scripts/preflight.sh: inside is decided by
+# identity (-ef), never by spelling, because Git Bash spells one folder
+# two ways, and the resolved folder's ancestors are walked by cutting the
+# last segment, never by cd ... Then no part of the path that exists, the
+# page itself included, may be a link, even one that stays inside: the
+# first check does not see a link that points nowhere (measured: this
+# Ubuntu's mkdir -p then failed with "Already exists", naming no cause),
+# and a link can be changed between two renders. No message prints a resolved path: it is absolute, it holds
+# the user's name, and a refusal's text may leave the machine.
+page_path_ok() {
+  local what="$1" f="$2" p real top d under inside rest seg pre=""
+  p="$f"
+  while [ "$p" != . ] && [ ! -e "$p" ]; do
+    case "$p" in */*) p="${p%/*}" ;; *) p=. ;; esac
+  done
+  # The page itself, when it exists, is not a folder: render refuses that
+  # below, and its parent is the folder this check is about.
+  if [ "$p" = "$f" ]; then
+    case "$p" in */*) p="${p%/*}" ;; *) p=. ;; esac
+  fi
+  [ -d "$p" ] || die "$what '$f' runs through '$p', which is not a folder"
+  real="$(cd -P -- "$p" && pwd -P)" || die "$what '$f': cannot enter '$p'"
+  top="$(pwd -P)"
+  # Each folder on the way is also compared with .git and the state
+  # directory by identity: Windows gives a folder a second, short name
+  # (GIT~1), which the name check below cannot read. -ef is false for a
+  # path that does not exist.
+  d="$real"; under=""; inside=false
+  while :; do
+    if [ "${d:-/}" -ef "$top" ]; then inside=true; break; fi
+    if [ "${d:-/}" -ef "$top/.git" ] || [ "${d:-/}" -ef "$top/.delivery-kit" ]; then
+      die "$what '$f' leads into a .git or .delivery-kit folder"
+    fi
+    case "$d" in */*) ;; *) break ;; esac
+    under="${d##*/}"; d="${d%/*}"
+  done
+  [ "$inside" = true ] || die "$what '$f' leads outside the repository"
+  case "$under" in
+    .[Gg][Ii][Tt]|.[Dd][Ee][Ll][Ii][Vv][Ee][Rr][Yy]-[Kk][Ii][Tt])
+      die "$what '$f' leads into a .git or .delivery-kit folder" ;;
+  esac
+  # One segment at a time from the root; a part that does not exist ends
+  # the walk, since nothing below it exists either. -L is true for a link
+  # that points nowhere, where -e is false.
+  rest="$f"
+  while [ -n "$rest" ]; do
+    case "$rest" in */*) seg="${rest%%/*}"; rest="${rest#*/}" ;; *) seg="$rest"; rest="" ;; esac
+    pre="${pre:+$pre/}$seg"
+    if [ -L "$pre" ]; then
+      [ "$pre" != "$f" ] || die "$what '$f' is a symbolic link"
+      die "$what '$f' runs through '$pre', which is a symbolic link"
+    fi
+    [ -e "$pre" ] || break
+  done
+}
+
 # lower <text> — ASCII letters made lower case. Not ${1,,}: bash 3.2 has none.
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
@@ -581,6 +647,7 @@ cmd_render() {
     || die "no member '$member' in team '$team'"
   f="${f//\{member\}/$member}"
   path_ok "team '$team': progress page" "$f"
+  page_path_ok "team '$team': progress page" "$f"
   # Two different patterns can still meet for one member id: a page of
   # plan/{member}/ann/tasks.json is ann's task file for a member `alpha`.
   # Every member's task file is checked, in any letter case.
@@ -604,7 +671,9 @@ cmd_render() {
   jq ${JQB:+"$JQB"} -r --arg name "$name" --arg day "$(date -u +%Y-%m-%d)" '
     def cell: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|");
     def code: if . == "" then "" else "`" + cell + "`" end;
-    "# \($name) — progress",
+    # Every field from the roster or a task file goes through cell, the
+    # name too: a name holding a line break wrote a line of its own.
+    "# \($name | cell) — progress",
     "",
     "> Written by `team:status` from git\(if .prRead then " and the pull requests" else "" end) on \($day). Do not edit by hand: run `team:status` again.",
     (if .originRead then empty else "> origin was not read: a branch pushed from another machine is not shown." end),
