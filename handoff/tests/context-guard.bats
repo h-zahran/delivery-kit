@@ -1134,6 +1134,34 @@ bad_user_file_keeps_guard() {
   echo "$output" | jq -e '.contextGuard.thresholdTokens == 400000'
 }
 
+@test "the setup skill's merge writes through a linked ~/.delivery-kit.json and keeps the link" {
+  # A dotfile manager (stow, chezmoi) makes ~/.delivery-kit.json a link into
+  # the user's dotfiles. `mv "$CFG.new" "$CFG"` replaced the LINK with a plain
+  # file: the merge landed, the dotfiles copy never saw it, and the link was
+  # gone. The block is EXTRACTED FROM THE SHIPPED SKILL, the bash fence under
+  # "## 3.", never copied here, so the shipped text is what runs.
+  block="$(awk '/^## 3\./ {s = 1} s && /^```bash$/ {f = 1; next} f && /^```$/ {exit} f {print}' \
+    "$HANDOFF/skills/setup/SKILL.md")"
+  [ -n "$block" ] || { echo "no bash block under '## 3.' in handoff/skills/setup/SKILL.md"; false; }
+  printf '{"handoff":{"docsDir":"docs/ho"}}\n' > "$TEST_DIR/real.json"
+  ln -s "$TEST_DIR/real.json" "$HOME/.delivery-kit.json"
+  PATCH='{"contextGuard":{"windowTokens":1000000}}'
+  run bash -c "PATCH='$PATCH'; $block"$'\n''echo "rc=$rc"'
+  [ "$status" -eq 0 ]
+  [[ $output == *"rc=0"* ]] || { echo "merge did not report success: $output"; false; }
+  [ -L "$HOME/.delivery-kit.json" ] || { echo "the link was replaced by a plain file"; false; }
+  jq -e '.handoff.docsDir == "docs/ho" and .contextGuard.windowTokens == 1000000' "$TEST_DIR/real.json"
+  [ ! -e "$HOME/.delivery-kit.json.new" ] && [ ! -e "$HOME/.delivery-kit.json.patch" ]
+  # A plain file still takes the atomic rename, and is still a plain file.
+  rm "$HOME/.delivery-kit.json"
+  printf '{"handoff":{"docsDir":"docs/ho"}}\n' > "$HOME/.delivery-kit.json"
+  run bash -c "PATCH='$PATCH'; $block"$'\n''echo "rc=$rc"'
+  [[ $output == *"rc=0"* ]]
+  [ -f "$HOME/.delivery-kit.json" ] && [ ! -L "$HOME/.delivery-kit.json" ]
+  jq -e '.handoff.docsDir == "docs/ho" and .contextGuard.windowTokens == 1000000' "$HOME/.delivery-kit.json"
+  [ ! -e "$HOME/.delivery-kit.json.new" ]
+}
+
 @test "the guard stays silent inside a subagent" {
   # Issue #5, and the mechanism is MEASURED rather than assumed. A PostToolUse
   # hook running inside a subagent is handed the PARENT's transcript_path and

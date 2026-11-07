@@ -140,7 +140,8 @@ CFG="$HOME/.delivery-kit.json"
 # Build the answers as $PATCH, e.g.
 # {"contextGuard":{"windowTokens":1000000,"thresholdTokens":400000}}
 printf '%s\n' "$PATCH" > "$CFG.patch"
-jq -s '.[0] * .[1]' "$CFG" "$CFG.patch" > "$CFG.new" && mv "$CFG.new" "$CFG"
+jq -s '.[0] * .[1]' "$CFG" "$CFG.patch" > "$CFG.new" &&
+  if [ -L "$CFG" ]; then cat "$CFG.new" > "$CFG"; else mv "$CFG.new" "$CFG"; fi
 rc=$?
 rm -f "$CFG.patch" "$CFG.new"
 [ "$rc" -eq 0 ] || echo "merge failed; $CFG is unchanged"
@@ -155,6 +156,11 @@ costs the user nothing. Both temporaries are removed on either path — without
 that second name in the `rm`, a failed merge leaves a partial `$CFG.new` sitting
 in the user's home directory. Carry `$rc` forward; it is the only thing that
 distinguishes a write from a no-op.
+
+When `$CFG` is a link (a dotfile manager such as stow or chezmoi keeps the real
+file elsewhere), the merged text is written through the link instead: `mv`
+would replace the link with a plain file, and the user's dotfiles would never
+see the change.
 
 ## 4. Print what was written
 

@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`handoff:setup` keeps a linked `~/.delivery-kit.json`.** When the file is
+  a link (stow, chezmoi), the merged settings are written through the link.
+  Before, the link was replaced by a plain file and the real file never
+  changed.
+
 ## [2.4.3] - 2026-11-07
 
 ### Highlights
