@@ -153,7 +153,9 @@ is given up after about 10 s. Pull requests are read with `gh`, probed as `gh`, 
 `gh.cmd`. The output says `originRead` and `prRead`: a source that could
 not be read is reported as not read, never taken as "no". Without `gh`, a
 merged task never shows as done, and shows as not started when its branch
-was deleted. `gh` returns at most the newest 1000 pull requests: in a
+was deleted. When one branch name carries several pull requests, a
+merged one is read first, then an open one, then a closed one, whatever
+order `gh` lists them in. `gh` returns at most the newest 1000 pull requests: in a
 repository with more, an older merged task is read from the other facts.
 
 ## The commands

@@ -549,6 +549,27 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   [ "$(jq -c '[.prRead, .tasks[2].prClosed]' <<<"$output")" = '[true,true]' ]
 }
 
+@test "status: a merged pull request wins over a later closed one on the same branch, and an open one over a closed one" {
+  # gh lists the newest first. A merged pull request with a later closed one
+  # on the same branch name read as not started, and next said start: a
+  # member was told to do a merged task again. T-5 has no branch and no run,
+  # so the pull requests alone decide it.
+  status_fixture
+  fake_prs '[{"headRefName":"ann/T-5","state":"CLOSED","url":"u5c"},{"headRefName":"ann/T-5","state":"MERGED","url":"u5m"},{"headRefName":"ann/T-5","state":"OPEN","url":"u5o"}]'
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.tasks[4] | [.status, .source, .pr, .prClosed]' <<<"$output")" = '["done","pull request","u5m",false]' ]
+  # With T-1's live run gone and T-1 to T-3 merged, T-5 is the only task
+  # next could offer: it offered it as a start.
+  rm "$R/.delivery-kit/runs/001-T-1/progress.json"
+  fake_prs '[{"headRefName":"ann/T-1","state":"MERGED","url":"u1"},{"headRefName":"ann/T-2","state":"MERGED","url":"u2"},{"headRefName":"ann/T-3","state":"MERGED","url":"u3"},{"headRefName":"ann/T-5","state":"CLOSED","url":"u5c"},{"headRefName":"ann/T-5","state":"MERGED","url":"u5m"}]'
+  team_fake next alpha ann
+  [ "$(jq -c '[.action, .task]' <<<"$output")" = '["none",null]' ] || { echo "next: $output"; false; }
+  fake_prs '[{"headRefName":"ann/T-5","state":"CLOSED","url":"u5c"},{"headRefName":"ann/T-5","state":"OPEN","url":"u5o"}]'
+  team_fake status alpha ann
+  [ "$(jq -c '.tasks[4] | [.status, .source, .pr]' <<<"$output")" = '["in review","pull request","u5o"]' ]
+}
+
 @test "status: without origin, origin is reported as not read, never as empty" {
   status_fixture
   git -C "$R" remote remove origin
