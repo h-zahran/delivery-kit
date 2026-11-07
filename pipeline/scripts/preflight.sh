@@ -678,11 +678,6 @@ if [ -n "$fb" ] && [ "$git_usable" = true ]; then
   [ -z "$hit" ] || die "'$fb_s' already exists as the branch '$hit_s', or collides with it as a folder; the feature branch needs a new name ($fb_arg)"
 fi
 
-remote="none"
-if url="$(git remote get-url origin 2>/dev/null)"; then
-  case "$url" in *github.com*) remote="github" ;; *) remote="other" ;; esac
-fi
-mark_not_read remote.kind
 # gh is probed under three names, first found wins, and the name is reported:
 # a Windows package manager can install it as gh.cmd alone, which a bare `gh`
 # lookup never finds, so probing one name read a working gh as absent.
@@ -690,6 +685,59 @@ gh_present=false; gh_command=""
 for c in gh gh.exe gh.cmd; do
   if command -v "$c" >/dev/null 2>&1; then gh_present=true; gh_command="$c"; break; fi
 done
+# url_host <url> — sets rh to the URL's host in lowercase, or to nothing for
+# a local path or a host that is not plain letters, digits, dots, dashes and
+# underscores (an ssh alias may hold one), and rh_ssh to true when git reaches it over ssh. Three forms are read:
+# scheme://[user@]host[:port]/path, and the scp-like [user@]host:path, which
+# git takes when a colon comes before any slash. A one-letter host is a
+# Windows drive (C:/repo). The plain-name rule keeps the host safe to hand
+# to ssh and gh, and none starts with a dash, so neither reads an option.
+url_host() {
+  local h
+  rh=""; rh_ssh=false
+  case "$1" in
+    ssh://*|git+ssh://*|ssh+git://*) rh_ssh=true; h="${1#*://}" ;;
+    *://*) h="${1#*://}" ;;
+    *:*) h="${1%%:*}"; rh_ssh=true
+         case "$h" in */*) return 0 ;; esac ;;
+    *) return 0 ;;
+  esac
+  h="${h%%/*}"; h="${h##*@}"; h="${h%%:*}"
+  case "$h" in ?|-*|*[!A-Za-z0-9._-]*) return 0 ;; esac
+  rh="$(printf '%s' "$h" | awk '{ print tolower($0) }')"
+}
+# The remote is GitHub when its host is github.com (ssh.github.com is its
+# ssh-over-443 host), compared whole: a substring read a gitlab path holding
+# github.com as GitHub, and GitHub.com as not. An ssh host may be an alias
+# from the user's ssh configuration (git@gh-work:o/r for a second account):
+# `ssh -G` prints what it resolves to, reading the configuration only, with
+# canonicalization off so no name is looked up. A GitHub Enterprise host is
+# GitHub when gh is logged in to it: `gh auth token --hostname` reads gh's
+# own stored login and makes no network call (measured, gh 2.103.3: 0.14 s
+# against an unreachable host, where `gh auth status` waited out a 20 s
+# timeout). Its token goes to /dev/null. An enterprise token in the
+# environment makes gh answer for any host, so it is left out of that one
+# call, and its update check and prompts are turned off. No call here
+# reaches the network.
+remote="none"
+if url="$(git remote get-url origin 2>/dev/null)"; then
+  remote="other"
+  url_host "$url"
+  if [ -n "$rh" ] && [ "$rh_ssh" = true ] && command -v ssh >/dev/null 2>&1; then
+    a="$(ssh -G -o CanonicalizeHostname=no -- "$rh" 2>/dev/null \
+      | awk '$1 == "hostname" && !n { print tolower($2); n = 1 }')" || a=""
+    case "$a" in ""|?|-*|*[!a-z0-9.-]*) ;; *) rh="$a" ;; esac
+  fi
+  case "$rh" in
+    github.com|ssh.github.com) remote="github" ;;
+    "") ;;
+    *) if [ "$gh_present" = true ] \
+         && ( unset GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN; GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 "$gh_command" auth token --hostname "$rh" ) >/dev/null 2>&1; then
+         remote="github"
+       fi ;;
+  esac
+fi
+mark_not_read remote.kind
 adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 
 # A status read that fails is no answer about the tree: with a usable git
@@ -786,7 +834,7 @@ if [ "$remote" = "none" ]; then
   add_git_skip "L" "no git remote — the run stops after the commit gate and says so"
   add_git_skip "M" "no pull request without a remote"
 elif [ "$remote" != "github" ]; then
-  add_git_skip "M" "the remote is not GitHub — review needs a GitHub pull request"
+  add_git_skip "M" "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>"
 elif [ "$gh_present" = false ]; then
   add_git_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
 fi

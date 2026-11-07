@@ -41,7 +41,8 @@ setup() {
   [ -f "$PROBE" ] || { echo "no script at $PROBE"; return 1; }
 }
 
-# The six external commands the probe actually invokes, read out of the script
+# The six external commands the probe always invokes (ssh and gh run only
+# when found, to read the remote's host), read out of the script
 # rather than guessed. A search path holding exactly these lets the probe run
 # normally while any OTHER tool reads as absent — which is the only way to reach
 # the degradation branches.
@@ -283,6 +284,63 @@ kind_is() {
   probe --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
   not_read_is '[]'
+}
+
+@test "remote classification reads the host, an ssh alias and the hosts gh is logged in to" {
+  # The match was a case-sensitive substring of the URL: GitHub.com read
+  # other, a gitlab path holding github.com read github, and an ssh alias or
+  # a GitHub Enterprise host read other, so phase M was skipped.
+  d="$BATS_TEST_TMPDIR/remote-tools"
+  shimdir "$d" $PROBE_TOOLS
+  # A fake ssh: -G prints the host its last argument resolves to.
+  printf '%s\n' '#!/bin/sh' 'for a; do last=$a; done' \
+    'case "$last" in gh-work|gh_work) h=GitHub.com ;; *) h=$last ;; esac' \
+    'printf "user git\nhostname %s\nport 22\n" "$h"' > "$d/ssh"
+  # A fake gh logged in to ghe.example alone, or to every host when an
+  # enterprise token is in the environment, as the real one is.
+  printf '%s\n' '#!/bin/sh' '[ -z "$GH_ENTERPRISE_TOKEN$GITHUB_ENTERPRISE_TOKEN" ] || { echo token; exit 0; }' \
+    '[ "$*" = "auth token --hostname ghe.example" ] && { echo token; exit 0; }' 'exit 1' > "$d/gh"
+  chmod +x "$d/ssh" "$d/gh"
+  T="$BATS_TEST_TMPDIR/remote-hosts"
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
+  git remote add origin https://example.invalid/x.git
+  local c url want
+  for c in \
+    'https://GitHub.com/o/r.git|github' \
+    'https://user@github.com:443/o/r|github' \
+    'ssh://git@github.com/o/r.git|github' \
+    'git@github.com:o/r.git|github' \
+    'ssh://git@ssh.github.com:443/o/r.git|github' \
+    'git@gh-work:o/r.git|github' \
+    'git@gh_work:o/r.git|github' \
+    'ssh://git@gh-work/o/r.git|github' \
+    'https://ghe.example/o/r.git|github' \
+    'ssh://git@GHE.example:2222/o/r.git|github' \
+    'git@ghe.example:o/r.git|github' \
+    'https://gitlab.com/x/github.com-tools.git|other' \
+    'https://github.com.evil.example/o/r.git|other' \
+    '/srv/git/github.com/r.git|other' \
+    'https://gitlab.example.com/x/y.git|other'; do
+    url="${c%|*}"; want="${c##*|}"
+    git remote set-url origin "$url"
+    probe --path "$d" --dir "$T" --base-branch main
+    [ "$status" -eq 0 ] || { echo "$url: exit $status: $stderr"; false; }
+    [ "$(jq -r '.remote.kind' <<<"$output")" = "$want" ] \
+      || { echo "$url: $(jq -r '.remote.kind' <<<"$output"), want $want"; false; }
+  done
+  # An enterprise token in the environment makes gh answer for every host,
+  # so it is not read as gh knowing the host.
+  git remote set-url origin https://gitlab.example.com/x/y.git
+  GH_ENTERPRISE_TOKEN=x probe --path "$d" --dir "$T" --base-branch main
+  [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
+  # Without ssh the alias cannot be resolved, so it reads other, and the
+  # reason says how a GitHub Enterprise host is set up.
+  rm "$d/ssh"
+  git remote set-url origin git@gh-work:o/r.git
+  probe --path "$d" --dir "$T" --base-branch main
+  [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
+  [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
+      = "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>" ]
 }
 
 @test "base branch: origin/HEAD first, then the override, each with its source" {
@@ -1719,7 +1777,9 @@ dirty_is() {
   # assertion below would pass while proving nothing.
   a="$BATS_TEST_TMPDIR/with-client"
   shimdir "$a" $PROBE_TOOLS
-  stub "$a/gh"
+  # A client logged in to no host: one that answers for every host would
+  # make this remote a GitHub Enterprise host it knows.
+  printf '#!/bin/sh\nexit 1\n' > "$a/gh"; chmod +x "$a/gh"
   ra="$BATS_TEST_TMPDIR/repo-elsewhere"
   mkdir -p "$ra"
   ( cd "$ra" && git init -q . && main_base && git remote add origin https://gitlab.example.com/x/y.git )
@@ -1732,7 +1792,7 @@ dirty_is() {
   # The two routes carry DIFFERENT reasons, and each is pinned: one shared
   # message named both causes, so an operator could not tell which to fix.
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
-      = "the remote is not GitHub — review needs a GitHub pull request" ]
+      = "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>" ]
 
   # Route (b): the remote IS the expected host, but the client cannot be found.
   b="$BATS_TEST_TMPDIR/without-client"
