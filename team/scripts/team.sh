@@ -549,6 +549,12 @@ ls_remote() (
 # segment of its specDir, the name the pipeline gives it. Membership is
 # exact, by the whole name: a branch is on origin when a line of `heads`
 # is that name, and on this machine when a line of `local` is its ref.
+#
+# A branch name can carry several pull requests, and gh lists the newest
+# first. A merged one is read first, then an open one, then a closed one,
+# whatever the order: a merged pull request with a later closed one on the
+# same name read as not started, and next offered the merged task again.
+# sort_by keeps gh's order within one state, so the newest of it is read.
 cmd_status() {
   local team="${1:-}" member="${2:-}" tasks
   [ -n "$team" ] && [ -n "$member" ] || usage
@@ -573,7 +579,8 @@ cmd_status() {
         | ($r.phase // "") as $phase | ($r.pr // "") as $runpr | ($r.end // "") as $end
         | ($lh["refs/heads/" + $t.branch] == true) as $lb
         | ($rd.originRead and $rh[$t.branch] == true) as $rb
-        | ([$prl[] | select(.headRefName == $t.branch)] | first // null) as $pr
+        | ([$prl[] | select(.headRefName == $t.branch)]
+           | sort_by({MERGED: 0, OPEN: 1, CLOSED: 2}[.state | tostring] // 3) | first // null) as $pr
         | $t + (
           if $pr != null and $pr.state == "MERGED" then {status: "done", source: "pull request", pr: $pr.url}
           elif $pr != null and $pr.state == "OPEN" then {status: "in review", source: "pull request", pr: $pr.url}
