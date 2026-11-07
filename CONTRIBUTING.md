@@ -35,7 +35,8 @@ bash "$HOME/bats/bin/bats" -r --print-output-on-failure tests handoff/tests pipe
 
 `bash scripts/run-suite.sh` runs the same files side by side and takes less
 time. It is what the pipeline's `testCommand` calls in this repository. CI
-stays serial, one shard per suite, for the reason its workflow gives.
+stays serial, one shard per suite (`pipeline/tests` in two), for the
+reason its workflow gives.
 
 `mission-control`'s tests are TypeScript, not bats, and Claude Code runs
 them. From the repository root:
@@ -228,8 +229,10 @@ link test's list in the same commit; skills need no list edit — their
 - **CI pins its other tools too.** CI pins jq 1.8.2 and verifies its
   checksum; use the same release locally. CI pins actionlint 1.7.12, which
   lints the workflow file and runs the shell in its inline `run:` steps
-  through the pinned shellcheck. CI runs one suite root per shard, but a
-  local run still names every suite path, as
+  through the pinned shellcheck. CI runs one suite root per shard, and
+  `pipeline/tests` in two shards by file; a new file there goes into one of
+  the two `paths:` lists in the workflow, and `tests/portability.bats` fails
+  until it does. A local run still names every suite path, as
   [Running the tests](#running-the-tests) says.
 - Release tags are `<plugin>-v<version>`, for example `handoff-v2.0.0`. A bare
   `v1.2.3` names no manifest to check against, so CI rejects it.

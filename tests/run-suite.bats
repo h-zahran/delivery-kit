@@ -342,7 +342,13 @@ broken() {
 
 @test "run-suite: with no argument it reads the same roots as CI's matrix" {
   local ci have r n=0
-  ci="$(sed -n 's/^ *suite: *\[\(.*\)\] *$/\1/p' "$ROOT/.github/workflows/ci.yml" | tr -d ' ' | tr ',' '\n' | LC_ALL=C sort)"
+  # A CI shard is a root, or one part of a root whose files its paths: list
+  # names (pipeline/tests runs in two); the root of a part is its files'
+  # folder. ci_matrix (tests/helper.bash) reads the matrix for both tests.
+  ci_matrix > "$TEST_DIR/matrix.txt"
+  ci="$(awk '$1 == "P" { split_[$2] = 1; for (i = 3; i <= NF; i++) { d = $i; sub(/\/[^\/]*$/, "", d); print d } }
+             $1 == "S" { s[++n] = $2 }
+             END { for (i = 1; i <= n; i++) if (!(s[i] in split_)) print s[i] }' "$TEST_DIR/matrix.txt" | LC_ALL=C sort -u)"
   [ -n "$ci" ] || { echo "no suite matrix found in ci.yml"; false; }
   have="$(sed -n "s/^roots='\(.*\)'\$/\1/p" "$RS_SCRIPT" | tr ' ' '\n' | LC_ALL=C sort)"
   [ "$have" = "$ci" ] || { printf 'the script holds:\n%s\nCI holds:\n%s\n' "$have" "$ci"; false; }
