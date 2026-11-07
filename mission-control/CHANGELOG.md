@@ -10,6 +10,9 @@ All notable changes to the `mission-control` plugin.
   stopped with Esc, or ended by an error or a refusal, no longer plays it. A
   batch of helpers that ends while the main loop still works no longer plays
   it either; the main loop's own end does, as before.
+- **The sounds can be turned off.** A new **Sounds** option, in `/config`
+  and on the install screen, turns every sound off. It is on by default, so
+  nothing changes until you turn it off.
 
 ## [0.9.7] - 2026-11-02
 

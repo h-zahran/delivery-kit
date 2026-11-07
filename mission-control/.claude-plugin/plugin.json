@@ -3,5 +3,13 @@
   "version": "0.9.7",
   "description": "A side pane with robots: the main loop, every subagent and its tools, context, cost, rate limits and files touched",
   "author": { "name": "Haytham Zahran" },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "sounds": {
+      "type": "boolean",
+      "title": "Sounds",
+      "description": "Play a short sound when Claude needs you and when long work is done. Off: no sound at all.",
+      "default": true
+    }
+  }
 }

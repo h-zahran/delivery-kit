@@ -491,10 +491,12 @@ const chimeAt: Record<SoundKind, number> = { done: Number.NEGATIVE_INFINITY, nee
 let chimePlatform: Platform | undefined
 // Linux: the first player that worked, so the next sound tries it first.
 let chimePlayer = 0
+// The `sounds` option (/config): off, no clip plays. Set at each load; a change reloads the module.
+let soundsOn = true
 // One of the mod's own clips, each at most once per 10 s; never throws, never waits.
 // A system with no way to play it ('none', or no Linux player) stays quiet.
 function playChime($: EngineInterface, at: number, kind: SoundKind = 'done'): void {
-  if (chimePlatform === 'none' || at - chimeAt[kind] < 10_000) return
+  if (!soundsOn || chimePlatform === 'none' || at - chimeAt[kind] < 10_000) return
   chimeAt[kind] = at
   const asset = SOUND_ASSETS[kind]
   void (async () => {
@@ -555,7 +557,9 @@ async function migrate($: EngineInterface): Promise<void> {
   )
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // On unless the person turned it off: an engine that passes no value keeps the sounds.
+  soundsOn = options?.sounds !== false
   // Claude Code needs the person (a permission, a question): the "ding-dong".
   on('classic.Notification', async ($, e, next) => {
     if (isNeedsYou(e.notification_type)) playChime($, await $.clock.now(), 'needsYou')
