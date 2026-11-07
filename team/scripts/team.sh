@@ -298,7 +298,7 @@ cmd_tasks() {
             elif any($t.flags[]?; test("[\r\n]")) then "task \($id): a flag holds a line break; the pipeline line is one line"
             elif any($t.flags[]?; ascii_downcase | gsub("[^a-z]"; "") | contains("autorelease"))
               then "task \($id): a flag holds --auto-release, which publishes with no one asked; the pipeline takes it only typed on purpose, so take it out of the task file and type it on the /pipeline line yourself if you mean it"
-            elif any(($t.seed, $t.branch, $t.specDir, $t.trailers[]?); ascii_downcase | [splits("[ \t]+") | select(test("^[a-z0-9]") | not) | gsub("[^a-z]"; "")] | any(.[]; contains("autorelease")))
+            elif any(($t.seed, $t.branch, $t.specDir, $t.trailers[]?); ascii_downcase | gsub("[\\p{Pd}\u2212\ufe63\uff0d]"; "-") | test("-[^a-z]*auto[^a-z]*release"))
               then "task \($id): its seed, branch, specDir or a trailer holds --auto-release, which the pipeline could read as the flag that publishes with no one asked; take it out of the task file"
             else empty end
         end
