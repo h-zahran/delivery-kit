@@ -14,6 +14,11 @@ All notable changes to the `pipeline` plugin.
   that saw it stale can no longer remove the new guard another writer has
   just made. A stale guard holding a stray file is removed too; before, it
   made every write wait, then stop.
+- **`projectType` `Web` now picks the web check.** A project type spelled
+  `web`, `mobile-android` or `other` in another letter case, from the
+  values file or the flag, is read as that name, with a warning naming both
+  spellings. Before, it passed pre-flight and then picked no runtime check.
+  Any other name stays as given.
 
 ## [1.13.0] - 2026-11-07
 

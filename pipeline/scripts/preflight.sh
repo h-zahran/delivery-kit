@@ -144,6 +144,21 @@ case "$ptype_override" in
     shown pt_s "$ptype_override"
     die "'$pt_s' cannot be a project type: use letters, digits, '.', '_' and '-', and start with no dash ($ptype_label)" ;;
 esac
+# N.5 picks a strategy by the exact name, so `Web` passed here and then
+# picked none. A case variant of one of the three names the run knows is
+# that name, said in a warning; any other own name stays as given. The value
+# passed the check above, so it holds no character a warning cannot print.
+pt_fold=""
+case "$ptype_override" in
+  web|mobile-android|other) ;;
+  [Ww][Ee][Bb]) pt_fold=web ;;
+  [Mm][Oo][Bb][Ii][Ll][Ee]-[Aa][Nn][Dd][Rr][Oo][Ii][Dd]) pt_fold=mobile-android ;;
+  [Oo][Tt][Hh][Ee][Rr]) pt_fold=other ;;
+esac
+if [ -n "$pt_fold" ]; then
+  warn "project type '$ptype_override' is read as '$pt_fold', the name the run knows ($ptype_label)"
+  ptype_override="$pt_fold"
+fi
 # The spec folder is handed to the spec tool, which creates it and writes
 # into it, and its last segment becomes the run's name under
 # .delivery-kit/runs/ and, without --feature-branch, the branch's name. So

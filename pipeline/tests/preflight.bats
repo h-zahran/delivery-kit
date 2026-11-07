@@ -208,6 +208,33 @@ kind_is() {
   [ "$(jq -r '.projectTypeSource' <<<"$output")" = "override" ]
 }
 
+# web, mobile-android and other pick a strategy by an exact match at N.5, so
+# `Web` passed pre-flight and then picked none. A case variant of one of the
+# three is folded to it, from a flag or the values file, with a warning that
+# names both spellings; any other own name stays as given. Mutation: drop
+# the fold, so `Web` is reported as typed.
+@test "--project-type folds a case variant of web, mobile-android or other, and says so" {
+  local typed want v
+  for v in Web:web MOBILE-Android:mobile-android Other:other; do
+    typed="${v%%:*}"; want="${v#*:}"
+    probe --dir "$FIX/web" --base-branch main --project-type "$typed"
+    [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+    [ "$(jq -r '.projectType + " " + .projectTypeSource' <<<"$output")" = "$want override" ] \
+      || { echo "$typed: $(jq -r .projectType <<<"$output")"; false; }
+    [[ "$stderr" == *"project type '$typed' is read as '$want'"* ]] || { echo "$stderr"; false; }
+  done
+  printf '%s\n' '{"projectType":"WEB"}' > "$BATS_TEST_TMPDIR/v.json"
+  probe --dir "$FIX/web" --base-branch main --values-file "$BATS_TEST_TMPDIR/v.json"
+  [ "$(jq -r .projectType <<<"$output")" = web ]
+  [[ "$stderr" == *"project type 'WEB' is read as 'web'"* ]] || { echo "$stderr"; false; }
+  # The exact name, and an own name in any case, pass as given, unwarned.
+  for v in web Desktop-App; do
+    probe --dir "$FIX/web" --base-branch main --project-type "$v"
+    [ "$(jq -r .projectType <<<"$output")" = "$v" ]
+    [[ "$stderr" != *"is read as"* ]] || { echo "$stderr"; false; }
+  done
+}
+
 @test "the no-speckit fixture reports the tool absent, exit 0 -- reporting is not failing" {
   probe --dir "$FIX/no-speckit" --base-branch main
   [ "$status" -eq 0 ]
@@ -3036,12 +3063,13 @@ judge_big() {
 
 # Feature 058: a project type is the owner's own name. Anyone may use the kit for
 # any kind of project, so nothing limits the type to the kinds with a strategy.
+# (WEB, a case variant of web, is read as web: the fold has its own test.)
 # Mutation: restore a closed list, and these go red.
 @test "any project type a person names is taken, and reported, from either source" {
   local name
   T="$BATS_TEST_TMPDIR/any-type"
   mkdir -p "$T"; cd "$T"; git init -q -b work .; seed
-  for name in library python-cli data_pipeline WEB ios v2.0 game; do
+  for name in library python-cli data_pipeline WebApp ios v2.0 game; do
     probe --dir "$T" --project-type "$name"
     [ "$status" -eq 0 ] || { echo "$name: $stderr"; false; }
     [ "$(jq -r '.projectType + " " + .projectTypeSource' <<<"$output")" = "$name override" ] || { echo "$name: $output"; false; }
