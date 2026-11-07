@@ -27,7 +27,7 @@ otherwise stay out of each other's way. mission-control needs no settings.
 ([why](#windows)).
 
 ```bash
-jq --version     # both plugins
+jq --version     # handoff, pipeline and team
 git --version    # pipeline needs it; handoff's resume check needs it
 ```
 
@@ -114,12 +114,18 @@ prompt, a REQUESTS card, toasts and sounds. `/mission` shows or hides the pane.
 the built-in player, and Linux needs `paplay`, `pw-play` or `aplay`. With no
 player, it stays quiet.
 
+**[team](team/README.md)** runs a team's shared plan through `pipeline`. The
+team leader writes the setup once with `/team:setup`. Each member runs
+`/team:start` and gets the next task's `/pipeline` line to paste, and
+`/team:status` shows where every task stands, read from git and the pull
+requests. It never starts a run by itself.
+
 ## Settings
 
 Nothing is required. Every setting has a default, and anything the tools work
 out for themselves is printed, so a wrong guess is visible rather than silent.
 
-Both plugins read one file, `.delivery-kit.json`: in your repository root for
+handoff, pipeline and team read one file, `.delivery-kit.json`: in your repository root for
 project facts, or at `~/.delivery-kit.json` for facts about your machine. **The
 repository file wins**, and for the guard's keys an environment variable beats
 both: `DELIVERY_KIT_WINDOW_TOKENS`, `DELIVERY_KIT_THRESHOLD_PCT`,
@@ -144,11 +150,11 @@ line naming the file or flag it came from. `baseBranchOverride`,
 file each came from, on its `Base branch`, `Trailers` and `Test command` lines.
 
 Every key: [handoff](handoff/docs/configuration.md) ·
-[pipeline](pipeline/docs/configuration.md).
+[pipeline](pipeline/docs/configuration.md) · [team](team/docs/configuration.md).
 
 ## Windows
 
-handoff's hooks run in bash, and both plugins' skills run their scripts with
+handoff's hooks run in bash, and the plugins' skills run their scripts with
 `bash` through Claude's Bash tool. On Windows that bash is **Git Bash**, so Git
 for Windows is required, and Git Bash is where a tool must be visible.
 
@@ -170,6 +176,7 @@ pipeline/    the pipeline plugin — command, skills, scripts, docs, tests
 mission-control/ the mission-control mod — hook modules, sounds, types, its test
 team/        the team plugin — skills, scripts, docs, tests
 tests/       repo-wide tests: layout, and what may appear in shipped files
+scripts/     the repository's own tools: the suite runner, the version check, the release steps
 specs/       the specifications real pipeline runs produced, kept as examples
 main-plan.md the plan file this repository reads its own seeds from
 ```
