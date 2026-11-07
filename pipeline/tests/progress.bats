@@ -1808,23 +1808,47 @@ board_vs_lock_take() {
   cmp before.json "$sf"
 }
 
-@test "state-set --json-file says a value is too large, never that it is bad JSON" {
-  # A valid file over one argument's limit: 128 KiB an argument on Linux, 32 KB
-  # a command line on Windows, 1 MiB a whole list on macOS, so 2 MiB is over all
-  # three. Mutation: drop the file form's own line, and it blames the JSON.
+@test "state-set --json-file stores a 300 KB test_baseline, past one argument's limit, byte-exact" {
+  # A verbose suite's baseline passes Linux's 128 KiB an argument. Mutation:
+  # pass the value to jq as one argument again, and it is refused as too large.
   local sf=.delivery-kit/runs/001-demo/progress.json
   bash "$PROG" init 001-demo b main web
-  cp "$sf" before.json
-  { printf '"SECRETWORD'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > big.json
+  { printf '"'; head -c 307200 /dev/zero | tr '\0' a; printf '\\nok 1 the end"\n'; } > big.json
   run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file big.json
+  [ "$status" -eq 0 ] || { echo "status $status: ${stderr:0:300}"; false; }
+  [ -z "$output" ] && [ -z "$stderr" ] || { echo "stdout: ${output:0:200} stderr: ${stderr:0:200}"; false; }
+  [ "$(jq -c .test_baseline "$sf")" = "$(jq -c . big.json)" ]
+  run bash "$PROG" validate 001-demo
+  [ "$status" -eq 0 ]
+  # A sub-key write of the same size, and the type check still holds.
+  { printf '{"log":'; cat big.json; printf '}\n'; } > obj.json
+  bash "$PROG" state-set 001-demo measurements suite --json-file obj.json
+  [ "$(jq -c .measurements.suite "$sf")" = "$(jq -c . obj.json)" ]
+  cp "$sf" before.json
+  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file obj.json
   [ "$status" -eq 1 ]
-  [ -z "$output" ] || { echo "stdout: ${output:0:200}"; false; }
-  [ "$stderr" = "progress.sh: big.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
+  [ "$stderr" = "progress.sh: 'test_baseline' must be a JSON string" ] || { echo "${stderr:0:300}"; false; }
   cmp before.json "$sf"
 }
 
+@test "state-set --json-file stores a value past every platform's argument limit, and leaves no copy" {
+  # 128 KiB an argument on Linux, 32 KB a command line on Windows, 1 MiB a
+  # whole list on macOS, so 2 MiB is over all three. Mutation: pass the value
+  # as one argument, and it is refused; keep the copy, and the run directory
+  # gains a file.
+  local sf=.delivery-kit/runs/001-demo/progress.json
+  bash "$PROG" init 001-demo b main web
+  ls -A .delivery-kit/runs/001-demo > files.before
+  { printf '"SECRETWORD'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > big.json
+  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file big.json
+  [ "$status" -eq 0 ] || { echo "status $status: ${stderr:0:200}"; false; }
+  [ -z "$output" ] && [ -z "$stderr" ] || { echo "stdout: ${output:0:200} stderr: ${stderr:0:200}"; false; }
+  [ "$(jq -c .test_baseline "$sf")" = "$(jq -c . big.json)" ]
+  ls -A .delivery-kit/runs/001-demo | cmp files.before -
+}
+
 @test "state-set --json-file prints a path masked in each refusal" {
-  # Mutation: print the path raw in any one of the three refusals.
+  # Mutation: print the path raw in either of the two refusals.
   local sf=.delivery-kit/runs/001-demo/progress.json
   bash "$PROG" init 001-demo b main web
   cp "$sf" before.json
@@ -1837,10 +1861,6 @@ board_vs_lock_take() {
   run --separate-stderr bash "$PROG" state-set 001-demo config --json-file $'a\342\200\256b.json'
   [ "$status" -eq 1 ]
   [ "$stderr" = 'progress.sh: a???b.json does not hold one JSON document' ] || { echo "$stderr" | od -c | head -5; false; }
-  { printf '"'; head -c 2097152 /dev/zero | tr '\0' a; printf '"\n'; } > $'a\342\200\256b.json'
-  run --separate-stderr bash "$PROG" state-set 001-demo test_baseline --json-file $'a\342\200\256b.json'
-  [ "$status" -eq 1 ]
-  [ "$stderr" = "progress.sh: a???b.json holds a value this script cannot pass: too large for one argument, or nested too deep" ] || { echo "stderr: ${stderr:0:200}"; false; }
   cmp before.json "$sf"
 }
 
