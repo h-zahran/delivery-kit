@@ -31,6 +31,11 @@ All notable changes to the `pipeline` plugin.
   tasks were passed over with no word, and the run ended with them unbuilt.
   `piece-next` now stops on such a heading that holds tasks, names it, and
   says a piece heading must be `## Phase <whole number>:`.
+- **An untracked folder holding its own repository is not committed as a
+  bare link.** The commit commands committed such a folder as a link to one
+  of its commits with no `.gitmodules` entry, so a clone got an empty folder.
+  They now stop, name the folder, and say to add it to `.gitignore` or as a
+  submodule. A tracked submodule is committed as before.
 
 ## [1.13.0] - 2026-11-07
 
