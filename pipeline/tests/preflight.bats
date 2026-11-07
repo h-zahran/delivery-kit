@@ -151,6 +151,41 @@ stub() {
   refused "'specs/002-taken' already exists (--spec-dir)" --dir "$T/src/deep" --base-branch main --spec-dir specs/002-taken
 }
 
+# kind_is <want type> <want source> <dir> — a fresh repository at <dir>,
+# whose files the caller has already written, detects as <want type>.
+kind_is() {
+  ( cd "$3" && git init -q . && main_base )
+  probe --dir "$3" --base-branch main
+  [ "$status" -eq 0 ] || { echo "$3: exit $status: $stderr"; false; }
+  [ "$(jq -r '.projectType + " | " + .projectTypeSource' <<<"$output")" = "$1 | $2" ] \
+    || { echo "$3: got $(jq -r '.projectType + " | " + .projectTypeSource' <<<"$output"), want $1 | $2"; false; }
+}
+
+@test "a native Gradle Android project and a React Native or Expo one detect mobile-android" {
+  local B="$BATS_TEST_TMPDIR/android-kinds" d
+  for d in groovy-manifest kts-manifest kts-android rn expo; do mkdir -p "$B/$d"; done
+  : > "$B/groovy-manifest/settings.gradle"
+  mkdir -p "$B/groovy-manifest/app/src/main"; : > "$B/groovy-manifest/app/src/main/AndroidManifest.xml"
+  kind_is mobile-android "settings.gradle + AndroidManifest.xml" "$B/groovy-manifest"
+  : > "$B/kts-manifest/settings.gradle.kts"
+  mkdir -p "$B/kts-manifest/app/src/main"; : > "$B/kts-manifest/app/src/main/AndroidManifest.xml"
+  kind_is mobile-android "settings.gradle.kts + AndroidManifest.xml" "$B/kts-manifest"
+  : > "$B/kts-android/settings.gradle.kts"; mkdir -p "$B/kts-android/android"
+  kind_is mobile-android "settings.gradle.kts + android/" "$B/kts-android"
+  printf '{"dependencies":{"react-native":"0.76"}}' > "$B/rn/package.json"; mkdir -p "$B/rn/android"
+  kind_is mobile-android "package.json react-native or expo + android/" "$B/rn"
+  printf '{"dependencies":{"expo":"52"},"devDependencies":{"vite":"5"}}' > "$B/expo/package.json"; mkdir -p "$B/expo/android"
+  kind_is mobile-android "package.json react-native or expo + android/" "$B/expo"
+  # The negative controls: Gradle with no Android in it, and React Native
+  # with no android/ folder (an Expo app before prebuild), are not.
+  local N="$BATS_TEST_TMPDIR/android-not"
+  mkdir -p "$N/gradle-only" "$N/rn-no-android"
+  : > "$N/gradle-only/settings.gradle.kts"
+  kind_is other default "$N/gradle-only"
+  printf '{"dependencies":{"react-native":"0.76"}}' > "$N/rn-no-android/package.json"
+  kind_is other default "$N/rn-no-android"
+}
+
 @test "--project-type overrides detection and says so" {
   probe --dir "$FIX/web" --base-branch main --project-type other
   [ "$status" -eq 0 ]
