@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a link (stow, chezmoi), the merged settings are written through the link.
   Before, the link was replaced by a plain file and the real file never
   changed.
+- **The "jq is missing" hint is one per user.** Its flag file is now
+  `dk-jq-hint-<user id>`. With one fixed name in a shared `/tmp`, one user's
+  flag hid the hint from every other user on the machine.
 
 ## [2.4.3] - 2026-11-07
 
