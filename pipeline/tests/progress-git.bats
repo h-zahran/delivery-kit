@@ -365,7 +365,7 @@ commit_by_hand() {
   runs piece-commit "$F" "$MSG"
   [ "$(git rev-parse HEAD^)" = "$head" ]
   [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
-  [[ "$(cat "$ERR")" == *"changed no file"* ]] || { cat "$ERR"; false; }
+  [[ "$(cat "$ERR")" == *"changed no file outside those already dirty at its snapshot"* ]] || { cat "$ERR"; false; }
   [ -z "$(files_of HEAD)" ]
   [ "$(msg_tail 2)" = "$(printf '%s\n' 'Tasks: T001,T002' 'Piece: Phase 1: Setup')" ]
   [ "$(last_entry)" = "{\"sha\":\"$(git rev-parse HEAD)\",\"kind\":\"piece\",\"piece\":\"Phase 1: Setup\",\"tasks\":[\"T001\",\"T002\"],\"files\":[]}" ]
@@ -413,6 +413,68 @@ commit_by_hand() {
   : > "$BATS_TEST_TMPDIR/none.nul"
   refuses "a piece entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$sha" "Phase 1: Setup" T001,T002
   refuses "a piece entry needs the files it changed" commit-add "$F" piece "$sha" "Phase 1: Setup" T001,T002
+}
+
+@test "an empty Piece commit whose own tasks file leaves the piece open is never recorded" {
+  # The piece is built and marked [X] in the working tree only, and a hand
+  # commit with no file claims it. Mutation: read the marks from the working
+  # tree, and the piece is recorded while its work stays uncommitted.
+  repo
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  runs record-branch "$F"
+  runs snapshot "$F" piece
+  printf 'built\n' > src/a.sh
+  mark T001 T002
+  printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  msg 'feat: the setup piece'
+  refuses "its own tasks file does not mark every task of that piece [X]" piece-commit "$F" "$MSG"
+  refuses "its own tasks file does not mark every task of that piece [X]" snapshot "$F" piece
+  refuses "its own tasks file does not mark every task of that piece [X]" record-branch "$F"
+  : > "$BATS_TEST_TMPDIR/none.nul"
+  refuses "a piece entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$(git rev-parse HEAD)" "Phase 1: Setup" T001,T002
+  run bash "$PROG" piece-next "$F"
+  [ "${lines[0]}" = "Phase 1: Setup" ]
+}
+
+@test "commit-add takes an empty piece entry only for a commit whose Piece line names that piece" {
+  # Mutation: drop the Piece line check, and an empty commit for one piece
+  # records another.
+  repo
+  mark T001 T002 T003
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  : > "$BATS_TEST_TMPDIR/none.nul"
+  refuses "a piece entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$(git rev-parse HEAD)" "Phase 2: Core" T003
+  git commit -q --allow-empty -m 'chore: nothing'
+  refuses "a piece entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$(git rev-parse HEAD)" "Phase 1: Setup" T001,T002
+  runs commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$(git rev-parse HEAD^)" "Phase 1: Setup" T001,T002
+}
+
+@test "a piece that only ticks its tasks in a committed tasks.md commits tasks.md, never an empty commit" {
+  # Mutation: drop the check that tasks.md is unchanged, and the piece gets an
+  # empty commit while its [X] marks stay uncommitted.
+  repo
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  runs snapshot "$F" piece
+  mark T001 T002
+  msg 'chore: the setup piece'
+  runs piece-commit "$F" "$MSG"
+  [ "$(files_of HEAD)" = "$TASKS" ]
+  [ -z "$(git status --porcelain -- "$TASKS")" ]
+}
+
+@test "record-branch never records an empty commit carrying a Piece line and a Late line" {
+  # Mutation: let an empty commit through on its Piece line whatever its Late
+  # line, and an empty H.7 commit is recorded as the piece.
+  repo
+  mark T001 T002
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  runs record-branch "$F"
+  printf '%s\n' 'refactor: simplify' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' 'Late: H.7' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  refuses "has no file and no 'Late: J' line" record-branch "$F"
 }
 
 @test "a path list that stages no change is named as that, never as a hook" {
@@ -916,6 +978,7 @@ commit_by_hand() {
   mkdir -p "$BATS_TEST_TMPDIR/two"; cd "$BATS_TEST_TMPDIR/two"
   repo
   mark T001 T002
+  commit_by_hand 'chore: mark the setup tasks' "$TASKS"
   printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/empty.txt"
   git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/empty.txt"
   jq --arg s "$(git rev-parse --short=12 HEAD)" '.commits += [$s + " feat: setup"]' "$SF" > t.json && mv t.json "$SF"
