@@ -411,8 +411,8 @@ fi
 # package.json whose dependencies or devDependencies name react-native or
 # expo, + android/). They are read before web, as such a package.json may
 # name a web toolchain too. A package.json whose dependencies or
-# devDependencies name one of the four web toolchains is web; everything
-# else is other. The override always wins, and the SOURCE is reported so a
+# devDependencies name one of the web toolchains listed below is web;
+# everything else is other. The override always wins, and the SOURCE is reported so a
 # wrong guess is visible rather than silent.
 ptype="other"; ptype_source="default"
 gradle=""
@@ -431,7 +431,8 @@ elif [ -d android ] && [ -f package.json ] && jq -e '
   ptype="mobile-android"; ptype_source="package.json react-native or expo + android/"
 elif [ -f package.json ] && jq -e '
     ((.dependencies // {}) + (.devDependencies // {})) | keys
-    | map(select(. == "next" or . == "vite" or . == "astro" or . == "react-scripts"))
+    | map(select(. as $k | ["next", "vite", "astro", "react-scripts", "@angular/core", "nuxt",
+        "gatsby", "@vue/cli-service", "@remix-run/dev", "webpack-dev-server"] | any(. == $k)))
     | length > 0' package.json >/dev/null 2>&1; then
   ptype="web"; ptype_source="package.json toolchain"
 fi
