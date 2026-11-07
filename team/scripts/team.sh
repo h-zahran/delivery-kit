@@ -271,8 +271,11 @@ cmd_tasks() {
   # One value is refused for what it does: --auto-release makes the
   # pipeline publish with no one asked, and the pipeline takes it only typed
   # on purpose, never implied. A tracked task file is not typed by the member
-  # who pastes the line, so a flag that holds it, in any letter case, is
-  # refused here, where status, next, command and render all read the tasks.
+  # who pastes the line, so a flag that holds it is refused here, where
+  # status, next, command and render all read the tasks. Fail closed: any
+  # flag whose letters spell autorelease, in any case and with any dashes,
+  # commas or other marks between them, is refused, since a model reads the
+  # pasted line and may take a near spelling for the flag.
   bad="$(jq -r '
     def str($k): (.[$k] | type) == "string" and (.[$k] | test("\\S"));
     def strs($k): (has($k) | not) or ((.[$k] | type) == "array" and ([.[$k][] | type] - ["string"] | length) == 0);
@@ -293,7 +296,7 @@ cmd_tasks() {
             elif ($t | strs("flags") | not) then "task \($id): flags is not a list of strings"
             elif any($t.trailers[]?; test("[\r\n]")) then "task \($id): a trailer holds a line break; the pipeline line is one line"
             elif any($t.flags[]?; test("[\r\n]")) then "task \($id): a flag holds a line break; the pipeline line is one line"
-            elif any($t.flags[]?; ascii_downcase | gsub("[\u2010-\u2015\u2212]"; "-") | test("(^|\\s)-+auto-release(=|\\s|$)"))
+            elif any($t.flags[]?; ascii_downcase | gsub("[^a-z]"; "") | contains("autorelease"))
               then "task \($id): a flag holds --auto-release, which publishes with no one asked; the pipeline takes it only typed on purpose, so take it out of the task file and type it on the /pipeline line yourself if you mean it"
             else empty end
         end

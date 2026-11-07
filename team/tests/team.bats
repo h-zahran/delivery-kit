@@ -341,12 +341,14 @@ CASES
 # holds it, in any spelling a reader takes for it, is refused by every
 # reader, and the pipeline line is never printed with it.
 @test "tasks: a flag that holds --auto-release is refused, and no pipeline line carries it" {
-  malformed_tasks 5 <<'CASES'
+  malformed_tasks 7 <<'CASES'
 .tasks[0].flags = ["--auto-release"]|task T-1: a flag holds --auto-release
 .tasks[1].flags = ["--auto --AUTO-RELEASE"]|task T-2: a flag holds --auto-release
 .tasks[1].flags = ["--auto-release=yes"]|type it on the /pipeline line yourself
 .tasks[0].flags = ["—auto-release"]|task T-1: a flag holds --auto-release
 .tasks[0].flags = ["‐‐auto-release"]|task T-1: a flag holds --auto-release
+.tasks[0].flags = ["--auto,--auto-release"]|task T-1: a flag holds --auto-release
+.tasks[0].flags = ["x--auto_release"]|task T-1: a flag holds --auto-release
 CASES
   setup
   set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--implementer", "claude", "--auto-release"]'
@@ -356,10 +358,10 @@ CASES
 }
 
 @test "tasks: the other flags are passed as written, --auto among them" {
-  set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--auto", "--implementer", "claude", "--no-auto-releases-here"]'
+  set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--auto", "--implementer", "claude", "--keep-going"]'
   team command alpha ann T-1
   [ "$status" -eq 0 ] || { echo "stderr: $stderr"; false; }
-  [[ "$output" == *" --auto --implementer claude --no-auto-releases-here" ]] || { echo "line: $output"; false; }
+  [[ "$output" == *" --auto --implementer claude --keep-going" ]] || { echo "line: $output"; false; }
 }
 
 # --- who is at the keyboard ---------------------------------------------------
