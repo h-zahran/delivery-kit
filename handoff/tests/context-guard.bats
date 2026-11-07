@@ -1247,6 +1247,44 @@ bad_user_file_keeps_guard() {
   [ ! -e "$HOME/.delivery-kit.json.new" ]
 }
 
+@test "the setup skill's merge names a link whose target cannot be written, and keeps the merged result" {
+  # A home-manager link points into a read-only store. Writing through it
+  # fails, and the skill said "merge failed; ... is unchanged", which hid the
+  # cause: the merge worked, only the target could not be written. The link
+  # is still never replaced; the merged result is kept at a named path for
+  # the user to apply in their dotfiles. Block EXTRACTED as in the test above.
+  block="$(awk '/^## 3\./ {s = 1} s && /^```bash$/ {f = 1; next} f && /^```$/ {exit} f {print}' \
+    "$HANDOFF/skills/setup/SKILL.md")"
+  [ -n "$block" ] || { echo "no bash block under '## 3.' in handoff/skills/setup/SKILL.md"; false; }
+  printf '{"handoff":{"docsDir":"docs/ho"}}\n' > "$TEST_DIR/store.json"
+  cp "$TEST_DIR/store.json" "$TEST_DIR/store.before"
+  chmod 444 "$TEST_DIR/store.json"
+  # Run as root, a read-only mode does not stop a write. Then the target
+  # fails another way: a cat first on PATH that cannot write to it. The
+  # shell has already opened the target by then, so it is left empty, and
+  # only that half (the target unchanged) is not asserted on that branch.
+  as_root=""
+  if [ -w "$TEST_DIR/store.json" ]; then
+    as_root=1
+    mkdir -p "$TEST_DIR/rootbin"
+    printf '#!/bin/sh\necho "cat: write error: Read-only file system" >&2\nexit 1\n' > "$TEST_DIR/rootbin/cat"
+    chmod +x "$TEST_DIR/rootbin/cat"
+    export PATH="$TEST_DIR/rootbin:$PATH"
+  fi
+  ln -s "$TEST_DIR/store.json" "$HOME/.delivery-kit.json"
+  PATCH='{"contextGuard":{"windowTokens":1000000}}'
+  run bash -c "PATCH='$PATCH'; $block"$'\n''echo "rc=$rc"'
+  chmod 644 "$TEST_DIR/store.json"
+  [[ $output != *"rc=0"* ]] || { echo "reported success: $output"; false; }
+  [[ $output == *"the merge worked"* ]] || { echo "the cause is not named: $output"; false; }
+  [[ $output == *"$HOME/.delivery-kit.json.merged"* ]] || { echo "the merged result's path is not named: $output"; false; }
+  [[ $output != *"merge failed"* ]] || { echo "still says the merge failed: $output"; false; }
+  [ -L "$HOME/.delivery-kit.json" ]
+  [ -n "$as_root" ] || cmp "$TEST_DIR/store.json" "$TEST_DIR/store.before"
+  jq -e '.handoff.docsDir == "docs/ho" and .contextGuard.windowTokens == 1000000' "$HOME/.delivery-kit.json.merged"
+  [ ! -e "$HOME/.delivery-kit.json.new" ] && [ ! -e "$HOME/.delivery-kit.json.patch" ]
+}
+
 @test "the guard stays silent inside a subagent" {
   # Issue #5, and the mechanism is MEASURED rather than assumed. A PostToolUse
   # hook running inside a subagent is handed the PARENT's transcript_path and

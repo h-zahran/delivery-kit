@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`handoff:setup` keeps a linked `~/.delivery-kit.json`.** When the file is
   a link (stow, chezmoi), the merged settings are written through the link.
   Before, the link was replaced by a plain file and the real file never
-  changed.
+  changed. When the link's target cannot be written (a home-manager link
+  into the Nix store), the link is still left alone, and setup says the
+  merge worked and keeps the merged settings in `~/.delivery-kit.json.merged`
+  for you to apply in your dotfiles.
 - **The "jq is missing" hint is one per user.** Its flag file is now
   `dk-jq-hint-<user id>`. With one fixed name in a shared `/tmp`, one user's
   flag hid the hint from every other user on the machine.
