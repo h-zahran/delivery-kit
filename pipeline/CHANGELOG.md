@@ -43,6 +43,16 @@ All notable changes to the `pipeline` plugin.
   `.delivery-kit/suite-results` themselves, in any letter case, and name
   it. A link you made and did not commit still works, and a tracked regular
   state file inside a real folder still goes to the tracked-state check.
+- **The skill says what it left unsaid.** The gitignore probe checks
+  `.delivery-kit/x`, which git answers before the folder exists, so a
+  repository that already ignores the folder is not offered the line again.
+  `lock-take`'s session is the id `$CLAUDE_CODE_SESSION_ID` holds. A dry run
+  prints what G to O would do, since G is not run. Phase N.5 stops the dev
+  server it started. The never-list says `git stash create`, which phase I
+  runs, hides nothing.
+- **How flags are split from the seed is written down.** Each flag the flag
+  table names, with its value, is a flag wherever it stands; the rest is the
+  seed. `docs/phases.md` says the scripts spell pre-flight `preflight`.
 
 ## [1.13.0] - 2026-11-07
 
