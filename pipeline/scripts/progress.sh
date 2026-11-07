@@ -1147,11 +1147,25 @@ with_trailers() {
 # named paths, the message carrying the run's trailers (with_trailers). A commit is never run from an empty path file: with no
 # pathspec, git commits whatever is already staged (measured). A hook that
 # rejects the commit stops here; --no-verify is never passed.
+# A path gone from both the tree and the index (git rm, or the old name of a
+# git mv) is already staged as a deletion, and git add refuses it ("did not
+# match any files"), which stopped a refactor piece. It is left out of the add
+# and kept in the commit's pathspec, which commits the deletion. A path gone
+# from the tree only (a plain rm) is still added, which stages its deletion.
 commit_named() {
   [ -s "$1" ] || die "the path list is empty — a commit from an empty path file takes whatever is already staged, so no commit is made"
   with_trailers "$2"
-  git --literal-pathspecs add --pathspec-from-file="$1" --pathspec-file-nul >&2 \
-    || die "git add refused the paths in $1 — nothing committed"
+  local p add="$1.add" n=0
+  : > "$add" || die "could not write $add — no commit is made"
+  while IFS= read -r -d '' p; do
+    if [ -e "$p" ] || [ -L "$p" ] || [ -n "$(git --literal-pathspecs ls-files -- "$p")" ]; then
+      printf '%s\0' "$p" >> "$add"; n=$((n + 1))
+    fi
+  done < "$1"
+  if [ "$n" -gt 0 ]; then
+    git --literal-pathspecs add --pathspec-from-file="$add" --pathspec-file-nul >&2 \
+      || die "git add refused the paths in $1 — nothing committed"
+  fi
   git --literal-pathspecs commit -q --cleanup=verbatim -F "$MF" --pathspec-from-file="$1" --pathspec-file-nul >&2 \
     || die "the commit was rejected (a commit hook?) — nothing is committed or recorded, and the paths in $1 stay uncommitted"
   SHA="$(git rev-parse HEAD)"
@@ -2009,8 +2023,13 @@ cmd_commit_list() {
 # its kind and prints its id.
 # remainder-commit <feature> --list [--kind ...] — prints the paths, commits
 # nothing.
+# After K, in M and N, an untracked path outside codeRoots, the spec
+# directory and tasks.md is left uncommitted and named on stderr, as a late
+# commit leaves one for K. Those phases commit and push with no list shown,
+# so an untracked .env.local that git did not ignore reached the PR. K shows
+# its list first and takes every path.
 cmd_remainder_commit() {
-  feature="$1"; local mf="${2:-}" k=other rec p accepted=0
+  feature="$1"; local mf="${2:-}" k=other rec p accepted=0 ph after_k=0
   case $# in
     2) ;;
     4) [ "$3" = --kind ] || die "unknown option '$3' (only --kind)"; k="$4" ;;
@@ -2027,6 +2046,8 @@ cmd_remainder_commit() {
   if [ "$k" = constitution ] && [ "$accepted" -eq 0 ]; then
     die "gates.constitution records no accepted pre-flight offer ({accepted: true, hash: ...}): there is no constitution commit to make"
   fi
+  ph="$(jqs '.current_phase // empty | strings' "$sf")" || die "could not read current_phase from $sf"
+  case "$ph" in M|N) after_k=1; feature_bounds "$sf" ;; esac
   status_to "$RD/rest-status.nul"
   RP=()
   while IFS= read -r -d '' rec; do
@@ -2035,7 +2056,11 @@ cmd_remainder_commit() {
     if [ "$p" = "$CONSTITUTION" ]; then
       if [ "$k" = constitution ] || [ "$accepted" -eq 0 ]; then RP+=("$p"); fi
     elif [ "$k" = other ]; then
-      RP+=("$p")
+      if [ "$after_k" -eq 1 ] && [ "${rec:0:2}" = '??' ] && ! inside_feature "$p"; then
+        warn "left uncommitted (untracked, outside codeRoots, the spec directory and tasks.md; phase $ph commits only the feature's new files): $p"
+      else
+        RP+=("$p")
+      fi
     fi
   done < "$RD/rest-status.nul"
   if [ "$mf" = --list ]; then

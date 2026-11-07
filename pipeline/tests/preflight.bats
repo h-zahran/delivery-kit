@@ -1149,6 +1149,32 @@ hidden_refused() {
   not_read_is '[]'
 }
 
+@test "tree: the run's own state directory is not dirt, and nothing else is hidden" {
+  # A user who declines the .gitignore offer keeps .delivery-kit/ untracked.
+  # It was read as dirt, so every later fresh run stopped at decision 5.
+  T="$BATS_TEST_TMPDIR/statedir"
+  mkdir -p "$T"; cd "$T"; git init -q .; main_base
+  mkdir -p .delivery-kit/runs/001-x
+  printf '{"current_phase":"DONE"}' > .delivery-kit/runs/001-x/progress.json
+  [ "$(git status --porcelain)" = "?? .delivery-kit/" ] \
+    || { echo "precondition: git status should list only the state directory"; git status --porcelain; false; }
+  dirty_is false "$T"
+  # The same from a subfolder: the exclusion is from the top, as the listing is.
+  mkdir -p sub; printf 'k' > sub/.keep; git add sub/.keep
+  git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m sub
+  dirty_is false "$T/sub"
+  # A name that only starts like it, and a folder of that name lower down, are dirt.
+  printf 'x' > .delivery-kit-notes
+  dirty_is true "$T"
+  rm .delivery-kit-notes
+  mkdir -p sub/.delivery-kit; printf 'x' > sub/.delivery-kit/f
+  dirty_is true "$T"
+  rm -r sub/.delivery-kit
+  # Any other dirt beside it still counts.
+  printf 'x' > dirt.txt
+  dirty_is true "$T"
+}
+
 @test "a working tree whose status cannot be read stops pre-flight" {
   # Feature 051. With .git/index overwritten, git status --porcelain exits
   # 128 and prints nothing, which the old script read as a clean tree.
