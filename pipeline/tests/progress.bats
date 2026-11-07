@@ -2048,7 +2048,11 @@ board_vs_lock_take() {
   mkdir -p "$out"
   git init -q .
   gc() { git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
+  # Git Bash makes a COPY for a bare ln -s, and git for Windows stores a link
+  # as a link only with core.symlinks on: nativestrict makes a real link or fails.
+  export MSYS=winsymlinks:nativestrict; git config core.symlinks true
   ln -s "$out" .DELIVERY-KIT
+  [ -L .DELIVERY-KIT ] || { echo "fixture: no link was made"; false; }
   git add .DELIVERY-KIT; gc link
   run --separate-stderr bash "$PROG" init 001-demo b main web
   [ "$status" -eq 1 ] || { echo "init went ahead past a tracked link"; false; }

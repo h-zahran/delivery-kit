@@ -308,7 +308,9 @@ has_line() {
   # repository, and the final rename left the document itself a link to it.
   mkrepo
   printf 'outside\n' > "$TEST_DIR/outside.txt"
-  ln -s "$TEST_DIR/outside.txt" "${DOC%/*}/.${DOC##*/}.reconcile-tmp"
+  # Git Bash makes a COPY for a bare ln -s; nativestrict makes a real link or fails.
+  MSYS=winsymlinks:nativestrict ln -s "$TEST_DIR/outside.txt" "${DOC%/*}/.${DOC##*/}.reconcile-tmp"
+  [ -L "${DOC%/*}/.${DOC##*/}.reconcile-tmp" ] || { echo "fixture: no link was made"; false; }
   chmod 644 "$DOC"
   run record
   # mktemp makes its file private; the copy keeps the document's own mode.
