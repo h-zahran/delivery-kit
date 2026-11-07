@@ -450,12 +450,15 @@ cmd_commit_add() {
   esac
   # A piece entry with no files is piece-commit's empty commit for a piece
   # whose tasks were committed already and that changed nothing. It is taken
-  # only when git reads the commit as changing no file, so a broken caller's
-  # empty list for a commit that has files is still refused.
-  local empty_ok=0
+  # only when git reads the commit as changing no file, and the commit carries
+  # `Piece: <piece>` with every task of it [X] in its own tasks file
+  # (empty_piece_ok), so a broken caller's empty list for a commit that has
+  # files, or for another piece, is still refused.
+  local empty_ok=0 esf
   if [ "$kind" = piece ] && { { [ -n "$ff" ] && [ -f "$ff" ] && [ ! -s "$ff" ]; } || { [ -z "$ff" ] && [ $# -eq 0 ]; }; }; then
     if git cat-file -e "$sha^{commit}" 2>/dev/null \
-      && [ -z "$(git diff-tree --no-commit-id --name-only -r --diff-merges=first-parent --root "$sha" 2>/dev/null)" ]; then
+      && [ -z "$(git diff-tree --no-commit-id --name-only -r --diff-merges=first-parent --root "$sha" 2>/dev/null)" ] \
+      && esf="$(cmd_validate "$feature" 2>/dev/null)" && empty_piece_ok "$esf" "$sha" "$piece"; then
       empty_ok=1
     fi
   fi
@@ -464,7 +467,7 @@ cmd_commit_add() {
     [ -f "$ff" ] || die "commit-add --files-from: no file at $ff"
   else
     [ $# -gt 0 ] || [ "$kind" = tests ] || [ "$empty_ok" -eq 1 ] \
-      || die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file, may have none"
+      || die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file and carries that piece's Piece: line, every task [X] in its own tasks file, may have none"
   fi
   # An empty item is what an unset variable expands to, so it is the shape a
   # broken caller produces; a list that is merely non-empty would hide it.
@@ -514,7 +517,7 @@ cmd_commit_add() {
   case "$verdict" in
     new) ;;
     emptypath) die "the file list holds an empty path" ;;
-    nofiles) die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file, may have none" ;;
+    nofiles) die "a $kind entry needs the files it changed; only a tests entry, or a piece entry for a commit that changes no file and carries that piece's Piece: line, every task [X] in its own tasks file, may have none" ;;
     notlist) die "$sf: commits must be a list — not recording into it" ;;
     # A re-run after a crash repeats the call exactly; the work is done.
     same) return 0 ;;
@@ -1302,6 +1305,26 @@ built_or_die() {
     || die "commit $1 carries 'Piece: $2', but task(s) $SEC_OPEN not marked [X] in the tasks file: not recorded, and this stops the run"
 }
 
+# empty_piece_ok <state file> <commit> <heading> — a commit that changes no
+# file stands for a piece only when it carries `Piece: <heading>` as a whole
+# line and the tasks file AS STORED IN THAT COMMIT marks every task of the
+# piece [X]. The working tree's marks are not enough: they can be a built
+# piece not yet committed, which a hand empty commit would otherwise record
+# as done while its work stays uncommitted. The file is read from git on
+# stdin, so no temporary file is made.
+empty_piece_ok() {
+  local tf rel r m
+  m="$(git log -1 --format=%B "$2" 2>/dev/null)" || return 1
+  has_line "$m" "Piece: $3" || return 1
+  tf="$(jqs '.artifacts.tasks // empty | strings' "$1" 2>/dev/null)" || return 1
+  { [ -n "$tf" ] && [ -f "$tf" ]; } || return 1
+  rel="$(repo_rel "$tf" 2>/dev/null)" || return 1
+  # shellcheck disable=SC2016 # a jq program: $t is jq's
+  r="$(git show "$2:$rel" 2>/dev/null | jqs -R -s --arg h "$3" '. as $t | '"$SECTION_JQ" 2>/dev/null)" || return 1
+  case "$r" in ok$'\x1f'*$'\x1f') return 0 ;; esac
+  return 1
+}
+
 # h5_piece_or_die <commit> <heading> — a `Late: H.5` commit's `Piece:` line
 # must also be the piece piece-next names, as converge's own commit is.
 h5_piece_or_die() {
@@ -1329,6 +1352,10 @@ recover_piece() {
     kind=piece
     if has_line "$msg" 'Late: H.5'; then kind=converge; fi
     commit_files "$c"
+    if [ "${#CF[@]}" -eq 0 ] && [ "$kind" = piece ]; then
+      empty_piece_ok "$sf" "$c" "$HEADING" \
+        || die "commit $c changes no file and carries 'Piece: $HEADING', but its own tasks file does not mark every task of that piece [X]: the piece's work is not in that commit — not recorded, and this stops the run"
+    fi
     # `|| die`, not errexit: every caller runs this in an `if` condition,
     # where set -e is inert, so a failed record would be reported as made.
     ( cmd_commit_add "$feature" --files-from "$RD/diff-tree.nul" "$kind" "$c" "$HEADING" "$IDS" ) \
@@ -1702,7 +1729,7 @@ cmd_piece_commit() {
     : > "$RD/piece-none.nul"
     ( cmd_commit_add "$feature" --files-from "$RD/piece-none.nul" piece "$SHA" "$HEADING" "$IDS" ) \
       || die "commit $SHA is made but not recorded — run record-branch $feature"
-    warn "the piece '$HEADING' changed no file and its tasks were committed already as [X]: made the empty piece commit $SHA"
+    warn "the piece '$HEADING' changed no file outside those already dirty at its snapshot, and its tasks were committed already as [X]: made the empty piece commit $SHA"
     printf '%s\n' "$SHA"
     return 0
   fi
@@ -1858,6 +1885,10 @@ cmd_record_branch() {
         die "commit $c carries 'Piece: $h', which is not the piece piece-next names ('$HEADING'): not recorded, and this stops the run ($n recorded before it)"
       fi
       built_or_die "$c" "$h"
+      if [ "${#CF[@]}" -eq 0 ]; then
+        empty_piece_ok "$sf" "$c" "$h" \
+          || die "commit $c changes no file and carries 'Piece: $h', but its own tasks file does not mark every task of that piece [X]: the piece's work is not in that commit — not recorded, and this stops the run ($n recorded before it)"
+      fi
       k=piece; ids="$IDS"
     elif [ -n "$late" ]; then
       k="$(kind_of_phase "$late")"; h=''
