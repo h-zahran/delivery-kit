@@ -676,9 +676,14 @@ adb_present=false; command -v adb >/dev/null 2>&1 && adb_present=true
 # (tests/pipefail.bats). Two cases stay unseen, documented as limits: a
 # skip-worktree file (a sparse checkout marks clean files so) and a folder
 # git cannot open (git only warns on stderr, which is never read).
+# The run's own state directory at the top is never dirt: a user who declines
+# the .gitignore offer keeps it untracked, and reading it as dirt stopped
+# every later fresh run at decision 5. Only that one folder is left out, by
+# the same `:/` and --no-literal-pathspecs reasons as the listing below;
+# `.delivery-kit-notes` or a sub/.delivery-kit/ still count.
 dirty=false
 if [ "$git_usable" = true ]; then
-  st="$(git status --porcelain --untracked-files=normal --ignore-submodules=none 2>/dev/null)" \
+  st="$(git --no-literal-pathspecs status --porcelain --untracked-files=normal --ignore-submodules=none -- ':/' ':(top,exclude).delivery-kit' 2>/dev/null)" \
     || die "the working tree's status could not be read: git status failed, so pre-flight cannot tell whether the tree is clean; run git status to see why"
   [ -z "$st" ] || dirty=true
   if [ "$dirty" = false ]; then

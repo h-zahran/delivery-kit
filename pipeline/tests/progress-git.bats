@@ -308,6 +308,29 @@ commit_by_hand() {
   [ "$(git status --porcelain -- a.txt b.txt)" = "$(printf '%s\n' '?? a.txt' '?? b.txt')" ]
 }
 
+@test "piece-commit and remainder-commit commit a file removed or moved through git" {
+  # git rm and git mv leave the old path in neither the tree nor the index,
+  # so git add refused it ("did not match any files") and the piece stopped.
+  repo
+  runs snapshot "$F" piece
+  git mv README.md src/readme.md
+  git rm -q src/keep.sh
+  mark T001 T002
+  msg 'refactor: the setup piece'
+  runs piece-commit "$F" "$MSG"
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [ "$(files_of HEAD)" = "$(printf '%s\n' README.md specs/001-demo/tasks.md src/keep.sh src/readme.md | sort)" ]
+  [ "$(git ls-tree -r --name-only HEAD -- README.md src)" = "src/readme.md" ]
+  [ -z "$(git status --porcelain -- README.md src)" ]
+  # remainder-commit, K's command, takes a staged deletion the same way.
+  git rm -q src/readme.md
+  msg 'chore: the rest of the feature'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(files_of HEAD)" = "$(printf '%s\n' specs/001-demo/spec.md src/readme.md | sort)" ]
+  [ -z "$(git ls-tree -r --name-only HEAD -- src)" ]
+  [ -z "$(git status --porcelain -- README.md specs src)" ]
+}
+
 @test "piece-commit stops when a commit hook rejects the commit, recording nothing" {
   repo
   runs snapshot "$F" piece
@@ -1345,6 +1368,36 @@ accept() {
   [ "$(files_of HEAD)" = "$want" ]
   [ "$(msg_tail 1)" = 'chore: the rest of the feature' ]
   [ "$(jq -r '.commits[-1] | "\(.kind) \(.files | length)"' "$SF")" = "other 4" ]
+  head="$(git rev-parse HEAD)"
+  runs remainder-commit "$F" "$MSG"
+  [ ! -s "$OUT" ]
+  [[ "$(cat "$ERR")" == *"nothing is left uncommitted"* ]]
+  [ "$(git rev-parse HEAD)" = "$head" ]
+}
+
+@test "remainder-commit after K leaves an untracked path outside the feature uncommitted" {
+  # M and N commit their fixes with remainder-commit and push with no list
+  # shown, so an untracked .env.local that git does not ignore reached the PR.
+  # K shows its list first and still takes every path (the test above).
+  repo
+  printf 'secret\n' > .env.local
+  printf 'note\n' > NOTES.md
+  printf 'more\n' >> src/keep.sh
+  printf 'new\n' > src/new.sh
+  printf 'owner\n' >> README.md
+  want="$(printf '%s\n' README.md specs/001-demo/spec.md specs/001-demo/tasks.md src/keep.sh src/new.sh | sort)"
+  for ph in M N; do
+    jq --arg p "$ph" '.current_phase = $p' "$SF" > t.json; mv t.json "$SF"
+    runs remainder-commit "$F" --list
+    [ "$(sort "$OUT")" = "$want" ] || { echo "phase $ph listed: $(cat "$OUT")"; false; }
+    [[ "$(cat "$ERR")" == *"left uncommitted"*".env.local"* ]]
+    [[ "$(cat "$ERR")" == *"left uncommitted"*"NOTES.md"* ]]
+  done
+  msg 'fix: what review found'
+  runs remainder-commit "$F" "$MSG"
+  [ "$(files_of HEAD)" = "$want" ]
+  [ "$(git status --porcelain -- . ':(exclude).delivery-kit')" = "$(printf '%s\n' '?? .env.local' '?? NOTES.md')" ]
+  # Only what is left outside: no commit, and it says so.
   head="$(git rev-parse HEAD)"
   runs remainder-commit "$F" "$MSG"
   [ ! -s "$OUT" ]
