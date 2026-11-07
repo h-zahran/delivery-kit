@@ -840,7 +840,22 @@ add_git_skip() {
 if [ "$ptype" = "mobile-android" ] && [ "$adb_present" = false ]; then
   add_skip "N.5" "no adb on PATH — the device strategy cannot run"
 fi
-if [ "$remote" = "none" ]; then
+# A remote under another name is not read: every base and push path reads
+# origin alone. The reasons say so, and name the rename that fixes it: the
+# one remote by its name when it is a plain one, else <name>.
+others=""
+if [ "$remote" = "none" ] && [ "$git_usable" = true ]; then
+  others="$(git remote 2>/dev/null | awk '$0 != "origin"')" || others=""
+fi
+if [ "$remote" = "none" ] && [ -n "$others" ]; then
+  case "$others" in
+    *$'\n'*) add_git_skip "L" "no remote named origin: this repository's remotes have other names, and the run pushes to origin alone — the run stops after the commit gate and says so; to use one, run: git remote rename <name> origin"
+             add_git_skip "M" "no pull request without a remote named origin; to use one of those there are, run: git remote rename <name> origin" ;;
+    *) case "$others" in -*|*[!A-Za-z0-9._-]*) others='<name>' ;; esac
+       add_git_skip "L" "no remote named origin: this repository's remote has another name, and the run pushes to origin alone — the run stops after the commit gate and says so; to use it, run: git remote rename $others origin"
+       add_git_skip "M" "no pull request without a remote named origin; to use the one there is, run: git remote rename $others origin" ;;
+  esac
+elif [ "$remote" = "none" ]; then
   add_git_skip "L" "no git remote — the run stops after the commit gate and says so"
   add_git_skip "M" "no pull request without a remote"
 elif [ "$remote" != "github" ]; then

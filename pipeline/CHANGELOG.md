@@ -19,6 +19,10 @@ All notable changes to the `pipeline` plugin.
   values file or the flag, is read as that name, with a warning naming both
   spellings. Before, it passed pre-flight and then picked no runtime check.
   Any other name stays as given.
+- **A remote not named `origin` is named as such.** When `origin` is missing
+  but the repository has other remotes, the L and M skips no longer say "no
+  git remote": they say the remote is not named `origin`, which the run
+  pushes to alone, and name the fix, `git remote rename <name> origin`.
 
 ## [1.13.0] - 2026-11-07
 
