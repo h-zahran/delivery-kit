@@ -1163,12 +1163,14 @@ shard_step_script() {
 # run_shard <bats exit status> <TAP line>... ; the stub prints the lines.
 # The shard is some/suite, with no paths: of its own, so its paths are its
 # name, as the step's env maps them; SHARD_PATHS set by the caller wins.
+# run_shard reads TEST_SHARD_PATHS, never SHARD_PATHS: CI's own job sets
+# SHARD_PATHS, and a test that read it ran CI's shard instead of its own.
 run_shard() {
   local rc="$1"
   shift
   printf '%s\n' "$@" > "$TEST_DIR/stub.tap"
   run env STUB_RC="$rc" STUB_TAP="$TEST_DIR/stub.tap" STUB_ARGS="$TEST_DIR/stub.args" \
-    SUITE=some/suite SHARD_PATHS="${SHARD_PATHS-some/suite}" bash -eo pipefail "$step"
+    SUITE=some/suite SHARD_PATHS="${TEST_SHARD_PATHS-some/suite}" bash -eo pipefail "$step"
 }
 
 @test "a CI shard fails on a skip, an empty plan or a plan mismatch, and only warns when slow" {
@@ -1196,16 +1198,16 @@ run_shard() {
     || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
   # A half of a suite: bats is handed each of its files, as separate paths,
   # and the same checks read its TAP.
-  SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..1' 'ok 1 a in 1ms'
+  TEST_SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..1' 'ok 1 a in 1ms'
   [ "$status" -eq 0 ] || { echo "a green two-file shard failed: $output"; false; }
   [ "$(cat "$TEST_DIR/stub.args")" = "$(printf '%s\n' -r --print-output-on-failure --timing some/suite/a.bats some/suite/b.bats)" ] \
     || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
-  SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip'
+  TEST_SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip'
   [ "$status" -eq 1 ] && [[ $output == *"::error title=skipped tests::"* ]] \
     || { echo "a skip in a two-file shard passed: $output"; false; }
   # A shard with no path runs nothing, and fails before bats is called.
   rm -f "$TEST_DIR/stub.args"
-  SHARD_PATHS='' run_shard 0 '1..1' 'ok 1 a in 1ms'
+  TEST_SHARD_PATHS='' run_shard 0 '1..1' 'ok 1 a in 1ms'
   [ "$status" -eq 1 ] && [[ $output == *"::error title=empty shard::some/suite names no path"* ]] \
     || { echo "a shard with no path passed: $output"; false; }
   [ ! -e "$TEST_DIR/stub.args" ] || { echo "bats was called for a shard with no path"; false; }
