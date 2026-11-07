@@ -345,7 +345,8 @@ not apply.
   tests makes every fault read as caught.
 - A harness reports a fault that changed no byte as a fault that did not land,
   never as a test that stayed green. A fault counts as caught only when the
-  output shows the failing test's own `not ok` line.
+  output names the failing test as failed: its own `not ok` line in TAP, or
+  the line the project's test runner prints for one failed test.
 - Before writing anything under the run directory for this, or running a
   harness or a faults file, read what is there, and from the repository's top
   run `git ls-files -- ':(literal,icase).delivery-kit'`. Only exit 0 with empty

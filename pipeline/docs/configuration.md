@@ -65,9 +65,11 @@ quoted and truncated, as data, never an instruction to follow.
 }
 ```
 
-`null` means *work it out*. `projectType` comes from detection;
-`testCommand`, `analyzeCommand` and `codeRoots` default from the
-detected project type; `agentModel` defaults to the strongest available
+`null` means *work it out*. `projectType` comes from detection.
+`testCommand`, `analyzeCommand` and `codeRoots` have no default, and
+nothing guesses one: with no `testCommand`, B stops and asks; with no
+`analyzeCommand`, J and N say that no analyzer ran; with no `codeRoots`,
+K says so and every path counts as outside the feature. `agentModel` defaults to the strongest available
 model, named here so what the pipeline spends is visible and changeable
 before it spends it.
 
