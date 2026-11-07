@@ -1229,7 +1229,9 @@ bad_user_file_keeps_guard() {
     "$HANDOFF/skills/setup/SKILL.md")"
   [ -n "$block" ] || { echo "no bash block under '## 3.' in handoff/skills/setup/SKILL.md"; false; }
   printf '{"handoff":{"docsDir":"docs/ho"}}\n' > "$TEST_DIR/real.json"
-  ln -s "$TEST_DIR/real.json" "$HOME/.delivery-kit.json"
+  # Git Bash makes a COPY for a bare ln -s; nativestrict makes a real link or fails.
+  MSYS=winsymlinks:nativestrict ln -s "$TEST_DIR/real.json" "$HOME/.delivery-kit.json"
+  [ -L "$HOME/.delivery-kit.json" ] || { echo "fixture: no link was made"; false; }
   PATCH='{"contextGuard":{"windowTokens":1000000}}'
   run bash -c "PATCH='$PATCH'; $block"$'\n''echo "rc=$rc"'
   [ "$status" -eq 0 ]
@@ -1271,7 +1273,8 @@ bad_user_file_keeps_guard() {
     chmod +x "$TEST_DIR/rootbin/cat"
     export PATH="$TEST_DIR/rootbin:$PATH"
   fi
-  ln -s "$TEST_DIR/store.json" "$HOME/.delivery-kit.json"
+  MSYS=winsymlinks:nativestrict ln -s "$TEST_DIR/store.json" "$HOME/.delivery-kit.json"
+  [ -L "$HOME/.delivery-kit.json" ] || { echo "fixture: no link was made"; false; }
   PATCH='{"contextGuard":{"windowTokens":1000000}}'
   run bash -c "PATCH='$PATCH'; $block"$'\n''echo "rc=$rc"'
   chmod 644 "$TEST_DIR/store.json"

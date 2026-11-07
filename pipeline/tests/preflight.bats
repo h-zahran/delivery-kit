@@ -1365,7 +1365,11 @@ hidden_refused() {
   local why="is tracked in git in the run's state directory as a link, a submodule, or an entry where .delivery-kit, its runs/ or its suite-results/ folder must be, so the run's state and lock would follow it, maybe out of this repository: remove it from git with git rm --cached, ignore .delivery-kit/, then run this again"
   T="$BATS_TEST_TMPDIR/tracked-root"
   mkdir -p "$T" "$BATS_TEST_TMPDIR/elsewhere"; cd "$T"; git init -q .; main_base
+  # Git Bash makes a COPY for a bare ln -s, and git for Windows stores a link
+  # as a link only with core.symlinks on: nativestrict makes a real link or fails.
+  export MSYS=winsymlinks:nativestrict; git config core.symlinks true
   ln -s "$BATS_TEST_TMPDIR/elsewhere" .Delivery-Kit
+  [ -L .Delivery-Kit ] || { echo "fixture: no link was made"; false; }
   git add .Delivery-Kit; commit_staged 'a link'
   refused "'.Delivery-Kit' $why" --dir "$T" --base-branch main
   git rm -q --cached .Delivery-Kit; commit_staged 'no link'
@@ -1376,6 +1380,7 @@ hidden_refused() {
   # A link deep inside: one run's folder.
   mkdir -p .delivery-kit/runs
   ln -s "$BATS_TEST_TMPDIR/elsewhere" .delivery-kit/runs/001-x
+  [ -L .delivery-kit/runs/001-x ] || { echo "fixture: no link was made"; false; }
   git add .delivery-kit/runs/001-x; commit_staged 'a run folder as a link'
   refused "'.delivery-kit/runs/001-x' $why" --dir "$T" --base-branch main
   git rm -q --cached .delivery-kit/runs/001-x; rm .delivery-kit/runs/001-x; commit_staged 'no run link'
