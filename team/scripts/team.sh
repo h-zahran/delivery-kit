@@ -293,7 +293,7 @@ cmd_tasks() {
             elif ($t | strs("flags") | not) then "task \($id): flags is not a list of strings"
             elif any($t.trailers[]?; test("[\r\n]")) then "task \($id): a trailer holds a line break; the pipeline line is one line"
             elif any($t.flags[]?; test("[\r\n]")) then "task \($id): a flag holds a line break; the pipeline line is one line"
-            elif any($t.flags[]?; ascii_downcase | contains("--auto-release"))
+            elif any($t.flags[]?; ascii_downcase | gsub("[\u2010-\u2015\u2212]"; "-") | test("(^|\\s)-+auto-release(=|\\s|$)"))
               then "task \($id): a flag holds --auto-release, which publishes with no one asked; the pipeline takes it only typed on purpose, so take it out of the task file and type it on the /pipeline line yourself if you mean it"
             else empty end
         end
