@@ -23,6 +23,10 @@ All notable changes to the `pipeline` plugin.
   but the repository has other remotes, the L and M skips no longer say "no
   git remote": they say the remote is not named `origin`, which the run
   pushes to alone, and name the fix, `git remote rename <name> origin`.
+- **A tag named like the base branch, made mid-run, no longer moves the
+  walks.** git reads a bare name as a tag first, so `record-branch`,
+  `guide`, `commit-list` and the commit commands read `<base>..HEAD` from
+  the tag. They now read the branch, `refs/heads/<base>`.
 
 ## [1.13.0] - 2026-11-07
 

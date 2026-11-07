@@ -1359,6 +1359,27 @@ guide_branch() {
   refuses "are not recorded: run record-branch first" guide "$F"
 }
 
+# Pre-flight refuses a base that is a tag as well, but a tag of the base's
+# name made mid-run won: base_of handed the bare name to git, which reads the
+# tag first, so <base>..HEAD read from the tag. It now hands git
+# refs/heads/<base> when the bare name does not read as the branch.
+# Mutation: print the bare name always.
+@test "a tag of the base's name made mid-run does not move the walks off the branch" {
+  repo
+  printf '1\n' > src/1.sh; commit_by_hand 'one' src/1.sh
+  bash "$PROG" commit-add "$F" other "$(git rev-parse HEAD)" "" "" src/1.sh
+  runs guide "$F"
+  cp "$OUT" "$BATS_TEST_TMPDIR/before.md"
+  git tag main HEAD
+  runs guide "$F"
+  cmp "$BATS_TEST_TMPDIR/before.md" "$OUT" || { diff "$BATS_TEST_TMPDIR/before.md" "$OUT"; false; }
+  runs commit-list "$F"
+  [[ "$(cat "$OUT")" == *"commit 1: $(git rev-parse HEAD)"* ]] || { cat "$OUT"; false; }
+  printf '2\n' > src/2.sh; commit_by_hand 'two' src/2.sh
+  runs record-branch "$F"
+  [ "$(jq '.commits | length' "$SF")" = 2 ] || { jq .commits "$SF"; false; }
+}
+
 @test "guide builds no guide for a run with an old-style entry, and says so" {
   repo
   jq '.commits = ["abc1234 feat: old"]' "$SF" > t.json; mv t.json "$SF"

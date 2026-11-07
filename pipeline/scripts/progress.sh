@@ -847,6 +847,15 @@ base_of() {
     b="$(jqs '[.baseBranch?, .config.baseBranch?] | map(strings | select(. != "")) | first // ""' "$1")" || b=""
   fi
   [ -n "$b" ] || die "$1 records no base branch (baseBranch) — pass one"
+  # git reads a bare name as a tag before a branch, so a tag of the base's
+  # name made mid-run moved every <base>..HEAD off the branch. Where the
+  # branch exists and the bare name reads as anything else, git is handed
+  # refs/heads/<base>; otherwise the name as it was, so a message names it
+  # as the run recorded it.
+  if [ "$(git rev-parse --symbolic-full-name "$b" 2>/dev/null)" != "refs/heads/$b" ] \
+     && git show-ref --verify --quiet "refs/heads/$b"; then
+    b="refs/heads/$b"
+  fi
   git rev-parse --verify --quiet "$b^{commit}" >/dev/null || die "the base '$b' does not name a commit"
   printf '%s' "$b"
 }
