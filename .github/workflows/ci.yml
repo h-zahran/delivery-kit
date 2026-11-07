@@ -299,7 +299,7 @@ jobs:
       # what would catch a restore that arrived wrong.
       - name: Cache bats
         id: bats-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/bats
           key: bats-${{ runner.os }}-${{ env.BATS_PIN }}
