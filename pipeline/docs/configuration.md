@@ -81,7 +81,7 @@ before it spends it.
 | `codeRoots` | A JSON list of folders, such as `["src", "lib"]`; one string is one folder, and a comma in it is part of the folder's name, and the run warns about it. Where implementation lives: the scope of the review phase's simplify lens, where a late phase may add a new file, and the boundary the commit gate stops at under `--auto`. |
 | `baseBranch` | See "Base branch" below. |
 | `baseBranchOverride` | A base branch that beats the remote's default. See "Base branch" below. |
-| `projectType` | Overrides detection. Name any kind of project, in letters, digits, `.`, `_` and `-`: `web` and `mobile-android` pick a runtime strategy, and any other name uses `verifyCommand`. The detector's source is reported either way. Detected as `web`: a `package.json` whose dependencies or devDependencies name next, vite, astro, react-scripts, @angular/core, nuxt, gatsby, @vue/cli-service, @remix-run/dev or webpack-dev-server. Detected as `mobile-android`: `pubspec.yaml` with `android/`; `settings.gradle` or `settings.gradle.kts` with `app/src/main/AndroidManifest.xml` or `android/`; or a `package.json` naming react-native or expo, with `android/`. Detection reads the repository's top, from any folder inside it. |
+| `projectType` | Overrides detection. Name any kind of project, in letters, digits, `.`, `_` and `-`: `web` and `mobile-android` pick a runtime strategy, and any other name uses `verifyCommand`. The detector's source is reported either way. Detected as `web`: a `package.json` whose dependencies or devDependencies name next, vite, astro, react-scripts, @angular/core, nuxt, gatsby, @vue/cli-service, @remix-run/dev or webpack-dev-server. Detected as `mobile-android`: a cross-platform app's project file with an `android/` folder; a native Android build's settings file with `app/src/main/AndroidManifest.xml` or `android/`; or a `package.json` naming react-native or expo, with `android/`. Detection reads the repository's top, from any folder inside it. |
 | `commitStyle` | The shape of every commit message the run writes, except the spec commit's fixed subject. |
 | `commitTrailers` | Trailers on every commit the run makes, as a list of `<token>: <value>` lines. See "Commit trailers" below. |
 | `maxClarifyPasses` | Clarification loop cap; a breach stops and asks. |
@@ -121,7 +121,7 @@ An `origin/HEAD` naming a branch origin no longer has (after an upstream
 rename and `git fetch --prune`) is passed over with a warning, and the next
 source decides; `git remote set-head origin -a` fixes it. The remote counts
 as GitHub when its host, read from the URL or through an ssh alias, is
-github.com, or is a GitHub Enterprise host `gh` is logged in to.
+github.com; a GitHub Enterprise host reads as not GitHub.
 
 The override beats the remote's default and this key. It has two
 spellings: the `baseBranchOverride` key, and the `--base-branch <name>`

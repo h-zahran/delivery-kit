@@ -286,20 +286,19 @@ kind_is() {
   not_read_is '[]'
 }
 
-@test "remote classification reads the host, an ssh alias and the hosts gh is logged in to" {
+@test "remote classification reads the host and an ssh alias, and runs no gh" {
   # The match was a case-sensitive substring of the URL: GitHub.com read
-  # other, a gitlab path holding github.com read github, and an ssh alias or
-  # a GitHub Enterprise host read other, so phase M was skipped.
+  # other, a gitlab path holding github.com read github, and an ssh alias
+  # read other, so phase M was skipped. A GitHub Enterprise host still reads
+  # other: pre-flight runs no gh (the fake below would answer yes).
   d="$BATS_TEST_TMPDIR/remote-tools"
   shimdir "$d" $PROBE_TOOLS
   # A fake ssh: -G prints the host its last argument resolves to.
   printf '%s\n' '#!/bin/sh' 'for a; do last=$a; done' \
     'case "$last" in gh-work|gh_work) h=GitHub.com ;; *) h=$last ;; esac' \
     'printf "user git\nhostname %s\nport 22\n" "$h"' > "$d/ssh"
-  # A fake gh logged in to ghe.example alone, or to every host when an
-  # enterprise token is in the environment, as the real one is.
-  printf '%s\n' '#!/bin/sh' '[ -z "$GH_ENTERPRISE_TOKEN$GITHUB_ENTERPRISE_TOKEN" ] || { echo token; exit 0; }' \
-    '[ "$*" = "auth token --hostname ghe.example" ] && { echo token; exit 0; }' 'exit 1' > "$d/gh"
+  # A fake gh that answers yes to anything, and leaves a mark when it runs.
+  printf '%s\n' '#!/bin/sh' ": > \"$d/gh-ran\"" 'echo token' 'exit 0' > "$d/gh"
   chmod +x "$d/ssh" "$d/gh"
   T="$BATS_TEST_TMPDIR/remote-hosts"
   mkdir -p "$T"; cd "$T"; git init -q .; main_base
@@ -314,9 +313,8 @@ kind_is() {
     'git@gh-work:o/r.git|github' \
     'git@gh_work:o/r.git|github' \
     'ssh://git@gh-work/o/r.git|github' \
-    'https://ghe.example/o/r.git|github' \
-    'ssh://git@GHE.example:2222/o/r.git|github' \
-    'git@ghe.example:o/r.git|github' \
+    'https://ghe.example/o/r.git|other' \
+    'git@ghe.example:o/r.git|other' \
     'https://gitlab.com/x/github.com-tools.git|other' \
     'https://github.com.evil.example/o/r.git|other' \
     '/srv/git/github.com/r.git|other' \
@@ -328,19 +326,14 @@ kind_is() {
     [ "$(jq -r '.remote.kind' <<<"$output")" = "$want" ] \
       || { echo "$url: $(jq -r '.remote.kind' <<<"$output"), want $want"; false; }
   done
-  # An enterprise token in the environment makes gh answer for every host,
-  # so it is not read as gh knowing the host.
-  git remote set-url origin https://gitlab.example.com/x/y.git
-  GH_ENTERPRISE_TOKEN=x probe --path "$d" --dir "$T" --base-branch main
-  [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
-  # Without ssh the alias cannot be resolved, so it reads other, and the
-  # reason says how a GitHub Enterprise host is set up.
+  [ ! -e "$d/gh-ran" ] || { echo "pre-flight ran gh"; false; }
+  # Without ssh the alias cannot be resolved, so it reads other.
   rm "$d/ssh"
   git remote set-url origin git@gh-work:o/r.git
   probe --path "$d" --dir "$T" --base-branch main
   [ "$(jq -r '.remote.kind' <<<"$output")" = "other" ]
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
-      = "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>" ]
+      = "the remote is not GitHub — review needs a GitHub pull request" ]
 }
 
 @test "base branch: origin/HEAD first, then the override, each with its source" {
@@ -1792,7 +1785,7 @@ dirty_is() {
   # The two routes carry DIFFERENT reasons, and each is pinned: one shared
   # message named both causes, so an operator could not tell which to fix.
   [ "$(jq -r '[.willSkip[] | select(.phase=="M")] | .[0].reason' <<<"$output")" \
-      = "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>" ]
+      = "the remote is not GitHub — review needs a GitHub pull request" ]
 
   # Route (b): the remote IS the expected host, but the client cannot be found.
   b="$BATS_TEST_TMPDIR/without-client"

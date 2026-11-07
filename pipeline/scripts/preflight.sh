@@ -711,14 +711,11 @@ url_host() {
 # github.com as GitHub, and GitHub.com as not. An ssh host may be an alias
 # from the user's ssh configuration (git@gh-work:o/r for a second account):
 # `ssh -G` prints what it resolves to, reading the configuration only, with
-# canonicalization off so no name is looked up. A GitHub Enterprise host is
-# GitHub when gh is logged in to it: `gh auth token --hostname` reads gh's
-# own stored login and makes no network call (measured, gh 2.103.3: 0.14 s
-# against an unreachable host, where `gh auth status` waited out a 20 s
-# timeout). Its token goes to /dev/null. An enterprise token in the
-# environment makes gh answer for any host, so it is left out of that one
-# call, and its update check and prompts are turned off. No call here
-# reaches the network.
+# canonicalization off so no name is looked up. Pre-flight runs no gh: a
+# GitHub Enterprise host reads other, as before, and gh's own stored login
+# was not used to tell it apart, since reading it can open a keychain prompt
+# (macOS, not measured) and the README says pre-flight only looks gh up.
+# No call here reaches the network.
 remote="none"
 if url="$(git remote get-url origin 2>/dev/null)"; then
   remote="other"
@@ -730,11 +727,6 @@ if url="$(git remote get-url origin 2>/dev/null)"; then
   fi
   case "$rh" in
     github.com|ssh.github.com) remote="github" ;;
-    "") ;;
-    *) if [ "$gh_present" = true ] \
-         && ( unset GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN; GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 "$gh_command" auth token --hostname "$rh" ) >/dev/null 2>&1; then
-         remote="github"
-       fi ;;
   esac
 fi
 mark_not_read remote.kind
@@ -834,7 +826,7 @@ if [ "$remote" = "none" ]; then
   add_git_skip "L" "no git remote — the run stops after the commit gate and says so"
   add_git_skip "M" "no pull request without a remote"
 elif [ "$remote" != "github" ]; then
-  add_git_skip "M" "the remote is not GitHub — review needs a GitHub pull request; for a GitHub Enterprise host, log gh in to it first: gh auth login --hostname <host>"
+  add_git_skip "M" "the remote is not GitHub — review needs a GitHub pull request"
 elif [ "$gh_present" = false ]; then
   add_git_skip "M" "gh is absent — none of gh, gh.exe, gh.cmd is on PATH"
 fi
