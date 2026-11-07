@@ -112,7 +112,8 @@ cost, rate limits and the files it touched. It also adds a band above the
 prompt, a REQUESTS card, toasts and sounds. `/mission` shows or hides the pane.
 `/mission-band` shows the band again. Sound: Windows uses PowerShell, macOS uses
 the built-in player, and Linux needs `paplay`, `pw-play` or `aplay`. With no
-player, it stays quiet.
+player, it stays quiet. To turn the sounds off, open `/config` and set
+mission-control's **Sounds** row to off.
 
 **[team](team/README.md)** runs a team's shared plan through `pipeline`. The
 team leader writes the setup once with `/team:setup`. Each member runs
