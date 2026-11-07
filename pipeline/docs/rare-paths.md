@@ -190,7 +190,10 @@ A built piece whose tasks were already marked `[X]` in a committed
 `tasks.md`, and that changed no file, gets an empty commit carrying its
 `Tasks:` and `Piece:` lines, recorded as kind `piece` with no files, so
 `piece-next` moves on. `record-branch` and K accept such a commit only
-for the piece `piece-next` names, with every task `[X]`.
+for the piece `piece-next` names, when the tasks file as stored in that
+commit marks every task of the piece `[X]`. A hand-made empty commit with a
+`Piece:` line, for a piece whose marks are only in the working tree, stops
+the run: remove that commit and run `piece-commit`.
 
 ## A body over the GitHub limit
 
