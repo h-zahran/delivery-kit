@@ -13,6 +13,8 @@ REQUESTS card, toasts and sounds.
 /plugin install mission-control@delivery-kit
 ```
 
+Tested with Claude Code 2.1.311, the version this repository's CI installs.
+
 ## Commands
 
 | Command | What it does |

@@ -15,6 +15,8 @@ All notable changes to the `mission-control` plugin.
   nothing changes until you turn it off.
 - **The plugin's manifest names its license, home page, repository and
   keywords**, as the other plugins' manifests do.
+- **The README says which Claude Code it was tested with**: 2.1.311, the
+  version CI installs.
 
 ## [0.9.7] - 2026-11-02
 
