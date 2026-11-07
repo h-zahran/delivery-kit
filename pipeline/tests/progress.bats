@@ -1952,3 +1952,49 @@ board_vs_lock_take() {
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   bash "$PROG" validate 001-demo
 }
+
+# A guard older than a minute is broken. It was removed in place, by rm and
+# rmdir, so two writers that both found it stale could both remove it, and
+# the second removed the guard the first had just made; and a guard holding
+# any file but owner could never be removed, so every write waited, then
+# stopped. It is now renamed aside to a name of this writer's own, one
+# atomic step only one writer can win, and removed there. A race test would
+# be flaky; this tests the rename: a stale guard with a stray file in it.
+# Mutation: break the guard with lock_remove "$l" in place again.
+@test "a stale guard is moved aside and removed, even one holding a stray file" {
+  bash "$PROG" init 001-demo b main web
+  mkdir .delivery-kit/runs/001-demo/progress.json.lock
+  printf '1\n' > .delivery-kit/runs/001-demo/progress.json.lock/owner
+  printf 'x\n' > .delivery-kit/runs/001-demo/progress.json.lock/stray
+  touch -t 202001010000 .delivery-kit/runs/001-demo/progress.json.lock
+  PROGRESS_LOCK_TRIES=2 run bash "$PROG" phase-start 001-demo B
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"broke a stale lock"* ]] || { echo "$output"; false; }
+  [ "$(jq -r .current_phase .delivery-kit/runs/001-demo/progress.json)" = B ]
+  [ -z "$(ls -A .delivery-kit/runs/001-demo | grep -v -e '^progress.json$' -e '^pipeline-run.json$')" ] \
+    || { ls -A .delivery-kit/runs/001-demo; false; }
+}
+
+# The race itself, made deterministic: a find shim answers "stale" for the
+# guard, as it did for a writer that looked just before another broke it and
+# made its own. The guard at the path is that other writer's, fresh, and must
+# survive: the copy moved aside is judged again and put back.
+# Mutation: drop the second look, so the copy moved aside is always removed.
+@test "a guard another writer has just made is put back, never removed, by a writer that saw it stale" {
+  local real
+  bash "$PROG" init 001-demo b main web
+  real="$(command -v find)"
+  mkdir -p shim
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "case \"\$1\" in *.lock) printf '%s\n' \"\$1\"; exit 0 ;; esac" \
+    "exec \"$real\" \"\$@\"" > shim/find
+  chmod +x shim/find
+  mkdir .delivery-kit/runs/001-demo/progress.json.lock
+  printf 'other\n' > .delivery-kit/runs/001-demo/progress.json.lock/owner
+  PATH="$PWD/shim:$PATH" PROGRESS_LOCK_TRIES=2 run bash "$PROG" phase-start 001-demo B
+  [ "$status" -ne 0 ] || { echo "the write went ahead past another writer's guard"; false; }
+  [[ "$output" == *"is locked by another write"* ]] || { echo "$output"; false; }
+  [ "$(cat .delivery-kit/runs/001-demo/progress.json.lock/owner)" = other ]
+  [ "$(jq -r .current_phase .delivery-kit/runs/001-demo/progress.json)" = preflight ]
+  [ -z "$(ls -A .delivery-kit/runs/001-demo | grep stale)" ] || { ls -A .delivery-kit/runs/001-demo; false; }
+}
