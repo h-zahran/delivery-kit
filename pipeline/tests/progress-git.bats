@@ -1372,6 +1372,25 @@ guide_branch() {
   refuses "no file and no 'Late: J' line" commit-list "$F"
 }
 
+@test "a codeRoots string holding a comma is still one root, and is warned about once" {
+  # Mutation: drop the warning, and "src,lib" silently marks every file
+  # outside; split on the comma, and a folder whose name holds one is lost.
+  repo
+  jq '.config.codeRoots = "src,lib"' "$SF" > t.json && mv t.json "$SF"
+  printf 'built\n' > src/a.sh
+  runs commit-list "$F"
+  [[ "$(cat "$OUT")" == *"codeRoots: 'src,lib'"* ]] || { cat "$OUT"; false; }
+  [ "$(grep -c 'codeRoots takes a JSON list' "$ERR")" -eq 1 ] || { cat "$ERR"; false; }
+  [[ "$(cat "$ERR")" == *'["src","lib"]'* ]] && [[ "$(cat "$ERR")" == *"part of one folder's name"* ]] || { cat "$ERR"; false; }
+  # A list entry holding a comma, and a string without one, are not warned about.
+  jq '.config.codeRoots = ["src,lib"]' "$SF" > t.json && mv t.json "$SF"
+  runs commit-list "$F"
+  [ ! -s "$ERR" ] || { cat "$ERR"; false; }
+  jq '.config.codeRoots = "src"' "$SF" > t.json && mv t.json "$SF"
+  runs commit-list "$F"
+  [ ! -s "$ERR" ] || { cat "$ERR"; false; }
+}
+
 @test "commit-list lists commits oldest first and marks a committed path outside the feature" {
   repo
   printf 'a\n' > src/a.sh; commit_by_hand 'feat: a' src/a.sh; c1="$(git rev-parse HEAD)"
