@@ -88,7 +88,7 @@ test('sounds: a long main turn ended by an error plays nothing', ENGINE, async (
   expect(done(played)).toBe(1)
 })
 
-test('sounds: helpers that end while the main loop works play nothing; the main end does', ENGINE, async ($, on) => {
+test('sounds: helpers that end while the main loop works play nothing; the long main end plays one', ENGINE, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
   const played = setUp(on)
   await $.turn.start({ text: 'go', turnId: 'm' })
@@ -102,6 +102,54 @@ test('sounds: helpers that end while the main loop works play nothing; the main 
   await settle(clock)
   expect(done(played)).toBe(1)
 })
+
+/** A main turn of `ms` that spawns one helper; the helper's batch ends halfway, while main works. */
+async function busyBatch($: Engine, clock: MockClock, ms: number, reason: Reason): Promise<void> {
+  await $.turn.start({ text: 'go', turnId: 'm' })
+  await $.agent.spawn(spawnArgs('find auth'))
+  await clock.advance(ms / 2)
+  await $.turn.complete(end('h1', 'answer', 'ag-1'))
+  await settle(clock)
+  await clock.advance(ms / 2)
+  await $.turn.complete(end('m', reason))
+  await settle(clock)
+}
+
+/** A plain main turn of `ms`, no helper. */
+async function mainTurn($: Engine, clock: MockClock, id: string, ms: number, reason: Reason): Promise<void> {
+  await $.turn.start({ text: 'go', turnId: id })
+  await clock.advance(ms)
+  await $.turn.complete(end(id, reason))
+  await settle(clock)
+}
+
+test('sounds: a batch that ended while main worked plays "done" once a short main turn answers', ENGINE, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const played = setUp(on)
+  await busyBatch($, clock, 4000, 'answer')
+  expect(done(played)).toBe(1)
+  // Played once, then forgotten: the next short answered turn is quiet.
+  await clock.advance(11_000)
+  await mainTurn($, clock, 't2', 2000, 'answer')
+  expect(done(played)).toBe(1)
+})
+
+for (const reason of ['aborted', 'error'] as const) {
+  test(`sounds: a batch that ended while main worked is forgotten when main ends by ${reason}`, ENGINE, async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    const played = setUp(on)
+    await busyBatch($, clock, 4000, reason)
+    expect(done(played)).toBe(0)
+    // The owed sound is gone: a short answered turn after it plays nothing.
+    await clock.advance(11_000)
+    await mainTurn($, clock, 't2', 2000, 'answer')
+    expect(done(played)).toBe(0)
+    // The recorder hears a sound: a long answered turn.
+    await clock.advance(11_000)
+    await mainTurn($, clock, 't3', 61_000, 'answer')
+    expect(done(played)).toBe(1)
+  })
+}
 
 test('sounds: helpers that end with the main loop idle play "done"', ENGINE, async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
