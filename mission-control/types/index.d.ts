@@ -185,6 +185,8 @@ declare module 'claude-code' {
       msgs: Msg[]
       /** The last tool-count milestone a toast announced (every 50). */
       milestone: number
+      /** A batch of helpers ended while main worked: main's next answer plays "done". */
+      doneOwed: boolean
     }
   }
 }

@@ -49,7 +49,8 @@ The mod changes what the model sees, not only what you see:
 The mod plays a short sound when Claude needs you (a permission, a
 question), and one when long work is done: a main turn of a minute or more
 that answered, or a batch of helpers that ends while the main loop is idle.
-Esc, an error or a refusal plays no sound.
+A batch that ends while the main loop works plays its sound when the main
+loop answers. Esc, an error or a refusal plays no sound.
 
 To turn every sound off, open `/config` and set mission-control's
 **Sounds** row to off. The install screen offers the same option. Sounds

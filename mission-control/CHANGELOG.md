@@ -9,7 +9,9 @@ All notable changes to the `mission-control` plugin.
 - **The "done" sound plays only when the work is done.** A long main turn
   stopped with Esc, or ended by an error or a refusal, no longer plays it. A
   batch of helpers that ends while the main loop still works no longer plays
-  it either; the main loop's own end does, as before.
+  it at once: it plays when the main loop then answers, even after a short
+  turn, and only once. If the main loop ends by Esc or an error instead, no
+  sound plays.
 - **The sounds can be turned off.** A new **Sounds** option, in `/config`
   and on the install screen, turns every sound off. It is on by default, so
   nothing changes until you turn it off.

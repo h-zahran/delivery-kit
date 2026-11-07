@@ -51,6 +51,7 @@ const talkOn = atom({ plugin: 'mission-control', key: 'talkOn' } as const, false
 const talk = atom({ plugin: 'mission-control', key: 'talk' } as const, [])
 const msgs = atom({ plugin: 'mission-control', key: 'msgs' } as const, [])
 const milestone = atom({ plugin: 'mission-control', key: 'milestone' } as const, 0)
+const doneOwed = atom({ plugin: 'mission-control', key: 'doneOwed' } as const, false)
 
 const PLUGIN = 'mission-control'
 const PANE = 'mission-control'
@@ -1099,11 +1100,15 @@ export const register: Register = (on, options) => {
       )
       lastBatchEndAt = at
       if (text) $.ui.toast(text, { timeoutMs: 8000 })
-      // While the main loop still works, the work is not over: no sound yet.
+      // While the main loop still works, the work is not over: main's answer plays it.
       if (!mEnd.isBusy) playChime($, at)
-    } else if (!owner && e.reason === 'answer' && isLongTurn(mEnd.turnStartedAt, at)) {
+      else await safe(() => update($, doneOwed, () => true))
+    } else if (!owner) {
+      // Any main end settles a sound a busy batch left owed; one sound at most.
+      const isOwed = await read($, doneOwed)
+      if (isOwed) await safe(() => update($, doneOwed, () => false))
       // Only a turn that answered: Esc ('aborted'), an API error and a refusal are no "done".
-      playChime($, at)
+      if (e.reason === 'answer' && (isOwed || isLongTurn(mEnd.turnStartedAt, at))) playChime($, at)
     }
 
     // The commentator: one Haiku line, in its own dispatch so the turn never waits on it.
