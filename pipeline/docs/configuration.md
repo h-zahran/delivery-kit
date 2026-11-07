@@ -448,6 +448,14 @@ what it will write. Declining is fine; the files show up as untracked.
 The pipeline never edits `.gitignore` silently, and stages only paths it
 names, in every commit it makes.
 
+git must not track a link or a submodule anywhere under `.delivery-kit/`,
+nor any entry at `.delivery-kit`, `.delivery-kit/runs` or
+`.delivery-kit/suite-results` themselves, in any letter case: a committed
+link there would take the run's state and lock wherever it points.
+Pre-flight, and every `progress.sh` command that may write there, stop on
+one and name it. A link you made and did not commit is yours, and a tracked
+regular state file inside a real folder goes to the tracked-state check.
+
 ## Values from a tracked file
 
 A value a tracked file set never goes through a shell: a quote in it breaks

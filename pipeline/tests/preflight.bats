@@ -1354,6 +1354,59 @@ hidden_refused() {
     || { jq -r '.willSkip' <<<"$output"; false; }
 }
 
+# A committed link or submodule under .delivery-kit, at any depth, checks
+# out pointing wherever its author chose, and the run's state and lock follow
+# it out of the repository; so does any entry at .delivery-kit, its runs/ or
+# its suite-results/ themselves. Each stops pre-flight, in any letter case.
+# A tracked regular state file inside a real folder is not refused: the
+# tracked-state check asks about it. An untracked link, made on purpose, is
+# not refused either. Mutation: drop the stop.
+@test "pre-flight stops on a tracked link or submodule in the state directory, and on nothing else there" {
+  local why="is tracked in git in the run's state directory as a link, a submodule, or an entry where .delivery-kit, its runs/ or its suite-results/ folder must be, so the run's state and lock would follow it, maybe out of this repository: remove it from git with git rm --cached, ignore .delivery-kit/, then run this again"
+  T="$BATS_TEST_TMPDIR/tracked-root"
+  mkdir -p "$T" "$BATS_TEST_TMPDIR/elsewhere"; cd "$T"; git init -q .; main_base
+  ln -s "$BATS_TEST_TMPDIR/elsewhere" .Delivery-Kit
+  git add .Delivery-Kit; commit_staged 'a link'
+  refused "'.Delivery-Kit' $why" --dir "$T" --base-branch main
+  git rm -q --cached .Delivery-Kit; commit_staged 'no link'
+  # Untracked now, and a link the developer keeps on purpose: not refused.
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  rm .Delivery-Kit
+  # A link deep inside: one run's folder.
+  mkdir -p .delivery-kit/runs
+  ln -s "$BATS_TEST_TMPDIR/elsewhere" .delivery-kit/runs/001-x
+  git add .delivery-kit/runs/001-x; commit_staged 'a run folder as a link'
+  refused "'.delivery-kit/runs/001-x' $why" --dir "$T" --base-branch main
+  git rm -q --cached .delivery-kit/runs/001-x; rm .delivery-kit/runs/001-x; commit_staged 'no run link'
+  # A submodule entry, and a regular file standing where suite-results/ must be.
+  git update-index --add --cacheinfo "160000,$(git rev-parse HEAD),.delivery-kit/runs/sub"
+  commit_staged 'a submodule in runs'
+  refused "'.delivery-kit/runs/sub' $why" --dir "$T" --base-branch main
+  git rm -q --cached .delivery-kit/runs/sub; commit_staged 'no submodule'
+  printf 'x\n' > .delivery-kit/SUITE-RESULTS
+  git add -f .delivery-kit/SUITE-RESULTS; commit_staged 'a file for a folder'
+  refused "'.delivery-kit/SUITE-RESULTS' $why" --dir "$T" --base-branch main
+  git rm -q --cached .delivery-kit/SUITE-RESULTS; rm .delivery-kit/SUITE-RESULTS; commit_staged 'no file'
+  # A tracked regular state file in a real folder goes on to the tracked-state check.
+  mkdir -p .delivery-kit/runs/001-x
+  printf '{"current_phase":"B"}' > .delivery-kit/runs/001-x/progress.json
+  git add -f .delivery-kit/runs/001-x/progress.json; commit_staged 'a tracked state file'
+  probe --dir "$T" --base-branch main
+  [ "$status" -eq 0 ] || { echo "$stderr"; false; }
+  [ "$(jq -c '.tree.liveRuns' <<<"$output")" = '["001-x"]' ]
+}
+
+# One rule, two copies: preflight.sh cannot source progress.sh. Mutation:
+# change either copy of the line.
+@test "pre-flight and progress.sh judge the state directory's index entries by one awk line" {
+  local a b
+  a="$(grep -- "^STATE_ROOT_AWK='" "$ROOT/pipeline/scripts/preflight.sh")"
+  b="$(grep -- "^STATE_ROOT_AWK='" "$ROOT/pipeline/scripts/progress.sh")"
+  [ -n "$a" ] || { echo "no STATE_ROOT_AWK line in preflight.sh"; false; }
+  [ "$a" = "$b" ] || { echo "preflight.sh: $a"; echo "progress.sh:  $b"; false; }
+}
+
 @test "tree reports dirty and runsLive from the facts on disk" {
   T="$BATS_TEST_TMPDIR/tree"
   mkdir -p "$T"; cd "$T"; git init -q .; main_base
@@ -1513,11 +1566,12 @@ dirty_is() {
   [ ! -e b/2 ] || { echo "the sparse checkout did not apply"; false; }
   dirty_is false "$B/sparse"
 
-  # The listing fails while git status works: a git that refuses ls-files.
+  # The listing fails while git status works: a git that refuses ls-files -v,
+  # the listing's own form (the state directory's check runs ls-files -s).
   local d="$BATS_TEST_TMPDIR/no-ls-files" real
   real="$(command -v git)"
   shimdir "$d" awk grep head jq od
-  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 1; done\nexec "%s" "$@"\n' "$real" > "$d/git"
+  printf '#!/bin/sh\nl=; v=\nfor a in "$@"; do [ "$a" = ls-files ] && l=1; [ "$a" = -v ] && v=1; done\n[ -n "$l" ] && [ -n "$v" ] && exit 1\nexec "%s" "$@"\n' "$real" > "$d/git"
   chmod +x "$d/git"
   refused "the index could not be read: git ls-files failed, so pre-flight cannot tell whether the tree is clean; run git ls-files -v to see why" \
     --path "$d" --dir "$B/2c" --base-branch main
