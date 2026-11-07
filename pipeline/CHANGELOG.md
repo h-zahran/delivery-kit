@@ -2,6 +2,14 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Fixed
+
+- **A crash in `progress.sh init` leaves no broken state file.** The state
+  file is written to a temporary file beside it and moved into place, so a
+  write that dies part way leaves nothing, and the next `init` makes it.
+
 ## [1.13.0] - 2026-11-07
 
 ### Added

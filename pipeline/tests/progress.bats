@@ -1930,3 +1930,25 @@ board_vs_lock_take() {
   [ "$status" -eq 1 ]
   [ "$stderr" = 'progress.sh: names.sh is missing beside progress.sh' ] || { echo "$stderr"; false; }
 }
+
+# init wrote the state file in place, so a jq that died part way left half a
+# file, and every later command stopped on it as not JSON. It now writes a
+# temporary file beside it and moves it into place. The shim passes every jq
+# call through but init's, where it prints half an object and fails.
+# Mutation: write straight to "$sf" again.
+@test "init that fails part way leaves no state file, and the next init makes it" {
+  local real sf=.delivery-kit/runs/001-demo/progress.json
+  real="$(command -v jq)"
+  mkdir -p shim
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "case \"\$*\" in *'current_phase: \"preflight\"'*) printf '{\"feature\": '; exit 1 ;; esac" \
+    "exec \"$real\" \"\$@\"" > shim/jq
+  chmod +x shim/jq
+  PATH="$PWD/shim:$PATH" run bash "$PROG" init 001-demo b main web
+  [ "$status" -ne 0 ] || { echo "the shim did not fail init"; false; }
+  [ ! -e "$sf" ] || { echo "a broken state file was left:"; cat "$sf"; false; }
+  [ -z "$(ls -A .delivery-kit/runs/001-demo)" ] || { ls -A .delivery-kit/runs/001-demo; false; }
+  run bash "$PROG" init 001-demo b main web
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  bash "$PROG" validate 001-demo
+}
