@@ -41,7 +41,8 @@ Every team names its branches and folders its own way. The plugin does not
 guess. Your project writes each task's branch, spec folder, seed text,
 commit trailers and extra pipeline flags into the task file. The plugin
 reads them and passes them to `pipeline` as they are. The pipeline's
-pre-flight checks each one.
+pre-flight checks each one. One flag is refused: `--auto-release`
+publishes with no one asked, so a member types it themselves.
 
 ## Start a task
 

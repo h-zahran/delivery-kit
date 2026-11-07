@@ -336,6 +336,30 @@ CASES
 CASES
 }
 
+# --auto-release publishes with no one asked, and the pipeline takes it only
+# typed on purpose. A task's flags come from a tracked file, so a flag that
+# holds it, in any spelling a reader takes for it, is refused by every
+# reader, and the pipeline line is never printed with it.
+@test "tasks: a flag that holds --auto-release is refused, and no pipeline line carries it" {
+  malformed_tasks 3 <<'CASES'
+.tasks[0].flags = ["--auto-release"]|task T-1: a flag holds --auto-release
+.tasks[1].flags = ["--auto --AUTO-RELEASE"]|task T-2: a flag holds --auto-release
+.tasks[1].flags = ["--auto-release=yes"]|type it on the /pipeline line yourself
+CASES
+  setup
+  set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--implementer", "claude", "--auto-release"]'
+  team command alpha ann T-1
+  refused "task T-1: a flag holds --auto-release" "type it on the /pipeline line yourself"
+  [ -z "$output" ] || { echo "printed: $output"; false; }
+}
+
+@test "tasks: the other flags are passed as written, --auto among them" {
+  set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--auto", "--implementer", "claude", "--no-auto-releases-here"]'
+  team command alpha ann T-1
+  [ "$status" -eq 0 ] || { echo "stderr: $stderr"; false; }
+  [[ "$output" == *" --auto --implementer claude --no-auto-releases-here" ]] || { echo "line: $output"; false; }
+}
+
 # --- who is at the keyboard ---------------------------------------------------
 
 # repo_git — makes the scratch repository a git repository that ignores

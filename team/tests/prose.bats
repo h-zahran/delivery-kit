@@ -67,6 +67,8 @@ Never stash, reset or check out to clean the tree.
 the pipeline's pre-flight refuses a changed tree, so a line pasted now would stop there.
 | `elsewhere` | A task in progress, with a branch but no run on this machine | Show the task, its branch and where the branch was seen (`source`). Stop. Starting it again would fight the work already on that branch. |
 When the flags include `--implementer` or leave out `--auto`, do not add or remove anything: the task's flags are the project's decision, passed as written.
+One flag is never in the line: `--auto-release`, which publishes with no one asked. `team.sh` refuses a task whose flags hold it.
+the member types it on the line themselves if they mean it. Never add it.
 Check that the `/pipeline` command is available in this session
 Ask which team to work on now. Never choose for the member.
 Leave the row out. Do not ask: a team the member is not in would be asked about on every run.
