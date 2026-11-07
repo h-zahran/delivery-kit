@@ -11,3 +11,8 @@ the skill's pre-flight decides what kind of seed it is. If `$ARGUMENTS`
 is empty, invoke the skill with an empty seed; the skill's resume prompt
 handles a live run, and an empty seed with no live run is the skill's
 error to raise, not this command's.
+
+The skill splits the arguments: each flag its Flags table names, with the
+value it takes, is a flag wherever it stands, and everything else, in its
+order, is the seed. So `/pipeline --auto Phase 3: Login` runs the seed
+`Phase 3: Login` with `--auto`.
