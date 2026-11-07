@@ -608,6 +608,48 @@ team_fake() { run --separate-stderr env PATH="$FAKE:$PATH" bash "$TEAM_SH" --dir
   [ "$(jq -c '.tasks[4] | [.status, .source, .pr]' <<<"$output")" = '["in review","pull request","u5o"]' ]
 }
 
+# fake_timeout <version-rc> <run-rc> — a timeout first on PATH that logs its
+# arguments to $BATS_TEST_TMPDIR/timeout.log. `--version` exits <version-rc>.
+# Anything else runs the command when <run-rc> is "run", or exits <run-rc>
+# without running it, as a timed-out command does.
+fake_timeout() {
+  cat > "$FAKE/timeout" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$BATS_TEST_TMPDIR/timeout.log"
+[ "\$1" = --version ] && exit $1
+[ "$2" = run ] || exit $2
+shift; exec "\$@"
+SH
+  chmod +x "$FAKE/timeout"
+}
+
+@test "status: gh is read with a time limit where timeout works, and a timed-out gh is not read" {
+  # gh pr list had no limit, while origin is given up after about 10 s: a gh
+  # that never answered held team:status and team:start forever.
+  status_fixture
+  fake_prs '[{"headRefName":"ann/T-2","state":"MERGED","url":"u2"}]'
+  fake_timeout 0 run
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  grep -qx '30 gh pr list --state all --limit 1000 --json headRefName,state,url' "$BATS_TEST_TMPDIR/timeout.log" \
+    || { echo "gh did not go through timeout:"; cat "$BATS_TEST_TMPDIR/timeout.log"; false; }
+  [ "$(jq -c '[.prRead, .tasks[1].status]' <<<"$output")" = '[true,"done"]' ]
+  # Timed out: reported as not read, the way a missing gh is, never as "no".
+  rm -f "$BATS_TEST_TMPDIR/timeout.log"
+  fake_timeout 0 124
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.prRead, .tasks[1].status, .tasks[1].source]' <<<"$output")" = '[false,"in progress","local branch"]' ]
+  # A timeout that does not answer --version (Windows' own timeout.exe is a
+  # different program) is not used: gh is read as before, with no limit.
+  rm -f "$BATS_TEST_TMPDIR/timeout.log"
+  fake_timeout 1 124
+  team_fake status alpha ann
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '[.prRead, .tasks[1].status]' <<<"$output")" = '[true,"done"]' ]
+  [ "$(grep -c 'pr list' "$BATS_TEST_TMPDIR/timeout.log")" -eq 0 ]
+}
+
 @test "status: a specDir written with a trailing slash still finds its run" {
   # The run is named by the last segment of specDir. "specs/ann/001-T-1/"
   # split on "/" ends in "", so the run on this machine was never found and

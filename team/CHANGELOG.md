@@ -9,6 +9,11 @@ All notable changes to the `team` plugin.
 - **A `specDir` with a trailing slash finds its run.** `specs/x/001-T-1/`
   now finds the run `001-T-1` on this machine, as the pipeline names it.
   Before, the task read as if it had no run.
+- **Reading pull requests has a time limit.** Where a working `timeout`
+  command is installed, `gh pr list` is given up after 30 s, as `origin`
+  is given up after about 10 s, and the pull requests are reported as not
+  read. Before, a `gh` that never answered held `team:status` and
+  `team:start` forever.
 
 ## [0.1.2] - 2026-11-07
 
