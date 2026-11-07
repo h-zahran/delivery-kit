@@ -437,6 +437,35 @@ commit_by_hand() {
   [ "${lines[0]}" = "Phase 1: Setup" ]
 }
 
+@test "an empty Piece commit stands only for the whole piece as stored, and never with a Late line" {
+  # The commit's section held only T001; T002 and its code came later and
+  # stay uncommitted. Mutation: accept any section with no open task, and the
+  # piece is recorded with T001,T002 and no file.
+  repo
+  printf '%s\n' '# Tasks' '' '## Phase 1: Setup' '' '- [X] T001 first setup task' '' '## Phase 2: Core' '' '- [ ] T003 the core task' > "$TASKS"
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  runs record-branch "$F"
+  printf '%s\n' '# Tasks' '' '## Phase 1: Setup' '' '- [X] T001 first setup task' '- [X] T002 second setup task' '' '## Phase 2: Core' '' '- [ ] T003 the core task' > "$TASKS"
+  printf 'built\n' > src/a.sh
+  printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  refuses "its own tasks file does not mark every task of that piece [X]" record-branch "$F"
+  refuses "its own tasks file does not mark every task of that piece [X]" snapshot "$F" piece
+  git reset -q --hard HEAD^ 2>/dev/null || git reset -q HEAD^
+  # A whole, marked piece, but the empty commit carries a Late line.
+  printf '%s\n' '# Tasks' '' '## Phase 1: Setup' '' '- [X] T001 first setup task' '- [X] T002 second setup task' '' '## Phase 2: Core' '' '- [ ] T003 the core task' > "$TASKS"
+  commit_by_hand 'chore: marks' "$TASKS"
+  runs record-branch "$F"
+  for late in 'Late: I' 'Late: J'; do
+    printf '%s\n' 'fix: review' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' "$late" > "$BATS_TEST_TMPDIR/e.txt"
+    git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+    run bash "$PROG" snapshot "$F" piece
+    [ "$(jq -r '[.commits[]? | objects | select(.kind == "piece" and (.files | length) == 0)] | length' "$SF")" = 0 ] \
+      || { echo "$late: an empty commit with a Late line was recorded as a piece"; false; }
+    git reset -q HEAD^
+  done
+}
+
 @test "commit-add takes an empty piece entry only for a commit whose Piece line names that piece" {
   # Mutation: drop the Piece line check, and an empty commit for one piece
   # records another.
