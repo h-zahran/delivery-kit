@@ -9,7 +9,7 @@ Load your working copy for one session, without installing it. From the
 repository root:
 
 ```
-claude --plugin-dir ./handoff --plugin-dir ./pipeline
+claude --plugin-dir ./handoff --plugin-dir ./pipeline --plugin-dir ./mission-control --plugin-dir ./team
 ```
 
 `--plugin-dir` loads a plugin from a directory for that session only. It
@@ -22,6 +22,8 @@ pull request:
 claude plugin validate .
 claude plugin validate ./handoff
 claude plugin validate ./pipeline
+claude plugin validate ./mission-control
+claude plugin validate ./team
 ```
 
 ## Running the tests
@@ -155,6 +157,11 @@ first thing to get right when you add one:
 - The `team` plugin's surface lives under `team/` — `team/README.md`,
   `team/CHANGELOG.md`, `team/.claude-plugin/`, `team/docs/`, `team/skills/`,
   `team/scripts/` and `team/tests/`. This is what a user installs.
+- The `mission-control` mod's surface lives under `mission-control/` —
+  `mission-control/README.md`, `mission-control/CHANGELOG.md`,
+  `mission-control/.claude-plugin/`, `mission-control/hooks/`,
+  `mission-control/sounds/`, `mission-control/types/` and
+  `mission-control/tsconfig.json`. This is what a user installs.
 - The repository's own surface stays at the root — `README.md`, this file,
   `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `LICENSE`, `.claude-plugin/`,
   `.gitignore`, `.gitattributes` and `.github/`. This is what a user reads
@@ -248,12 +255,13 @@ link test's list in the same commit; skills need no list edit — their
      `scripts/check-versions.sh --released <plugin>`. If that gate refuses,
      the three files are put back as they were.
   2. Read `git diff`, then commit the three files the script names. To
-     release both plugins, commit the first before running it for the
-     second: it refuses a tree that is not clean.
+     release more than one plugin, commit each before running it for the
+     next: it refuses a tree that is not clean.
   3. Push the branch, open a pull request, and merge it once CI is green.
-  4. Run `git fetch origin` and check that `origin/main` is the release
-     commit: a rebase merge gives it a new id. Tag that commit,
-     `git tag <plugin>-v<version> origin/main`, and push the tag.
+  4. Run `git fetch origin` and check that `origin/main` is the last commit
+     of the release pull request: a rebase merge gives each commit a new id,
+     and review fixes can land after the `release:` commit. Tag that last
+     commit, `git tag <plugin>-v<version> origin/main`, and push the tag.
   5. In the tag's CI run, open the `version agreement` job and read the step
      "tag matches the manifest version". It must say success. It is skipped
      on every other run, so the job's green alone proves nothing.

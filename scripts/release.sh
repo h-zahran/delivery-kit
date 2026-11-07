@@ -233,7 +233,7 @@ tagged or pushed. Next:
   2. git add -- $market $manifest $changelog
      git commit -m "release: $plugin $version"
   3. Push a branch, open a pull request, wait for CI, merge it.
-  4. git fetch origin, confirm origin/main is the release commit, then:
+  4. git fetch origin, confirm origin/main is the last commit of the release PR, then:
      git tag $plugin-v$version origin/main && git push origin $plugin-v$version
   5. In the tag's CI run, read the step "tag matches the manifest version"
      inside the version job: it must say success, not skipped.
