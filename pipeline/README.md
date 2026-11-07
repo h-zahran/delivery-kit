@@ -247,7 +247,7 @@ you are happy to branch from.
   runs from the target repository's root:
 
   ```
-  uv tool install specify-cli
+  uv tool install "specify-cli==0.16.5"
   specify init --here --integration claude
   ```
 

@@ -38,7 +38,7 @@ yourself, the second one from the target repository's root (the first needs
 [uv](https://docs.astral.sh/uv/)):
 
 ```
-uv tool install specify-cli
+uv tool install "specify-cli==0.16.5"
 specify init --here --integration claude
 ```
 
