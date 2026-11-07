@@ -638,6 +638,13 @@ cmd_lock_take() {
   state_lock "$lf"
   if [ -f "$lf" ]; then
     holder="$(lock_holder "$lf")"
+    # The run and session that hold the lock already have it: a resume takes
+    # it at pre-flight and again in phase B, and must not stop on its own
+    # lock. Nothing is printed and the lock is left as it is.
+    if [ "$holder" = "$feature" ] && [ "$(jqs '.session // empty' "$lf" 2>/dev/null || true)" = "$session" ]; then
+      state_unlock
+      return 0
+    fi
     stale=false
     case "$(lock_holder_run "$holder")" in missing|done|abandoned) stale=true ;; esac
     if [ "$stale" = true ]; then
