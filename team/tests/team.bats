@@ -1078,6 +1078,33 @@ page_member() {
   [ -z "$(ls -A "$R/state")" ]
 }
 
+@test "render: the git folder a .git file names is refused, though it is not called .git" {
+  # A .git FILE ("gitdir: <path>") makes another folder the repository's git
+  # folder: worktrees and submodules do this. Its name is not .git and it is
+  # not $top/.git, so only git's own answer finds it.
+  status_fixture
+  page_member config C
+  mv "$R/.git" "$R/realgit"
+  printf 'gitdir: realgit\n' > "$R/.git"
+  git -C "$R" rev-parse --git-dir > /dev/null || { echo "fixture: git does not read the .git file"; false; }
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = "realgit/{member}"'
+  cp "$R/realgit/config" "$BATS_TEST_TMPDIR/config.keep"
+  team_fake render alpha config
+  refused "progress page 'realgit/config' leads into a .git or .delivery-kit folder"
+  one_line
+  cmp "$R/realgit/config" "$BATS_TEST_TMPDIR/config.keep"
+}
+
+@test "render: a page in the state directory under any letter case is refused" {
+  # macOS and Windows ignore letter case, so .DELIVERY-KIT/x is the state
+  # directory there, and render would make it under that spelling.
+  status_fixture
+  set_json .delivery-kit.json '.team.teams.alpha.progressView = ".DELIVERY-KIT/{member}.md"'
+  team_fake render alpha ann
+  refused "inside the state directory .delivery-kit/"
+  [ ! -e "$R/.DELIVERY-KIT/ann.md" ]
+}
+
 @test "render: a page that is itself a link is refused, and the link and its target are left as they were" {
   status_fixture
   printf 'keep\n' > "$R/notes.md"
