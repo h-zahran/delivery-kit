@@ -341,7 +341,7 @@ CASES
 # holds it, in any spelling a reader takes for it, is refused by every
 # reader, and the pipeline line is never printed with it.
 @test "tasks: a flag that holds --auto-release is refused, and no pipeline line carries it" {
-  malformed_tasks 7 <<'CASES'
+  malformed_tasks 9 <<'CASES'
 .tasks[0].flags = ["--auto-release"]|task T-1: a flag holds --auto-release
 .tasks[1].flags = ["--auto --AUTO-RELEASE"]|task T-2: a flag holds --auto-release
 .tasks[1].flags = ["--auto-release=yes"]|type it on the /pipeline line yourself
@@ -349,6 +349,8 @@ CASES
 .tasks[0].flags = ["‐‐auto-release"]|task T-1: a flag holds --auto-release
 .tasks[0].flags = ["--auto,--auto-release"]|task T-1: a flag holds --auto-release
 .tasks[0].flags = ["x--auto_release"]|task T-1: a flag holds --auto-release
+.tasks[0].seed = "Do it --auto-release"|task T-1: its seed, branch, specDir or a trailer holds --auto-release
+.tasks[0].trailers = ["X: y —auto release"]|task T-1: its seed, branch, specDir or a trailer holds --auto-release
 CASES
   setup
   set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--implementer", "claude", "--auto-release"]'
@@ -358,6 +360,10 @@ CASES
 }
 
 @test "tasks: the other flags are passed as written, --auto among them" {
+  # Prose about the feature is not the flag: no leading dash.
+  set_json plan/alpha/ann/tasks.json '.tasks[0].seed = "Add auto-release notes"'
+  team command alpha ann T-1
+  [ "$status" -eq 0 ] || { echo "a seed naming auto-release in prose was refused: $stderr"; false; }
   set_json plan/alpha/ann/tasks.json '.tasks[0].flags = ["--auto", "--implementer", "claude", "--keep-going"]'
   team command alpha ann T-1
   [ "$status" -eq 0 ] || { echo "stderr: $stderr"; false; }
