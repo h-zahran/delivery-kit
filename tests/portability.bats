@@ -913,12 +913,13 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   # diagnostic below it never runs. It cannot mask a real failure — an empty
   # line is rejected on the next line either way.
   #
-  # CI is SHARDED: one job per OS per suite root, and the one bats invocation
-  # names "$SUITE", which the step maps from the matrix. So ci.yml's coverage
-  # is not read off the command line but off the matrix's `suite:` list, and
-  # the command line must be the one invocation and must take its path from
-  # that list. A second bats line would be a second copy to police, so
-  # exactly one is required.
+  # CI is SHARDED: one job per OS per shard, and the one bats invocation
+  # names "${paths[@]}", which the step maps from the matrix. So ci.yml's
+  # coverage is not read off the command line but off the matrix: its
+  # `suite:` list and the `paths:` its include entries give, and the command
+  # line must be the one invocation and must take its paths from there. A
+  # second bats line would be a second copy to police, so exactly one is
+  # required.
   wf=.github/workflows/ci.yml
   ciline="$(grep -m1 -E '^ *(run: *)?bash .*bats.* -r ' "$wf" || true)"
   [ -n "$ciline" ] || { echo "no 'bash ... bats ... -r' line found in ci.yml"; false; }
@@ -927,39 +928,74 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   docline="$(grep -m1 -E '^bash .*bats.* -r ' CONTRIBUTING.md || true)"
   [ -n "$docline" ] || { echo "no 'bash ... bats ... -r' command found in CONTRIBUTING.md"; false; }
 
-  # The suite list, read from the one flow-sequence line `suite: [a, b, c]`.
+  # The shard list, read from the one flow-sequence line `suite: [a, b, c]`.
   # Exactly one, so a second matrix cannot quietly be the one that counts.
   n="$(grep -cE '^ *suite: *\[[^]]*\] *$' "$wf" || true)"
   [ "$n" -eq 1 ] || { echo "expected exactly one 'suite: [...]' matrix line in ci.yml, found $n"; false; }
-  suiteline="$(grep -m1 -E '^ *suite: *\[[^]]*\] *$' "$wf")"
-  suiteline="${suiteline#*[}"
-  suiteline="${suiteline%]*}"
-  read -r -a cisuites <<< "${suiteline//,/ }"
+  # A shard runs the paths its `include:` entry gives it, or else its name,
+  # a suite root: ci_matrix (tests/helper.bash) reads both. Every `paths:`
+  # line in the file must be one ci_matrix read, belong to a shard in the
+  # list (an include entry matching no combination becomes a job of its
+  # own, with no os), and be the only one for its shard.
+  ci_matrix "$wf" > "$TEST_DIR/matrix.txt"
+  cisuites=()
+  while read -r tag name _; do
+    [ "$tag" = S ] && cisuites+=("$name")
+  done < "$TEST_DIR/matrix.txt"
   [ "${#cisuites[@]}" -ge 1 ] || { echo "the ci.yml suite matrix is empty"; false; }
-  # Every entry must hold a tracked suite, or its shard runs nothing; and no
-  # entry may sit beneath another, or repeat, or bats runs those tests in two
-  # shards. An entry must be a plain relative path: `.` (or `./x`, `x/`,
-  # `../x`, `/x`) would slip past the ancestor comparison, which is textual,
-  # while `.` contains every other entry.
+  n="$(grep -cE '^ *(- *)?paths:' "$wf" || true)"
+  [ "$n" -eq "$(grep -c '^P ' "$TEST_DIR/matrix.txt" || true)" ] \
+    || { echo "ci.yml holds $n paths: line(s) but only these were read as a shard's:"; grep '^P ' "$TEST_DIR/matrix.txt"; false; }
+  cipaths=()
   for s in "${cisuites[@]}"; do
+    seen=0
+    for o in "${cisuites[@]}"; do [ "$o" = "$s" ] && seen=$((seen + 1)); done
+    [ "$seen" -eq 1 ] || { echo "the ci.yml suite matrix names '$s' $seen times; those tests would run twice"; false; }
+    n="$(awk -v s="$s" '$1 == "P" && $2 == s' "$TEST_DIR/matrix.txt" | grep -c . || true)"
+    case "$n" in
+      0) cipaths+=("$s") ;;
+      1) read -r -a more <<< "$(awk -v s="$s" '$1 == "P" && $2 == s { $1 = ""; $2 = ""; print }' "$TEST_DIR/matrix.txt")"
+         [ "${#more[@]}" -ge 1 ] || { echo "the ci.yml shard '$s' has an empty paths:"; false; }
+         cipaths+=("${more[@]}") ;;
+      *) echo "the ci.yml shard '$s' is given paths: $n times"; false ;;
+    esac
+  done
+  while read -r tag name _; do
+    [ "$tag" = P ] || continue
+    case " ${cisuites[*]} " in *" $name "*) ;; *)
+      echo "ci.yml gives paths: to '$name', which is no shard in the suite matrix; it would run as a job of its own"; false ;;
+    esac
+  done < "$TEST_DIR/matrix.txt"
+  # Every path must be a tracked .bats file or hold one, or its shard runs
+  # nothing; and no path may sit beneath another, or repeat, or bats runs
+  # those tests in two shards. A path must be plain and relative: `.` (or
+  # `./x`, `x/`, `../x`, `/x`) would slip past the ancestor comparison,
+  # which is textual, while `.` contains every other path.
+  for s in "${cipaths[@]}"; do
     case "$s" in
       .|./*|*/|/*|..|../*|*/..|*/../*|*/./*|*/.)
-        echo "the ci.yml suite matrix names '$s'; entries must be plain relative paths"; false ;;
+        echo "the ci.yml shards name '$s'; paths must be plain relative paths"; false ;;
     esac
-    [ -n "$(git ls-files -- "$s/*.bats")" ] \
-      || { echo "the ci.yml suite matrix names '$s', which holds no tracked .bats file"; false; }
+    case "$s" in
+      *.bats) [ -n "$(git ls-files -- "$s")" ] \
+                || { echo "the ci.yml shards name '$s', which is no tracked .bats file"; false; } ;;
+      *) [ -n "$(git ls-files -- "$s/*.bats")" ] \
+           || { echo "the ci.yml shards name '$s', which holds no tracked .bats file"; false; } ;;
+    esac
     seen=0
-    for o in "${cisuites[@]}"; do
+    for o in "${cipaths[@]}"; do
       [ "$o" = "$s" ] && seen=$((seen + 1))
       case "$o" in "$s"/*) echo "ci.yml shards '$o' AND its ancestor '$s'; those tests would run twice"; false ;; esac
     done
-    [ "$seen" -eq 1 ] || { echo "the ci.yml suite matrix names '$s' $seen times; those tests would run twice"; false; }
+    [ "$seen" -eq 1 ] || { echo "the ci.yml shards name '$s' $seen times; those tests would run twice"; false; }
   done
-  # The path the command runs is the matrix's, and every combination of OS
-  # and suite exists: the job runs on matrix.os, and nothing EXCLUDES a
+  # The paths the command runs are the matrix's, and every combination of OS
+  # and shard exists: the job runs on matrix.os, and nothing EXCLUDES a
   # combination. (`include:` only adds keys to matching combinations.)
   grep -qE '^ *SUITE: \$\{\{ matrix\.suite \}\} *$' "$wf" \
     || { echo "ci.yml no longer maps SUITE from matrix.suite"; false; }
+  grep -qE '^ *SHARD_PATHS: \$\{\{ matrix\.paths \|\| matrix\.suite \}\} *$' "$wf" \
+    || { echo "ci.yml no longer maps SHARD_PATHS from matrix.paths, or else matrix.suite"; false; }
   grep -qE '^ *runs-on: \$\{\{ matrix\.os \}\} *$' "$wf" \
     || { echo "the ci.yml test job no longer runs on matrix.os"; false; }
   if grep -qE '^ *exclude:' "$wf"; then
@@ -985,7 +1021,7 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   if grep -qE '^[[:space:]]*(- )?if:' "$TEST_DIR/shardstep.yml"; then
     echo "the ci.yml shard step carries an if:, which can skip a shard"; false
   fi
-  cimatrix=" ${cisuites[*]} "
+  cimatrix=" ${cipaths[*]} "
 
   # A token inside a trailing comment must not count — not a path token as
   # coverage, and not the flag as the flag ("# --print-output-on-failure was
@@ -1005,36 +1041,34 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   # CI's line also prints per-test timings (the slow-test warning reads
   # them) and runs the shard's suite, by name, as its only path.
   case " $ciline " in *" --timing "*) ;; *) echo "ci.yml bats line lost --timing"; false ;; esac
-  case "$ciline" in *' "$SUITE"'*) ;; *) echo "ci.yml bats line no longer runs \"\$SUITE\""; false ;; esac
+  case "$ciline" in *' "${paths[@]}"'*) ;; *) echo "ci.yml bats line no longer runs the shard's \"\${paths[@]}\""; false ;; esac
 
   # Discovery is over TRACKED files — see the SKILL.md test above for why.
-  # Dirnames are computed in the shell so a path with a space cannot be split
-  # into two bogus names (xargs -n1 dirname word-splits; measured). Residual,
+  # Each FILE is covered when the line names it or any folder above it: a
+  # CI shard can name files, the halves of pipeline/tests do. Parents are
+  # computed in the shell so a path with a space cannot be split into two
+  # bogus names (xargs -n1 dirname word-splits; measured). Residual,
   # accepted: matching tokens against a command line textually means a suite
   # directory literally named `bash` or `-r` would be miscounted as covered —
   # this repository names its suite directories, and names none of them that.
   checked=0
   for line in "$cimatrix" "$docline"; do
     missing=""
-    suites=""
     while IFS= read -r f; do
-      d="${f%/*}"; [ "$d" = "$f" ] && d="."
-      case " $suites " in *" $d "*) continue ;; esac
-      suites="$suites $d"
       checked=$((checked + 1))
-      a="$d"; covered=0
+      a="$f"; covered=0
       while :; do
         case " $line " in *" $a "*) covered=1; break ;; esac
         case "$a" in */*) a="${a%/*}" ;; *) break ;; esac
       done
-      [ "$covered" -eq 1 ] || missing="$missing $d"
+      [ "$covered" -eq 1 ] || missing="$missing $f"
     done < <(git ls-files '*.bats')
-    [ -z "$missing" ] || { echo "suites not covered by: ${line# *}->$missing"; false; }
+    [ -z "$missing" ] || { echo "suite files not covered by: ${line# *}->$missing"; false; }
   done
-  # 2 = two policed lines x at least one suite dir each ($checked counts
-  # suite-dirs PER LINE, not suites): this pins discovery non-empty for both
-  # copies, not a minimum suite count. Change the set of policed copies and
-  # this number changes with it.
+  # 2 = two policed lines x at least one tracked .bats file each ($checked
+  # counts files PER LINE): this pins discovery non-empty for both copies,
+  # not a minimum suite count. Change the set of policed copies and this
+  # number changes with it.
   [ "$checked" -ge 2 ] || { echo "no tracked .bats file was found under $ROOT; this gate examined nothing"; false; }
 
   # The bats VERSION is a second cross-copy agreement, and this change is what
@@ -1067,6 +1101,41 @@ SHIPPED="$SHIPPED_ROOT $SHIPPED_HANDOFF $SHIPPED_PIPELINE $SHIPPED_MISSION_CONTR
   [ -n "$pin" ] || { echo "no 40-character BATS_PIN found in ci.yml; the release names above agree about nothing"; false; }
 }
 
+@test "CI's shards that split a folder name every .bats file in it, each once" {
+  # pipeline/tests runs as two shards, each handed a list of its files: on
+  # Windows the whole folder took up to 2418 s of a 3600 s limit. A list is
+  # written by hand, so a new file can be left out of both (never run, and
+  # green), or put in both (run twice). For each folder a `paths:` list
+  # draws from, the lists together must be exactly the .bats files in it,
+  # as `ls` sees them: a file not yet committed counts too, so it is put in
+  # a list before the commit that adds it.
+  cd "$ROOT"
+  ci_matrix > "$TEST_DIR/matrix.txt"
+  awk '$1 == "P" { for (i = 3; i <= NF; i++) print $i }' "$TEST_DIR/matrix.txt" > "$TEST_DIR/listed"
+  # Not vacuous: the split this test is about exists.
+  [ -s "$TEST_DIR/listed" ] || { echo "no shard in ci.yml has a paths: list; this test examined nothing"; false; }
+  dup="$(LC_ALL=C sort "$TEST_DIR/listed" | uniq -d)"
+  [ -z "$dup" ] || { echo "ci.yml lists these in two shards, so they run twice: $dup"; false; }
+  dirs="$(sed 's#/[^/]*$##' "$TEST_DIR/listed" | LC_ALL=C sort -u)"
+  for d in $dirs; do
+    want="$(ls -1 -- "$d"/*.bats | LC_ALL=C sort)"
+    have="$(grep -E "^$d/[^/]+\$" "$TEST_DIR/listed" | LC_ALL=C sort)"
+    [ "$have" = "$want" ] || {
+      echo "the ci.yml shards that split $d do not name its .bats files exactly once:"
+      diff <(printf '%s\n' "$want") <(printf '%s\n' "$have") | sed -n 's/^< /  in no shard: /p; s/^> /  not a .bats file there: /p'
+      false
+    }
+    # The folder itself is no shard too, or its files would also run whole.
+    ! awk -v d="$d" '$1 == "S" && $2 == d' "$TEST_DIR/matrix.txt" | grep -q . \
+      || { echo "ci.yml shards '$d' whole as well as by its files"; false; }
+  done
+  # And each listed path is a file directly in one of those folders, as
+  # `ls` read them; a typo or a folder in a list goes red above or here.
+  while IFS= read -r p; do
+    [ -f "$p" ] || { echo "ci.yml lists '$p', which is no file"; false; }
+  done < "$TEST_DIR/listed"
+}
+
 # The CI shard step decides whether a shard is green, and that decision is
 # shell, so it is RUN here rather than read. Its script is cut out of ci.yml
 # by the step's name and executed the way the runner executes it (bash with
@@ -1092,12 +1161,14 @@ shard_step_script() {
 }
 
 # run_shard <bats exit status> <TAP line>... ; the stub prints the lines.
+# The shard is some/suite, with no paths: of its own, so its paths are its
+# name, as the step's env maps them; SHARD_PATHS set by the caller wins.
 run_shard() {
   local rc="$1"
   shift
   printf '%s\n' "$@" > "$TEST_DIR/stub.tap"
   run env STUB_RC="$rc" STUB_TAP="$TEST_DIR/stub.tap" STUB_ARGS="$TEST_DIR/stub.args" \
-    SUITE=some/suite bash -eo pipefail "$step"
+    SUITE=some/suite SHARD_PATHS="${SHARD_PATHS-some/suite}" bash -eo pipefail "$step"
 }
 
 @test "a CI shard fails on a skip, an empty plan or a plan mismatch, and only warns when slow" {
@@ -1123,6 +1194,21 @@ run_shard() {
   # The stub saw the shard's own suite as the only path, with the flags.
   [ "$(cat "$TEST_DIR/stub.args")" = "$(printf '%s\n' -r --print-output-on-failure --timing some/suite)" ] \
     || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
+  # A half of a suite: bats is handed each of its files, as separate paths,
+  # and the same checks read its TAP.
+  SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..1' 'ok 1 a in 1ms'
+  [ "$status" -eq 0 ] || { echo "a green two-file shard failed: $output"; false; }
+  [ "$(cat "$TEST_DIR/stub.args")" = "$(printf '%s\n' -r --print-output-on-failure --timing some/suite/a.bats some/suite/b.bats)" ] \
+    || { echo "bats was called with: $(cat "$TEST_DIR/stub.args")"; false; }
+  SHARD_PATHS='some/suite/a.bats some/suite/b.bats' run_shard 0 '1..2' 'ok 1 a in 1ms' 'ok 2 b in 1ms # skip'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=skipped tests::"* ]] \
+    || { echo "a skip in a two-file shard passed: $output"; false; }
+  # A shard with no path runs nothing, and fails before bats is called.
+  rm -f "$TEST_DIR/stub.args"
+  SHARD_PATHS='' run_shard 0 '1..1' 'ok 1 a in 1ms'
+  [ "$status" -eq 1 ] && [[ $output == *"::error title=empty shard::some/suite names no path"* ]] \
+    || { echo "a shard with no path passed: $output"; false; }
+  [ ! -e "$TEST_DIR/stub.args" ] || { echo "bats was called for a shard with no path"; false; }
   # The tap formatter's spelling of the timing is read too.
   run_shard 0 '1..1' 'ok 1 slow one # in 45000 ms'
   [ "$status" -eq 0 ]
@@ -1178,7 +1264,7 @@ run_shard() {
   # pipefail too, where the pipe itself reports tee's 0.
   printf '%s\n' '1..1' 'ok 1 a in 5ms' > "$TEST_DIR/stub.tap"
   run env STUB_RC=1 STUB_TAP="$TEST_DIR/stub.tap" STUB_ARGS="$TEST_DIR/stub.args" \
-    SUITE=some/suite bash -e "$step"
+    SUITE=some/suite SHARD_PATHS=some/suite bash -e "$step"
   [ "$status" -eq 1 ] || { echo "without pipefail, a bats failure passed the shard: $output"; false; }
 }
 

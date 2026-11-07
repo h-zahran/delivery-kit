@@ -407,3 +407,31 @@ probe() {
 # can catch or reset it.
 # shellcheck disable=SC2034,SC2016 # read by the suites that load this file; a program
 INT_PROBE='r=ignored; trap "r=caught" INT; kill -INT $$; sleep 0.1; printf "%s\n" "$r"'
+
+# ci_matrix [workflow] — the CI test job's shards, read from ci.yml, one line
+# each: `S <name>` for each entry of the one `suite: [...]` line, in its
+# order, then `P <name> <path>...` for each `include:` entry that gives a
+# shard a `paths:`, in file order. A shard with no P line runs its name, a
+# suite root. Read by tests/portability.bats, which checks that the shards
+# cover every tracked .bats file once, and by tests/run-suite.bats, which
+# checks that scripts/run-suite.sh reads the same roots: one reader for
+# both, so the two cannot read the file two ways. A CR is dropped, since
+# Windows can check the file out with CRLF.
+ci_matrix() {
+  awk '
+    { sub(/\r$/, "") }
+    /^ *suite: *\[[^]]*\] *$/ {
+      s = $0; sub(/^ *suite: *\[/, "", s); sub(/\] *$/, "", s); gsub(/,/, " ", s)
+      n = split(s, names, " ")
+      for (i = 1; i <= n; i++) print "S " names[i]
+      next
+    }
+    /^ *- suite: *[^ ]+ *$/ { cur = $0; sub(/^ *- suite: */, "", cur); sub(/ *$/, "", cur); next }
+    /^ *- / { cur = ""; next }
+    cur != "" && /^ *paths: *[^ ]/ {
+      p = $0; sub(/^ *paths: */, "", p); sub(/ *$/, "", p); gsub(/  */, " ", p)
+      print "P " cur " " p
+      cur = ""
+    }
+  ' "${1:-$ROOT/.github/workflows/ci.yml}"
+}

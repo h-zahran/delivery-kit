@@ -122,12 +122,16 @@ jobs:
     # saw before and the wall time is the slowest shard, not the sum.
     #
     # The matrix is a full cross product: there is no `exclude:`, and the
-    # `include:` entries below only ADD a key to the combinations whose os
-    # matches, so every suite root runs on every OS. tests/portability.bats
-    # pins what can be read from this file: the suite list covers every
-    # tracked .bats file, with no entry repeated, nested in another, or `.`;
-    # there is no `exclude:`; no `continue-on-error:` anywhere in this job;
-    # and no `if:` on the job or on its shard step. It cannot see a
+    # `include:` entries below only ADD a key to the combinations whose os,
+    # or whose suite, matches, so every shard runs on every OS. A shard is a
+    # suite root, or one half of pipeline/tests, whose files its `paths:`
+    # names. tests/portability.bats pins what can be read from this file: the
+    # shards together cover every tracked .bats file, with no path repeated,
+    # nested in another, or `.`; the two halves together name every file in
+    # pipeline/tests, each once; every `paths:` belongs to a shard in the
+    # list, since an include matching no combination would make a job of its
+    # own; there is no `exclude:`; no `continue-on-error:` anywhere in this
+    # job; and no `if:` on the job or on its shard step. It cannot see a
     # combination lost some other way, such as a label no runner serves.
     #
     # Per OS, because the legs differ by an order of magnitude.
@@ -135,6 +139,15 @@ jobs:
     # The limit is there to catch a hang, so it sits well above an honest run. The
     # slowest shard, pipeline/tests, governs each. Re-derive them from the sharded
     # runs' own durations whenever a shard comes near its limit.
+    #
+    # pipeline/tests is SPLIT in two halves by file, since 2026-11-07: on Windows
+    # the whole of it took 1548, 1559 and 2418 s of the 3600 s limit on the three
+    # green runs before. The halves were balanced by the per-test times those
+    # runs' logs print (--timing), summed per file: Windows 731 and 702 s on run
+    # 42376678668, 1092 and 1125 s on run 42244381188 (the 2418 s one); macOS 199
+    # and 215 s. The limits below were measured on the whole shard and are kept;
+    # each half now has about twice the headroom. Re-balance from the logs when a
+    # half grows past the other by much.
     #
     # WINDOWS: 60. Measured 2026-11-05 on runs of the same code: 1764, 1943, 1985 and
     # 2186 s green, and one run past the old limit of 40 minutes.
@@ -150,7 +163,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-26, windows-2025]
-        suite: [tests, handoff/tests, pipeline/tests, team/tests]
+        suite: [tests, handoff/tests, pipeline/tests-1, pipeline/tests-2, team/tests]
         include:
           - os: ubuntu-24.04
             timeout: 10
@@ -158,6 +171,13 @@ jobs:
             timeout: 20
           - os: windows-2025
             timeout: 60
+          # The two halves of pipeline/tests: each adds its file list to its
+          # own shard on every OS. A new file in pipeline/tests goes into one
+          # of these lines; tests/portability.bats goes red until it does.
+          - suite: pipeline/tests-1
+            paths: pipeline/tests/branch-cut.bats pipeline/tests/preflight.bats pipeline/tests/progress-git.bats pipeline/tests/progress.bats
+          - suite: pipeline/tests-2
+            paths: pipeline/tests/base-suite.bats pipeline/tests/i-measure.bats pipeline/tests/pending.bats pipeline/tests/prose.bats pipeline/tests/skills.bats pipeline/tests/suite-cache.bats
     env:
       # bats-core v1.11.0.
       #
@@ -357,8 +377,12 @@ jobs:
           }
           echo "bats tracked files match $BATS_PIN"
 
-      # ONE suite root per shard, named by the matrix and passed through the
-      # environment rather than spliced into the script text.
+      # ONE shard per job, named by the matrix and passed through the
+      # environment rather than spliced into the script text. SUITE is the
+      # shard's name, used in messages; SHARD_PATHS is what bats runs: the
+      # shard's `paths:` when it has one, else its name, which is then a suite
+      # root. No path holds a space, so SHARD_PATHS is split on spaces. A
+      # shard with no path fails: bats given nothing is no run of the shard.
       #
       # bats exiting 0 is NOT taken as proof the shard ran its tests, because
       # two measured shapes report green while running less than they count:
@@ -388,10 +412,16 @@ jobs:
       - name: Run the ${{ matrix.suite }} suite
         env:
           SUITE: ${{ matrix.suite }}
+          SHARD_PATHS: ${{ matrix.paths || matrix.suite }}
         run: |
+          read -r -a paths <<< "$SHARD_PATHS"
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "::error title=empty shard::$SUITE names no path to run"
+            exit 1
+          fi
           tap="$(mktemp)"
           set +e
-          bash "$HOME/bats/bin/bats" -r --print-output-on-failure --timing "$SUITE" 2>&1 | tee "$tap"
+          bash "$HOME/bats/bin/bats" -r --print-output-on-failure --timing "${paths[@]}" 2>&1 | tee "$tap"
           rc="${PIPESTATUS[0]}"
           set -e
           awk -v suite="$SUITE" -v limit=30000 '
