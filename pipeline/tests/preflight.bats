@@ -186,6 +186,20 @@ kind_is() {
   kind_is other default "$N/rn-no-android"
 }
 
+@test "every web toolchain detects web, from dependencies or devDependencies" {
+  local B="$BATS_TEST_TMPDIR/web-kinds" t i=0 field
+  for t in next vite astro react-scripts @angular/core nuxt gatsby @vue/cli-service @remix-run/dev webpack-dev-server; do
+    i=$((i + 1)); mkdir -p "$B/$i"
+    # Alternate the field, so each toolchain is read from one and the rule from both.
+    if [ $((i % 2)) = 0 ]; then field=dependencies; else field=devDependencies; fi
+    jq -n --arg f "$field" --arg t "$t" '{($f): {($t): "1"}}' > "$B/$i/package.json"
+    kind_is web "package.json toolchain" "$B/$i"
+  done
+  # The negative control: a package.json naming none of them is other.
+  mkdir -p "$B/none"; printf '{"dependencies":{"left-pad":"1"}}' > "$B/none/package.json"
+  kind_is other default "$B/none"
+}
+
 @test "--project-type overrides detection and says so" {
   probe --dir "$FIX/web" --base-branch main --project-type other
   [ "$status" -eq 0 ]
