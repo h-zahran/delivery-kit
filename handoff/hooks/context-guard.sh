@@ -409,9 +409,15 @@ is_positive_int "$DELIVERY_KIT_MAX_BYTES" && MAX_BYTES=$DELIVERY_KIT_MAX_BYTES
 # the last 15 entries, not the last one: a request that re-sends the full raw
 # history (a review or advisory tool that forwards the transcript) inflates
 # entries far above the live context, and a last-entry read fires the guard
-# early (the 2026-08-07 incident). 15 and not 5, because such a tool inflates
-# four to six CONSECUTIVE entries, which fill a 5-wide window: 15 outvotes a
+# early (the 2026-08-07 incident). 15 and not 5, because an inflated reading
+# can repeat on CONSECUTIVE entries, which fill a 5-wide window: 15 outvotes a
 # run of 7.
+#
+# On a turn that called the advisor tool, message.usage is the SUM of the
+# turn's iterations, written on every entry of the turn, and the live context
+# is the LAST type "message" object in message.usage.iterations. The rule reads
+# that object when there is one and the top-level usage otherwise. Reading the
+# sum put the median at about 2x the real context.
 # Why: scripts/context-guard/README.md, "The median window, measured".
 #
 # Ingestion is per-line with `fromjson?` rather than a slurp: Claude Code
@@ -451,6 +457,9 @@ READINGS_JQ='fromjson?
   | select(.isSidechain != true)
   | select(.message.usage.input_tokens != null)
   | .message.usage
+  | ((.iterations
+      | if type == "array" then map(objects | select(.type == "message")) | .[-1] else empty end
+      | select(.input_tokens != null)) // .)
   | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))
   | select(type == "number")'
 

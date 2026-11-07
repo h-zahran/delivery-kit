@@ -46,6 +46,9 @@ READINGS_JQ='fromjson?
   | select(.isSidechain != true)
   | select(.message.usage.input_tokens != null)
   | .message.usage
+  | ((.iterations
+      | if type == "array" then map(objects | select(.type == "message")) | .[-1] else empty end
+      | select(.input_tokens != null)) // .)
   | (.input_tokens + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0))
   | select(type == "number")'
 MEDIAN_JQ='.[-15:] | sort | .[(length/2|floor)] // 0'

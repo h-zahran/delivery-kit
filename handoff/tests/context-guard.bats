@@ -33,11 +33,13 @@ load ../../tests/helper
 
 @test "a run of inflated entries longer than the median window does not fire the guard (2026-08-15 regression)" {
   # The single-entry case above is the easy one. A tool that forwards the whole
-  # conversation does not inflate ONE reading: the advisor tool inflates four to
-  # six consecutive ones, because the following assistant messages read the same
-  # oversized cache. A window of five is then filled by the spike and the median
-  # IS the spike — seen 2026-08-15, the hook reported 37% where Claude Code's own
-  # status line read 19%. Nine honest entries at 24% then six inflated ones: a
+  # conversation does not inflate ONE reading: seen 2026-08-15, an advisor
+  # turn's entries all carried the turn's SUMMED usage, so the inflation ran for
+  # several consecutive entries. (The rule now reads such a turn at its last
+  # message iteration, tested below; this fixture has no iterations and stands
+  # for any inflated run.) A window of five is filled by the spike and the
+  # median IS the spike — the hook reported 37% where Claude Code's own status
+  # line read 19%. Nine honest entries at 24% then six inflated ones: a
   # five-wide window sees nothing but spikes and fires at 450%.
   t="$(transcript_with 48000 48000 48000 48000 48000 48000 48000 48000 48000 \
                        900000 900000 900000 900000 900000 900000)"
@@ -58,6 +60,72 @@ load ../../tests/helper
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.decision == "block"'
   echo "$output" | jq -e '.reason | test("at 45% of")'
+}
+
+@test "an advisor turn is read at its last message iteration, not at its summed usage" {
+  # On a turn that called the advisor tool, Claude Code writes message.usage as
+  # the SUM of the turn's iterations and lists them in usage.iterations. The
+  # live context is the LAST type "message" iteration. Measured on real
+  # transcripts: top level 267211 = message 132332 + message 134879, with an
+  # advisor_message 128269 between them, and the same summed usage written on
+  # every entry of the turn (seven or eight of them). Reading the top level
+  # put the median at about 2x the real context: the guard asked for a handoff
+  # at half the real context and its WINDOW MISCONFIGURED note proposed a
+  # window 2x too big.
+  #
+  # Here the last message iteration is 104000 (52% of 200000) and the top level
+  # is 208000 (104%). Seven honest entries then eight advisor-turn entries:
+  # the advisor entries are the majority of the fifteen, so the median IS
+  # whatever the rule reads from them.
+  t="$TEST_DIR/advisor.jsonl"
+  : > "$t"
+  for _ in 1 2 3 4 5 6 7; do append_entry "$t" 104000; done
+  for _ in 1 2 3 4 5 6 7 8; do
+    printf '%s\n' '{"isSidechain":false,"message":{"usage":{"input_tokens":10,"cache_read_input_tokens":196000,"cache_creation_input_tokens":7990,"iterations":[{"type":"message","input_tokens":6,"cache_read_input_tokens":96000,"cache_creation_input_tokens":3994},{"type":"advisor_message","input_tokens":90000,"cache_read_input_tokens":8000,"cache_creation_input_tokens":0},{"type":"message","input_tokens":4,"cache_read_input_tokens":100000,"cache_creation_input_tokens":3996}]}}}' >> "$t"
+  done
+  run_hook "$t" advisor-turn
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.decision == "block"'
+  echo "$output" | jq -e '.reason | test("at 52% of")'
+  [[ "$output" != *"WINDOW MISCONFIGURED"* ]]
+}
+
+@test "an advisor turn under the threshold leaves the guard silent" {
+  # The same shape one step lower: the last message iteration is 60000 (30%),
+  # the summed top level 120000 (60%). Reading the sum fires the guard at 60%
+  # on a session at 30%.
+  t="$TEST_DIR/advisor-low.jsonl"
+  : > "$t"
+  for _ in 1 2 3 4 5 6 7 8; do
+    printf '%s\n' '{"isSidechain":false,"message":{"usage":{"input_tokens":10,"cache_read_input_tokens":110000,"cache_creation_input_tokens":9990,"iterations":[{"type":"message","input_tokens":6,"cache_read_input_tokens":55000,"cache_creation_input_tokens":4994},{"type":"advisor_message","input_tokens":50000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},{"type":"message","input_tokens":4,"cache_read_input_tokens":55000,"cache_creation_input_tokens":4996}]}}}' >> "$t"
+  done
+  run_hook "$t" advisor-low
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "an entry without a message iteration reads its top-level usage, as before" {
+  # Each shape is a transcript of its own and every one must read 90000 (45%)
+  # from the top level. The advisor_message iteration is 20000 (10%, silent),
+  # so a rule that took the last iteration of ANY type would go silent on the
+  # third shape rather than fire.
+  top='"input_tokens":30000,"cache_read_input_tokens":50000,"cache_creation_input_tokens":10000'
+  n=0
+  for iter in '' ',"iterations":[]' \
+              ',"iterations":[{"type":"advisor_message","input_tokens":20000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}]' \
+              ',"iterations":"not an array"' ',"iterations":[7,null,"x"]' \
+              ',"iterations":[{"type":"message","cache_read_input_tokens":5}]'; do
+    n=$((n + 1))
+    t="$TEST_DIR/no-iterations-$n.jsonl"
+    : > "$t"
+    for _ in 1 2 3 4 5; do
+      printf '{"isSidechain":false,"message":{"usage":{%s%s}}}\n' "$top" "$iter" >> "$t"
+    done
+    run_hook "$t" "no-iterations-$n"
+    [ "$status" -eq 0 ] || { echo "shape $n: status $status"; false; }
+    echo "$output" | jq -e '.reason | test("at 45% of")' >/dev/null || { echo "shape $n ($iter) did not read 45%: $output"; false; }
+  done
+  [ "$n" -eq 6 ]
 }
 
 @test "takes the median of the window, not the smallest" {
@@ -1194,7 +1262,7 @@ bad_user_file_keeps_guard() {
 
   # --- 1. the reading program.
   # The sed range ends at the next line carrying a quote, which is the closing
-  # delimiter: the four interior lines of the program contain no apostrophe.
+  # delimiter: the interior lines of the program contain no apostrophe.
   # Delimiters are then stripped with parameter expansion rather than another
   # sed script, so that no quote has to be escaped through a second layer —
   # the macOS runner in the CI matrix runs bash 3.2 and nothing here can

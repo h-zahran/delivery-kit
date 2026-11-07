@@ -43,11 +43,17 @@ implementation fired the guard at "45%" while the session was genuinely at 24%,
 and ended a session that had more than half its context left. The median makes
 one anomalous reading harmless. It is the highest-value test in the repository.
 
-Fifteen rather than five since 1.0.2, because the inflation is rarely alone: a
-tool that forwards the whole conversation inflates four to six consecutive
-readings, and a five-wide window can be filled entirely by the spike — the
-median then IS the spike. Widening the window restored the property the median
-was chosen for.
+Fifteen rather than five since 1.0.2, because the inflation is rarely alone: it
+can repeat on several consecutive readings, and a five-wide window can be filled
+entirely by the spike — the median then IS the spike. Widening the window
+restored the property the median was chosen for.
+
+One such run had a cause the median could not outvote. On a turn that calls the
+advisor tool, Claude Code records the turn's usage as the SUM of its iterations
+(the model's messages and the advisor's) on every entry of the turn, and lists
+the iterations beside it. The live context is the last `message` iteration, and
+the guard reads that one whenever an entry carries it; reading the sum had put
+the median at about twice the real context.
 
 ## Why the window default is 200,000 and not larger
 
