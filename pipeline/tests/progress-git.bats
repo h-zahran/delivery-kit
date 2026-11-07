@@ -349,6 +349,91 @@ commit_by_hand() {
   [[ "$(cat "$ERR")" == *"hook: no"* ]]
 }
 
+@test "piece-commit makes an empty piece commit for a piece whose tasks are committed and that changed nothing" {
+  # Every task of the piece is already [X] in a committed tasks.md and the
+  # piece changed no file: the path list is the unchanged tasks.md alone.
+  # Mutation: drop the empty commit, and the piece stops for ever, blamed on a
+  # hook, while piece-next names it again.
+  repo
+  mark T001 T002
+  commit_by_hand 'chore: mark the setup tasks' "$TASKS"
+  printf 'staged\n' > staged.txt
+  git add staged.txt
+  runs snapshot "$F" piece
+  head="$(git rev-parse HEAD)"
+  msg 'feat: the setup piece'
+  runs piece-commit "$F" "$MSG"
+  [ "$(git rev-parse HEAD^)" = "$head" ]
+  [ "$(cat "$OUT")" = "$(git rev-parse HEAD)" ]
+  [[ "$(cat "$ERR")" == *"changed no file"* ]] || { cat "$ERR"; false; }
+  [ -z "$(files_of HEAD)" ]
+  [ "$(msg_tail 2)" = "$(printf '%s\n' 'Tasks: T001,T002' 'Piece: Phase 1: Setup')" ]
+  [ "$(last_entry)" = "{\"sha\":\"$(git rev-parse HEAD)\",\"kind\":\"piece\",\"piece\":\"Phase 1: Setup\",\"tasks\":[\"T001\",\"T002\"],\"files\":[]}" ]
+  # What was staged stays staged, and out of the commit.
+  [ "$(git diff --cached --name-only)" = staged.txt ]
+  run bash "$PROG" piece-next "$F"
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "Phase 2: Core" ]
+  # The rest of the run reads it: unrecorded, it is recovered by piece-commit
+  # and by record-branch, and K's list shows it.
+  made="$(git rev-parse HEAD)"
+  jq 'del(.commits[-1])' "$SF" > t.json && mv t.json "$SF"
+  runs piece-commit "$F" "$MSG"
+  [ "$(cat "$OUT")" = "$made" ]
+  [ "$(git rev-parse HEAD)" = "$made" ]
+  [ "$(jq -c '.commits[-1].files' "$SF")" = '[]' ]
+  jq 'del(.commits[-1])' "$SF" > t.json && mv t.json "$SF"
+  runs record-branch "$F"
+  [[ "$(cat "$OUT")" == *"$made"* ]]
+  [ "$(jq -r '.commits[-1] | "\(.sha) \(.kind) \(.piece) \(.tasks | join(",")) \(.files | length)"' "$SF")" = "$made piece Phase 1: Setup T001,T002 0" ]
+  runs commit-list "$F"
+  [[ "$(cat "$OUT")" == *"(none: the piece's tasks were committed already"* ]] || { cat "$OUT"; false; }
+  runs guide "$F"
+  [[ "$(cat "$OUT")" == *"| ${made:0:7} | piece | \`Phase 1: Setup\` | T001, T002 |  |"* ]] || { cat "$OUT"; false; }
+}
+
+@test "an empty commit is recorded only for the piece piece-next names, built, and the empty piece entry only for an empty commit" {
+  # Mutation: accept any empty commit carrying a Piece line, and an unbuilt
+  # piece or another piece is recorded.
+  repo
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  runs record-branch "$F"
+  printf '%s\n' 'feat: early' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  refuses "not marked [X]" record-branch "$F"
+  # K shows an empty piece commit only once the run has recorded it.
+  refuses "K cannot show it" commit-list "$F"
+  git reset -q --hard HEAD^
+  printf '%s\n' 'feat: early' '' 'Tasks: T003' 'Piece: Phase 2: Core' > "$BATS_TEST_TMPDIR/e.txt"
+  git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/e.txt"
+  refuses "which is not the piece piece-next names" record-branch "$F"
+  # commit-add takes a piece entry with no files only for a commit that
+  # changes none.
+  sha="$(git rev-parse HEAD^)"
+  : > "$BATS_TEST_TMPDIR/none.nul"
+  refuses "a piece entry needs the files it changed" commit-add "$F" --files-from "$BATS_TEST_TMPDIR/none.nul" piece "$sha" "Phase 1: Setup" T001,T002
+  refuses "a piece entry needs the files it changed" commit-add "$F" piece "$sha" "Phase 1: Setup" T001,T002
+}
+
+@test "a path list that stages no change is named as that, never as a hook" {
+  # A submodule whose own work is uncommitted is listed by git status, but
+  # git add stages nothing for it. Mutation: blame every failed commit on a
+  # hook, and K is told to look for a hook that does not exist.
+  repo
+  commit_by_hand 'docs(spec): 001-demo' specs/001-demo/spec.md "$TASKS"
+  mkdir sub
+  (cd sub && git init -q && git config user.name t && git config user.email t@example.invalid \
+    && git config commit.gpgsign false && printf 's\n' > f && git add f && git commit -q -m s)
+  git add sub 2> /dev/null
+  git commit -q -m 'add sub'
+  printf 'more\n' >> sub/f
+  [ "$(git status --porcelain -- . ':!.delivery-kit')" = ' M sub' ] || { git status --porcelain; false; }
+  msg 'chore: the rest of the feature'
+  refuses "staged no change" remainder-commit "$F" "$MSG"
+  [[ "$(cat "$ERR")" == *"no commit hook stopped it"* ]] || { cat "$ERR"; false; }
+  [[ "$(cat "$ERR")" != *"(a commit hook?)"* ]] || { cat "$ERR"; false; }
+}
+
 @test "piece-commit records an unrecorded commit for the piece and never commits it again" {
   repo
   runs snapshot "$F" piece
@@ -817,10 +902,12 @@ commit_by_hand() {
 
 @test "a recovered commit that cannot be recorded stops the run, for a late phase and for a piece" {
   # Both recover steps run inside an `if`, where set -e is inert. An empty
-  # commit cannot be recorded as kind review or piece: commit-add refuses an
-  # entry with no files. Mutation: drop the `|| die` after recover_late's
-  # commit-add, or after recover_piece's, and that call warns, prints the
-  # commit as recorded and exits 0. Each turns this red.
+  # commit cannot be recorded as kind review: commit-add refuses an entry with
+  # no files. A piece commit an old-style entry already names cannot be
+  # recorded either (an empty piece commit can be, since piece-commit makes
+  # one). Mutation: drop the `|| die` after recover_late's commit-add, or
+  # after recover_piece's, and that call warns, prints the commit as recorded
+  # and exits 0. Each turns this red.
   repo
   printf '%s\n' 'fix: review' '' 'Late: I' > "$BATS_TEST_TMPDIR/empty.txt"
   git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/empty.txt"
@@ -831,7 +918,9 @@ commit_by_hand() {
   mark T001 T002
   printf '%s\n' 'feat: setup' '' 'Tasks: T001,T002' 'Piece: Phase 1: Setup' > "$BATS_TEST_TMPDIR/empty.txt"
   git commit -q --allow-empty -F "$BATS_TEST_TMPDIR/empty.txt"
+  jq --arg s "$(git rev-parse --short=12 HEAD)" '.commits += [$s + " feat: setup"]' "$SF" > t.json && mv t.json "$SF"
   refuses "carries 'Piece: Phase 1: Setup' but could not be recorded" snapshot "$F" piece
+  [[ "$(cat "$ERR")" == *"old-style entry"* ]] || { cat "$ERR"; false; }
 }
 
 # --- last-pass review of 055 --------------------------------------------------
