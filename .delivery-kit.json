@@ -4,6 +4,7 @@
     "codeRoots": [
       "handoff",
       "pipeline",
+      "mission-control",
       "team",
       "scripts",
       "tests"
