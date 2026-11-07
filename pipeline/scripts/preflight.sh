@@ -237,6 +237,14 @@ if command -v git >/dev/null 2>&1; then
     git_reason=no-repository
   fi
 fi
+# Everything below reads from the repository's top, so every answer is the
+# same from any folder inside it: the project files, .specify, the state
+# directory and --spec-dir, which is relative to the top. git's relative
+# path back to the top is used, as below, since --show-toplevel spells a path
+# its own way (C:/Users/...). It fails inside .git, where the folder stays.
+if [ "$git_usable" = true ] && t="$(git rev-parse --show-cdup 2>/dev/null)"; then
+  cd -- "./$t" 2>/dev/null || die "cannot enter the repository's top folder"
+fi
 # branch_ok <name> <argument> — git decides what a legal branch name is, and
 # it must print the name back unchanged: @{-1} expands to another name, and
 # a name it expands is not the name that was typed. A lone @ passes both
