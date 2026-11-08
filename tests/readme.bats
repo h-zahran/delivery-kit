@@ -297,8 +297,12 @@ plugin_alt() {
   [[ $used != *'$c'* ]] || { echo "the gh probe loop uses the name for more than a lookup and a record: $loop"; false; }
   rest="$(printf '%s\n' "$pf" | awk '/^for c in gh / { s = 1; next } s && /^done$/ { s = 0; next } s { next } /^[[:space:]]*#/ { next } { print }')"
   # The allowed uses: its empty start, and handing it to jq for the report.
-  rest="${rest//gh_command=\"\"/}"; rest="${rest//--arg gh_command \"\$gh_command\"/}"; rest="${rest//ghCommand: \$gh_command/}"
-  [[ $rest != *'gh_command'* ]] || { echo "preflight.sh uses the found gh name outside the probe and its report"; false; }
+  # sed, not ${rest//…}: macOS bash 3.2 takes about a minute for that on a
+  # 50 KB string, and the test hit its 60 s limit.
+  rest="$(printf '%s\n' "$rest" | sed -e 's/gh_command=""//g' -e 's/--arg gh_command "\$gh_command"//g' -e 's/ghCommand: \$gh_command//g')"
+  if printf '%s\n' "$rest" | grep -qF -- 'gh_command'; then
+    echo "preflight.sh uses the found gh name outside the probe and its report"; false
+  fi
   if printf '%s\n' "$rest" | awk '{ l = $0; gsub(/"[^"]*"/, "", l); gsub(/'"'"'[^'"'"']*'"'"'/, "", l); sub(/[[:space:]]#.*$/, "", l); gsub(/--arg[a-z]* [A-Za-z_]+/, "", l); print l }' \
        | grep -nE -- '(^|[;&|(`[:space:]])gh(\.exe|\.cmd)?([[:space:]]|$)' > "$BATS_TEST_TMPDIR/ghrun"; then
     echo "preflight.sh now runs gh outside the probe loop, so the README's presence-only sentence may be stale: $(cat "$BATS_TEST_TMPDIR/ghrun")"; false
