@@ -227,6 +227,24 @@ jobs:
       #
       # Anchored, and reused in the version job by alias: one copy of the
       # install logic for both jobs.
+      #
+      # THE DOWNLOAD IS CACHED, and the checksum still decides. On 2026-11-08
+      # GitHub's release downloads answered 504 for about an hour while its
+      # status page said all was well, and every job of five runs failed at
+      # this step before any test ran. The cache step below restores the
+      # asset a green run already fetched, so a run needs the release site
+      # only on a cache miss. The cache is never trusted: the asset is hashed
+      # against the pin every run, and a cached file that does not match is
+      # refused like a downloaded one. The key holds the version and every
+      # checksum, so changing a pin misses the cache instead of restoring a
+      # file the new pin refuses. A job saves its entry only when it passes,
+      # so only a verified asset is ever saved.
+      - &cache-jq
+        name: Cache the pinned jq asset
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/dk-tools/jq
+          key: jq-${{ runner.os }}-${{ runner.arch }}-${{ env.JQ_VERSION }}-${{ env.JQ_SHA256_LINUX_AMD64 }}-${{ env.JQ_SHA256_MACOS_ARM64 }}-${{ env.JQ_SHA256_WINDOWS_AMD64 }}
       - &install-jq
         name: Install the pinned jq
         run: |
@@ -239,15 +257,22 @@ jobs:
           dir="$RUNNER_TEMP/jq-$JQ_VERSION"
           if command -v cygpath >/dev/null 2>&1; then dir="$(cygpath -u "$dir")"; fi
           mkdir -p "$dir"
-          url="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/${asset}"
-          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$dir/$exe" "$url"
+          cache="$HOME/.cache/dk-tools/jq"
+          mkdir -p "$cache"
+          if [ -f "$cache/$asset" ]; then
+            echo "jq $JQ_VERSION asset $asset restored from the cache"
+          else
+            url="https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/${asset}"
+            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$cache/$asset" "$url"
+          fi
+          cp "$cache/$asset" "$dir/$exe"
           if command -v sha256sum >/dev/null 2>&1; then
             got="$(sha256sum < "$dir/$exe" | cut -d' ' -f1)"
           else
             got="$(shasum -a 256 < "$dir/$exe" | cut -d' ' -f1)"
           fi
           [ "$got" = "$want" ] || {
-            rm -f "$dir/$exe"
+            rm -f "$dir/$exe" "$cache/$asset"
             echo "jq $JQ_VERSION asset $asset hashes to $got, expected $want; refusing to install it" >&2
             exit 1
           }
@@ -484,6 +509,7 @@ jobs:
       # jq as the test legs: the two steps defined in the test job, reused by
       # alias. Before the pin this job took the image's jq (1.7, measured
       # 2026-10-06), a version no contributor ran.
+      - *cache-jq
       - *install-jq
       - *check-jq
 
@@ -720,16 +746,32 @@ jobs:
       # by absolute path. A bare `shellcheck --version` in this step would
       # still print the image's copy and mislead the reader of this log. The
       # analysis step below asserts the version it actually resolves.
+      #
+      # CACHED like the jq asset, on the same terms (see the jq install): the
+      # tarball is restored if a green run saved it, and hashed against the pin
+      # every run. A cached tarball that does not match is refused and removed.
+      - name: Cache the pinned analyser tarballs
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/dk-tools/analysers
+          key: analysers-${{ runner.os }}-${{ runner.arch }}-${{ env.SHELLCHECK_VERSION }}-${{ env.SHELLCHECK_SHA256 }}-${{ env.ACTIONLINT_VERSION }}-${{ env.ACTIONLINT_SHA256 }}
       - name: Install the pinned shellcheck
         run: |
-          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          tarball="$RUNNER_TEMP/shellcheck.tar.xz"
-          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          cache="$HOME/.cache/dk-tools/analysers"
+          mkdir -p "$cache"
+          tarball="$cache/shellcheck-${SHELLCHECK_VERSION}.tar.xz"
+          if [ -f "$tarball" ]; then
+            echo "shellcheck ${SHELLCHECK_VERSION} tarball restored from the cache"
+          else
+            url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          fi
           # From stdin, not by name: GNU sha256sum prefixes the hash with a
           # backslash when the FILENAME contains one, which made this exact
           # comparison refuse a correct tarball in a local rehearsal (2026-10-06).
           got="$(sha256sum < "$tarball" | cut -d' ' -f1)"
           [ "$got" = "$SHELLCHECK_SHA256" ] || {
+            rm -f "$tarball"
             echo "shellcheck ${SHELLCHECK_VERSION} tarball hashes to $got, expected $SHELLCHECK_SHA256; refusing to install it" >&2
             exit 1
           }
@@ -830,11 +872,18 @@ jobs:
       # never unpacked. Only the binary is extracted.
       - name: Install the pinned actionlint
         run: |
-          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          tarball="$RUNNER_TEMP/actionlint.tar.gz"
-          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          cache="$HOME/.cache/dk-tools/analysers"
+          mkdir -p "$cache"
+          tarball="$cache/actionlint-${ACTIONLINT_VERSION}.tar.gz"
+          if [ -f "$tarball" ]; then
+            echo "actionlint ${ACTIONLINT_VERSION} tarball restored from the cache"
+          else
+            url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+            curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 -o "$tarball" "$url"
+          fi
           got="$(sha256sum < "$tarball" | cut -d' ' -f1)"
           [ "$got" = "$ACTIONLINT_SHA256" ] || {
+            rm -f "$tarball"
             echo "actionlint ${ACTIONLINT_VERSION} tarball hashes to $got, expected $ACTIONLINT_SHA256; refusing to install it" >&2
             exit 1
           }
