@@ -27,31 +27,37 @@ cases() {
 }
 
 # build <case> — runs the case's fixture.sh in a new empty folder, as the
-# eval's scaffold step does, and leaves the shell in that folder.
+# eval's scaffold step does, checks the run it built waits at K, is valid
+# and holds no lock, and leaves the shell in that folder.
+#
+# One build per test: a fixture makes some forty progress.sh calls, which
+# take 22 to 34 s on the Windows runner, so two builds in one test passed
+# 60 s there.
 build() {
   WS="$BATS_TEST_TMPDIR/ws-$1"
   mkdir -p "$WS"
   cd "$WS"
   run bash "$EVALS/$1/fixture.sh"
   [ "$status" -eq 0 ] || { echo "$1: fixture.sh exited $status: $output"; return 1; }
+  [ "$(bash "$ROOT/pipeline/scripts/progress.sh" get "$F" current_phase)" = K ] \
+    || { echo "$1: the run does not wait at K"; return 1; }
+  bash "$ROOT/pipeline/scripts/progress.sh" validate "$F" > /dev/null || { echo "$1: the state file does not validate"; return 1; }
+  [ ! -e ".delivery-kit/lock" ] \
+    || { echo "$1: a lock was left, so a resume would stop on it, not on the stop the case checks"; return 1; }
 }
 
-@test "there are eval cases, and each has a grader and a fixture that builds its run" {
+@test "there are eval cases, and each has a grader, names fixture.sh, and is built by a test of its own" {
   local list c n=0
   list="$(cases)"
   [ -n "$list" ] || { echo "pipeline/evals holds no case"; false; }
   while IFS= read -r c; do
     compgen -G "$EVALS/$c/graders/*.md" > /dev/null || { echo "$c has no grader"; false; }
     grep -qxF '  scaffold_script: fixture.sh' "$EVALS/$c/case.yaml" || { echo "$c does not name fixture.sh as its scaffold"; false; }
-    build "$c" || return 1
-    [ "$(bash "$ROOT/pipeline/scripts/progress.sh" get "$F" current_phase)" = K ] \
-      || { echo "$c: the run does not wait at K"; false; }
-    bash "$ROOT/pipeline/scripts/progress.sh" validate "$F" > /dev/null || { echo "$c: the state file does not validate"; false; }
-    [ ! -e ".delivery-kit/lock" ] \
-      || { echo "$c: a lock was left, so a resume would stop on it, not on the stop the case checks"; false; }
+    grep -qxF "  build $c || return 1" "$BATS_TEST_FILENAME" \
+      || { echo "$c has no test that builds it: add one that calls build $c"; false; }
     n=$((n + 1))
   done <<<"$list"
-  [ "$n" -ge 2 ] || { echo "only $n case(s) built"; false; }
+  [ "$n" -ge 2 ] || { echo "only $n case(s) found"; false; }
 }
 
 @test "the outside-path case leaves one untracked path outside the feature, and K would list it" {
