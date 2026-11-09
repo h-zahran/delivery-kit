@@ -2,7 +2,7 @@
 
 All notable changes to the `pipeline` plugin.
 
-## [Unreleased]
+## [1.13.2] - 2026-11-09
 
 ### Changed
 
