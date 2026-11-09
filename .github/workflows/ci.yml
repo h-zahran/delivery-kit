@@ -177,7 +177,7 @@ jobs:
           - suite: pipeline/tests-1
             paths: pipeline/tests/branch-cut.bats pipeline/tests/preflight.bats pipeline/tests/progress-git.bats pipeline/tests/progress.bats
           - suite: pipeline/tests-2
-            paths: pipeline/tests/base-suite.bats pipeline/tests/i-measure.bats pipeline/tests/pending.bats pipeline/tests/prose.bats pipeline/tests/skills.bats pipeline/tests/suite-cache.bats
+            paths: pipeline/tests/base-suite.bats pipeline/tests/evals.bats pipeline/tests/i-measure.bats pipeline/tests/pending.bats pipeline/tests/prose.bats pipeline/tests/skills.bats pipeline/tests/suite-cache.bats
     env:
       # bats-core v1.11.0.
       #

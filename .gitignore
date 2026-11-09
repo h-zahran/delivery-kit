@@ -13,6 +13,10 @@ node_modules/
 # here instead and are never committed.
 .leakwords
 
+# What `claude plugin eval` writes beside the pipeline cases: scores and
+# transcripts of one machine's runs, never the cases themselves.
+/pipeline/evals/results/
+
 # Fixture trees under pipeline/tests mirror real project layouts, including
 # dot-directories that per-clone exclude files commonly ignore. Re-include
 # them explicitly: a fixture git cannot see is a detector test that
