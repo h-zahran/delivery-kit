@@ -2,6 +2,20 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Added
+
+- **Eval cases that check what a run does at a stop, not only that the rule's
+  text exists.** `evals/` holds two `claude plugin eval` cases, each built
+  from a repository that `evals/lib/build-run.sh` makes with the plugin's own
+  `progress.sh`: a run waiting at K. In one, an untracked file outside
+  `codeRoots` must stop K under `--auto`. In the other, a state file tracked
+  in git must stop the resume under `--auto`. In both, nothing may be
+  committed or pushed. The cases are billed and run by hand, as
+  `evals/README.md` says; `tests/evals.bats` runs each case's fixture with no
+  model, so a change that breaks a case goes red in the free suite.
+
 ## [1.13.2] - 2026-11-09
 
 ### Changed
