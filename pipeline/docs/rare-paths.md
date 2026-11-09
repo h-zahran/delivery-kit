@@ -48,6 +48,17 @@ pre-flight) leaves dirt no artefact claims; the next run's item 5
 rightly stops there, and clearing it is the owner's call — the
 offer buys no exception to the dirty-tree gate.
 
+## The constitution offer on a resume
+
+On a
+resume, read `gates.constitution` first — a recorded answer means
+the offer already fired this run, so do not repeat it — and record
+any new answer immediately. On a resume, that read comes after the
+tracked-state check in Resume. A resume into a run whose state file
+already carries a D entry in `timestamps` does not offer at all: D
+consumed whatever constitution existed, so print the line and move
+on.
+
 ## An illegal implementer value
 
 The enum is checked when
@@ -118,6 +129,38 @@ it that way, never as an error.
 On a resume into an unfinished G whose `gates.G` is a plain string, G
 records the review answer by turning `gates.G` into an object: `answer`
 takes the string it held, and `reviewMode` the review answer.
+
+## A re-entry into G
+
+A re-entry that finds an answer already under `gates.G` — a `--resume`,
+or `--from G` — takes the recorded answer over the CONFIGURATION KEY: an
+inherited file never quietly flips an answer the run already holds. A
+`--implementer` typed on that command line is different, and it WINS:
+typing it is a present-tense act by the person at the keyboard, and it
+is the only way `ask` can do the job it exists for. A flag that
+disagrees with the record is never applied silently — say which answer
+now stands and which it replaced. Where the replaced answer was
+"handoff", the package written for it is superseded: stamp it VOID per
+the G rule below before going on.
+
+A re-entry that finds
+`gates.G.reviewMode` recorded never asks it again, and no flag replaces
+it. If a `--implementer handoff` typed on a re-entry replaces a recorded
+`claude`, the recorded review answer stays in the state file unused,
+commits already made stand, and the rest of the run follows the
+single-commit flow, saying so in that one line. A re-entry into G whose
+state file already lists G as completed without `gates.G.reviewMode`
+does not ask it: that run started before the review question existed, or
+on the handoff path, and it keeps the single-commit flow for its life —
+it is never migrated mid-run.
+
+If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.
+The package is written into the run directory under
+`.delivery-kit/runs/<feature>/`; removing one the gate's changed answer
+has superseded is the one artefact removal a run performs, and the
+idempotency rule's two shapes govern artefact writes, not that cleanup.
+Prefer the VOID stamp — it is a plain write and keeps the audit trail;
+delete only on the owner's explicit instruction.
 
 ## The handoff path
 

@@ -2,6 +2,19 @@
 
 All notable changes to the `pipeline` plugin.
 
+## [Unreleased]
+
+### Changed
+
+- **The pipeline skill has room again: 2,134 bytes free of its 65,536-byte
+  limit, up from 76.** Text that runs only on a resume moved, word for word,
+  to two new sections of `docs/rare-paths.md`. "A re-entry into G" holds
+  G's re-entry rules, from the recorded answer over the configuration key
+  to the VOID stamp. "The constitution offer on a resume" holds item 9's
+  resume half. G and item 9 each keep a pointer at the old place. The tests
+  that pinned the text now read the new sections, and the pointers are
+  pinned.
+
 ## [1.13.1] - 2026-11-07
 
 ### Fixed

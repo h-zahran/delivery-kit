@@ -252,13 +252,8 @@ through 10 keep the numbers they have always had.
    holds the seed, and write it under `gates.constitution` as `init`'s
    next act in B — the write, not memory, is what once-per-run rests
    on, so a session that dies before it may ask once more. On a
-   resume, read `gates.constitution` first — a recorded answer means
-   the offer already fired this run, so do not repeat it — and record
-   any new answer immediately. On a resume, that read comes after the
-   tracked-state check in Resume. A resume into a run whose state file
-   already carries a D entry in `timestamps` does not offer at all: D
-   consumed whatever constitution existed, so print the line and move
-   on. The offer is a conditional stop that `--auto` does not
+   resume, read "The constitution offer on a resume" in
+   `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` first. The offer is a conditional stop that `--auto` does not
    collapse — like C, and like G, which asks its review question on
    every fresh `claude` run and its implementer question whenever
    `implementer` is unset or `ask`,
@@ -435,16 +430,8 @@ created empty by `init` and read by nothing: write nothing there.
 from an older pipeline: read "A state file from an older pipeline" in
 `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md`.
 
-A re-entry that finds an answer already under `gates.G` — a `--resume`,
-or `--from G` — takes the recorded answer over the CONFIGURATION KEY: an
-inherited file never quietly flips an answer the run already holds. A
-`--implementer` typed on that command line is different, and it WINS:
-typing it is a present-tense act by the person at the keyboard, and it
-is the only way `ask` can do the job it exists for. A flag that
-disagrees with the record is never applied silently — say which answer
-now stands and which it replaced. Where the replaced answer was
-"handoff", the package written for it is superseded: stamp it VOID per
-the G rule below before going on.
+On a re-entry into G — a `--resume`, or `--from G` — read "A re-entry
+into G" in `${CLAUDE_PLUGIN_ROOT}/docs/rare-paths.md` first.
 
 Once the implementer answer is `claude`, asked or pre-answered, G asks
 the review question — commits or pauses — and records the answer as
@@ -453,16 +440,7 @@ asked on every fresh `claude` run: no configuration key or flag
 pre-answers it, and `--auto` never collapses it. When the implementer
 answer is `handoff`, G does not ask the review question and says so in
 one line: review pieces are not available on the handoff path, and the
-run keeps the single-commit flow. A re-entry that finds
-`gates.G.reviewMode` recorded never asks it again, and no flag replaces
-it. If a `--implementer handoff` typed on a re-entry replaces a recorded
-`claude`, the recorded review answer stays in the state file unused,
-commits already made stand, and the rest of the run follows the
-single-commit flow, saying so in that one line. A re-entry into G whose
-state file already lists G as completed without `gates.G.reviewMode`
-does not ask it: that run started before the review question existed, or
-on the handoff path, and it keeps the single-commit flow for its life —
-it is never migrated mid-run.
+run keeps the single-commit flow.
 
 The package carries seven parts. Read
 `${CLAUDE_PLUGIN_ROOT}/docs/handoff-package.md` before writing it, and
@@ -474,14 +452,6 @@ A "handoff" answer parks the run at H: read "The handoff path" in
 answer is already recorded in `gates` never re-asks — the answer
 stands, on this path and every other, against the configuration; only a
 flag typed on the re-entry command line replaces it, and never quietly.
-
-If the gate's answer later changes, delete the written package file (or stamp it VOID at the top) before proceeding — a stale package addressed to another model is an instruction nobody should find.
-The package is written into the run directory under
-`.delivery-kit/runs/<feature>/`; removing one the gate's changed answer
-has superseded is the one artefact removal a run performs, and the
-idempotency rule's two shapes govern artefact writes, not that cleanup.
-Prefer the VOID stamp — it is a plain write and keeps the audit trail;
-delete only on the owner's explicit instruction.
 
 **H — implement.** Which flow H runs is read from `gates.G`: with
 `claude` recorded as G's answer and a review answer recorded beside it,
