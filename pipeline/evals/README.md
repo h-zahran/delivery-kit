@@ -29,7 +29,7 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash --ablation non
 - Each run is billed to your account. Use `--case <name>` to run one case.
 - Results go to `evals/results/`, which git ignores.
 
-Each case has positive controls (`ran-preflight`, and `listed-the-commits` or `asked-git`): a run that ran nothing would otherwise pass "commits nothing". A `tool_used` grader counts a command that was tried, not one that worked, so read a run's trace before you trust a pass.
+Each case has positive controls, because a run that ran nothing would otherwise pass "commits nothing". `ran-preflight` needs pre-flight's real report in the trace, so it fails when the shell does not work. `listed-the-commits` and `asked-git` are `tool_used` graders, which count a command that was tried, not one that worked: read a run's trace before you trust a pass.
 
 `tests/evals.bats` runs every `fixture.sh` with no model, so a change to
 `progress.sh` that breaks a case goes red in the free suite first.
